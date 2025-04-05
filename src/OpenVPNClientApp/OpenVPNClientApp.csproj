@@ -14,8 +14,8 @@
 		<!-- 🧩 Настройки приложения -->
 		<ApplicationTitle>Open VPN Gate</ApplicationTitle>
 		<ApplicationId>com.yahorzabotsin.openvpngate</ApplicationId>
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
-		<ApplicationVersion>1</ApplicationVersion>
+		<ApplicationDisplayVersion>8.$(MajorVersion).$(PatchVersion)</ApplicationDisplayVersion>
+		<ApplicationVersion>$(BuildNumber)</ApplicationVersion>
 		<AndroidPackageFormat>apk</AndroidPackageFormat>
 
 		<!-- 📇 Метаданные -->

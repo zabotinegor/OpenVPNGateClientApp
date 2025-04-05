@@ -1,0 +1,93 @@
+name: Build and Release from main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Auto Build & Release
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.x'
+
+    - name: Install MAUI workload
+      run: dotnet workload install maui
+
+    - name: Generate version
+      id: versioning
+      shell: bash
+      run: |
+        MAJOR=1
+        PATCH=$(git rev-list --count HEAD)
+        VERSION="8.${MAJOR}.${PATCH}"
+        TAG="v${VERSION}-auto"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "patch=$PATCH" >> $GITHUB_OUTPUT
+
+    - name: Restore dependencies
+      run: dotnet restore ./src/OpenVPNClientApp.sln
+
+    - name: Build APK
+      shell: bash
+      run: |
+        dotnet publish ./src/OpenVPNClientApp.sln \
+          -f:net8.0-android \
+          -c Release \
+          -p:ApplicationDisplayVersion=${{ steps.versioning.outputs.version }} \
+          -p:ApplicationVersion=${{ steps.versioning.outputs.patch }} \
+          -o ./output
+
+    - name: Rename APK
+      shell: bash
+      run: |
+        VERSION=${{ steps.versioning.outputs.version }}
+        APK_PATH=$(find ./output -name '*-Signed.apk' | head -n 1)
+        mv "$APK_PATH" "./output/OpenVPNClient_${VERSION}.apk"
+
+    - name: Create tag via GitHub API
+      uses: actions/github-script@v5
+      with:
+        github-token: ${{ secrets.GH_PAT }}
+        script: |
+          const tag = '${{ steps.versioning.outputs.tag }}';
+          const sha = context.sha;
+          try {
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: sha
+            });
+            console.log(`✅ Tag ${tag} created at ${sha}`);
+          } catch (error) {
+            if (error.status === 422) {
+              console.log(`⚠️ Tag ${tag} already exists. Skipping.`);
+            } else {
+              throw error;
+            }
+          }
+
+    - name: Upload APK to GitHub Releases
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: ./output/OpenVPNClient_*.apk
+        token: ${{ secrets.GH_PAT }}
+        tag: ${{ steps.versioning.outputs.tag }}
+        name: "Release ${{ steps.versioning.outputs.tag }}"
+        body: "Автоматическая сборка релиза APK из ветки main"
+        makeLatest: true
+        allowUpdates: true
+        replacesArtifacts: true
+        generateReleaseNotes: true
+        prerelease: false
