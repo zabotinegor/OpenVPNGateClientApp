@@ -1,0 +1,123 @@
+name: Beta Release from feature branches
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'feat/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Beta Build & Release
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.x'
+
+    - name: Install MAUI workload
+      run: dotnet workload install maui
+
+    - name: Generate beta version
+      id: versioning
+      shell: bash
+      run: |
+        set -e
+
+        BRANCH="${GITHUB_REF##*/}"
+        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '_' '-')
+
+        echo "🔍 Getting latest stable tag..."
+        STABLE_TAG=$(git tag --list 'v8.*' | grep -v 'beta' | sort -Vr | head -n 1)
+        echo "Latest stable tag: $STABLE_TAG"
+
+        if [[ -z "$STABLE_TAG" ]]; then
+          VERSION="8.1.0"
+        else
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
+          PATCH=$((PATCH + 1))
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        fi
+
+        echo "🔍 Getting latest beta for branch $BRANCH..."
+        BETA_TAG=$(git tag --list "v${VERSION}-${SAFE_BRANCH}-beta.*" | sort -Vr | head -n 1)
+
+        if [[ -n "$BETA_TAG" ]]; then
+          BETA_NUM=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+' | cut -d. -f2)
+          BETA_NUM=$((BETA_NUM + 1))
+        else
+          BETA_NUM=1
+        fi
+
+        FINAL_TAG="v${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}-auto"
+        echo "Final tag: $FINAL_TAG"
+
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "patch=$PATCH" >> $GITHUB_OUTPUT
+        echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
+        echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+        echo "app_version=${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}" >> $GITHUB_OUTPUT
+
+    - name: Restore dependencies
+      run: dotnet restore ./src/OpenVPNClientApp.sln
+
+    - name: Build APK
+      shell: bash
+      run: |
+        dotnet publish ./src/OpenVPNClientApp.sln \
+          -f:net8.0-android \
+          -c Release \
+          -p:ApplicationDisplayVersion=${{ steps.versioning.outputs.app_version }} \
+          -p:ApplicationVersion=${{ steps.versioning.outputs.patch }} \
+          -o ./output
+
+    - name: Rename APK
+      shell: bash
+      run: |
+        VERSION=${{ steps.versioning.outputs.app_version }}
+        APK_PATH=$(find ./output -name '*-Signed.apk' | head -n 1)
+        mv "$APK_PATH" "./output/OpenVPNClient_${VERSION}.apk"
+
+    - name: Create beta tag
+      uses: actions/github-script@v5
+      with:
+        github-token: ${{ secrets.GH_PAT }}
+        script: |
+          const tag = '${{ steps.versioning.outputs.tag }}';
+          const sha = context.sha;
+          try {
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: sha
+            });
+          } catch (error) {
+            if (error.status === 422) {
+              console.log(`⚠️ Tag ${tag} already exists. Skipping.`);
+            } else {
+              throw error;
+            }
+          }
+
+    - name: Upload APK to GitHub Releases (Beta)
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: ./output/OpenVPNClient_*.apk
+        token: ${{ secrets.GH_PAT }}
+        tag: ${{ steps.versioning.outputs.tag }}
+        name: "Beta Release ${{ steps.versioning.outputs.tag }}"
+        body: "Автоматическая сборка APK из фича-ветки `${{ github.ref_name }}`"
+        prerelease: true
+        allowUpdates: true
+        replacesArtifacts: true
+        generateReleaseNotes: true

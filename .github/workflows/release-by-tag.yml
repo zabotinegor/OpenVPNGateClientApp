@@ -1,0 +1,64 @@
+name: Build and Release from tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Tagged Release
+    runs-on: windows-latest
+
+    if: "!contains(github.ref_name, '-auto')"  # 🔒 Игнорируем автотеги
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.x'
+
+    - name: Install MAUI workload
+      run: dotnet workload install maui
+
+    - name: Extract version from tag
+      id: versioning
+      shell: bash
+      run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+    - name: Restore dependencies
+      run: dotnet restore ./src/OpenVPNClientApp.sln
+
+    - name: Build APK
+      shell: bash
+      run: |
+        dotnet publish ./src/OpenVPNClientApp.sln \
+          -f:net8.0-android \
+          -c Release \
+          -p:ApplicationDisplayVersion=${{ steps.versioning.outputs.version }} \
+          -o ./output
+
+    - name: Rename APK
+      shell: bash
+      run: |
+        VERSION=${{ steps.versioning.outputs.version }}
+        APK_PATH=$(find ./output -name '*-Signed.apk' | head -n 1)
+        echo "Found APK: $APK_PATH"
+        mv "$APK_PATH" "./output/OpenVPNClient_${VERSION}.apk"
+
+    - name: Upload APK to GitHub Releases
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: ./output/OpenVPNClient_*.apk
+        token: ${{ secrets.GH_PAT }}
+        tag: ${{ github.ref_name }}
+        name: "Release ${{ github.ref_name }}"
+        body: "Ручной релиз APK с тегом"
+        makeLatest: true
+        allowUpdates: true
+        replacesArtifacts: true
+        generateReleaseNotes: true
+        prerelease: false
