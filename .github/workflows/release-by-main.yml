@@ -38,22 +38,36 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore ./src/OpenVPNClientApp.sln
 
-    - name: Build APK
+    - name: Build Phone APK
       shell: bash
       run: |
-        dotnet publish ./src/OpenVPNClientApp.sln \
-          -f:net8.0-android \
-          -c Release \
-          -p:ApplicationDisplayVersion=${{ steps.versioning.outputs.version }} \
-          -p:ApplicationVersion=${{ steps.versioning.outputs.patch }} \
-          -o ./output
+        V=${{ steps.versioning.outputs.version }}
+        P=${{ steps.versioning.outputs.patch }}
+        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid/OpenVPNClient.Droid.csproj \
+          -f net8.0-android -c Release \
+          -p:ApplicationDisplayVersion=${V} \
+          -p:ApplicationVersion=${P} \
+          -o ./output/phone
 
-    - name: Rename APK
+    - name: Build TV APK
       shell: bash
       run: |
-        VERSION=${{ steps.versioning.outputs.version }}
-        APK_PATH=$(find ./output -name '*-Signed.apk' | head -n 1)
-        mv "$APK_PATH" "./output/OpenVPNClient_${VERSION}.apk"
+        V=${{ steps.versioning.outputs.version }}
+        P=${{ steps.versioning.outputs.patch }}
+        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid.TV/OpenVPNClient.Droid.TV.csproj \
+          -f net8.0-android -c Release \
+          -p:ApplicationDisplayVersion=${V} \
+          -p:ApplicationVersion=${P} \
+          -o ./output/tv
+
+    - name: Rename APKs
+      shell: bash
+      run: |
+        V=${{ steps.versioning.outputs.version }}
+        APK_PHONE=$(find ./output/phone -name '*-Signed.apk' | head -n1)
+        mv "$APK_PHONE" ./output/OpenVPNClient_Phone_${V}.apk
+        APK_TV=$(find ./output/tv -name '*-Signed.apk' | head -n1)
+        mv "$APK_TV"   ./output/OpenVPNClient_TV_${V}.apk
 
     - name: Create tag via GitHub API
       uses: actions/github-script@v5
@@ -78,10 +92,12 @@ jobs:
             }
           }
 
-    - name: Upload APK to GitHub Releases
+    - name: Upload APKs to GitHub Releases
       uses: ncipollo/release-action@v1
       with:
-        artifacts: ./output/OpenVPNClient_*.apk
+        artifacts: |
+          ./output/OpenVPNClient_Phone_${{ steps.versioning.outputs.version }}.apk
+          ./output/OpenVPNClient_TV_${{ steps.versioning.outputs.version }}.apk
         token: ${{ secrets.GH_PAT }}
         tag: ${{ steps.versioning.outputs.tag }}
         name: "Release ${{ steps.versioning.outputs.tag }}"

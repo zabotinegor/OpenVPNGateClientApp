@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <BasePackageId>com.yahorzabotsin.openvpnclient</BasePackageId>
+  </PropertyGroup>
+</Project>
