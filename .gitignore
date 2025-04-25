@@ -30,3 +30,20 @@ ScaffoldingReadMe.txt
 *.userosscache
 *.suo
 *.sln.docstates
+
+# Ignore published artifacts
+/publish/
+
+# Ignore APK files
+*.apk
+*-Signed.apk
+
+# Ignore DLLs generated during publish
+/publish/**/*.dll
+
+# Ignore build output folders
+**/bin/
+**/obj/
+
+# ingnore dlls
+*.dll

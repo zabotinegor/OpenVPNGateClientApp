@@ -96,38 +96,36 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore ./src/OpenVPNClientApp.sln
 
-    - name: Build APK
-      shell: bash # Используем bash для единообразия с versioning и rename
-      run: |
-        echo "Starting build with AppDisplayVersion=${{ steps.versioning.outputs.app_version }} and ApplicationVersion=${{ steps.versioning.outputs.patch }}"
-        dotnet publish ./src/OpenVPNClientApp.sln \
-          -f:net8.0-android \
-          -c:Release \
-          -p:ApplicationDisplayVersion=${{ steps.versioning.outputs.app_version }} \
-          -p:ApplicationVersion=${{ github.run_number }} \
-          -o ./output
-
-    - name: Rename APK
+    - name: Build Phone APK
       shell: bash
       run: |
-        VERSION=${{ steps.versioning.outputs.app_version }}
-        echo "Looking for APK in ./output for version $VERSION"
-        # Ищем APK, который был подписан (обычно содержит -Signed)
-        APK_PATH=$(find ./output -name '*-Signed.apk' -print -quit) # -print -quit для отладки и выхода после первого найденного
-        if [[ -z "$APK_PATH" ]]; then
-          echo "Error: Signed APK not found in ./output"
-          # Попробуем найти любой APK на всякий случай
-          APK_PATH=$(find ./output -name '*.apk' -print -quit)
-          if [[ -z "$APK_PATH" ]]; then
-            echo "Error: No APK found in ./output at all!"
-            exit 1
-          else
-            echo "Warning: Found an unsigned APK: $APK_PATH"
-          fi
-        fi
-        NEW_NAME="./output/OpenVPNClient_${VERSION}.apk"
-        echo "Renaming '$APK_PATH' to '$NEW_NAME'"
-        mv "$APK_PATH" "$NEW_NAME"
+        V=${{ steps.versioning.outputs.app_version }}
+        P=${{ github.run_number }}
+        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid/OpenVPNClient.Droid.csproj \
+          -f net8.0-android -c Release \
+          -p:ApplicationDisplayVersion=${V} \
+          -p:ApplicationVersion=${P} \
+          -o output/phone
+
+    - name: Build TV APK
+      shell: bash
+      run: |
+        V=${{ steps.versioning.outputs.app_version }}
+        P=${{ github.run_number }}
+        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid.TV/OpenVPNClient.Droid.TV.csproj \
+          -f net8.0-android -c Release \
+          -p:ApplicationDisplayVersion=${V} \
+          -p:ApplicationVersion=${P} \
+          -o output/tv
+
+    - name: Rename APKs
+      shell: bash
+      run: |
+        V=${{ steps.versioning.outputs.app_version }}
+        APK_PHONE=$(find output/phone -name '*-Signed.apk' | head -n1)
+        mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
+        APK_TV=$(find output/tv -name '*-Signed.apk' | head -n1)
+        mv "$APK_TV"   output/OpenVPNClient_TV_${V}.apk
 
     - name: Create beta tag in Git
       # Используем actions/github-script@v6 или v7 для актуальности
@@ -156,19 +154,19 @@ jobs:
             }
           }
 
-    - name: Upload APK to GitHub Releases (Beta)
-      # Используем ncipollo/release-action@v1 - она все еще актуальна
+    - name: Upload APKs to GitHub Releases (Beta)
       uses: ncipollo/release-action@v1
       with:
-        artifacts: ./output/OpenVPNClient_*.apk # Ищем переименованный APK
-        token: ${{ secrets.GH_PAT }} # Убедитесь, что GH_PAT имеет права на создание/обновление релизов
-        tag: ${{ steps.versioning.outputs.tag }} # Тег для релиза = созданный Git-тег
-        name: "Beta Release ${{ steps.versioning.outputs.tag }}" # Имя релиза
-        body: | # Используем | для многострочного описания
-          Автоматическая сборка APK из ветки `${{ github.ref_name }}`.
-          Коммит: ${{ github.sha }}
-          Версия приложения: ${{ steps.versioning.outputs.app_version }}
-        prerelease: true # Отмечаем как pre-release
-        allowUpdates: true # Разрешаем обновлять существующий релиз с этим тегом
-        replacesArtifacts: true # Заменяем артефакты, если релиз обновляется
-        # generateReleaseNotes: true # Можно включить, если хотите авто-генерацию заметок на основе коммитов
+        token: ${{ secrets.GH_PAT }}
+        tag:   ${{ steps.versioning.outputs.tag }}
+        name:  "Beta Release ${{ steps.versioning.outputs.tag }}"
+        body: |
+          Авто-сборка из ветки `${{ github.ref_name }}`
+          Версия приложения: `${{ steps.versioning.outputs.app_version }}`
+        prerelease: true
+        allowUpdates: true
+        replacesArtifacts: true
+        artifacts: |
+          output/OpenVPNClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
+          output/OpenVPNClient_TV_${{ steps.versioning.outputs.app_version }}.apk
+        generateReleaseNotes: true
