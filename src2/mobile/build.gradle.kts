@@ -4,19 +4,21 @@ plugins {
 }
 
 android {
-    namespace = "com.yahorzabotsin.openvpnclient.mobile"
+    namespace = "${rootProject.extra.get("basePackageName")}.mobile"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.yahorzabotsin.openvpnclient.mobile"
+        applicationId = "${rootProject.extra.get("basePackageName")}.mobile"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        resValue("string", "app_name", rootProject.extra.get("appName") as String)
     }
 
     buildTypes {

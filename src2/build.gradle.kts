@@ -4,3 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.android.library) apply false
 }
+
+ext {
+    set("basePackageName", "com.yahorzabotsin.openvpnclient")
+    set("appName", "Open VPN Gate Client")
+}
