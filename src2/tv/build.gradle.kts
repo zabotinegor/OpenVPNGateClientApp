@@ -4,18 +4,19 @@ plugins {
 }
 
 android {
-    namespace = "com.yahorzabotsin.openvpnclient.tv"
+    namespace = "${rootProject.extra.get("basePackageName")}.tv"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.yahorzabotsin.openvpnclient.tv"
+        applicationId = "${rootProject.extra.get("basePackageName")}.tv"
         minSdk = 21
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
+        resValue("string", "app_name", rootProject.extra.get("appName") as String)
     }
 
     buildTypes {
