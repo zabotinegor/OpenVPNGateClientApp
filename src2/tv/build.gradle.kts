@@ -42,3 +42,5 @@ dependencies {
     implementation(libs.androidx.leanback)
     implementation(libs.glide)
 }
+
+apply(from = "../copy_drawables.gradle.kts")
