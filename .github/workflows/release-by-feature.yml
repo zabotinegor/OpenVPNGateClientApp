@@ -10,128 +10,102 @@ on:
 jobs:
   build:
     name: Beta Build & Release
-    runs-on: windows-latest
+    runs-on: ubuntu-latest # Changed to ubuntu-latest for Android builds
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3 # Рекомендуется обновить до v4, если возможно
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # Важно для получения всех тегов
-        fetch-tags: true # Явно указываем загрузку тегов
+        fetch-depth: 0
+        fetch-tags: true
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
       with:
-        dotnet-version: '8.x'
-
-    - name: Install MAUI workload
-      run: dotnet workload install maui
+        java-version: '17'
+        distribution: 'temurin'
 
     - name: Generate beta version
       id: versioning
       shell: bash
+      # This script is preserved from the original workflow
       run: |
-        set -e # Останавливаемся при ошибках (кроме тех, что обработаны || true)
-        # set -e -o pipefail # Можно раскомментировать для более строгой проверки пайплайнов
-
+        set -e
         BRANCH="${GITHUB_REF##*/}"
         SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '_' '-')
         echo "Branch: $BRANCH, Safe Branch: $SAFE_BRANCH"
-
-        echo "🔍 Getting latest stable tag (v8.* excluding beta)..."
-        # Добавляем || true, чтобы команда не прерывала скрипт, если теги не найдены
         STABLE_TAG=$(git tag --list 'v8.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
-        echo "Latest stable tag found: [$STABLE_TAG]" # [] помогут увидеть, если строка пустая
-
         if [[ -z "$STABLE_TAG" ]]; then
-          echo "No stable tag found, starting with 8.1.0."
-          VERSION="8.1.0"
-          PATCH=0 # Явно устанавливаем патч в 0 для начальной версии
+          echo "No stable tag found, starting with 1.1.0."
+          VERSION="1.1.0"
+          PATCH=0
         else
-          # Убираем 'v' и парсим версию
           IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
-          echo "Parsed stable tag: MAJOR=$MAJOR, MINOR=$MINOR, PATCH=$PATCH"
-          # Увеличиваем патч для новой версии
           PATCH=$((PATCH + 1))
           VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "Calculated next version base: $VERSION"
         fi
-
-        echo "🔍 Getting latest beta tag for v${VERSION}-${SAFE_BRANCH}-beta.* ..."
-        # Добавляем || true и здесь, т.к. для новой ВЕРСИИ может не быть бета-тегов
+        echo "Calculated next version base: $VERSION"
         BETA_TAG=$(git tag --list "v${VERSION}-${SAFE_BRANCH}-beta.*" | sort -Vr | head -n 1) || true
-        echo "Latest beta tag found for this version/branch: [$BETA_TAG]"
-
         if [[ -n "$BETA_TAG" ]]; then
-          # Пытаемся извлечь номер беты (число после 'beta.')
           BETA_NUM_MATCH=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+')
           if [[ -n "$BETA_NUM_MATCH" ]]; then
               BETA_NUM=$(echo "$BETA_NUM_MATCH" | cut -d. -f2)
-              echo "Found existing beta number: $BETA_NUM"
               BETA_NUM=$((BETA_NUM + 1))
           else
-              echo "Warning: Found beta tag [$BETA_TAG] but couldn't extract beta number. Starting beta from 1."
               BETA_NUM=1
           fi
         else
-          echo "No existing beta tag found for v${VERSION}-${SAFE_BRANCH}. Starting beta from 1."
           BETA_NUM=1
         fi
         echo "Next beta number: $BETA_NUM"
-
-        # Собираем финальный тег и версию для приложения
         FINAL_TAG="v${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}-auto"
-        APP_VERSION="${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}" # Версия без суффикса -auto
-
+        APP_VERSION="${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}"
         echo "Final tag to create: $FINAL_TAG"
         echo "App version for build: $APP_VERSION"
-
-        # Записываем переменные для использования в следующих шагах
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "patch=$PATCH" >> $GITHUB_OUTPUT # Этот patch относится к базовой версии VERSION
+        echo "patch=$PATCH" >> $GITHUB_OUTPUT
         echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
         echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
         echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
 
-    - name: Restore dependencies
-      run: dotnet restore ./src/OpenVPNClientApp.sln
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: wrapper
+        cache-read-only: false
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      working-directory: ./src
 
     - name: Build Phone APK
-      shell: bash
       run: |
-        V=${{ steps.versioning.outputs.app_version }}
-        P=${{ github.run_number }}
-        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid/OpenVPNClient.Droid.csproj \
-          -f net8.0-android -c Release \
-          -p:ApplicationDisplayVersion=${V} \
-          -p:ApplicationVersion=${P} \
-          -o output/phone
+        ./gradlew :mobile:assembleRelease \
+          -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+          -PappVersionCode="${{ github.run_number }}"
+      working-directory: ./src
 
     - name: Build TV APK
-      shell: bash
       run: |
-        V=${{ steps.versioning.outputs.app_version }}
-        P=${{ github.run_number }}
-        dotnet publish src/OpenVPNClient/OpenVPNClient.Droid.TV/OpenVPNClient.Droid.TV.csproj \
-          -f net8.0-android -c Release \
-          -p:ApplicationDisplayVersion=${V} \
-          -p:ApplicationVersion=${P} \
-          -o output/tv
+        ./gradlew :tv:assembleRelease \
+          -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+          -PappVersionCode="${{ github.run_number }}"
+      working-directory: ./src
 
     - name: Rename APKs
       shell: bash
       run: |
         V=${{ steps.versioning.outputs.app_version }}
-        APK_PHONE=$(find output/phone -name '*-Signed.apk' | head -n1)
+        mkdir -p output
+        APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
         mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
-        APK_TV=$(find output/tv -name '*-Signed.apk' | head -n1)
-        mv "$APK_TV"   output/OpenVPNClient_TV_${V}.apk
+        APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+        mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
 
     - name: Create beta tag in Git
-      # Используем actions/github-script@v6 или v7 для актуальности
       uses: actions/github-script@v7
       with:
-        github-token: ${{ secrets.GH_PAT }} # Убедитесь, что GH_PAT имеет права на запись в репозиторий
+        github-token: ${{ secrets.GH_PAT }}
         script: |
           const tag = '${{ steps.versioning.outputs.tag }}';
           const sha = context.sha;
@@ -145,12 +119,11 @@ jobs:
             });
             console.log(`Successfully created tag ${tag}`);
           } catch (error) {
-            // Код 422 означает, что ссылка (тег) уже существует
             if (error.status === 422) {
               console.log(`⚠️ Tag ${tag} already exists. Skipping tag creation.`);
             } else {
               console.error(`❌ Failed to create tag ${tag}:`, error);
-              throw error; // Перебрасываем ошибку, чтобы остановить workflow, если это не ошибка 422
+              throw error;
             }
           }
 

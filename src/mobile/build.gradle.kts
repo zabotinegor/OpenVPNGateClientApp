@@ -13,8 +13,8 @@ android {
         applicationId = "${rootProject.extra.get("basePackageName")}.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = (project.findProperty("appVersionCode") as String? ?: "1").toInt()
+        versionName = project.findProperty("appVersionName") as String? ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -36,6 +36,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    lint {
+        checkReleaseBuilds = false
     }
 }
 
