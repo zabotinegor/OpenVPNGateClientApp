@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="app_background">#0E1932</color>
+    <color name="speedometer_arc_color">#1E3A6E</color>
+    <color name="speedometer_progress_color">#3B7CFF</color>
+    <color name="speedometer_text_color">@android:color/white</color>
+    <color name="button_background_color">#4CAF50</color>
+</resources>

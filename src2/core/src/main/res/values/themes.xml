@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="colorPrimary">@color/speedometer_progress_color</item>
+    </style>
+
+    <style name="Widget.OpenVPNClient.Button" parent="Widget.AppCompat.Button">
+        <item name="android:background">@color/button_background_color</item>
+        <item name="android:textColor">@android:color/white</item>
+    </style>
+</resources>
