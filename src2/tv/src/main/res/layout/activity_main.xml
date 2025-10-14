@@ -20,8 +20,18 @@
             android:padding="16dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:title="Open VPN Gate Client" />
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.AppCompat.Widget.ActionBar.Title"
+            android:textColor="@android:color/white"
+            app:layout_constraintBottom_toBottomOf="@+id/toolbar"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/toolbar" />
 
         <ImageButton
             android:id="@+id/menu_button"
@@ -60,11 +70,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:background="?android:attr/selectableItemBackground"
-            android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:padding="16dp"
-            android:stateListAnimator="@animator/zoom_in"
             app:layout_constraintBottom_toTopOf="@+id/start_connection_button"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent">
@@ -112,7 +120,10 @@
             android:text="@string/start_connection"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            app:layout_constraintStart_toStartOf="parent">
+
+            <requestFocus />
+        </com.google.android.material.button.MaterialButton>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

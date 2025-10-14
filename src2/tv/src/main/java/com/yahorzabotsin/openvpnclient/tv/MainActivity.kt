@@ -1,11 +1,13 @@
 package com.yahorzabotsin.openvpnclient.tv
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
+import com.yahorzabotsin.openvpnclient.core.ui.setAsStub
 
 class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: DrawerLayout
@@ -18,6 +20,7 @@ class MainActivity : AppCompatActivity() {
         val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
 
         val toggle = ActionBarDrawerToggle(
             this,
@@ -32,9 +35,11 @@ class MainActivity : AppCompatActivity() {
             drawerLayout.openDrawer(GravityCompat.START)
         }
 
+        findViewById<android.view.View>(R.id.start_connection_button).setAsStub()
+
         val navigationView = findViewById<NavigationView>(R.id.nav_view)
-        navigationView.setNavigationItemSelectedListener { menuItem ->
-            // Handle menu item selected
+        navigationView.setNavigationItemSelectedListener {
+            Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
             drawerLayout.closeDrawer(GravityCompat.START)
             true
         }
