@@ -1,4 +1,6 @@
 <resources>
-
-    <style name="Theme.OpenVPNClient" parent="@style/Theme.Leanback" />
+    <style name="Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+        <item name="android:theme">@style/Theme.Leanback</item>
+        <item name="android:buttonStyle">@style/Widget.OpenVPNClient.Button</item>
+    </style>
 </resources>

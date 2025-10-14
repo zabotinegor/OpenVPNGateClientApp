@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="speedometer_arc_width">20dp</dimen>
+    <dimen name="speedometer_speed_text_size">50sp</dimen>
+    <dimen name="speedometer_subtitle_text_size">20sp</dimen>
+</resources>
