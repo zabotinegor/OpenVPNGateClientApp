@@ -1,0 +1,76 @@
+package com.yahorzabotsin.openvpnclient.core.ui
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.util.AttributeSet
+import android.view.View
+import com.yahorzabotsin.openvpnclient.core.R
+
+class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val arcRect = RectF()
+
+    // Customizable properties
+    private var arcColor: Int
+    private var progressColor: Int
+    private var speedTextColor: Int
+    private var subtitleTextColor: Int
+    private var arcWidth: Float
+    private var speedTextSize: Float
+    private var subtitleTextSize: Float
+
+    init {
+        val typedArray = context.theme.obtainStyledAttributes(
+            attrs,
+            R.styleable.SpeedometerView,
+            0, 0
+        )
+
+        try {
+            arcColor = typedArray.getColor(R.styleable.SpeedometerView_arcColor, Color.parseColor("#1E3A6E"))
+            progressColor = typedArray.getColor(R.styleable.SpeedometerView_progressColor, Color.parseColor("#3B7CFF"))
+            speedTextColor = typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, Color.WHITE)
+            subtitleTextColor = typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, Color.WHITE)
+            arcWidth = typedArray.getDimension(R.styleable.SpeedometerView_arcWidth, 30f)
+            speedTextSize = typedArray.getDimension(R.styleable.SpeedometerView_speedTextSize, 60f)
+            subtitleTextSize = typedArray.getDimension(R.styleable.SpeedometerView_subtitleTextSize, 30f)
+        } finally {
+            typedArray.recycle()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val centerX = width / 2f
+        val centerY = height / 2f
+        val radius = Math.min(centerX, centerY) * 0.8f
+
+        // Draw the outer arc
+        paint.color = arcColor
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = arcWidth
+        arcRect.set(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+        canvas.drawArc(arcRect, 150f, 240f, false, paint)
+
+        // Draw the inner progress arc
+        paint.color = progressColor
+        canvas.drawArc(arcRect, 150f, 100f, false, paint) // Example progress
+
+        // Draw the speed text
+        paint.color = speedTextColor
+        paint.style = Paint.Style.FILL
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = speedTextSize
+        canvas.drawText("0.0", centerX, centerY, paint)
+
+        // Draw the subtitle text
+        paint.color = subtitleTextColor
+        paint.textSize = subtitleTextSize
+        canvas.drawText("Mbit", centerX, centerY + subtitleTextSize * 1.5f, paint)
+    }
+}
