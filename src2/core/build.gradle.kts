@@ -14,6 +14,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+        resValue("string", "app_name", rootProject.extra.get("appName") as String)
     }
 
     buildTypes {
