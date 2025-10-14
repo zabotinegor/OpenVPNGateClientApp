@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_connection"
+            android:title="@string/menu_connection" />
+        <item
+            android:id="@+id/nav_server"
+            android:title="@string/menu_server" />
+        <item
+            android:id="@+id/nav_protocol"
+            android:title="@string/menu_protocol" />
+        <item
+            android:id="@+id/nav_dns"
+            android:title="@string/menu_dns" />
+        <item
+            android:id="@+id/nav_filter"
+            android:title="@string/menu_filter" />
+        <item
+            android:id="@+id/nav_telegram"
+            android:title="@string/menu_telegram" />
+        <item
+            android:id="@+id/nav_rate"
+            android:title="@string/menu_rate" />
+        <item
+            android:id="@+id/nav_about"
+            android:title="@string/menu_about" />
+    </group>
+</menu>
