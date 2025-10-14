@@ -1,4 +1,4 @@
-name: Beta Release from feature branches
+name: Beta Release from Feature Branch
 
 on:
   push:
@@ -9,137 +9,141 @@ on:
 
 jobs:
   build:
-    name: Beta Build & Release
-    runs-on: ubuntu-latest # Changed to ubuntu-latest for Android builds
+    name: Build and Release
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        fetch-tags: true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Generate beta version
-      id: versioning
-      shell: bash
-      # This script is preserved from the original workflow
-      run: |
-        set -e
-        BRANCH="${GITHUB_REF##*/}"
-        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '_' '-')
-        echo "Branch: $BRANCH, Safe Branch: $SAFE_BRANCH"
-        STABLE_TAG=$(git tag --list 'v8.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
-        if [[ -z "$STABLE_TAG" ]]; then
-          echo "No stable tag found, starting with 1.1.0."
-          VERSION="1.1.0"
-          PATCH=0
-        else
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
-          PATCH=$((PATCH + 1))
-          VERSION="${MAJOR}.${MINOR}.${PATCH}"
-        fi
-        echo "Calculated next version base: $VERSION"
-        BETA_TAG=$(git tag --list "v${VERSION}-${SAFE_BRANCH}-beta.*" | sort -Vr | head -n 1) || true
-        if [[ -n "$BETA_TAG" ]]; then
-          BETA_NUM_MATCH=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+')
-          if [[ -n "$BETA_NUM_MATCH" ]]; then
-              BETA_NUM=$(echo "$BETA_NUM_MATCH" | cut -d. -f2)
-              BETA_NUM=$((BETA_NUM + 1))
+      - name: Generate Beta Version
+        id: versioning
+        shell: bash
+        run: |
+          set -e
+          BRANCH="${GITHUB_REF##*/}"
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '_' '-')
+          echo "==> Branch: $BRANCH"
+          
+          STABLE_TAG=$(git tag --list 'v8.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
+          if [[ -z "$STABLE_TAG" ]]; then
+            echo "==> No stable tag found, starting with 1.1.0."
+            VERSION="1.1.0"
+            PATCH=0
           else
-              BETA_NUM=1
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
           fi
-        else
-          BETA_NUM=1
-        fi
-        echo "Next beta number: $BETA_NUM"
-        FINAL_TAG="v${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}-auto"
-        APP_VERSION="${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}"
-        echo "Final tag to create: $FINAL_TAG"
-        echo "App version for build: $APP_VERSION"
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "patch=$PATCH" >> $GITHUB_OUTPUT
-        echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
-        echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
-        echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "==> Base version: $VERSION"
+          
+          BETA_TAG=$(git tag --list "v${VERSION}-${SAFE_BRANCH}-beta.*" | sort -Vr | head -n 1) || true
+          if [[ -n "$BETA_TAG" ]]; then
+            BETA_NUM_MATCH=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+')
+            if [[ -n "$BETA_NUM_MATCH" ]]; then
+                BETA_NUM=$(echo "$BETA_NUM_MATCH" | cut -d. -f2)
+                BETA_NUM=$((BETA_NUM + 1))
+            else
+                BETA_NUM=1
+            fi
+          else
+            BETA_NUM=1
+          fi
+          echo "==> Next beta number: $BETA_NUM"
+          
+          FINAL_TAG="v${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}-auto"
+          APP_VERSION="${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}"
+          
+          echo "==> Final tag: $FINAL_TAG"
+          echo "==> App version: $APP_VERSION"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+          echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
+          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+          echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: wrapper
-        cache-read-only: false
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-      working-directory: ./src
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
 
-    - name: Build Phone APK
-      run: |
-        ./gradlew :mobile:assembleRelease \
-          -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
-          -PappVersionCode="${{ github.run_number }}"
-      working-directory: ./src
+      - name: Build Mobile APK
+        run: |
+          ./gradlew :mobile:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
 
-    - name: Build TV APK
-      run: |
-        ./gradlew :tv:assembleRelease \
-          -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
-          -PappVersionCode="${{ github.run_number }}"
-      working-directory: ./src
+      - name: Build TV APK
+        run: |
+          ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
 
-    - name: Rename APKs
-      shell: bash
-      run: |
-        V=${{ steps.versioning.outputs.app_version }}
-        mkdir -p output
-        APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-        mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
-        APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-        mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=${{ steps.versioning.outputs.app_version }}
+          mkdir -p output
+          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
+          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
 
-    - name: Create beta tag in Git
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ secrets.GH_PAT }}
-        script: |
-          const tag = '${{ steps.versioning.outputs.tag }}';
-          const sha = context.sha;
-          console.log(`Attempting to create tag: ${tag} at SHA: ${sha}`);
-          try {
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/${tag}`,
-              sha: sha
-            });
-            console.log(`Successfully created tag ${tag}`);
-          } catch (error) {
-            if (error.status === 422) {
-              console.log(`⚠️ Tag ${tag} already exists. Skipping tag creation.`);
-            } else {
-              console.error(`❌ Failed to create tag ${tag}:`, error);
-              throw error;
+      - name: Create Git Tag
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const tag = '${{ steps.versioning.outputs.tag }}';
+            const sha = context.sha;
+            console.log(`Attempting to create tag: ${tag} at SHA: ${sha}`);
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tag}`,
+                sha: sha
+              });
+              console.log(`Successfully created tag ${tag}`);
+            } catch (error) {
+              if (error.status === 422) {
+                console.log(`Tag ${tag} already exists. Skipping tag creation.`);
+              } else {
+                console.error(`Failed to create tag ${tag}:`, error);
+                throw error;
+              }
             }
-          }
 
-    - name: Upload APKs to GitHub Releases (Beta)
-      uses: ncipollo/release-action@v1
-      with:
-        token: ${{ secrets.GH_PAT }}
-        tag:   ${{ steps.versioning.outputs.tag }}
-        name:  "Beta Release ${{ steps.versioning.outputs.tag }}"
-        body: |
-          Авто-сборка из ветки `${{ github.ref_name }}`
-          Версия приложения: `${{ steps.versioning.outputs.app_version }}`
-        prerelease: true
-        allowUpdates: true
-        replacesArtifacts: true
-        artifacts: |
-          output/OpenVPNClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
-          output/OpenVPNClient_TV_${{ steps.versioning.outputs.app_version }}.apk
-        generateReleaseNotes: true
+      - name: Publish Beta Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GH_PAT }}
+          tag:   ${{ steps.versioning.outputs.tag }}
+          name:  "Beta Release ${{ steps.versioning.outputs.tag }}"
+          body: |
+            Automated build from branch `${{ github.ref_name }}`
+            App version: `${{ steps.versioning.outputs.app_version }}`
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: |
+            output/OpenVPNClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
+            output/OpenVPNClient_TV_${{ steps.versioning.outputs.app_version }}.apk
+          generateReleaseNotes: true

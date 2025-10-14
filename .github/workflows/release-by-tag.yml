@@ -1,4 +1,4 @@
-name: Build and Release from tag
+name: Release from Tag
 
 on:
   push:
@@ -7,70 +7,70 @@ on:
 
 jobs:
   build:
-    name: Tagged Release
+    name: Build and Release
     runs-on: ubuntu-latest
 
-    if: "!contains(github.ref_name, '-auto')"  # 🔒 Ignore auto-tags
+    if: "!contains(github.ref_name, '-auto')" # Ignore tags created by other workflows
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Extract version from tag
-      id: versioning
-      shell: bash
-      run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+      - name: Extract Version from Tag
+        id: versioning
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: wrapper
-        cache-read-only: false
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-      working-directory: ./src
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
 
-    - name: Build Phone APK
-      run: |
-        ./gradlew :mobile:assembleRelease \
-          -PappVersionName="${{ steps.versioning.outputs.version }}" \
-          -PappVersionCode="${{ github.run_number }}"
-      working-directory: ./src
+      - name: Build Mobile APK
+        run: |
+          ./gradlew :mobile:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
 
-    - name: Build TV APK
-      run: |
-        ./gradlew :tv:assembleRelease \
-          -PappVersionName="${{ steps.versioning.outputs.version }}" \
-          -PappVersionCode="${{ github.run_number }}"
-      working-directory: ./src
+      - name: Build TV APK
+        run: |
+          ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
 
-    - name: Rename APKs
-      shell: bash
-      run: |
-        V=${{ steps.versioning.outputs.version }}
-        mkdir -p output
-        APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-        mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
-        APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-        mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=${{ steps.versioning.outputs.version }}
+          mkdir -p output
+          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
+          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
 
-    - name: Upload APKs to GitHub Releases
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: |
-          output/OpenVPNClient_Phone_${{ steps.versioning.outputs.version }}.apk
-          output/OpenVPNClient_TV_${{ steps.versioning.outputs.version }}.apk
-        token: ${{ secrets.GH_PAT }}
-        tag: ${{ github.ref_name }}
-        name: "Release ${{ github.ref_name }}"
-        body: "Ручной релиз APK с тегом"
-        allowUpdates: true
-        replacesArtifacts: true
-        prerelease: false
+      - name: Publish Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: |
+            output/OpenVPNClient_Phone_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNClient_TV_${{ steps.versioning.outputs.version }}.apk
+          token: ${{ secrets.GH_PAT }}
+          tag: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: "Release build for tag ${{ github.ref_name }}"
+          allowUpdates: true
+          replacesArtifacts: true
+          prerelease: false
