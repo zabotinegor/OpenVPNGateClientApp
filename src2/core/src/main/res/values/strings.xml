@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="start_connection">START CONNECTION</string>
+
+    <!-- Menu Items -->
+    <string name="menu_connection">Connection</string>
+    <string name="menu_server">Server</string>
+    <string name="menu_protocol">Protocol</string>
+    <string name="menu_dns">DNS</string>
+    <string name="menu_filter">Filter</string>
+    <string name="menu_telegram">Telegram</string>
+    <string name="menu_rate">Rate</string>
+    <string name="menu_about">About</string>
 </resources>
