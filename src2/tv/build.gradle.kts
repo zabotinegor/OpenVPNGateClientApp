@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "${rootProject.extra.get("basePackageName")}.tv"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -38,6 +38,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.leanback)
     implementation(libs.glide)

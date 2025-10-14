@@ -1,8 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="background_gradient_start">#000000</color>
-    <color name="background_gradient_end">#DDDDDD</color>
-    <color name="fastlane_background">#0096a6</color>
-    <color name="search_opaque">#ffaa3f</color>
-    <color name="selected_background">#ffaa3f</color>
-    <color name="default_background">#3d3d3d</color>
+    <color name="app_background">#0E1932</color>
+    <color name="nav_bar_background">#172A4E</color>
+
+    <!-- Speedometer Colors -->
+    <color name="speedometer_arc_color">#1E3A6E</color>
+    <color name="speedometer_progress_color">#3B7CFF</color>
+    <color name="speedometer_text_color">@android:color/white</color>
+
+    <!-- Background Gradient for Leanback -->
+    <color name="background_gradient_start">#0E1932</color>
+    <color name="background_gradient_end">#172A4E</color>
+
+    <!-- Card Presenter -->
+    <color name="default_background">#172A4E</color>
+    <color name="selected_background">#3B7CFF</color>
+
+    <!-- MainFragment (Legacy) -->
+    <color name="fastlane_background">#172A4E</color>
+    <color name="search_opaque">#80FFFFFF</color>
 </resources>

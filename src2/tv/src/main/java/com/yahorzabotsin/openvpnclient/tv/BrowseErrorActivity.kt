@@ -22,29 +22,23 @@ class BrowseErrorActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_error)
         if (savedInstanceState == null) {
-            getSupportFragmentManager().beginTransaction()
-                .replace(R.id.main_browse_fragment, MainFragment())
-                .commitNow()
+            setupFragments()
         }
-        testError()
     }
 
-    private fun testError() {
+    private fun setupFragments() {
         mErrorFragment = ErrorFragment()
-        supportFragmentManager
-            .beginTransaction()
-            .add(R.id.main_browse_fragment, mErrorFragment)
-            .commit()
-
         mSpinnerFragment = SpinnerFragment()
+
         supportFragmentManager
             .beginTransaction()
-            .add(R.id.main_browse_fragment, mSpinnerFragment)
+            .add(R.id.error_frame, mErrorFragment)
+            .add(R.id.error_frame, mSpinnerFragment)
             .commit()
 
-        val handler = Handler(Looper.myLooper()!!)
+        val handler = Handler(Looper.getMainLooper())
         handler.postDelayed({
             supportFragmentManager
                 .beginTransaction()
@@ -61,8 +55,10 @@ class BrowseErrorActivity : FragmentActivity() {
         ): View? {
             val progressBar = ProgressBar(container?.context)
             if (container is FrameLayout) {
+                val spinnerWidth = resources.getDimensionPixelSize(R.dimen.spinner_width)
+                val spinnerHeight = resources.getDimensionPixelSize(R.dimen.spinner_height)
                 val layoutParams =
-                    FrameLayout.LayoutParams(SPINNER_WIDTH, SPINNER_HEIGHT, Gravity.CENTER)
+                    FrameLayout.LayoutParams(spinnerWidth, spinnerHeight, Gravity.CENTER)
                 progressBar.layoutParams = layoutParams
             }
             return progressBar
@@ -70,8 +66,6 @@ class BrowseErrorActivity : FragmentActivity() {
     }
 
     companion object {
-        private val TIMER_DELAY = 3000L
-        private val SPINNER_WIDTH = 100
-        private val SPINNER_HEIGHT = 100
+        private const val TIMER_DELAY = 3000L
     }
 }

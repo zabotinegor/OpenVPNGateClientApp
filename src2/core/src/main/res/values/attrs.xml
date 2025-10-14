@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="SpeedometerView">
+        <attr name="arcColor" format="color" />
+        <attr name="progressColor" format="color" />
+        <attr name="speedTextColor" format="color" />
+        <attr name="subtitleTextColor" format="color" />
+        <attr name="arcWidth" format="dimension" />
+        <attr name="speedTextSize" format="dimension" />
+        <attr name="subtitleTextSize" format="dimension" />
+    </declare-styleable>
+</resources>
