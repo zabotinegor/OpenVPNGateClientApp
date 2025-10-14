@@ -9,6 +9,16 @@ android {
         version = release(36)
     }
 
+    signingConfigs {
+        create("release") {
+            // You need to create a keystore file and set the paths and passwords here
+            // keyAlias = "your-key-alias"
+            // keyPassword = "your-key-password"
+            // storeFile = file("path/to/your/keystore.jks")
+            // storePassword = "your-store-password"
+        }
+    }
+
     defaultConfig {
         applicationId = "${rootProject.extra.get("basePackageName")}.mobile"
         minSdk = 24
@@ -28,6 +38,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

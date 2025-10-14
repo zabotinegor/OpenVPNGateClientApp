@@ -1,49 +1,41 @@
-# .NET
-bin/
-obj/
-project.lock.json
-project.fragment.lock.json
-artifacts/
+# Merged .gitignore
+# This file was created by merging the project's .gitignore files.
+# =============================================================
+# Standard-Android/Gradle-Ignores (from src/.gitignore)
+*.iml
+.gradle
+local.properties
+.DS_Store
+.externalNativeBuild
+.cxx
+keystore.properties
 
-# User-specific files
-.vs/
+# IDE-files-and-directories
+# Ignoring the entire .idea directory is a common and safe practice.
+.idea/
 .vscode/
-.idea/
 
-# Windows Installer files
-*.cab
-*.msi
-*.msm
-*.msp
+# Build-output-from-all-modules
+# ==================================
+/build/
+/src/build/
+/src/core/build/
+/src/mobile/build/
+/src/tv/build/
 
-# Windows Installer patch files
-*.wixpdb
+# Build type outputs
+/src/mobile/release/
+/src/tv/release/
+/src/core/release/
 
-# JetBrains Rider
-.idea/
+# Captures-directory
+/captures/
 
-# ASP.NET Scaffolding
-ScaffoldingReadMe.txt
-
-# User-specific files
-*.user
-*.userosscache
-*.suo
-*.sln.docstates
-
-# Ignore published artifacts
-/publish/
-
-# Ignore APK files
+# Other-Ignores
+# =================
+# APK-files
 *.apk
-*-Signed.apk
+*.signed.apk
 
-# Ignore DLLs generated during publish
-/publish/**/*.dll
-
-# Ignore build output folders
-**/bin/
-**/obj/
-
-# ingnore dlls
-*.dll
+# Keystore
+/keystore/
