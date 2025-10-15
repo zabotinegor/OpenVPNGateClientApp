@@ -129,7 +129,7 @@
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:background="@color/nav_bar_background"
-        app:itemBackground="@drawable/nav_item_background"
+        app:itemBackground="@drawable/nav_item_background_mobile"
         app:itemTextColor="@color/nav_item_text_color"
         app:menu="@menu/navigation_menu" />
 

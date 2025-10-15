@@ -3,4 +3,5 @@
     <dimen name="speedometer_arc_width">20dp</dimen>
     <dimen name="speedometer_speed_text_size">50sp</dimen>
     <dimen name="speedometer_subtitle_text_size">20sp</dimen>
+    <dimen name="server_item_margin">16dp</dimen>
 </resources>

@@ -5,6 +5,7 @@ import android.view.View
 
 import androidx.core.content.ContextCompat
 import androidx.leanback.app.ErrorSupportFragment
+import com.yahorzabotsin.openvpnclient.core.R as coreR
 
 /**
  * This class demonstrates how to extend [ErrorSupportFragment].
@@ -18,13 +19,13 @@ class ErrorFragment : ErrorSupportFragment() {
 
     internal fun setErrorContent() {
         imageDrawable =
-            ContextCompat.getDrawable(activity!!, androidx.leanback.R.drawable.lb_ic_sad_cloud)
-        message = resources.getString(R.string.error_fragment_message)
+            ContextCompat.getDrawable(requireActivity(), androidx.leanback.R.drawable.lb_ic_sad_cloud)
+        message = resources.getString(coreR.string.error_fragment_message)
         setDefaultBackground(TRANSLUCENT)
 
-        buttonText = resources.getString(R.string.dismiss_error)
+        buttonText = resources.getString(coreR.string.dismiss_error)
         buttonClickListener = View.OnClickListener {
-            fragmentManager!!.beginTransaction().remove(this@ErrorFragment).commit()
+            parentFragmentManager.beginTransaction().remove(this@ErrorFragment).commit()
         }
     }
 
