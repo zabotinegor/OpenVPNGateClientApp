@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclient.mobile
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -40,7 +41,14 @@ class MainActivity : AppCompatActivity() {
 
         val navigationView = findViewById<NavigationView>(R.id.nav_view)
         navigationView.setNavigationItemSelectedListener {
-            Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
+            when (it.itemId) {
+                coreR.id.nav_server -> {
+                    startActivity(Intent(this, ServerActivity::class.java))
+                }
+                else -> {
+                    Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
+                }
+            }
             drawerLayout.closeDrawer(GravityCompat.START)
             true
         }

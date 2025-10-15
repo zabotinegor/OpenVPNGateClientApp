@@ -13,4 +13,12 @@
     <string name="menu_telegram">Telegram</string>
     <string name="menu_rate">Rate</string>
     <string name="menu_about">About</string>
+
+    <!-- Server Screen -->
+    <string name="server_list_title">Server list</string>
+    <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
+
+    <!-- Error Fragment -->
+    <string name="error_fragment_message">An error occurred</string>
+    <string name="dismiss_error">Dismiss</string>
 </resources>

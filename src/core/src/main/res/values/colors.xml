@@ -5,11 +5,18 @@
     <color name="button_background_color">#4CAF50</color>
     <color name="nav_bar_background">#172A4E</color>
     <color name="menu_icon_color">#FFFFFF</color>
+    <color name="text_color_primary">#FFFFFF</color>
+    <color name="text_color_secondary">#A9A9A9</color>
 
     <!-- Speedometer Colors -->
     <color name="speedometer_arc_color">#1E3A6E</color>
     <color name="speedometer_progress_color">#3B7CFF</color>
-    <color name="speedometer_text_color">@android:color/white</color>
+    <color name="speedometer_text_color">@color/text_color_primary</color>
+
+    <!-- Ping Colors -->
+    <color name="ping_strong_color">#00FF00</color>
+    <color name="ping_medium_color">#FFFF00</color>
+    <color name="ping_weak_color">#FF0000</color>
 
     <!-- TV specific colors -->
     <color name="background_gradient_start">@color/app_background</color>
