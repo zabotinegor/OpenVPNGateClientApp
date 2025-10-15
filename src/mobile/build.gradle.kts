@@ -1,6 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+}
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.isFile) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -11,11 +19,12 @@ android {
 
     signingConfigs {
         create("release") {
-            // You need to create a keystore file and set the paths and passwords here
-            // keyAlias = "your-key-alias"
-            // keyPassword = "your-key-password"
-            // storeFile = file("path/to/your/keystore.jks")
-            // storePassword = "your-store-password"
+            if (keystorePropertiesFile.isFile) {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
         }
     }
 
