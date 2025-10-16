@@ -21,4 +21,5 @@
     <!-- Error Fragment -->
     <string name="error_fragment_message">An error occurred</string>
     <string name="dismiss_error">Dismiss</string>
+    <string name="error_getting_servers">Error getting servers</string>
 </resources>
