@@ -10,7 +10,9 @@ import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SignalStrength
 
-class ServerAdapter(private val servers: List<Server>) : RecyclerView.Adapter<ServerAdapter.ViewHolder>() {
+class ServerAdapter(
+    private var servers: MutableList<Server> = mutableListOf()
+) : RecyclerView.Adapter<ServerAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_server, parent, false)
@@ -22,6 +24,12 @@ class ServerAdapter(private val servers: List<Server>) : RecyclerView.Adapter<Se
     }
 
     override fun getItemCount() = servers.size
+
+    fun updateServers(newServers: List<Server>) {
+        servers.clear()
+        servers.addAll(newServers)
+        notifyDataSetChanged() // This is simple, but not the most efficient way.
+    }
 
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val serverName: TextView = itemView.findViewById(R.id.server_name)

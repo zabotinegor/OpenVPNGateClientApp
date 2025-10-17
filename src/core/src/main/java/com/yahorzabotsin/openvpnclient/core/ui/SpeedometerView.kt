@@ -24,6 +24,9 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private var subtitleTextSize: Float
 
     init {
+        // Use software layer to avoid rendering artifacts with drawArc
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+
         val typedArray = context.theme.obtainStyledAttributes(
             attrs,
             R.styleable.SpeedometerView,
@@ -48,17 +51,33 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
 
         val centerX = width / 2f
         val centerY = height / 2f
-        val radius = Math.min(centerX, centerY) * 0.8f
+
+        // To prevent clipping, the bounding box of the arc must be inset
+        // by at least half the stroke width.
+        val inset = arcWidth / 2f
+        arcRect.set(paddingLeft + inset, paddingTop + inset, width - paddingRight - inset, height - paddingBottom - inset)
+
+        // The arc should be circular, so we make the bounding box a square
+        if (arcRect.width() > arcRect.height()) {
+            val diff = arcRect.width() - arcRect.height()
+            arcRect.left += diff / 2f
+            arcRect.right -= diff / 2f
+        } else {
+            val diff = arcRect.height() - arcRect.width()
+            arcRect.top += diff / 2f
+            arcRect.bottom -= diff / 2f
+        }
 
         // Draw the outer arc
         paint.color = arcColor
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = arcWidth
-        arcRect.set(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+        paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, 150f, 240f, false, paint)
 
         // Draw the inner progress arc
         paint.color = progressColor
+        paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, 150f, 100f, false, paint) // Example progress
 
         // Draw the speed text

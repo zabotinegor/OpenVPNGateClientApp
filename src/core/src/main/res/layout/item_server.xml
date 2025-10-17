@@ -4,6 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:minHeight="@dimen/list_item_min_height"
     android:orientation="horizontal"
     android:padding="16dp"
     android:gravity="center_vertical"
@@ -16,6 +17,7 @@
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:src="@drawable/ic_baseline_public_24"
+        app:tint="@color/text_color_primary"
         tools:src="@drawable/ic_baseline_public_24" />
 
     <LinearLayout
@@ -29,14 +31,14 @@
             android:id="@+id/server_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_color_primary"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
             tools:text="Netherlands" />
 
         <TextView
             android:id="@+id/server_city"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_color_secondary"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
             tools:text="Amsterdam" />
     </LinearLayout>
 
@@ -50,7 +52,7 @@
         android:id="@+id/ping_value"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="@color/text_color_primary"
+        android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
         android:layout_marginStart="8dp"
         tools:text="53" />
 

@@ -1,6 +1,7 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Base.Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+<resources>
+    <style name="Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+        <!-- Mobile-specific theme attributes -->
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>
     </style>
-
-    <style name="Theme.OpenVPNClient" parent="Base.Theme.OpenVPNClient" />
 </resources>

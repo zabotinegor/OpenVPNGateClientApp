@@ -1,9 +1,11 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
 import com.yahorzabotsin.openvpnclient.core.ApiConstants
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
+import java.util.concurrent.TimeUnit
 
 interface VpnGateApi {
     @GET(ApiConstants.API_ENDPOINT)
@@ -12,8 +14,14 @@ interface VpnGateApi {
 
 class ServerRepository {
 
+    private val okHttpClient = OkHttpClient.Builder()
+        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .build()
+
     private val retrofit = Retrofit.Builder()
         .baseUrl(ApiConstants.BASE_URL)
+        .client(okHttpClient)
         .addConverterFactory(ScalarsConverterFactory.create())
         .build()
 

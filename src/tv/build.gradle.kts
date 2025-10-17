@@ -38,6 +38,10 @@ android {
         resValue("string", "app_name", rootProject.extra.get("appName") as String)
     }
 
+    buildFeatures {
+        viewBinding = true
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
