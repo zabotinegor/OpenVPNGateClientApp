@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         navigationView.setNavigationItemSelectedListener {
             when (it.itemId) {
                 coreR.id.nav_server -> {
-                    startActivity(Intent(this, ServerActivity::class.java))
+                    startActivity(Intent(this, ServerListActivityMobile::class.java))
                 }
                 else -> {
                     Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()

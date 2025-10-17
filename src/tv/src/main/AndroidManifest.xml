@@ -12,11 +12,12 @@
         android:required="true" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/appicon"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.OpenVPNClient">
+        android:theme="@style/Theme.OpenVPNClient"
+        tools:ignore="DataExtractionRules">
         <activity
             android:name=".MainActivity"
             android:banner="@drawable/banner"
@@ -30,17 +31,13 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".DetailsActivity"
-            android:exported="false" />
+            android:name=".ServerListActivityTV"
+            android:exported="false"
+            android:screenOrientation="landscape" />
         <activity
-            android:name=".PlaybackActivity"
-            android:exported="false" />
-        <activity
-            android:name=".BrowseErrorActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ServerActivity"
-            android:exported="false" />
+            android:name=".CountryListActivityTV"
+            android:exported="false"
+            android:screenOrientation="landscape" />
     </application>
 
 </manifest>

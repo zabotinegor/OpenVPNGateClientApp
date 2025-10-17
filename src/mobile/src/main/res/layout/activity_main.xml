@@ -80,7 +80,8 @@
             <ImageView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:src="@drawable/ic_baseline_public_24" />
+                android:src="@drawable/ic_baseline_public_24"
+                app:tint="@color/text_color_primary" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -92,20 +93,23 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Russia"
-                    android:textColor="@android:color/white" />
+                    android:text="@string/current_country"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                    tools:text="Russia" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Novosibirsk"
-                    android:textColor="@android:color/darker_gray" />
+                    android:text="@string/current_city"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                    tools:text="Novosibirsk" />
             </LinearLayout>
 
             <ImageView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:src="@drawable/ic_baseline_chevron_right_24" />
+                android:src="@drawable/ic_baseline_chevron_right_24"
+                app:tint="@color/text_color_primary" />
         </LinearLayout>
 
 

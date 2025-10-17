@@ -1,5 +1,6 @@
 <resources>
     <style name="Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+        <!-- TV-specific theme attributes -->
         <item name="android:theme">@style/Theme.Leanback</item>
         <item name="android:buttonStyle">@style/Widget.OpenVPNClient.Button</item>
     </style>

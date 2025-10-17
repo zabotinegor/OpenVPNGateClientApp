@@ -1,12 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Base application theme. -->
     <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/app_background</item>
         <item name="colorPrimary">@color/speedometer_progress_color</item>
     </style>
 
+    <!-- Widget styles -->
     <style name="Widget.OpenVPNClient.Button" parent="Widget.AppCompat.Button">
         <item name="android:background">@color/button_background_color</item>
         <item name="android:textColor">@android:color/white</item>
     </style>
+
+    <!-- Text Appearances -->
+    <style name="TextAppearance.OpenVPNClient.Title" parent="TextAppearance.AppCompat.Title">
+        <item name="android:textColor">@color/text_color_primary</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClient.Body" parent="TextAppearance.AppCompat.Body1">
+        <item name="android:textColor">@color/text_color_primary</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClient.Subtitle" parent="TextAppearance.AppCompat.Caption">
+        <item name="android:textColor">@color/text_color_secondary</item>
+    </style>
+
 </resources>

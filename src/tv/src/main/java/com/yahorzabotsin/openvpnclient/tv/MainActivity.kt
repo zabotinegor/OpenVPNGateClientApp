@@ -1,7 +1,6 @@
 package com.yahorzabotsin.openvpnclient.tv
 
 import android.app.Activity
-import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
@@ -9,92 +8,93 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
-import androidx.drawerlayout.widget.DrawerLayout
-import com.google.android.material.navigation.NavigationView
+import com.yahorzabotsin.openvpnclient.core.R as coreR
 import com.yahorzabotsin.openvpnclient.core.ui.setAsStub
+import com.yahorzabotsin.openvpnclient.tv.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var navigationView: NavigationView
-    private var selectedMenuItemId: Int = com.yahorzabotsin.openvpnclient.core.R.id.nav_server
 
-    private val serverActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+    private lateinit var binding: ActivityMainBinding
+    private var selectedMenuItemId: Int = coreR.id.nav_server
+
+    private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == Activity.RESULT_OK) {
-            drawerLayout.openDrawer(GravityCompat.START)
+            binding.drawerLayout.openDrawer(GravityCompat.START)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        drawerLayout = findViewById(R.id.drawer_layout)
-        navigationView = findViewById(R.id.nav_view)
-        val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
-        setSupportActionBar(toolbar)
+        setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(false)
         supportActionBar?.setDisplayShowTitleEnabled(false)
 
+        setupDrawer()
+        setupListeners()
+
+        binding.startConnectionButton.setAsStub()
+        binding.navView.setCheckedItem(selectedMenuItemId)
+    }
+
+    private fun setupDrawer() {
         val toggle = ActionBarDrawerToggle(
             this,
-            drawerLayout,
-            com.yahorzabotsin.openvpnclient.core.R.string.navigation_drawer_open,
-            com.yahorzabotsin.openvpnclient.core.R.string.navigation_drawer_close
+            binding.drawerLayout,
+            coreR.string.navigation_drawer_open,
+            coreR.string.navigation_drawer_close
         )
-        drawerLayout.addDrawerListener(toggle)
+        binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
+    }
 
-        findViewById<View>(R.id.menu_button).setOnClickListener {
-            drawerLayout.openDrawer(GravityCompat.START)
+    private fun setupListeners() {
+        binding.menuButton.setOnClickListener {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-        val startConnectionButton = findViewById<View>(R.id.start_connection_button)
-        startConnectionButton.setAsStub()
-
-        drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
+        binding.drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.DrawerListener {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
 
             override fun onDrawerOpened(drawerView: View) {
-                navigationView.setCheckedItem(selectedMenuItemId)
-                // Use post to make sure the view is rendered before requesting focus
-                navigationView.post {
-                    navigationView.findViewById<View>(selectedMenuItemId)?.requestFocus()
+                binding.navView.setCheckedItem(selectedMenuItemId)
+                binding.navView.post { // Use post to make sure the view is rendered before requesting focus
+                    binding.navView.findViewById<View>(selectedMenuItemId)?.requestFocus()
                 }
             }
 
             override fun onDrawerClosed(drawerView: View) {
-                startConnectionButton.requestFocus()
+                binding.startConnectionButton.requestFocus()
             }
 
             override fun onDrawerStateChanged(newState: Int) {}
         })
 
-        navigationView.setNavigationItemSelectedListener {
+        binding.navView.setNavigationItemSelectedListener {
             selectedMenuItemId = it.itemId
             when (it.itemId) {
-                com.yahorzabotsin.openvpnclient.core.R.id.nav_server -> {
-                    serverActivityLauncher.launch(Intent(this, ServerActivity::class.java))
+                coreR.id.nav_server -> {
+                    serverListActivityLauncher.launch(ServerListActivityTV.newIntent(this))
                 }
                 else -> {
-                    Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, coreR.string.feature_in_development, Toast.LENGTH_SHORT).show()
                 }
             }
-            drawerLayout.closeDrawer(GravityCompat.START)
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
             true
         }
-
-        // Set initial checked item
-        navigationView.setCheckedItem(selectedMenuItemId)
     }
 
     override fun onResume() {
         super.onResume()
-        findViewById<View>(R.id.start_connection_button).requestFocus()
+        binding.startConnectionButton.requestFocus()
     }
 
     override fun onBackPressed() {
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
+        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
         } else {
             super.onBackPressed()
         }
