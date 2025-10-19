@@ -31,6 +31,7 @@ abstract class BaseServerListActivity : AppCompatActivity() {
             val resultIntent = Intent().apply {
                 putExtra(EXTRA_SELECTED_SERVER_COUNTRY, it.country.name)
                 putExtra(EXTRA_SELECTED_SERVER_CITY, it.city)
+                putExtra(EXTRA_SELECTED_SERVER_CONFIG, it.configData)
             }
             setResult(Activity.RESULT_OK, resultIntent)
             finish()
@@ -112,5 +113,6 @@ abstract class BaseServerListActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
         const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"
+        const val EXTRA_SELECTED_SERVER_CONFIG = "EXTRA_SELECTED_SERVER_CONFIG"
     }
 }

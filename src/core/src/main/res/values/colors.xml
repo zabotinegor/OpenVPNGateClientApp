@@ -9,6 +9,8 @@
     <color name="text_color_primary">#FFFFFF</color>
     <color name="text_color_secondary">#A9A9A9</color>
     <color name="icon_color">#3B7CFF</color>
+    <color name="red">#FF0000</color>
+    <color name="green">#00FF00</color>
 
     <!-- Speedometer Colors -->
     <color name="speedometer_arc_color">#1E3A6E</color>
