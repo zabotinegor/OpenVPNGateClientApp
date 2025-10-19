@@ -11,7 +11,16 @@ class OpenVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(tag, "onStartCommand")
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-        // TODO: Start VPN connection here
+
+        val config = intent?.getStringExtra(VpnManager.EXTRA_CONFIG)
+        if (config != null) {
+            val profile = OvpnProfileParser.parse(config.byteInputStream())
+            Log.d(tag, "Parsed profile: $profile")
+            // TODO: Start VPN connection using the profile
+        } else {
+            Log.e(tag, "No config provided")
+        }
+
         return START_STICKY
     }
 
