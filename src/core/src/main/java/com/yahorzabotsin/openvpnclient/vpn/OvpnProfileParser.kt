@@ -1,58 +1,96 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
+import android.util.Log
 import java.io.InputStream
-import java.io.InputStreamReader
 
 object OvpnProfileParser {
 
+    private val TAG = OvpnProfileParser::class.simpleName
+
+    private enum class ParseState {
+        NONE,
+        CA,
+        CERT,
+        KEY,
+        TLS_AUTH,
+        TLS_CRYPT
+    }
+
     fun parse(inputStream: InputStream): OvpnProfile {
-        val profile = OvpnProfile()
-        val reader = InputStreamReader(inputStream)
-        val lines = reader.readLines()
+        Log.d(TAG, "Starting to parse OVPN profile...")
 
-        var inCa = false
-        var inCert = false
-        var inKey = false
-        var inTlsAuth = false
-        var inTlsCrypt = false
+        var name: String? = null
+        var remote: String? = null
+        var port: Int? = null
+        var proto: String? = null
+        var dev: String? = null
+        val ca = StringBuilder()
+        val cert = StringBuilder()
+        val key = StringBuilder()
+        val tlsAuth = StringBuilder()
+        val tlsCrypt = StringBuilder()
 
-        for (line in lines) {
-            when {
-                line.startsWith("remote ") -> {
-                    val parts = line.split(" ")
-                    if (parts.size >= 3) {
-                        profile.remote = parts[1]
-                        profile.port = parts[2].toIntOrNull()
+        var currentState = ParseState.NONE
+
+        inputStream.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                val trimmedLine = line.trim()
+                if (trimmedLine.isEmpty() || trimmedLine.startsWith("#")) return@forEach
+
+                when {
+                    trimmedLine.startsWith("setenv PROFILE_NAME") -> name = trimmedLine.split("\"")[1]
+                    trimmedLine.startsWith("remote ") -> {
+                        val parts = trimmedLine.split(" ").filter { it.isNotBlank() }
+                        if (parts.size >= 3) {
+                            remote = parts[1]
+                            port = parts[2].toIntOrNull()
+                            if (port == null) Log.w(TAG, "Could not parse port from line: $trimmedLine")
+                        } else {
+                            Log.w(TAG, "Malformed remote line: $trimmedLine")
+                        }
                     }
-                }
-                line.startsWith("proto ") -> {
-                    profile.proto = line.substringAfter("proto ")
-                }
-                line.startsWith("dev ") -> {
-                    profile.dev = line.substringAfter("dev ")
-                }
-                line.startsWith("<ca>") -> inCa = true
-                line.startsWith("</ca>") -> inCa = false
-                line.startsWith("<cert>") -> inCert = true
-                line.startsWith("</cert>") -> inCert = false
-                line.startsWith("<key>") -> inKey = true
-                line.startsWith("</key>") -> inKey = false
-                line.startsWith("<tls-auth>") -> inTlsAuth = true
-                line.startsWith("</tls-auth>") -> inTlsAuth = false
-                line.startsWith("<tls-crypt>") -> inTlsCrypt = true
-                line.startsWith("</tls-crypt>") -> inTlsCrypt = false
-                else -> {
-                    when {
-                        inCa -> profile.ca = (profile.ca ?: "") + line + "\n"
-                        inCert -> profile.cert = (profile.cert ?: "") + line + "\n"
-                        inKey -> profile.key = (profile.key ?: "") + line + "\n"
-                        inTlsAuth -> profile.tlsAuth = (profile.tlsAuth ?: "") + line + "\n"
-                        inTlsCrypt -> profile.tlsCrypt = (profile.tlsCrypt ?: "") + line + "\n"
+                    trimmedLine.startsWith("proto ") -> proto = trimmedLine.substringAfter("proto ")
+                    trimmedLine.startsWith("dev ") -> dev = trimmedLine.substringAfter("dev ")
+
+                    trimmedLine.startsWith("<ca>") -> currentState = ParseState.CA
+                    trimmedLine.startsWith("</ca>") -> currentState = ParseState.NONE
+                    trimmedLine.startsWith("<cert>") -> currentState = ParseState.CERT
+                    trimmedLine.startsWith("</cert>") -> currentState = ParseState.NONE
+                    trimmedLine.startsWith("<key>") -> currentState = ParseState.KEY
+                    trimmedLine.startsWith("</key>") -> currentState = ParseState.NONE
+                    trimmedLine.startsWith("<tls-auth>") -> currentState = ParseState.TLS_AUTH
+                    trimmedLine.startsWith("</tls-auth>") -> currentState = ParseState.NONE
+                    trimmedLine.startsWith("<tls-crypt>") -> currentState = ParseState.TLS_CRYPT
+                    trimmedLine.startsWith("</tls-crypt>") -> currentState = ParseState.NONE
+
+                    else -> {
+                        when (currentState) {
+                            ParseState.CA -> ca.append(line).append("\n")
+                            ParseState.CERT -> cert.append(line).append("\n")
+                            ParseState.KEY -> key.append(line).append("\n")
+                            ParseState.TLS_AUTH -> tlsAuth.append(line).append("\n")
+                            ParseState.TLS_CRYPT -> tlsCrypt.append(line).append("\n")
+                            ParseState.NONE -> Log.w(TAG, "Unrecognized line: $trimmedLine")
+                        }
                     }
                 }
             }
         }
 
+        val profile = OvpnProfile(
+            name = name,
+            remote = remote,
+            port = port,
+            proto = proto,
+            dev = dev,
+            ca = ca.toString().trim(),
+            cert = cert.toString().trim(),
+            key = key.toString().trim(),
+            tlsAuth = tlsAuth.toString().trim(),
+            tlsCrypt = tlsCrypt.toString().trim()
+        )
+
+        Log.i(TAG, "Successfully parsed OVPN profile: ${profile.name ?: "(no name)"}, remote: ${profile.remote}:${profile.port}")
         return profile
     }
 }

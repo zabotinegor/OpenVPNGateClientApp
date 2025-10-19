@@ -6,13 +6,12 @@ import android.net.VpnService
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.yahorzabotsin.openvpnclient.core.R
+import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
@@ -25,37 +24,45 @@ class ConnectionControlsView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
-    private val countryTextView: TextView
-    private val cityTextView: TextView
-    private val connectButton: Button
+    private val binding: ViewConnectionControlsBinding
 
     private var vpnConfig: String? = null
-    private val tag = "ConnectionControlsView"
+    private val tag = ConnectionControlsView::class.simpleName
 
     private var requestVpnPermission: (() -> Unit)? = null
 
     init {
-        LayoutInflater.from(context).inflate(R.layout.view_connection_controls, this, true)
-        countryTextView = findViewById(R.id.current_country)
-        cityTextView = findViewById(R.id.current_city)
-        connectButton = findViewById(R.id.start_connection_button)
+        binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
-        connectButton.setOnClickListener {
+        binding.startConnectionButton.setOnClickListener {
             Log.d(tag, "Connect button clicked. Current state: ${ConnectionStateManager.state.value}")
             when (ConnectionStateManager.state.value) {
                 ConnectionState.DISCONNECTED -> {
                     if (vpnConfig != null) {
+                        Log.d(tag, "Attempting to start VPN connection.")
                         prepareAndStartVpn()
                     } else {
+                        Log.w(tag, "Connect button clicked, but no VPN config is set.")
                         Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
                     }
                 }
                 ConnectionState.CONNECTED -> {
+                    Log.d(tag, "Attempting to stop VPN connection.")
                     VpnManager.stopVpn(context)
                 }
-                else -> { /* No-op */ }
+                else -> {
+                    Log.w(tag, "Connect button clicked in an intermediate state: ${ConnectionStateManager.state.value}. No action taken.")
+                }
             }
         }
+    }
+
+    /**
+     * Programmatically triggers a click on the connection button.
+     * Useful for re-triggering the connection flow after a permission request.
+     */
+    fun performConnectionClick() {
+        binding.startConnectionButton.performClick()
     }
 
     private fun prepareAndStartVpn() {
@@ -74,8 +81,9 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setServer(country: String, city: String) {
-        countryTextView.text = country
-        cityTextView.text = city
+        Log.d(tag, "Server updated. Country: $country, City: $city")
+        binding.currentCountry.text = country
+        binding.currentCity.text = city
     }
 
     fun setVpnConfig(config: String) {
@@ -84,6 +92,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
+        Log.d(tag, "LifecycleOwner set, starting to observe connection state.")
         ConnectionStateManager.state
             .onEach { state -> updateButtonState(state) }
             .launchIn(lifecycleOwner.lifecycleScope)
@@ -91,6 +100,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun updateButtonState(state: ConnectionState) {
         Log.d(tag, "Updating button state for state: $state")
+        val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
                 connectButton.setText(R.string.stop_connection)
