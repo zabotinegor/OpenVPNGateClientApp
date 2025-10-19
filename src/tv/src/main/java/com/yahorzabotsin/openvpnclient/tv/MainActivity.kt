@@ -56,19 +56,12 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setupToolbar()
         setupConnectionControls()
-        setupDrawer()
-        setupListeners()
+        setupToolbarAndDrawer()
+        setupNavigationView()
+        fetchDefaultServer()
 
         binding.navView.setCheckedItem(selectedMenuItemId)
-        fetchDefaultServer()
-    }
-
-    private fun setupToolbar() {
-        setSupportActionBar(binding.toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(false)
-        supportActionBar?.setDisplayShowTitleEnabled(false)
     }
 
     private fun setupConnectionControls() {
@@ -85,7 +78,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupDrawer() {
+    private fun setupToolbarAndDrawer() {
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        supportActionBar?.setDisplayShowTitleEnabled(false)
+
         val toggle = ActionBarDrawerToggle(
             this,
             binding.drawerLayout,
@@ -94,14 +91,13 @@ class MainActivity : AppCompatActivity() {
         )
         binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
-    }
 
-    private fun setupListeners() {
         binding.menuButton.setOnClickListener {
             Log.d(TAG, "Menu button clicked, opening drawer.")
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
+        // TV-specific focus management
         binding.drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.DrawerListener {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
 
@@ -125,7 +121,9 @@ class MainActivity : AppCompatActivity() {
 
             override fun onDrawerStateChanged(newState: Int) {}
         })
+    }
 
+    private fun setupNavigationView() {
         binding.navView.setNavigationItemSelectedListener {
             selectedMenuItemId = it.itemId
             Log.d(TAG, "Navigation item selected: ${it.title}")
