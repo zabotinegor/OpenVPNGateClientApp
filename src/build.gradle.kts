@@ -5,7 +5,5 @@ plugins {
     alias(libs.plugins.android.library) apply false
 }
 
-ext {
-    set("basePackageName", "com.yahorzabotsin.openvpnclient")
-    set("appName", "Open VPN Gate Client")
-}
+val basePackageName by extra("com.yahorzabotsin.openvpnclient")
+val appName by extra("Open VPN Gate Client")

@@ -17,6 +17,10 @@ android {
         version = release(36)
     }
 
+    buildFeatures {
+        viewBinding = true
+    }
+
     signingConfigs {
         create("release") {
             if (keystorePropertiesFile.isFile) {

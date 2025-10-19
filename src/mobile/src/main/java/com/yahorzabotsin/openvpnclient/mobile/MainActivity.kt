@@ -10,29 +10,29 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
-import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.navigation.NavigationView
-import com.yahorzabotsin.openvpnclient.core.R as coreR
-import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.core.ui.BaseServerListActivity
-import com.yahorzabotsin.openvpnclient.core.ui.ConnectionControlsView
+import com.yahorzabotsin.openvpnclient.mobile.databinding.ActivityMainBinding
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import kotlinx.coroutines.launch
+import com.yahorzabotsin.openvpnclient.core.R as coreR
+import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var connectionControls: ConnectionControlsView
+
+    private lateinit var binding: ActivityMainBinding
     private val serverRepository = ServerRepository()
-    private val tag = "MainActivity"
+    private val TAG = MainActivity::class.simpleName
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
+            Log.i(TAG, "VPN permission granted.")
             // Permission granted, now we can start the VPN
             // The config should be already set in the ConnectionControlsView
-            // We need to trigger the click again, but this time permission is granted
-            connectionControls.findViewById<android.view.View>(coreR.id.start_connection_button).performClick()
+            // We trigger the click again, this time permission is granted
+            binding.connectionControls.performConnectionClick()
         } else {
+            Log.w(TAG, "VPN permission was not granted by the user.")
             Toast.makeText(this, "VPN permission was not granted", Toast.LENGTH_SHORT).show()
         }
     }
@@ -42,75 +42,99 @@ class MainActivity : AppCompatActivity() {
             val country = result.data?.getStringExtra(BaseServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY)
             val city = result.data?.getStringExtra(BaseServerListActivity.EXTRA_SELECTED_SERVER_CITY)
             val config = result.data?.getStringExtra(BaseServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
+
             if (country != null && city != null && config != null) {
-                connectionControls.setServer(country, city)
-                connectionControls.setVpnConfig(config)
+                Log.i(TAG, "Server selected: $country, $city")
+                binding.connectionControls.setServer(country, city)
+                binding.connectionControls.setVpnConfig(config)
+            } else {
+                Log.w(TAG, "Server selection returned with incomplete data.")
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        Log.d(TAG, "onCreate called.")
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        drawerLayout = findViewById(R.id.drawer_layout)
-        connectionControls = findViewById(R.id.connection_controls)
-        connectionControls.setLifecycleOwner(this)
-        connectionControls.setVpnPermissionRequestHandler {
+        setupConnectionControls()
+        setupToolbarAndDrawer()
+        setupNavigationView()
+        fetchDefaultServer()
+    }
+
+    private fun setupConnectionControls() {
+        binding.connectionControls.setLifecycleOwner(this)
+        binding.connectionControls.setVpnPermissionRequestHandler {
+            Log.d(TAG, "Requesting VPN permission.")
             val intent = VpnService.prepare(this)
             if (intent != null) {
                 vpnPermissionLauncher.launch(intent)
+            } else {
+                // If prepare() returns null, it means permission is already granted.
+                // We can directly trigger the connection logic.
+                Log.d(TAG, "VPN permission already granted, triggering connection directly.")
+                binding.connectionControls.performConnectionClick()
             }
         }
+    }
 
-        val toolbar = findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
-        setSupportActionBar(toolbar)
+    private fun setupToolbarAndDrawer() {
+        setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(false)
         supportActionBar?.setDisplayShowTitleEnabled(false)
 
         val toggle = ActionBarDrawerToggle(
             this,
-            drawerLayout,
+            binding.drawerLayout,
             coreR.string.navigation_drawer_open,
             coreR.string.navigation_drawer_close
         )
-        drawerLayout.addDrawerListener(toggle)
+        binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
-        findViewById<android.view.View>(R.id.menu_button).setOnClickListener {
-            drawerLayout.openDrawer(GravityCompat.START)
+        binding.menuButton.setOnClickListener {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
         }
+    }
 
-        val navigationView = findViewById<NavigationView>(R.id.nav_view)
-        navigationView.setNavigationItemSelectedListener {
+    private fun setupNavigationView() {
+        binding.navView.setNavigationItemSelectedListener {
             when (it.itemId) {
                 coreR.id.nav_server -> {
+                    Log.d(TAG, "Server list navigation item clicked.")
                     serverListActivityLauncher.launch(Intent(this, ServerListActivityMobile::class.java))
                 }
                 else -> {
                     Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
                 }
             }
-            drawerLayout.closeDrawer(GravityCompat.START)
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
             true
         }
+    }
 
+    private fun fetchDefaultServer() {
         lifecycleScope.launch {
+            Log.d(TAG, "Fetching default server...")
             try {
                 val servers = serverRepository.getServers()
                 servers.firstOrNull()?.let { defaultServer ->
-                    connectionControls.setServer(defaultServer.country.name, defaultServer.city)
-                    connectionControls.setVpnConfig(defaultServer.configData)
+                    Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
+                    binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
+                    binding.connectionControls.setVpnConfig(defaultServer.configData)
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Failed to fetch default server", e)
+                Log.e(TAG, "Failed to fetch default server", e)
             }
         }
     }
 
     override fun onBackPressed() {
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
+        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
         } else {
             super.onBackPressed()
         }
