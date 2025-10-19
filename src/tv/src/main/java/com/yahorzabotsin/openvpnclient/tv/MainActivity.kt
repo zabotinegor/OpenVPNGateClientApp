@@ -9,7 +9,7 @@ import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import com.yahorzabotsin.openvpnclient.core.R as coreR
-import com.yahorzabotsin.openvpnclient.core.ui.setAsStub
+import com.yahorzabotsin.openvpnclient.core.ui.BaseServerListActivity
 import com.yahorzabotsin.openvpnclient.tv.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -17,9 +17,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var selectedMenuItemId: Int = coreR.id.nav_server
 
-    private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == Activity.RESULT_OK) {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
+    private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val country = result.data?.getStringExtra(BaseServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY)
+            val city = result.data?.getStringExtra(BaseServerListActivity.EXTRA_SELECTED_SERVER_CITY)
+            if (country != null && city != null) {
+                binding.connectionControls.setServer(country, city)
+            } else {
+                binding.drawerLayout.openDrawer(GravityCompat.START)
+            }
         }
     }
 
@@ -35,7 +41,6 @@ class MainActivity : AppCompatActivity() {
         setupDrawer()
         setupListeners()
 
-        binding.startConnectionButton.setAsStub()
         binding.navView.setCheckedItem(selectedMenuItemId)
     }
 
@@ -66,7 +71,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onDrawerClosed(drawerView: View) {
-                binding.startConnectionButton.requestFocus()
+                binding.connectionControls.requestFocus()
             }
 
             override fun onDrawerStateChanged(newState: Int) {}
@@ -89,7 +94,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        binding.startConnectionButton.requestFocus()
+        binding.connectionControls.requestFocus()
     }
 
     override fun onBackPressed() {

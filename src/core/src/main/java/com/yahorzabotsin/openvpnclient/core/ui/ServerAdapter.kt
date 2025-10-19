@@ -11,7 +11,8 @@ import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SignalStrength
 
 class ServerAdapter(
-    private var servers: MutableList<Server> = mutableListOf()
+    private var servers: MutableList<Server> = mutableListOf(),
+    private val onServerClickListener: (Server) -> Unit
 ) : RecyclerView.Adapter<ServerAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -20,7 +21,11 @@ class ServerAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(servers[position])
+        val server = servers[position]
+        holder.bind(server)
+        holder.itemView.setOnClickListener {
+            onServerClickListener(server)
+        }
     }
 
     override fun getItemCount() = servers.size
@@ -48,8 +53,6 @@ class ServerAdapter(
                 SignalStrength.WEAK -> R.drawable.ic_ping_weak
             }
             pingIndicator.setImageResource(pingIndicatorRes)
-
-            itemView.setAsStub()
         }
     }
 }
