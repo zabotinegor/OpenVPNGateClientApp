@@ -3,4 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <application>
+        <service
+            android:name=".vpn.OpenVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE" />
+    </application>
+
 </manifest>
