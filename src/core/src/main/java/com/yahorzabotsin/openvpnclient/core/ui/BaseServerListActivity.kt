@@ -26,7 +26,16 @@ abstract class BaseServerListActivity : AppCompatActivity() {
     private lateinit var servers: List<Server>
     private lateinit var selectedCountryText: TextView
     private lateinit var recyclerView: RecyclerView
-    private val serverAdapter = ServerAdapter()
+    private val serverAdapter by lazy {
+        ServerAdapter {
+            val resultIntent = Intent().apply {
+                putExtra(EXTRA_SELECTED_SERVER_COUNTRY, it.country.name)
+                putExtra(EXTRA_SELECTED_SERVER_CITY, it.city)
+            }
+            setResult(Activity.RESULT_OK, resultIntent)
+            finish()
+        }
+    }
 
     private val countrySelectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -98,5 +107,10 @@ abstract class BaseServerListActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         super.onBackPressed()
+    }
+
+    companion object {
+        const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
+        const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"
     }
 }
