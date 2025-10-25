@@ -17,6 +17,10 @@
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

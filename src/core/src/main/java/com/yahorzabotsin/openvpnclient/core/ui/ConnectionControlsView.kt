@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclient.core.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
 import android.net.VpnService
@@ -30,6 +31,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private val tag = ConnectionControlsView::class.simpleName
 
     private var requestVpnPermission: (() -> Unit)? = null
+    private var requestNotificationPermission: (() -> Unit)? = null
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
@@ -66,7 +68,22 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun prepareAndStartVpn() {
-        // Check if we already have permission
+        // 1) On Android 13+ ensure notification permission for foreground notification
+        val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+        val hasNotificationPermission = if (needNotificationPermission) {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else true
+
+        if (!hasNotificationPermission) {
+            Log.d(tag, "POST_NOTIFICATIONS not granted. Requesting.")
+            requestNotificationPermission?.invoke()
+            return
+        }
+
+        // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
             Log.d(tag, "VPN permission already granted. Starting VPN.")
             VpnManager.startVpn(context, vpnConfig!!)
@@ -78,6 +95,10 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     fun setVpnPermissionRequestHandler(handler: () -> Unit) {
         this.requestVpnPermission = handler
+    }
+
+    fun setNotificationPermissionRequestHandler(handler: () -> Unit) {
+        this.requestNotificationPermission = handler
     }
 
     fun setServer(country: String, city: String) {

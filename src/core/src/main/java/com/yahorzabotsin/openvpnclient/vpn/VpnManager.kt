@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.ContextCompat
 
 object VpnManager {
 
@@ -11,6 +12,8 @@ object VpnManager {
     const val ACTION_VPN = "com.yahorzabotsin.openvpnclient.vpn.ACTION"
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
+    const val NOTIFICATION_ID = 1001
+    var notificationProvider: NotificationProvider = DefaultNotificationProvider
     private val TAG = VpnManager::class.simpleName
 
     fun startVpn(context: Context, base64Config: String) {
@@ -20,7 +23,8 @@ object VpnManager {
             putExtra(EXTRA_CONFIG, decodedConfig)
             putExtra(ACTION_VPN, ACTION_START)
         }
-        context.startService(intent)
+        // Start as foreground service on Android O+
+        ContextCompat.startForegroundService(context, intent)
     }
 
     fun stopVpn(context: Context) {
@@ -28,6 +32,7 @@ object VpnManager {
         val intent = Intent(context, OpenVpnService::class.java).apply {
             putExtra(ACTION_VPN, ACTION_STOP)
         }
-        context.startService(intent)
+        // Use foreground service start to ensure delivery on modern Android
+        ContextCompat.startForegroundService(context, intent)
     }
 }

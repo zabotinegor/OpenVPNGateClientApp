@@ -12,10 +12,12 @@ class OpenVpnService : VpnService() {
     private val tag = OpenVpnService::class.simpleName
     private var vpnInterface: ParcelFileDescriptor? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val notificationId = VpnManager.NOTIFICATION_ID
 
     override fun onCreate() {
         super.onCreate()
         Log.d(tag, "Service created.")
+        VpnManager.notificationProvider.ensureChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -26,6 +28,9 @@ class OpenVpnService : VpnService() {
             VpnManager.ACTION_START -> {
                 val config = intent.getStringExtra(VpnManager.EXTRA_CONFIG)
                 if (config != null) {
+                    // Show foreground notification immediately to comply with FGS requirements
+                    val notification = VpnManager.notificationProvider.buildNotification(this, ConnectionState.CONNECTING)
+                    startForeground(notificationId, notification)
                     serviceScope.launch {
                         startVpnInternal(config)
                     }
@@ -60,6 +65,10 @@ class OpenVpnService : VpnService() {
             vpnInterface = builder.establish() ?: throw IOException("establish() returned null")
             Log.i(tag, "VPN interface established.")
             ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+            // Update notification to Connected state
+            val updated = VpnManager.notificationProvider.buildNotification(this, ConnectionState.CONNECTED)
+            // Using startForeground again ensures notification stays in foreground state and updates content
+            startForeground(notificationId, updated)
             // TODO: Pass the vpnInterface FD to the native OpenVPN engine
 
         } catch (e: Exception) {
@@ -79,6 +88,8 @@ class OpenVpnService : VpnService() {
         }
         serviceScope.coroutineContext.cancelChildren()
         Log.d(tag, "Requesting to stop self.")
+        // Remove foreground notification and stop service
+        stopForeground(true)
         stopSelf()
     }
 

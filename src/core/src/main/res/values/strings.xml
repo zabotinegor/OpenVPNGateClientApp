@@ -32,4 +32,16 @@
 
     <!-- Filter -->
     <string name="all_countries">All</string>
+
+    <!-- VPN Notifications -->
+    <string name="vpn_channel_name">VPN Status</string>
+    <string name="vpn_channel_description">Status of the VPN connection</string>
+    <string name="vpn_notification_title_connecting">VPN connecting</string>
+    <string name="vpn_notification_title_connected">VPN connected</string>
+    <string name="vpn_notification_title_disconnecting">VPN disconnecting</string>
+    <string name="vpn_notification_title_disconnected">VPN disconnected</string>
+    <string name="vpn_notification_text_connecting">Establishing secure connection…</string>
+    <string name="vpn_notification_text_connected">Your VPN is active</string>
+    <string name="vpn_notification_text_disconnecting">Tearing down connection…</string>
+    <string name="vpn_notification_text_disconnected">VPN stopped</string>
 </resources>
