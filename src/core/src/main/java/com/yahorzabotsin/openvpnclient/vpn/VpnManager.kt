@@ -23,8 +23,9 @@ object VpnManager {
             putExtra(EXTRA_CONFIG, decodedConfig)
             putExtra(ACTION_VPN, ACTION_START)
         }
-        // Start as foreground service on Android O+
-        ContextCompat.startForegroundService(context, intent)
+        // Start as normal service; UI triggers this while app is in foreground.
+        // The service itself promotes to foreground immediately.
+        context.startService(intent)
     }
 
     fun stopVpn(context: Context) {
@@ -32,7 +33,8 @@ object VpnManager {
         val intent = Intent(context, OpenVpnService::class.java).apply {
             putExtra(ACTION_VPN, ACTION_STOP)
         }
-        // Use foreground service start to ensure delivery on modern Android
-        ContextCompat.startForegroundService(context, intent)
+        // For STOP we do not strictly need a foreground start; start as normal service.
+        // The service itself will promote to foreground (briefly) while stopping to satisfy O+ rules.
+        context.startService(intent)
     }
 }

@@ -52,8 +52,9 @@ class ConnectionControlsView @JvmOverloads constructor(
                     Log.d(tag, "Attempting to stop VPN connection.")
                     VpnManager.stopVpn(context)
                 }
-                else -> {
-                    Log.w(tag, "Connect button clicked in an intermediate state: ${ConnectionStateManager.state.value}. No action taken.")
+                ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
+                    Log.d(tag, "Cancel requested while ${ConnectionStateManager.state.value}. Stopping VPN.")
+                    VpnManager.stopVpn(context)
                 }
             }
         }
@@ -131,7 +132,11 @@ class ConnectionControlsView @JvmOverloads constructor(
                 connectButton.setText(R.string.start_connection)
                 connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.green))
             }
-            else -> { /* No-op */ }
+            ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
+                // Show cancel action while connecting or disconnecting
+                connectButton.setText(R.string.stop_connection)
+                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.red))
+            }
         }
     }
 }
