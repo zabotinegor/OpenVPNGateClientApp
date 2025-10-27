@@ -9,11 +9,11 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.lifecycle.LifecycleOwner
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
@@ -28,9 +28,12 @@ class ConnectionControlsView @JvmOverloads constructor(
 ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewConnectionControlsBinding
-
     private var vpnConfig: String? = null
-    private val tag = ConnectionControlsView::class.simpleName
+    private var selectedCountry: String? = null
+
+    private companion object {
+        const val TAG = "ConnectionControlsView"
+    }
 
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
@@ -39,33 +42,29 @@ class ConnectionControlsView @JvmOverloads constructor(
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
         binding.startConnectionButton.setOnClickListener {
-            Log.d(tag, "Connect button clicked. Current state: ${ConnectionStateManager.state.value}")
+            Log.d(TAG, "Connect clicked. State=${ConnectionStateManager.state.value}")
             when (ConnectionStateManager.state.value) {
                 ConnectionState.DISCONNECTED -> {
                     if (vpnConfig != null) {
-                        Log.d(tag, "Attempting to start VPN connection.")
+                        Log.d(TAG, "Start VPN requested")
                         prepareAndStartVpn()
                     } else {
-                        Log.w(tag, "Connect button clicked, but no VPN config is set.")
+                        Log.w(TAG, "Connect clicked but no VPN config")
                         Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
                     }
                 }
                 ConnectionState.CONNECTED -> {
-                    Log.d(tag, "Attempting to stop VPN connection.")
+                    Log.d(TAG, "Stop VPN requested")
                     VpnManager.stopVpn(context)
                 }
                 ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
-                    Log.d(tag, "Cancel requested while ${ConnectionStateManager.state.value}. Stopping VPN.")
+                    Log.d(TAG, "Cancel while ${ConnectionStateManager.state.value}; stopping VPN")
                     VpnManager.stopVpn(context)
                 }
             }
         }
     }
 
-    /**
-     * Programmatically triggers a click on the connection button.
-     * Useful for re-triggering the connection flow after a permission request.
-     */
     fun performConnectionClick() {
         binding.startConnectionButton.performClick()
     }
@@ -81,17 +80,17 @@ class ConnectionControlsView @JvmOverloads constructor(
         } else true
 
         if (!hasNotificationPermission) {
-            Log.d(tag, "POST_NOTIFICATIONS not granted. Requesting.")
+            Log.d(TAG, "POST_NOTIFICATIONS not granted; requesting")
             requestNotificationPermission?.invoke()
             return
         }
 
         // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
-            Log.d(tag, "VPN permission already granted. Starting VPN.")
-            VpnManager.startVpn(context, vpnConfig!!)
+            Log.d(TAG, "VPN permission granted; starting VPN")
+            VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
-            Log.d(tag, "VPN permission not granted. Requesting permission.")
+            Log.d(TAG, "VPN permission not granted; requesting")
             requestVpnPermission?.invoke()
         }
     }
@@ -105,18 +104,19 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setServer(country: String, city: String) {
-        Log.d(tag, "Server updated. Country: $country, City: $city")
+        Log.d(TAG, "Server set: $country, $city")
         binding.currentCountry.text = country
         binding.currentCity.text = city
+        selectedCountry = country
     }
 
     fun setVpnConfig(config: String) {
-        Log.d(tag, "Setting vpnConfig")
+        Log.d(TAG, "VPN config set")
         this.vpnConfig = config
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
-        Log.d(tag, "LifecycleOwner set, starting to observe connection state.")
+        Log.d(TAG, "Observe connection state")
         lifecycleOwner.lifecycleScope.launch {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
@@ -127,7 +127,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun updateButtonState(state: ConnectionState) {
-        Log.d(tag, "Updating button state for state: $state")
+        Log.d(TAG, "Update button state: $state")
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
@@ -152,3 +152,5 @@ class ConnectionControlsView @JvmOverloads constructor(
         }
     }
 }
+
+

@@ -43,8 +43,7 @@ android {
 
         val appName = rootProject.extra.get("appName") as String
         resValue("string", "app_name", appName)
-        // Brand ICS OpenVPN notification strings with the same app name
-        resValue("string", "notifcation_title", "$appName - %s")
+        // Title for engine notification is defined in core as "%1$s"; avoid duplication
         resValue("string", "channel_name_background", appName)
     }
 
