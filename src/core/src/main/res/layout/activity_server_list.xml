@@ -92,7 +92,7 @@
         android:layout_marginTop="8dp"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:background="@drawable/server_item_background"
+        android:background="@drawable/item_server_background"
         android:padding="16dp"
         android:focusable="true"
         android:clickable="true"

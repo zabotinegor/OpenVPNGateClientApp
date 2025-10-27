@@ -10,14 +10,16 @@ import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 class ConnectionControlsView @JvmOverloads constructor(
     context: Context,
@@ -115,9 +117,13 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
         Log.d(tag, "LifecycleOwner set, starting to observe connection state.")
-        ConnectionStateManager.state
-            .onEach { state -> updateButtonState(state) }
-            .launchIn(lifecycleOwner.lifecycleScope)
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.state.collect { state ->
+                    updateButtonState(state)
+                }
+            }
+        }
     }
 
     private fun updateButtonState(state: ConnectionState) {
@@ -126,16 +132,22 @@ class ConnectionControlsView @JvmOverloads constructor(
         when (state) {
             ConnectionState.CONNECTED -> {
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.red))
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.red)
+                )
             }
             ConnectionState.DISCONNECTED -> {
                 connectButton.setText(R.string.start_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.green))
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.green)
+                )
             }
             ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
                 // Show cancel action while connecting or disconnecting
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.red))
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.red)
+                )
             }
         }
     }

@@ -12,6 +12,10 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <activity
+            android:name="de.blinkt.openvpn.activities.DisconnectVPN"
+            android:exported="false" />
+
         <receiver
             android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
             android:exported="false" />

@@ -18,30 +18,61 @@ class MobileNotificationProvider : NotificationProvider {
         DefaultNotificationProvider.ensureChannel(context)
     }
 
-    override fun buildNotification(context: Context, state: ConnectionState): Notification {
-        // Start with default notification content
-        val base = DefaultNotificationProvider.buildNotification(context, state)
+    override fun buildNotification(context: Context, state: ConnectionState, content: String?): Notification {
+        val title = when (state) {
+            ConnectionState.CONNECTING -> context.getString(R.string.vpn_notification_title_connecting)
+            ConnectionState.CONNECTED -> context.getString(R.string.vpn_notification_title_connected)
+            ConnectionState.DISCONNECTING -> context.getString(R.string.vpn_notification_title_disconnecting)
+            ConnectionState.DISCONNECTED -> context.getString(R.string.vpn_notification_title_disconnected)
+        }
+        val defaultText = when (state) {
+            ConnectionState.CONNECTING -> context.getString(R.string.vpn_notification_text_connecting)
+            ConnectionState.CONNECTED -> context.getString(R.string.vpn_notification_text_connected)
+            ConnectionState.DISCONNECTING -> context.getString(R.string.vpn_notification_text_disconnecting)
+            ConnectionState.DISCONNECTED -> context.getString(R.string.vpn_notification_text_disconnected)
+        }
+        val text = content ?: defaultText
 
-        // Enrich with a Disconnect action (future control buttons can be added similarly)
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val contentIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                context,
+                0,
+                it.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or (
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                )
+            )
+        }
+
         val stopIntent = Intent(context, DisconnectReceiver::class.java)
         val stopPending = PendingIntent.getBroadcast(
             context,
             0,
             stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            PendingIntent.FLAG_UPDATE_CURRENT or (
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
         )
 
-        return NotificationCompat.Builder(context, DefaultNotificationProvider.CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, DefaultNotificationProvider.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_baseline_public_24)
-            .setContentTitle(base.extras?.getCharSequence(Notification.EXTRA_TITLE) ?: base.extras?.getCharSequence(Notification.EXTRA_TITLE_BIG))
-            .setContentText(base.extras?.getCharSequence(Notification.EXTRA_TEXT))
+            .setContentTitle(title)
+            .setContentText(text)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
-            .addAction(0, context.getString(R.string.stop_connection), stopPending)
-            .setContentIntent(base.contentIntent)
-            .build()
+            .setContentIntent(contentIntent)
+
+        if (content != null) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        }
+
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) {
+            builder.addAction(0, context.getString(R.string.stop_connection), stopPending)
+        }
+
+        return builder.build()
     }
 }
-

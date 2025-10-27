@@ -18,23 +18,26 @@ object VpnManager {
 
     fun startVpn(context: Context, base64Config: String) {
         Log.d(TAG, "startVpn called")
-        val decodedConfig = String(Base64.decode(base64Config, Base64.DEFAULT))
-        val intent = Intent(context, OpenVpnService::class.java).apply {
+        val decodedConfig = try {
+            String(Base64.decode(base64Config, Base64.DEFAULT))
+        } catch (_: IllegalArgumentException) {
+            // Fallback: treat the input as plain config if not valid Base64
+            base64Config
+        }
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(EXTRA_CONFIG, decodedConfig)
             putExtra(ACTION_VPN, ACTION_START)
         }
-        // Start as normal service; UI triggers this while app is in foreground.
-        // The service itself promotes to foreground immediately.
-        context.startService(intent)
+        // Use foreground service start to satisfy Android O+ background restrictions
+        ContextCompat.startForegroundService(context.applicationContext, intent)
     }
 
     fun stopVpn(context: Context) {
         Log.d(TAG, "stopVpn called")
-        val intent = Intent(context, OpenVpnService::class.java).apply {
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(ACTION_VPN, ACTION_STOP)
         }
-        // For STOP we do not strictly need a foreground start; start as normal service.
-        // The service itself will promote to foreground (briefly) while stopping to satisfy O+ rules.
-        context.startService(intent)
+        // Start as foreground service for robust background delivery on O+
+        ContextCompat.startForegroundService(context.applicationContext, intent)
     }
 }

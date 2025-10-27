@@ -31,12 +31,13 @@ import java.io.InputStreamReader
  * - Track engine state via VpnStatus and reflect it to ConnectionStateManager
  * - Maintain a foreground notification via NotificationProvider
  */
-class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener {
+class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
     private val tag = OpenVpnService::class.simpleName
 
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
+    private var lastTrafficLine: String? = null
 
     private val engineConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -55,17 +56,27 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         super.onCreate()
         VpnManager.notificationProvider.ensureChannel(this)
         ensureEngineNotificationChannels()
+        // Immediately enter foreground to satisfy startForegroundService timing guarantees.
+        startForeground(
+            VpnManager.NOTIFICATION_ID,
+            VpnManager.notificationProvider.buildNotification(this, ConnectionState.DISCONNECTED)
+        )
         // Force engine to use OpenVPN 2 (minivpn), since OpenVPN3 class is not packaged.
         try {
             val prefs = de.blinkt.openvpn.core.Preferences.getDefaultSharedPreferences(this)
             if (prefs.getBoolean("ovpn3", true)) {
                 prefs.edit().putBoolean("ovpn3", false).apply()
             }
+            // Make the engine's "DISCONNECT" action instant (no confirmation dialog)
+            if (!prefs.getBoolean("disableconfirmation", false)) {
+                prefs.edit().putBoolean("disableconfirmation", true).apply()
+            }
         } catch (t: Throwable) {
             Log.w(tag, "Failed to enforce ovpn2 mode", t)
         }
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
+        VpnStatus.addByteCountListener(this)
         Log.d(tag, "Service created and VpnStatus listener registered")
     }
 
@@ -112,7 +123,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                startForeground(VpnManager.NOTIFICATION_ID, VpnManager.notificationProvider.buildNotification(this, ConnectionState.CONNECTING))
+                startForeground(
+                    VpnManager.NOTIFICATION_ID,
+                    VpnManager.notificationProvider.buildNotification(this, ConnectionState.CONNECTING)
+                )
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 startIcsOpenVpn(config)
             }
@@ -188,9 +202,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun updateNotification(state: ConnectionState) {
+    private fun updateNotification(state: ConnectionState, content: String? = null) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val n = VpnManager.notificationProvider.buildNotification(this, state)
+        val effectiveContent = content ?: if (state == ConnectionState.CONNECTED) lastTrafficLine else null
+        val n = VpnManager.notificationProvider.buildNotification(this, state, effectiveContent)
         nm.notify(VpnManager.NOTIFICATION_ID, n)
     }
 
@@ -203,6 +218,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
+        VpnStatus.removeByteCountListener(this)
+        try { stopForeground(true) } catch (_: Exception) {}
         if (boundToEngine) {
             try { unbindService(engineConnection) } catch (_: Exception) {}
             boundToEngine = false
@@ -225,20 +242,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED -> {
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                lastTrafficLine = null
                 updateNotification(ConnectionState.CONNECTING)
             }
             ConnectionStatus.LEVEL_CONNECTED -> {
                 ConnectionStateManager.updateState(ConnectionState.CONNECTED)
                 updateNotification(ConnectionState.CONNECTED)
+                // Engine posts its own foreground notification; drop ours to avoid duplicates
+                try { stopForeground(false) } catch (_: Exception) {}
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
-                // Treat as disconnected but keep service alive to continue receiving state changes
-                // (engine may transition shortly to CONNECTING/CONNECTED).
+                // Transition to a clean stopped state and remove foreground
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                lastTrafficLine = null
                 updateNotification(ConnectionState.DISCONNECTED)
+                stopSelfSafely()
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
                 // UI layer should have handled permission; keep connecting state but log.
@@ -246,6 +267,40 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> { /* ignore other transitional states */ }
         }
+    }
+
+    // VpnStatus.ByteCountListener
+    override fun updateByteCount(bytesIn: Long, bytesOut: Long, diffIn: Long, diffOut: Long) {
+        // Only show live traffic while connected
+        lastTrafficLine = buildTrafficLine(bytesIn, bytesOut, diffIn, diffOut)
+        updateNotification(ConnectionState.CONNECTED, lastTrafficLine)
+    }
+
+    private fun buildTrafficLine(totalIn: Long, totalOut: Long, diffIn: Long, diffOut: Long): String {
+        val res = resources
+        val interval = de.blinkt.openvpn.core.OpenVPNManagement.mBytecountInterval
+
+        val downloadTotal = de.blinkt.openvpn.core.OpenVPNService.humanReadableByteCount(totalIn, false, res)
+        val uploadTotal = de.blinkt.openvpn.core.OpenVPNService.humanReadableByteCount(totalOut, false, res)
+        val downloadSpeed = de.blinkt.openvpn.core.OpenVPNService.humanReadableByteCount(
+            if (interval > 0) diffIn / interval else diffIn,
+            true,
+            res
+        )
+        val uploadSpeed = de.blinkt.openvpn.core.OpenVPNService.humanReadableByteCount(
+            if (interval > 0) diffOut / interval else diffOut,
+            true,
+            res
+        )
+
+        return String.format(
+            java.util.Locale.getDefault(),
+            "\u2193%s %s - \u2191%s %s",
+            downloadSpeed,
+            downloadTotal,
+            uploadSpeed,
+            uploadTotal
+        )
     }
 
     override fun setConnectedVPN(uuid: String) {
@@ -269,3 +324,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 }
+
+
+
+

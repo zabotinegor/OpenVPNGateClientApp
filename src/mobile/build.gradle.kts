@@ -41,7 +41,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        resValue("string", "app_name", rootProject.extra.get("appName") as String)
+        val appName = rootProject.extra.get("appName") as String
+        resValue("string", "app_name", appName)
+        // Brand ICS OpenVPN notification strings with the same app name
+        resValue("string", "notifcation_title", "$appName - %s")
+        resValue("string", "channel_name_background", appName)
     }
 
     buildTypes {

@@ -13,7 +13,7 @@ import com.yahorzabotsin.openvpnclient.core.R
 
 interface NotificationProvider {
     fun ensureChannel(context: Context)
-    fun buildNotification(context: Context, state: ConnectionState): Notification
+    fun buildNotification(context: Context, state: ConnectionState, content: String? = null): Notification
 }
 
 object DefaultNotificationProvider : NotificationProvider {
@@ -39,19 +39,20 @@ object DefaultNotificationProvider : NotificationProvider {
         }
     }
 
-    override fun buildNotification(context: Context, state: ConnectionState): Notification {
+    override fun buildNotification(context: Context, state: ConnectionState, content: String?): Notification {
         val title = when (state) {
             ConnectionState.CONNECTING -> context.getString(R.string.vpn_notification_title_connecting)
             ConnectionState.CONNECTED -> context.getString(R.string.vpn_notification_title_connected)
             ConnectionState.DISCONNECTING -> context.getString(R.string.vpn_notification_title_disconnecting)
             ConnectionState.DISCONNECTED -> context.getString(R.string.vpn_notification_title_disconnected)
         }
-        val text = when (state) {
+        val defaultText = when (state) {
             ConnectionState.CONNECTING -> context.getString(R.string.vpn_notification_text_connecting)
             ConnectionState.CONNECTED -> context.getString(R.string.vpn_notification_text_connected)
             ConnectionState.DISCONNECTING -> context.getString(R.string.vpn_notification_text_disconnecting)
             ConnectionState.DISCONNECTED -> context.getString(R.string.vpn_notification_text_disconnected)
         }
+        val text = content ?: defaultText
 
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         val contentIntent = if (launchIntent != null) {
@@ -65,7 +66,7 @@ object DefaultNotificationProvider : NotificationProvider {
             )
         } else null
 
-        return NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_baseline_public_24)
             .setContentTitle(title)
             .setContentText(text)
@@ -74,7 +75,25 @@ object DefaultNotificationProvider : NotificationProvider {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .apply { if (contentIntent != null) setContentIntent(contentIntent) }
-            .build()
+        // Show a bigger text block when we have live traffic info
+        if (content != null) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        }
+
+        // Add quick stop action when active/connecting
+        if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) {
+            val stopIntent = Intent(context, DisconnectReceiver::class.java)
+            val stopPending = PendingIntent.getBroadcast(
+                context,
+                1,
+                stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                )
+            )
+            builder.addAction(0, context.getString(R.string.stop_connection), stopPending)
+        }
+
+        return builder.build()
     }
 }
-
