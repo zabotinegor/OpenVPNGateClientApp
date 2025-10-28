@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         fetchDefaultServer()
 
         binding.navView.setCheckedItem(selectedMenuItemId)
+        binding.connectionControls.post { binding.connectionControls.requestPrimaryFocus() }
     }
 
     private fun setupConnectionControls() {
@@ -136,8 +137,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onDrawerClosed(drawerView: View) {
-                Log.d(TAG, "Drawer closed, focusing on connection controls.")
-                binding.connectionControls.requestFocus()
+                Log.d(TAG, "Drawer closed, focusing on connection button.")
+                binding.connectionControls.requestPrimaryFocus()
             }
 
             override fun onDrawerStateChanged(newState: Int) {}
@@ -179,8 +180,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        Log.d(TAG, "onResume called, requesting focus for connection controls.")
-        binding.connectionControls.requestFocus()
+        Log.d(TAG, "onResume called, requesting focus for connection button.")
+        binding.connectionControls.requestPrimaryFocus()
     }
 
     override fun onBackPressed() {
