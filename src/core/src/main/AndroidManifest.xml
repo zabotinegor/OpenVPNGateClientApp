@@ -3,20 +3,31 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.yahorzabotsin.openvpnclient.core">
 
+    <permission
+        android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS" />
 
-    <application>
+    <application
+        android:name="com.yahorzabotsin.openvpnclient.core.CoreApp">
         <service
             android:name="com.yahorzabotsin.openvpnclient.vpn.OpenVpnService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            tools:ignore="VpnServicePolicy">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
+            android:exported="false" />
+
+        <activity
+            android:name="de.blinkt.openvpn.activities.DisconnectVPN"
+            android:exported="false" />
+
+        <receiver
+            android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
+            android:exported="false" />
+
+        
     </application>
 
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
+

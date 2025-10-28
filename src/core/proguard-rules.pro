@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ICS OpenVPN keep rules (engine AIDL, enums, services)
+-keep class de.blinkt.openvpn.** { *; }
+-keepclassmembers enum de.blinkt.openvpn.core.ConnectionStatus { *; }
+-keep class de.blinkt.openvpn.core.IOpenVPNServiceInternal { *; }

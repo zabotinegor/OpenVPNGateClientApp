@@ -1,0 +1,3 @@
+-keep class de.blinkt.openvpn.** { *; }
+-keepclassmembers enum de.blinkt.openvpn.core.ConnectionStatus { *; }
+-keep class de.blinkt.openvpn.core.IOpenVPNServiceInternal { *; }

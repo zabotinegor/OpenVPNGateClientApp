@@ -1,0 +1,4 @@
+[submodule "src/external/OpenVPNEngine"]
+	path = src/external/OpenVPNEngine
+	url = https://github.com/zabotinegor/OpenVPNEngine.git
+	branch = OpenVPNClientApp-integration
