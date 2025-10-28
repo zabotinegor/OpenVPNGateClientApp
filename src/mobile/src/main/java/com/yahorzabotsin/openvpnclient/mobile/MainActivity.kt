@@ -63,7 +63,16 @@ class MainActivity : AppCompatActivity() {
             binding.connectionControls.performConnectionClick()
         } else {
             Log.w(TAG, "Notification permission not granted by user.")
-            Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+            val shouldShow = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            } else true
+            if (!shouldShow) {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = android.net.Uri.fromParts("package", packageName, null)
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

@@ -91,7 +91,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.ACTION_VPN)}")
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {
@@ -159,6 +159,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @androidx.annotation.MainThread
     override fun updateState(
         state: String?,
         logmessage: String?,
@@ -167,33 +168,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
+        ConnectionStateManager.updateFromEngine(level)
         when (level) {
-            ConnectionStatus.LEVEL_START,
-            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
-            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED -> {
-                ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-            }
             ConnectionStatus.LEVEL_CONNECTED -> {
-                ConnectionStateManager.updateState(ConnectionState.CONNECTED)
                 userInitiatedStart = false
                 userInitiatedStop = false
                 try { stopForeground(true) } catch (_: Exception) {}
+                stopSelfSafely()
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
-                if (userInitiatedStart && !userInitiatedStop) {
-                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-                } else {
-                    if (userInitiatedStop) { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED); userInitiatedStop = false }
-                    stopSelfSafely()
-                }
+                if (userInitiatedStop) { userInitiatedStop = false }
+                stopSelfSafely()
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
                 Log.d(TAG, "Waiting for user input")
             }
-            else -> { /* ignore */ }
+            else -> {}
         }
     }
 
