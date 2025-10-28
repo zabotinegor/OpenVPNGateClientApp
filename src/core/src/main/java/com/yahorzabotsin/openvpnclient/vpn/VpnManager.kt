@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import android.util.Log
-import androidx.core.content.ContextCompat
 
 object VpnManager {
 
@@ -29,7 +28,7 @@ object VpnManager {
             if (!displayName.isNullOrBlank()) putExtra(EXTRA_TITLE, displayName)
             putExtra(ACTION_VPN, ACTION_START)
         }
-        ContextCompat.startForegroundService(context.applicationContext, intent)
+        context.startService(intent)
     }
 
     fun stopVpn(context: Context) {
@@ -37,6 +36,7 @@ object VpnManager {
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(ACTION_VPN, ACTION_STOP)
         }
-        ContextCompat.startForegroundService(context.applicationContext, intent)
+        context.startService(intent)
     }
 }
+
