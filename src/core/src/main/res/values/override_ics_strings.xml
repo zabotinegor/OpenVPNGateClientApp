@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notifcation_title">%1$s</string>
+    <string name="notifcation_title_notconnect">VPN disconnected</string>
+    <item type="string" name="channel_name_background">@string/app_name</item>
+    <string name="channel_description_background">Background status of VPN</string>
+    <string name="channel_name_status">VPN Status</string>
+    <string name="channel_description_status">Connection status updates</string>
+    <string name="channel_name_userreq">VPN Requests</string>
+    <string name="channel_description_userreq">User action requests</string>
+    </resources>

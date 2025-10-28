@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.mobile
 
 import android.app.Activity
+import android.Manifest
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
@@ -53,11 +54,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Log.i(TAG, "Notification permission granted.")
+            // Re-trigger the connection flow now that permission is granted
+            binding.connectionControls.performConnectionClick()
+        } else {
+            Log.w(TAG, "Notification permission not granted by user.")
+            val shouldShow = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            } else true
+            if (!shouldShow) {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = android.net.Uri.fromParts("package", packageName, null)
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called.")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Provide mobile-specific notification builder
+        VpnManager.notificationProvider = MobileNotificationProvider()
 
         setupConnectionControls()
         setupToolbarAndDrawer()
@@ -76,6 +102,16 @@ class MainActivity : AppCompatActivity() {
                 // If prepare() returns null, it means permission is already granted.
                 // We can directly trigger the connection logic.
                 Log.d(TAG, "VPN permission already granted, triggering connection directly.")
+                binding.connectionControls.performConnectionClick()
+            }
+        }
+        binding.connectionControls.setNotificationPermissionRequestHandler {
+            Log.d(TAG, "Requesting POST_NOTIFICATIONS permission.")
+            // Only request on Android 13+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                // Not needed, continue flow
                 binding.connectionControls.performConnectionClick()
             }
         }

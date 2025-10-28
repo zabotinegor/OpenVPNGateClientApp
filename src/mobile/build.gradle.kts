@@ -41,7 +41,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        resValue("string", "app_name", rootProject.extra.get("appName") as String)
+        val appName = rootProject.extra.get("appName") as String
+        resValue("string", "app_name", appName)
+        // Title for engine notification is defined in core as "%1$s"; avoid duplication
+        resValue("string", "channel_name_background", appName)
     }
 
     buildTypes {

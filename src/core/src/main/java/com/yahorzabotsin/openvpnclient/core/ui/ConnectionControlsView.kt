@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclient.core.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
 import android.net.VpnService
@@ -8,15 +9,17 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 class ConnectionControlsView @JvmOverloads constructor(
     context: Context,
@@ -25,53 +28,69 @@ class ConnectionControlsView @JvmOverloads constructor(
 ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewConnectionControlsBinding
-
     private var vpnConfig: String? = null
-    private val tag = ConnectionControlsView::class.simpleName
+    private var selectedCountry: String? = null
+
+    private companion object {
+        const val TAG = "ConnectionControlsView"
+    }
 
     private var requestVpnPermission: (() -> Unit)? = null
+    private var requestNotificationPermission: (() -> Unit)? = null
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
         binding.startConnectionButton.setOnClickListener {
-            Log.d(tag, "Connect button clicked. Current state: ${ConnectionStateManager.state.value}")
+            Log.d(TAG, "Connect clicked. State=${ConnectionStateManager.state.value}")
             when (ConnectionStateManager.state.value) {
                 ConnectionState.DISCONNECTED -> {
                     if (vpnConfig != null) {
-                        Log.d(tag, "Attempting to start VPN connection.")
+                        Log.d(TAG, "Start VPN requested")
                         prepareAndStartVpn()
                     } else {
-                        Log.w(tag, "Connect button clicked, but no VPN config is set.")
+                        Log.w(TAG, "Connect clicked but no VPN config")
                         Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
                     }
                 }
                 ConnectionState.CONNECTED -> {
-                    Log.d(tag, "Attempting to stop VPN connection.")
+                    Log.d(TAG, "Stop VPN requested")
                     VpnManager.stopVpn(context)
                 }
-                else -> {
-                    Log.w(tag, "Connect button clicked in an intermediate state: ${ConnectionStateManager.state.value}. No action taken.")
+                ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
+                    Log.d(TAG, "Cancel while ${ConnectionStateManager.state.value}; stopping VPN")
+                    VpnManager.stopVpn(context)
                 }
             }
         }
     }
 
-    /**
-     * Programmatically triggers a click on the connection button.
-     * Useful for re-triggering the connection flow after a permission request.
-     */
     fun performConnectionClick() {
         binding.startConnectionButton.performClick()
     }
 
     private fun prepareAndStartVpn() {
-        // Check if we already have permission
+        // 1) On Android 13+ ensure notification permission for foreground notification
+        val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+        val hasNotificationPermission = if (needNotificationPermission) {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else true
+
+        if (!hasNotificationPermission) {
+            Log.d(TAG, "POST_NOTIFICATIONS not granted; requesting")
+            requestNotificationPermission?.invoke()
+            return
+        }
+
+        // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
-            Log.d(tag, "VPN permission already granted. Starting VPN.")
-            VpnManager.startVpn(context, vpnConfig!!)
+            Log.d(TAG, "VPN permission granted; starting VPN")
+            VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
-            Log.d(tag, "VPN permission not granted. Requesting permission.")
+            Log.d(TAG, "VPN permission not granted; requesting")
             requestVpnPermission?.invoke()
         }
     }
@@ -80,37 +99,58 @@ class ConnectionControlsView @JvmOverloads constructor(
         this.requestVpnPermission = handler
     }
 
+    fun setNotificationPermissionRequestHandler(handler: () -> Unit) {
+        this.requestNotificationPermission = handler
+    }
+
     fun setServer(country: String, city: String) {
-        Log.d(tag, "Server updated. Country: $country, City: $city")
+        Log.d(TAG, "Server set: $country, $city")
         binding.currentCountry.text = country
         binding.currentCity.text = city
+        selectedCountry = country
     }
 
     fun setVpnConfig(config: String) {
-        Log.d(tag, "Setting vpnConfig")
+        Log.d(TAG, "VPN config set")
         this.vpnConfig = config
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
-        Log.d(tag, "LifecycleOwner set, starting to observe connection state.")
-        ConnectionStateManager.state
-            .onEach { state -> updateButtonState(state) }
-            .launchIn(lifecycleOwner.lifecycleScope)
+        Log.d(TAG, "Observe connection state")
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.state.collect { state ->
+                    updateButtonState(state)
+                }
+            }
+        }
     }
 
     private fun updateButtonState(state: ConnectionState) {
-        Log.d(tag, "Updating button state for state: $state")
+        Log.d(TAG, "Update button state: $state")
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.red))
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.red)
+                )
             }
             ConnectionState.DISCONNECTED -> {
                 connectButton.setText(R.string.start_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(context.getColor(R.color.green))
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.green)
+                )
             }
-            else -> { /* No-op */ }
+            ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
+                // Show cancel action while connecting or disconnecting
+                connectButton.setText(R.string.stop_connection)
+                connectButton.backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(context, R.color.red)
+                )
+            }
         }
     }
 }
+
+

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="ic_stat_vpn_offline" type="drawable">@drawable/ic_stat_vpn</item>
+    <item name="ic_stat_vpn_outline" type="drawable">@drawable/ic_stat_vpn</item>
+    <item name="ic_stat_vpn_empty_halo" type="drawable">@drawable/ic_stat_vpn</item>
+</resources>
