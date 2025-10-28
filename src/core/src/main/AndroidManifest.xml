@@ -19,7 +19,15 @@
         <receiver
             android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
             android:exported="false" />
-            <receiver android:name="com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver" android:exported="false"> <intent-filter><action android:name="de.blinkt.openvpn.VPN_STATUS" /></intent-filter></receiver>
+
+        <receiver
+            android:name="com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver"
+            android:exported="true"
+            android:permission="android.permission.ACCESS_NETWORK_STATE">
+            <intent-filter>
+                <action android:name="de.blinkt.openvpn.VPN_STATUS" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
