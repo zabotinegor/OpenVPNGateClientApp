@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.tv
 
 import android.app.Activity
+import android.Manifest
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
@@ -50,6 +51,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Log.i(TAG, "Notification permission granted.")
+            binding.connectionControls.performConnectionClick()
+        } else {
+            Log.w(TAG, "Notification permission not granted by user.")
+            Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called.")
@@ -73,6 +86,14 @@ class MainActivity : AppCompatActivity() {
                 vpnPermissionLauncher.launch(intent)
             } else {
                 Log.d(TAG, "VPN permission already granted, triggering connection directly.")
+                binding.connectionControls.performConnectionClick()
+            }
+        }
+        binding.connectionControls.setNotificationPermissionRequestHandler {
+            Log.d(TAG, "Requesting POST_NOTIFICATIONS permission (TV).")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
                 binding.connectionControls.performConnectionClick()
             }
         }

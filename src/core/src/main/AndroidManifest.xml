@@ -3,13 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.yahorzabotsin.openvpnclient.core">
 
-    <permission
-        android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS"
-        android:protectionLevel="signature" />
-
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS" />
 
     <application
         android:name="com.yahorzabotsin.openvpnclient.core.CoreApp">

@@ -51,7 +51,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val prefs = de.blinkt.openvpn.core.Preferences.getDefaultSharedPreferences(this)
             if (prefs.getBoolean("ovpn3", true)) prefs.edit().putBoolean("ovpn3", false).apply()
             if (!prefs.getBoolean("disableconfirmation", false)) prefs.edit().putBoolean("disableconfirmation", true).apply()
-        } catch (t: Throwable) { Log.w(TAG, "Failed to enforce ovpn2/disableconfirmation", t) }
+        } catch (t: Throwable) { Log.w(TAG, "Prefs init", t) }
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         Log.d(TAG, "Service created and listeners registered")
