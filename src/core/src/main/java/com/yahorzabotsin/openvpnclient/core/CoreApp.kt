@@ -24,6 +24,9 @@ class CoreApp : Application() {
     }
 
     private fun isMainProcess(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            return packageName == Application.getProcessName()
+        }
         val pid = android.os.Process.myPid()
         val am = getSystemService(ActivityManager::class.java)
         val name = am?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
