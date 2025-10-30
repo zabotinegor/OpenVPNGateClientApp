@@ -93,7 +93,7 @@ import kotlinx.coroutines.launch
 
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
-            try { SelectedCountryStore.resetIndex(context) } catch (_: Exception) {}
+            try { SelectedCountryStore.resetIndex(context) } catch (e: Exception) { Log.e(TAG, "Failed to reset server index", e) }
             VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
             Log.d(TAG, "VPN permission not granted; requesting")
