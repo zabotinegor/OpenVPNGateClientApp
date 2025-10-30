@@ -14,10 +14,11 @@ class CoreApp : Application() {
         VpnManager.notificationProvider.ensureChannel(applicationContext)
         if (isMainProcess()) {
             val filter = IntentFilter("de.blinkt.openvpn.VPN_STATUS")
+            val permission = "$packageName.permission.VPN_STATUS"
             if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(EngineStatusReceiver(), filter, Context.RECEIVER_NOT_EXPORTED)
+                registerReceiver(EngineStatusReceiver(), filter, permission, null, Context.RECEIVER_NOT_EXPORTED)
             } else {
-                registerReceiver(EngineStatusReceiver(), filter)
+                registerReceiver(EngineStatusReceiver(), filter, permission, null)
             }
         }
     }
