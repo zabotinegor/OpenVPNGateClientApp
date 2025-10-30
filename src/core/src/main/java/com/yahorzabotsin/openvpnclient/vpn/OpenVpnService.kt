@@ -25,7 +25,15 @@ import java.io.InputStreamReader
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener {
 
-    private companion object { const val TAG = "OpenVpnService" }
+    private companion object {
+        const val TAG = "OpenVpnService"
+        private val AUTO_SWITCH_LEVELS = setOf(
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_VPNPAUSED,
+            ConnectionStatus.LEVEL_AUTH_FAILED
+        )
+    }
 
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
@@ -169,12 +177,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
-        if (userInitiatedStart && (
-                level == ConnectionStatus.LEVEL_NONETWORK ||
-                level == ConnectionStatus.LEVEL_NOTCONNECTED ||
-                level == ConnectionStatus.LEVEL_VPNPAUSED ||
-                level == ConnectionStatus.LEVEL_AUTH_FAILED
-            )) {
+        if (userInitiatedStart && level in AUTO_SWITCH_LEVELS) {
             val next = SelectedCountryStore.nextServer(applicationContext)
             val title = SelectedCountryStore.getSelectedCountry(applicationContext)
             if (next != null) {
