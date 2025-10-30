@@ -16,10 +16,25 @@ object SelectionBootstrap {
         }
 
         val servers = getServers()
-        val first = servers.firstOrNull() ?: return
-        val country = first.country.name
-        val countryServers = servers.filter { it.country.name == country }
+        if (servers.isEmpty()) return
+
+        var targetCountry: String? = null
+        var first: Server? = null
+        val countryServers = mutableListOf<Server>()
+
+        for (s in servers) {
+            if (targetCountry == null) {
+                targetCountry = s.country.name
+                first = s
+            }
+            if (s.country.name == targetCountry) {
+                countryServers.add(s)
+            }
+        }
+
+        val country = targetCountry ?: return
+        val firstServer = first ?: return
         SelectedCountryStore.saveSelection(context, country, countryServers)
-        apply(country, first.city, first.configData)
+        apply(country, firstServer.city, firstServer.configData)
     }
 }
