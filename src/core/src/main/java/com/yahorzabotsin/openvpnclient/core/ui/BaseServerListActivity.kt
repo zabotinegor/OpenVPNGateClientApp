@@ -15,6 +15,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import kotlinx.coroutines.launch
+import android.widget.Toast
 
 abstract class BaseServerListActivity : AppCompatActivity() {
 
@@ -54,6 +55,7 @@ abstract class BaseServerListActivity : AppCompatActivity() {
                         setResult(Activity.RESULT_OK, resultIntent)
                     } else {
                         Log.w(TAG, "No servers found for selected country: $country")
+                        Toast.makeText(this@BaseServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
                         setResult(Activity.RESULT_CANCELED)
                     }
                     finish()
