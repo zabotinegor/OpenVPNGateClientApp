@@ -5,7 +5,7 @@ import android.content.Context
 object SelectionBootstrap {
     suspend fun ensureSelection(
         context: Context,
-        repository: ServerRepository,
+        getServers: suspend () -> List<Server>,
         apply: (country: String, city: String, config: String) -> Unit
     ) {
         val stored = SelectedCountryStore.currentServer(context)
@@ -15,7 +15,7 @@ object SelectionBootstrap {
             return
         }
 
-        val servers = repository.getServers()
+        val servers = getServers()
         val first = servers.firstOrNull() ?: return
         val country = first.country.name
         val countryServers = servers.filter { it.country.name == country }
@@ -23,4 +23,3 @@ object SelectionBootstrap {
         apply(country, first.city, first.configData)
     }
 }
-

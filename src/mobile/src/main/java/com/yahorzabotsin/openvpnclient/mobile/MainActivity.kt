@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
             try {
-                SelectionBootstrap.ensureSelection(this@MainActivity, serverRepository) { country, city, config ->
+                SelectionBootstrap.ensureSelection(this@MainActivity, serverRepository::getServers) { country, city, config ->
                     binding.connectionControls.setServer(country, city)
                     binding.connectionControls.setVpnConfig(config)
                 }
