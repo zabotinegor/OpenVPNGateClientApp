@@ -77,7 +77,6 @@ import kotlinx.coroutines.launch
       }
 
     private fun prepareAndStartVpn() {
-        // 1) On Android 13+ ensure notification permission for foreground notification
         val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
         val hasNotificationPermission = if (needNotificationPermission) {
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -92,10 +91,8 @@ import kotlinx.coroutines.launch
             return
         }
 
-        // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
-            // Reset server index so attempts start from the first server of the selected country
             try { SelectedCountryStore.resetIndex(context) } catch (_: Exception) {}
             VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
@@ -152,7 +149,6 @@ import kotlinx.coroutines.launch
                 )
             }
             ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
-                // Show cancel action while connecting or disconnecting
                 connectButton.setText(R.string.stop_connection)
                 connectButton.backgroundTintList = ColorStateList.valueOf(
                     ContextCompat.getColor(context, R.color.red)

@@ -182,14 +182,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
-                // Auto-advance within selected country's server list when a user initiated start fails
                 if (userInitiatedStart) {
                     val next = SelectedCountryStore.nextServer(applicationContext)
                     val title = SelectedCountryStore.getSelectedCountry(applicationContext)
                     if (next != null) {
                         Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                         try { stopForeground(true) } catch (_: Exception) {}
-                        // Start next server; keep userInitiatedStart=true
                         VpnManager.startVpn(applicationContext, next.config, title)
                         return
                     } else {

@@ -13,7 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
-import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclient.core.servers.SelectionBootstrap
 import com.yahorzabotsin.openvpnclient.core.ui.BaseServerListActivity
 import com.yahorzabotsin.openvpnclient.tv.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
@@ -165,24 +165,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
-            Log.d(TAG, "Loading selection or default server (TV)...")
             try {
-                val stored = SelectedCountryStore.currentServer(this@MainActivity)
-                if (stored != null) {
-                    val country = SelectedCountryStore.getSelectedCountry(this@MainActivity) ?: ""
-                    Log.i(TAG, "Loaded stored selection: $country, ${stored.city}")
-                    binding.connectionControls.setServer(country, stored.city)
-                    binding.connectionControls.setVpnConfig(stored.config)
-                } else {
-                    val servers = serverRepository.getServers()
-                    servers.firstOrNull()?.let { defaultServer ->
-                        Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
-                        binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
-                        binding.connectionControls.setVpnConfig(defaultServer.configData)
-                    }
+                SelectionBootstrap.ensureSelection(this@MainActivity, serverRepository) { country, city, config ->
+                    binding.connectionControls.setServer(country, city)
+                    binding.connectionControls.setVpnConfig(config)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch default server", e)
+                Log.e(TAG, "Failed to initialize selection (TV)", e)
             }
         }
     }

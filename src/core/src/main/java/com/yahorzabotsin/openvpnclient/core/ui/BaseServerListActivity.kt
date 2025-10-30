@@ -74,12 +74,10 @@ abstract class BaseServerListActivity : AppCompatActivity() {
 
     private fun setupRecyclerView() {
         binding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
-        // Adapter is set after data is loaded
         binding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
     }
 
     abstract fun setupToolbarAndBackButton()
-    // Country selection UI removed
 
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
