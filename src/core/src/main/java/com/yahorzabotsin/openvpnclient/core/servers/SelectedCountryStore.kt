@@ -12,6 +12,8 @@ object SelectedCountryStore {
     private const val KEY_COUNTRY = "selected_country"
     private const val KEY_SERVERS = "selected_country_servers"
     private const val KEY_INDEX = "selected_country_index"
+    private const val KEY_JSON_CITY = "city"
+    private const val KEY_JSON_CONFIG = "config"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -20,8 +22,8 @@ object SelectedCountryStore {
         val arr = JSONArray()
         servers.forEach { s ->
             val o = JSONObject()
-                .put("city", s.city)
-                .put("config", s.configData)
+                .put(KEY_JSON_CITY, s.city)
+                .put(KEY_JSON_CONFIG, s.configData)
             arr.put(o)
         }
         prefs(ctx).edit()
@@ -39,7 +41,7 @@ object SelectedCountryStore {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                StoredServer(o.optString("city"), o.optString("config"))
+                StoredServer(o.optString(KEY_JSON_CITY), o.optString(KEY_JSON_CONFIG))
             }
         } catch (_: Exception) { emptyList() }
     }
@@ -65,4 +67,3 @@ object SelectedCountryStore {
         } else null
     }
 }
-
