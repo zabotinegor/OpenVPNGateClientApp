@@ -18,6 +18,7 @@ import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import kotlinx.coroutines.launch
 import com.yahorzabotsin.openvpnclient.core.R as coreR
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 
 class MainActivity : AppCompatActivity() {
 
@@ -88,7 +89,7 @@ class MainActivity : AppCompatActivity() {
         setupConnectionControls()
         setupToolbarAndDrawer()
         setupNavigationView()
-        fetchDefaultServer()
+        loadSelectedCountryOrDefault()
     }
 
     private fun setupConnectionControls() {
@@ -152,15 +153,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchDefaultServer() {
+    private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
-            Log.d(TAG, "Fetching default server...")
+            Log.d(TAG, "Loading selection or default server...")
             try {
-                val servers = serverRepository.getServers()
-                servers.firstOrNull()?.let { defaultServer ->
-                    Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
-                    binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
-                    binding.connectionControls.setVpnConfig(defaultServer.configData)
+                val stored = SelectedCountryStore.currentServer(this@MainActivity)
+                if (stored != null) {
+                    val country = SelectedCountryStore.getSelectedCountry(this@MainActivity) ?: ""
+                    Log.i(TAG, "Loaded stored selection: $country, ${stored.city}")
+                    binding.connectionControls.setServer(country, stored.city)
+                    binding.connectionControls.setVpnConfig(stored.config)
+                } else {
+                    val servers = serverRepository.getServers()
+                    servers.firstOrNull()?.let { defaultServer ->
+                        Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
+                        binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
+                        binding.connectionControls.setVpnConfig(defaultServer.configData)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch default server", e)

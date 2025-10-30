@@ -19,6 +19,7 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBi
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import kotlinx.coroutines.launch
 
   class ConnectionControlsView @JvmOverloads constructor(
@@ -94,6 +95,8 @@ import kotlinx.coroutines.launch
         // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
+            // Reset server index so attempts start from the first server of the selected country
+            try { SelectedCountryStore.resetIndex(context) } catch (_: Exception) {}
             VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
             Log.d(TAG, "VPN permission not granted; requesting")

@@ -19,6 +19,7 @@ import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
@@ -181,6 +182,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
+                // Auto-advance within selected country's server list when a user initiated start fails
+                if (userInitiatedStart) {
+                    val next = SelectedCountryStore.nextServer(applicationContext)
+                    val title = SelectedCountryStore.getSelectedCountry(applicationContext)
+                    if (next != null) {
+                        Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
+                        try { stopForeground(true) } catch (_: Exception) {}
+                        // Start next server; keep userInitiatedStart=true
+                        VpnManager.startVpn(applicationContext, next.config, title)
+                        return
+                    } else {
+                        Log.w(TAG, "No more servers to try for selected country; stopping")
+                        userInitiatedStart = false
+                    }
+                }
                 stopSelfSafely()
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
