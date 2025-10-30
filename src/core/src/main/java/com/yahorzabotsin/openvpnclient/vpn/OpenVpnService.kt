@@ -146,13 +146,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun stopSelfSafely() { try { stopForeground(true) } catch (_: Exception) {}; stopSelf() }
+    private fun stopSelfSafely() { try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service in stopSelfSafely", e) }; stopSelf() }
 
     override fun onDestroy() {
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
-        try { stopForeground(true) } catch (_: Exception) {}
+        try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (_: Exception) {}; boundToEngine = false }
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
@@ -179,7 +179,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val title = SelectedCountryStore.getSelectedCountry(applicationContext)
             if (next != null) {
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
-                try { stopForeground(true) } catch (_: Exception) {}
+                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
                 VpnManager.startVpn(applicationContext, next.config, title)
                 return
             } else {
@@ -191,7 +191,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_CONNECTED -> {
                 userInitiatedStart = false
                 userInitiatedStop = false
-                try { stopForeground(true) } catch (_: Exception) {}
+                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
             ConnectionStatus.LEVEL_NONETWORK,
