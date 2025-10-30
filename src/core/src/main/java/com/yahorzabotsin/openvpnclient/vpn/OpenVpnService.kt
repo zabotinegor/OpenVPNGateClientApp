@@ -169,6 +169,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
+        if (userInitiatedStart && (
+                level == ConnectionStatus.LEVEL_NONETWORK ||
+                level == ConnectionStatus.LEVEL_NOTCONNECTED ||
+                level == ConnectionStatus.LEVEL_VPNPAUSED ||
+                level == ConnectionStatus.LEVEL_AUTH_FAILED
+            )) {
+            val next = SelectedCountryStore.nextServer(applicationContext)
+            val title = SelectedCountryStore.getSelectedCountry(applicationContext)
+            if (next != null) {
+                Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
+                try { stopForeground(true) } catch (_: Exception) {}
+                VpnManager.startVpn(applicationContext, next.config, title)
+                return
+            } else {
+                userInitiatedStart = false
+            }
+        }
         ConnectionStateManager.updateFromEngine(level)
         when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
@@ -182,19 +199,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
-                if (userInitiatedStart) {
-                    val next = SelectedCountryStore.nextServer(applicationContext)
-                    val title = SelectedCountryStore.getSelectedCountry(applicationContext)
-                    if (next != null) {
-                        Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
-                        try { stopForeground(true) } catch (_: Exception) {}
-                        VpnManager.startVpn(applicationContext, next.config, title)
-                        return
-                    } else {
-                        Log.w(TAG, "No more servers to try for selected country; stopping")
-                        userInitiatedStart = false
-                    }
-                }
                 stopSelfSafely()
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
