@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.tv
 
 import android.app.Activity
+import android.Manifest
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
@@ -50,6 +51,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Log.i(TAG, "Notification permission granted.")
+            binding.connectionControls.performConnectionClick()
+        } else {
+            Log.w(TAG, "Notification permission not granted by user.")
+            Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called.")
@@ -62,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         fetchDefaultServer()
 
         binding.navView.setCheckedItem(selectedMenuItemId)
+        binding.connectionControls.post { binding.connectionControls.requestPrimaryFocus() }
     }
 
     private fun setupConnectionControls() {
@@ -73,6 +87,14 @@ class MainActivity : AppCompatActivity() {
                 vpnPermissionLauncher.launch(intent)
             } else {
                 Log.d(TAG, "VPN permission already granted, triggering connection directly.")
+                binding.connectionControls.performConnectionClick()
+            }
+        }
+        binding.connectionControls.setNotificationPermissionRequestHandler {
+            Log.d(TAG, "Requesting POST_NOTIFICATIONS permission (TV).")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
                 binding.connectionControls.performConnectionClick()
             }
         }
@@ -115,8 +137,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onDrawerClosed(drawerView: View) {
-                Log.d(TAG, "Drawer closed, focusing on connection controls.")
-                binding.connectionControls.requestFocus()
+                Log.d(TAG, "Drawer closed, focusing on connection button.")
+                binding.connectionControls.requestPrimaryFocus()
             }
 
             override fun onDrawerStateChanged(newState: Int) {}
@@ -158,8 +180,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        Log.d(TAG, "onResume called, requesting focus for connection controls.")
-        binding.connectionControls.requestFocus()
+        Log.d(TAG, "onResume called, requesting focus for connection button.")
+        binding.connectionControls.requestPrimaryFocus()
     }
 
     override fun onBackPressed() {

@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.yahorzabotsin.openvpnclient.core">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <permission
-        android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS"
+        android:name="${applicationId}.permission.VPN_STATUS"
         android:protectionLevel="signature" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="com.yahorzabotsin.openvpnclient.core.permission.VPN_STATUS" />
+    <uses-permission android:name="${applicationId}.permission.VPN_STATUS" />
 
     <application
         android:name="com.yahorzabotsin.openvpnclient.core.CoreApp">

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.yahorzabotsin.openvpnclient.core"
+    namespace = "${rootProject.extra.get("basePackageName")}.core"
     compileSdk {
         version = release(36)
     }
