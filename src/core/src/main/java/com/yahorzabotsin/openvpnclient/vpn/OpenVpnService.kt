@@ -19,12 +19,21 @@ import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener {
 
-    private companion object { const val TAG = "OpenVpnService" }
+    private companion object {
+        const val TAG = "OpenVpnService"
+        private val AUTO_SWITCH_LEVELS = setOf(
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_VPNPAUSED,
+            ConnectionStatus.LEVEL_AUTH_FAILED
+        )
+    }
 
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
@@ -145,13 +154,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun stopSelfSafely() { try { stopForeground(true) } catch (_: Exception) {}; stopSelf() }
+    private fun stopSelfSafely() { try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service in stopSelfSafely", e) }; stopSelf() }
 
     override fun onDestroy() {
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
-        try { stopForeground(true) } catch (_: Exception) {}
+        try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (_: Exception) {}; boundToEngine = false }
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
@@ -168,12 +177,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
+        if (userInitiatedStart && level in AUTO_SWITCH_LEVELS) {
+            val next = SelectedCountryStore.nextServer(applicationContext)
+            val title = SelectedCountryStore.getSelectedCountry(applicationContext)
+            if (next != null) {
+                Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
+                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
+                VpnManager.startVpn(applicationContext, next.config, title)
+                return
+            } else {
+                userInitiatedStart = false
+            }
+        }
         ConnectionStateManager.updateFromEngine(level)
         when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
                 userInitiatedStart = false
                 userInitiatedStop = false
-                try { stopForeground(true) } catch (_: Exception) {}
+                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
             ConnectionStatus.LEVEL_NONETWORK,

@@ -19,6 +19,7 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBi
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import kotlinx.coroutines.launch
 
   class ConnectionControlsView @JvmOverloads constructor(
@@ -49,8 +50,8 @@ import kotlinx.coroutines.launch
                         Log.d(TAG, "Start VPN requested")
                         prepareAndStartVpn()
                     } else {
-                        Log.w(TAG, "Connect clicked but no VPN config")
                         Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "Connect clicked but no VPN config; ignoring")
                     }
                 }
                 ConnectionState.CONNECTED -> {
@@ -76,7 +77,6 @@ import kotlinx.coroutines.launch
       }
 
     private fun prepareAndStartVpn() {
-        // 1) On Android 13+ ensure notification permission for foreground notification
         val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
         val hasNotificationPermission = if (needNotificationPermission) {
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -91,9 +91,9 @@ import kotlinx.coroutines.launch
             return
         }
 
-        // 2) Check VPN permission and start
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
+            try { SelectedCountryStore.resetIndex(context) } catch (e: Exception) { Log.e(TAG, "Failed to reset server index", e) }
             VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
         } else {
             Log.d(TAG, "VPN permission not granted; requesting")
@@ -149,7 +149,6 @@ import kotlinx.coroutines.launch
                 )
             }
             ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
-                // Show cancel action while connecting or disconnecting
                 connectButton.setText(R.string.stop_connection)
                 connectButton.backgroundTintList = ColorStateList.valueOf(
                     ContextCompat.getColor(context, R.color.red)
