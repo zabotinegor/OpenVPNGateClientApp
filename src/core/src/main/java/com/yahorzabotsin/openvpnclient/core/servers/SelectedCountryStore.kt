@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONException
+import android.util.Log
 
 data class StoredServer(val city: String, val config: String)
 
@@ -12,6 +14,7 @@ object SelectedCountryStore {
     private const val KEY_COUNTRY = "selected_country"
     private const val KEY_SERVERS = "selected_country_servers"
     private const val KEY_INDEX = "selected_country_index"
+    private const val TAG = "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
 
@@ -43,7 +46,10 @@ object SelectedCountryStore {
                 val o = arr.getJSONObject(i)
                 StoredServer(o.optString(KEY_JSON_CITY), o.optString(KEY_JSON_CONFIG))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: JSONException) {
+            Log.e(TAG, "Error parsing servers JSON from SharedPreferences", e)
+            emptyList()
+        }
     }
 
     fun resetIndex(ctx: Context) { prefs(ctx).edit().putInt(KEY_INDEX, 0).apply() }
