@@ -21,11 +21,11 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import kotlinx.coroutines.launch
 
-class ConnectionControlsView @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
-) : ConstraintLayout(context, attrs, defStyleAttr) {
+  class ConnectionControlsView @JvmOverloads constructor(
+      context: Context,
+      attrs: AttributeSet? = null,
+      defStyleAttr: Int = 0
+  ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewConnectionControlsBinding
     private var vpnConfig: String? = null
@@ -65,9 +65,15 @@ class ConnectionControlsView @JvmOverloads constructor(
         }
     }
 
-    fun performConnectionClick() {
-        binding.startConnectionButton.performClick()
-    }
+      fun performConnectionClick() {
+          binding.startConnectionButton.performClick()
+      }
+
+      fun requestPrimaryFocus() {
+          binding.startConnectionButton.isFocusable = true
+          binding.startConnectionButton.isFocusableInTouchMode = true
+          binding.startConnectionButton.requestFocus()
+      }
 
     private fun prepareAndStartVpn() {
         // 1) On Android 13+ ensure notification permission for foreground notification
