@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.core.servers.SelectionBootstrap
 import com.yahorzabotsin.openvpnclient.core.ui.BaseServerListActivity
 import com.yahorzabotsin.openvpnclient.tv.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
@@ -72,7 +73,7 @@ class MainActivity : AppCompatActivity() {
         setupConnectionControls()
         setupToolbarAndDrawer()
         setupNavigationView()
-        fetchDefaultServer()
+        loadSelectedCountryOrDefault()
 
         binding.navView.setCheckedItem(selectedMenuItemId)
         binding.connectionControls.post { binding.connectionControls.requestPrimaryFocus() }
@@ -162,18 +163,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchDefaultServer() {
+    private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
-            Log.d(TAG, "Fetching default server...")
             try {
-                val servers = serverRepository.getServers()
-                servers.firstOrNull()?.let { defaultServer ->
-                    Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
-                    binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
-                    binding.connectionControls.setVpnConfig(defaultServer.configData)
+                SelectionBootstrap.ensureSelection(this@MainActivity, serverRepository::getServers) { country, city, config ->
+                    binding.connectionControls.setServer(country, city)
+                    binding.connectionControls.setVpnConfig(config)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch default server", e)
+                Log.e(TAG, "Failed to initialize selection (TV)", e)
             }
         }
     }

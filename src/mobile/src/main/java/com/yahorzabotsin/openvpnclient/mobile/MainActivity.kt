@@ -18,6 +18,7 @@ import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import kotlinx.coroutines.launch
 import com.yahorzabotsin.openvpnclient.core.R as coreR
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.core.servers.SelectionBootstrap
 
 class MainActivity : AppCompatActivity() {
 
@@ -88,7 +89,7 @@ class MainActivity : AppCompatActivity() {
         setupConnectionControls()
         setupToolbarAndDrawer()
         setupNavigationView()
-        fetchDefaultServer()
+        loadSelectedCountryOrDefault()
     }
 
     private fun setupConnectionControls() {
@@ -152,18 +153,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchDefaultServer() {
+    private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
-            Log.d(TAG, "Fetching default server...")
             try {
-                val servers = serverRepository.getServers()
-                servers.firstOrNull()?.let { defaultServer ->
-                    Log.i(TAG, "Default server loaded: ${defaultServer.country.name}, ${defaultServer.city}")
-                    binding.connectionControls.setServer(defaultServer.country.name, defaultServer.city)
-                    binding.connectionControls.setVpnConfig(defaultServer.configData)
+                SelectionBootstrap.ensureSelection(this@MainActivity, serverRepository::getServers) { country, city, config ->
+                    binding.connectionControls.setServer(country, city)
+                    binding.connectionControls.setVpnConfig(config)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch default server", e)
+                Log.e(TAG, "Failed to initialize selection", e)
             }
         }
     }

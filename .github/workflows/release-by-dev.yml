@@ -172,7 +172,7 @@ jobs:
             Automated build from branch `${{ github.ref_name }}`
             App version: `${{ steps.versioning.outputs.app_version }}`
             
-            What's new (last commit):
+            What's new:
             ```
             ${{ steps.versioning.outputs.last_commit }}
             ```

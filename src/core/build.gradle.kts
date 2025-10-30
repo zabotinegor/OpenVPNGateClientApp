@@ -48,6 +48,8 @@ dependencies {
     implementation(libs.retrofit.converter.gson)
     implementation(libs.retrofit.converter.scalars)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

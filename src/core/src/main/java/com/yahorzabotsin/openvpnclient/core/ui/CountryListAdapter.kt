@@ -1,0 +1,33 @@
+package com.yahorzabotsin.openvpnclient.core.ui
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import com.yahorzabotsin.openvpnclient.core.R
+
+class CountryListAdapter(
+    private val countries: List<String>,
+    private val onClick: (String) -> Unit
+) : RecyclerView.Adapter<CountryListAdapter.ViewHolder>() {
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_country_row, parent, false)
+        return ViewHolder(v)
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val country = countries[position]
+        holder.bind(country)
+        holder.itemView.setOnClickListener { onClick(country) }
+    }
+
+    override fun getItemCount(): Int = countries.size
+
+    class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val name: TextView = itemView.findViewById(R.id.country_name)
+        fun bind(country: String) { name.text = country }
+    }
+}
+

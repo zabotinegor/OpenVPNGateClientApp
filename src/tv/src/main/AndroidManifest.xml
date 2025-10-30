@@ -36,10 +36,6 @@
             android:name=".ServerListActivityTV"
             android:exported="false"
             android:screenOrientation="landscape" />
-        <activity
-            android:name=".CountryListActivityTV"
-            android:exported="false"
-            android:screenOrientation="landscape" />
     </application>
 
 </manifest>
