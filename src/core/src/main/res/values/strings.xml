@@ -18,7 +18,6 @@
     <!-- Server Screen -->
     <string name="server_list_title">Server list</string>
     <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
-    <string name="select_country">Select Country</string>
 
     <!-- Error Fragment -->
     <string name="error_fragment_message">An error occurred</string>
@@ -30,8 +29,7 @@
     <string name="current_city">Novosibirsk</string>
     <string name="feature_in_development">Feature in Development</string>
 
-    <!-- Filter -->
-    <string name="all_countries">All</string>
+    
 
     <!-- VPN Notifications -->
     <string name="vpn_channel_name">VPN Status</string>

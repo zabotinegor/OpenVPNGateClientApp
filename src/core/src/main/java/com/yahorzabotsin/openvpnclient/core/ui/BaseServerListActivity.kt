@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
@@ -36,15 +35,6 @@ abstract class BaseServerListActivity : AppCompatActivity() {
         }
     }
 
-    private val countrySelectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val selectedCountry = result.data?.getStringExtra(getCountryListActivityExtraName()) ?: getString(R.string.all_countries)
-            Log.d(TAG, "Country selected: $selectedCountry")
-            binding.selectedCountryText.text = selectedCountry
-            filterServers(selectedCountry)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called")
@@ -54,23 +44,12 @@ abstract class BaseServerListActivity : AppCompatActivity() {
         setupToolbarAndBackButton()
         setupRecyclerView()
 
-        binding.countryFilterButton.setOnClickListener {
-            Log.d(TAG, "Country filter button clicked")
-            if (::servers.isInitialized) {
-                val intent = createCountryListIntent(
-                    ArrayList(servers.map { it.country.name }.distinct()),
-                    binding.selectedCountryText.text.toString()
-                )
-                countrySelectionLauncher.launch(intent)
-            }
-        }
-
         lifecycleScope.launch {
             setLoadingState(true)
             try {
                 servers = serverRepository.getServers()
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
-                filterServers(getString(R.string.all_countries))
+                serverAdapter.updateServers(servers)
                 setLoadingState(false)
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
@@ -83,7 +62,6 @@ abstract class BaseServerListActivity : AppCompatActivity() {
     private fun setLoadingState(isLoading: Boolean) {
         binding.progressBar.isVisible = isLoading
         binding.serversRecyclerView.isVisible = !isLoading
-        binding.countryFilterButton.isVisible = !isLoading
     }
 
     private fun setupRecyclerView() {
@@ -92,19 +70,8 @@ abstract class BaseServerListActivity : AppCompatActivity() {
         binding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
     }
 
-    private fun filterServers(country: String) {
-        Log.d(TAG, "Filtering servers for country: '$country'")
-        val filteredServers = if (country == getString(R.string.all_countries)) {
-            servers
-        } else {
-            servers.filter { it.country.name == country }
-        }
-        serverAdapter.updateServers(filteredServers)
-    }
-
     abstract fun setupToolbarAndBackButton()
-    abstract fun createCountryListIntent(countries: ArrayList<String>, currentCountry: String): Intent
-    abstract fun getCountryListActivityExtraName(): String
+    // Country selection UI removed
 
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
