@@ -1,10 +1,9 @@
-name: Beta Release From Feature Branch
+name: Beta Release From Dev
 
 on:
   push:
     branches:
-      - 'feature/**'
-      - 'feat/**'
+      - 'dev'
   workflow_dispatch:
 
 jobs:
@@ -38,10 +37,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          BRANCH="${GITHUB_REF##*/}"
-          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr '_' '-')
-          echo "==> Branch: $BRANCH"
-          
+
           STABLE_TAG=$(git tag --list 'v8.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
           if [[ -z "$STABLE_TAG" ]]; then
             echo "==> No stable tag found, starting with 1.1.0."
@@ -53,8 +49,8 @@ jobs:
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
           fi
           echo "==> Base version: $VERSION"
-          
-          BETA_TAG=$(git tag --list "v${VERSION}-${SAFE_BRANCH}-beta.*" | sort -Vr | head -n 1) || true
+
+          BETA_TAG=$(git tag --list "v${VERSION}-beta.*" | sort -Vr | head -n 1) || true
           if [[ -n "$BETA_TAG" ]]; then
             BETA_NUM_MATCH=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+')
             if [[ -n "$BETA_NUM_MATCH" ]]; then
@@ -67,18 +63,33 @@ jobs:
             BETA_NUM=1
           fi
           echo "==> Next beta number: $BETA_NUM"
-          
-          FINAL_TAG="v${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}-auto"
-          APP_VERSION="${VERSION}-${SAFE_BRANCH}-beta.${BETA_NUM}"
-          
+
+          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto"
+          APP_VERSION="${VERSION}-beta.${BETA_NUM}"
+
+          # Capture last commit message (subject + body)
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          # Compute compare URL to previous beta tag if exists
+          if [[ -n "$BETA_TAG" ]]; then
+            COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/${BETA_TAG}...${FINAL_TAG}"
+          else
+            COMPARE_URL=""
+          fi
+
           echo "==> Final tag: $FINAL_TAG"
           echo "==> App version: $APP_VERSION"
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "patch=$PATCH" >> $GITHUB_OUTPUT
           echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
-          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
           echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "previous_tag=${BETA_TAG}" >> $GITHUB_OUTPUT
+          echo "compare_url=${COMPARE_URL}" >> $GITHUB_OUTPUT
+          {
+            echo 'last_commit<<EOF'
+            echo "$LAST_COMMIT_MSG"
+            echo EOF
+          } >> $GITHUB_OUTPUT
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -160,6 +171,13 @@ jobs:
           body: |
             Automated build from branch `${{ github.ref_name }}`
             App version: `${{ steps.versioning.outputs.app_version }}`
+            
+            What's new (last commit):
+            ```
+            ${{ steps.versioning.outputs.last_commit }}
+            ```
+            
+            Full Changelog: ${{ steps.versioning.outputs.compare_url }}
           prerelease: true
           allowUpdates: true
           replacesArtifacts: true

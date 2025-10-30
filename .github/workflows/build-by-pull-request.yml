@@ -1,0 +1,52 @@
+name: PR Build Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Debug APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install swig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig
+          swig -version
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
+
+      - name: Build Mobile Debug APK
+        run: ./gradlew :mobile:assembleDebug
+        working-directory: ./src
+
+      - name: Build TV Debug APK
+        run: ./gradlew :tv:assembleDebug
+        working-directory: ./src
