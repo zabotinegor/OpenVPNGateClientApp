@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
                         Log.d(TAG, "Start VPN requested")
                         prepareAndStartVpn()
                     } else {
-                        Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
                         Log.d(TAG, "Connect clicked but no VPN config; ignoring")
                     }
                 }

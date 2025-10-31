@@ -35,7 +35,7 @@ class MainActivity : AppCompatActivity() {
             binding.connectionControls.performConnectionClick()
         } else {
             Log.w(TAG, "VPN permission was not granted by the user.")
-            Toast.makeText(this, "VPN permission was not granted", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, coreR.string.vpn_permission_not_granted, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
                 intent.data = android.net.Uri.fromParts("package", packageName, null)
                 startActivity(intent)
             } else {
-                Toast.makeText(this, "Notification permission is required for VPN status", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, coreR.string.notification_permission_required, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -142,7 +142,7 @@ class MainActivity : AppCompatActivity() {
                     serverListActivityLauncher.launch(Intent(this, ServerListActivityMobile::class.java))
                 }
                 else -> {
-                    Toast.makeText(this, "Feature in Development", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, coreR.string.feature_in_development, Toast.LENGTH_SHORT).show()
                 }
             }
             binding.drawerLayout.closeDrawer(GravityCompat.START)
