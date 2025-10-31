@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="start_connection">Połącz</string>
+    <string name="stop_connection">Rozłącz</string>
+    <string name="navigation_drawer_open">Otwórz szufladę nawigacji</string>
+    <string name="navigation_drawer_close">Zamknij szufladę nawigacji</string>
+
+    <!-- Menu Items -->
+    <string name="menu_connection">Połączenie</string>
+    <string name="menu_server">Serwer</string>
+    <string name="menu_protocol">Protokół</string>
+    <string name="menu_dns">DNS</string>
+    <string name="menu_filter">Filtr</string>
+    <string name="menu_telegram">Telegram</string>
+    <string name="menu_rate">Oceń</string>
+    <string name="menu_about">O aplikacji</string>
+
+    <!-- Server Screen -->
+    <string name="server_list_title">Lista serwerów</string>
+    <string name="server_list_subtitle">Jeśli występują problemy z połączeniem, wybierz inny serwer.</string>
+
+    <!-- Error Fragment -->
+    <string name="error_fragment_message">Wystąpił błąd</string>
+    <string name="dismiss_error">Zamknij</string>
+    <string name="error_getting_servers">Błąd pobierania serwerów</string>
+    <string name="no_servers_for_country">Brak serwerów dla wybranego kraju</string>
+
+    <!-- Main Screen -->
+    <string name="current_country">Nie wybrano</string>
+    <string name="current_city">Nie wybrano</string>
+    <string name="feature_in_development">Funkcja w przygotowaniu</string>
+
+    <!-- VPN Notifications -->
+    <string name="vpn_channel_name">Status VPN</string>
+    <string name="vpn_channel_description">Status połączenia VPN</string>
+    <string name="vpn_notification_title_connecting">Łączenie z VPN</string>
+    <string name="vpn_notification_title_connected">VPN połączono</string>
+    <string name="vpn_notification_title_disconnecting">Rozłączanie z VPN</string>
+    <string name="vpn_notification_title_disconnected">VPN rozłączono</string>
+    <string name="vpn_notification_text_connecting">Nawiązywanie bezpiecznego połączenia…</string>
+    <string name="vpn_notification_text_connected">Twój VPN jest aktywny</string>
+    <string name="vpn_notification_text_disconnecting">Zamykanie połączenia…</string>
+    <string name="vpn_notification_text_disconnected">VPN wyłączony</string>
+
+    <!-- Runtime messages / toasts -->
+    <string name="select_server_first">Najpierw wybierz serwer</string>
+    <string name="vpn_permission_not_granted">Uprawnienie do VPN nie zostało udzielone</string>
+    <string name="notification_permission_required">Wymagane jest uprawnienie do powiadomień dla statusu VPN</string>
+</resources>

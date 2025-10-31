@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="start_connection">Подключиться</string>
+    <string name="stop_connection">Отключиться</string>
+    <string name="navigation_drawer_open">Открыть навигационную панель</string>
+    <string name="navigation_drawer_close">Закрыть навигационную панель</string>
+
+    <!-- Menu Items -->
+    <string name="menu_connection">Соединение</string>
+    <string name="menu_server">Сервер</string>
+    <string name="menu_protocol">Протокол</string>
+    <string name="menu_dns">DNS</string>
+    <string name="menu_filter">Фильтр</string>
+    <string name="menu_telegram">Telegram</string>
+    <string name="menu_rate">Оценить</string>
+    <string name="menu_about">О приложении</string>
+
+    <!-- Server Screen -->
+    <string name="server_list_title">Список серверов</string>
+    <string name="server_list_subtitle">Если есть проблемы с соединением, выберите другой сервер.</string>
+
+    <!-- Error Fragment -->
+    <string name="error_fragment_message">Произошла ошибка</string>
+    <string name="dismiss_error">Закрыть</string>
+    <string name="error_getting_servers">Ошибка при получении серверов</string>
+    <string name="no_servers_for_country">Нет серверов для выбранной страны</string>
+
+    <!-- Main Screen -->
+    <string name="current_country">Не выбрано</string>
+    <string name="current_city">Не выбрано</string>
+    <string name="feature_in_development">Функция в разработке</string>
+
+    <!-- VPN Notifications -->
+    <string name="vpn_channel_name">Статус VPN</string>
+    <string name="vpn_channel_description">Состояние VPN‑соединения</string>
+    <string name="vpn_notification_title_connecting">Подключение VPN</string>
+    <string name="vpn_notification_title_connected">VPN подключен</string>
+    <string name="vpn_notification_title_disconnecting">Отключение VPN</string>
+    <string name="vpn_notification_title_disconnected">VPN отключён</string>
+    <string name="vpn_notification_text_connecting">Устанавливаем защищённое соединение…</string>
+    <string name="vpn_notification_text_connected">Ваш VPN активен</string>
+    <string name="vpn_notification_text_disconnecting">Завершаем соединение…</string>
+    <string name="vpn_notification_text_disconnected">VPN остановлен</string>
+
+    <!-- Runtime messages / toasts -->
+    <string name="select_server_first">Сначала выберите сервер</string>
+    <string name="vpn_permission_not_granted">Разрешение на VPN не предоставлено</string>
+    <string name="notification_permission_required">Для статуса VPN требуется разрешение на уведомления</string>
+</resources>

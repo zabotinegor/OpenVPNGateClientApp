@@ -9,24 +9,20 @@
     <string name="channel_name_userreq">VPN Requests</string>
     <string name="channel_description_userreq">User action requests</string>
 
-    <!-- Actions and prompts used by the OpenVPN engine notifications -->
     <string name="cancel_connection">Stop</string>
     <string name="cancel_connection_long">Stop</string>
     <string name="cancel_connection_query">Stop the VPN or cancel the connection attempt?</string>
     <string name="pauseVPN">Pause</string>
     <string name="resumevpn">Resume</string>
 
-    <!-- Permission-related notifications from engine -->
     <string name="permission_requested">Permission to start a VPN connection is required</string>
     <string name="missing_notification_permission">Notification permission missing. This is used to display the status of the VPN and to notify about required user interaction like multi factor authorisation.
 
 Click this message to give the app notification permissions</string>
 
-    <!-- User interaction titles -->
     <string name="openurl_requested">Open URL to continue VPN authentication</string>
     <string name="crtext_requested">Answer challenge to continue VPN authentication</string>
 
-    <!-- Connection state labels used in notification body -->
     <string name="state_connecting">Connecting</string>
     <string name="state_wait">Waiting for server reply</string>
     <string name="state_auth">Authenticating</string>
@@ -46,7 +42,6 @@ Click this message to give the app notification permissions</string>
     <string name="state_userpause">VPN pause requested by user</string>
     <string name="state_screenoff">VPN paused — screen off</string>
 
-    <!-- Byte counters and units used for live traffic line -->
     <string name="statusline_bytecount">↓%2$s %1$s - ↑%4$s %3$s</string>
     <string name="bits_per_second">%.0f bit/s</string>
     <string name="kbits_per_second">%.1f kbit/s</string>
@@ -58,7 +53,5 @@ Click this message to give the app notification permissions</string>
     <string name="volume_gbyte">%.1f GB</string>
     <string name="session_ipv4string">%1$s - %2$s</string>
     <string name="session_ipv6string">%1$s - %3$s, %2$s</string>
-    
-    <!-- Misc process messages -->
     <string name="building_configration">Building configuration…</string>
 </resources>
