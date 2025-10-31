@@ -7,12 +7,14 @@ import android.util.Log
 
 object VpnManager {
 
-    const val EXTRA_CONFIG = "com.yahorzabotsin.openvpnclient.vpn.CONFIG"
-    const val EXTRA_TITLE = "com.yahorzabotsin.openvpnclient.vpn.TITLE"
-    const val ACTION_VPN = "com.yahorzabotsin.openvpnclient.vpn.ACTION"
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
     private const val TAG = "VpnManager"
+
+    // Keys derived from the real applicationId to avoid hardcoded package strings
+    fun extraConfigKey(context: Context) = "${context.packageName}.vpn.CONFIG"
+    fun extraTitleKey(context: Context) = "${context.packageName}.vpn.TITLE"
+    fun actionKey(context: Context) = "${context.packageName}.vpn.ACTION"
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null) {
         Log.d(TAG, "startVpn")
@@ -22,9 +24,9 @@ object VpnManager {
             base64Config
         }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
-            putExtra(EXTRA_CONFIG, decodedConfig)
-            if (!displayName.isNullOrBlank()) putExtra(EXTRA_TITLE, displayName)
-            putExtra(ACTION_VPN, ACTION_START)
+            putExtra(extraConfigKey(context), decodedConfig)
+            if (!displayName.isNullOrBlank()) putExtra(extraTitleKey(context), displayName)
+            putExtra(actionKey(context), ACTION_START)
         }
         context.startService(intent)
     }
@@ -32,7 +34,7 @@ object VpnManager {
     fun stopVpn(context: Context) {
         Log.d(TAG, "stopVpn")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
-            putExtra(ACTION_VPN, ACTION_STOP)
+            putExtra(actionKey(context), ACTION_STOP)
         }
         context.startService(intent)
     }

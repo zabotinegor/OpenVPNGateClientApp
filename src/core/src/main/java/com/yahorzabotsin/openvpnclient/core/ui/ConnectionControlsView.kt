@@ -141,7 +141,7 @@ import kotlinx.coroutines.launch
                 val danger = com.google.android.material.color.MaterialColors.getColor(
                     this,
                     androidx.appcompat.R.attr.colorError,
-                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.ping_weak_color)
+                    androidx.core.content.ContextCompat.getColor(context, R.color.ping_weak_color)
                 )
                 connectButton.backgroundTintList = ColorStateList.valueOf(danger)
             }
@@ -150,7 +150,7 @@ import kotlinx.coroutines.launch
                 val primary = com.google.android.material.color.MaterialColors.getColor(
                     this,
                     androidx.appcompat.R.attr.colorPrimary,
-                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.speedometer_progress_color)
+                    androidx.core.content.ContextCompat.getColor(context, R.color.speedometer_progress_color)
                 )
                 connectButton.backgroundTintList = ColorStateList.valueOf(primary)
             }
@@ -159,7 +159,7 @@ import kotlinx.coroutines.launch
                 val danger = com.google.android.material.color.MaterialColors.getColor(
                     this,
                     androidx.appcompat.R.attr.colorError,
-                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.ping_weak_color)
+                    androidx.core.content.ContextCompat.getColor(context, R.color.ping_weak_color)
                 )
                 connectButton.backgroundTintList = ColorStateList.valueOf(danger)
             }

@@ -6,14 +6,16 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 
-class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() {
+import com.yahorzabotsin.openvpnclient.core.R as coreR
+import com.yahorzabotsin.openvpnclient.tv.R as tvR
 
-    private var selectedMenuItemId: Int = com.yahorzabotsin.openvpnclient.core.R.id.nav_server
+class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() {
+    private var selectedMenuItemId: Int = coreR.id.nav_server
 
     override fun styleNavigationView(nv: NavigationView) {
         nv.itemBackground = AppCompatResources.getDrawable(
             this,
-            com.yahorzabotsin.openvpnclient.tv.R.drawable.nav_item_background
+            tvR.drawable.nav_item_background
         )
     }
 
@@ -41,3 +43,5 @@ class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() 
         connectionControlsView.post { connectionControlsView.requestPrimaryFocus() }
     }
 }
+
+
