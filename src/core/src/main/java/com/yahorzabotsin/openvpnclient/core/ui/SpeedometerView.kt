@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclient.core.ui
+﻿package com.yahorzabotsin.openvpnclient.core.ui
 
 import android.content.Context
 import android.graphics.Canvas
@@ -41,8 +41,8 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         )
 
         try {
-            val defaultArc = resolveColorAttr(R.attr.ovpnSpeedometerArcColor, Color.parseColor("#1E3A6E"))
-            val defaultProgress = resolveColorAttr(R.attr.ovpnSpeedometerProgressColor, Color.parseColor("#3B7CFF"))
+            val defaultArc = resolveColorAttr(R.attr.ovpnSpeedometerArcColor, context.getColor(R.color.speedometer_arc_color))
+            val defaultProgress = resolveColorAttr(R.attr.ovpnSpeedometerProgressColor, context.getColor(R.color.speedometer_progress_color))
             val defaultText = resolveColorAttr(R.attr.ovpnSpeedometerTextColor, Color.WHITE)
 
             arcColor = if (typedArray.hasValue(R.styleable.SpeedometerView_arcColor))
@@ -116,3 +116,4 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         canvas.drawText("Mbit", centerX, centerY + subtitleTextSize * 1.5f, paint)
     }
 }
+
