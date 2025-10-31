@@ -12,8 +12,6 @@ object VpnManager {
     const val ACTION_VPN = "com.yahorzabotsin.openvpnclient.vpn.ACTION"
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
-    const val NOTIFICATION_ID = 1001
-    var notificationProvider: NotificationProvider = DefaultNotificationProvider
     private const val TAG = "VpnManager"
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null) {

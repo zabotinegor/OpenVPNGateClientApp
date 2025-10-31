@@ -14,7 +14,7 @@ import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
 import com.yahorzabotsin.openvpnclient.core.ui.BaseServerListActivity
 import com.yahorzabotsin.openvpnclient.mobile.databinding.ActivityMainBinding
-import com.yahorzabotsin.openvpnclient.vpn.VpnManager
+// Removed custom MobileNotificationProvider and VpnManager notification provider override
 import kotlinx.coroutines.launch
 import com.yahorzabotsin.openvpnclient.core.R as coreR
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
@@ -82,9 +82,6 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "onCreate called.")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Provide mobile-specific notification builder
-        VpnManager.notificationProvider = MobileNotificationProvider()
 
         setupConnectionControls()
         setupToolbarAndDrawer()

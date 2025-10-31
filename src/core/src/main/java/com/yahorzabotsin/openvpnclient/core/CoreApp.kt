@@ -6,12 +6,10 @@ import android.content.Context
 import android.content.IntentFilter
 import android.os.Build
 import com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver
-import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 
 class CoreApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        VpnManager.notificationProvider.ensureChannel(applicationContext)
         if (isMainProcess()) {
             val filter = IntentFilter("de.blinkt.openvpn.VPN_STATUS")
             val permission = "$packageName.permission.VPN_STATUS"
