@@ -56,7 +56,7 @@ class MobileNotificationProvider : NotificationProvider {
         )
 
         val builder = NotificationCompat.Builder(context, DefaultNotificationProvider.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_baseline_public_24)
+            .setSmallIcon(R.drawable.ic_icon_system)
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)

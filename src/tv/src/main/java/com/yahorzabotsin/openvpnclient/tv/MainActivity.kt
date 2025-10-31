@@ -109,16 +109,12 @@ class MainActivity : AppCompatActivity() {
         val toggle = ActionBarDrawerToggle(
             this,
             binding.drawerLayout,
+            binding.toolbar,
             coreR.string.navigation_drawer_open,
             coreR.string.navigation_drawer_close
         )
         binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
-
-        binding.menuButton.setOnClickListener {
-            Log.d(TAG, "Menu button clicked, opening drawer.")
-            binding.drawerLayout.openDrawer(GravityCompat.START)
-        }
 
         // TV-specific focus management
         binding.drawerLayout.addDrawerListener(object : androidx.drawerlayout.widget.DrawerLayout.DrawerListener {

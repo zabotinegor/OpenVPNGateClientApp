@@ -126,15 +126,12 @@ class MainActivity : AppCompatActivity() {
         val toggle = ActionBarDrawerToggle(
             this,
             binding.drawerLayout,
+            binding.toolbar,
             coreR.string.navigation_drawer_open,
             coreR.string.navigation_drawer_close
         )
         binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
-
-        binding.menuButton.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
-        }
     }
 
     private fun setupNavigationView() {
