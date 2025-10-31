@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - 'dev'
+    paths:
+      - 'src/**'
   workflow_dispatch:
 
 jobs:
@@ -176,8 +178,6 @@ jobs:
             ```
             ${{ steps.versioning.outputs.last_commit }}
             ```
-            
-            Full Changelog: ${{ steps.versioning.outputs.compare_url }}
           prerelease: true
           allowUpdates: true
           replacesArtifacts: true

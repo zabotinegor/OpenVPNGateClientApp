@@ -3,6 +3,8 @@ name: PR Build Check
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/**'
   workflow_dispatch:
 
 concurrency:
