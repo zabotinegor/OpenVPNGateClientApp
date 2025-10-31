@@ -138,21 +138,30 @@ import kotlinx.coroutines.launch
         when (state) {
             ConnectionState.CONNECTED -> {
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.red)
+                val danger = com.google.android.material.color.MaterialColors.getColor(
+                    this,
+                    androidx.appcompat.R.attr.colorError,
+                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.ping_weak_color)
                 )
+                connectButton.backgroundTintList = ColorStateList.valueOf(danger)
             }
             ConnectionState.DISCONNECTED -> {
                 connectButton.setText(R.string.start_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.green)
+                val primary = com.google.android.material.color.MaterialColors.getColor(
+                    this,
+                    androidx.appcompat.R.attr.colorPrimary,
+                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.speedometer_progress_color)
                 )
+                connectButton.backgroundTintList = ColorStateList.valueOf(primary)
             }
             ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.red)
+                val danger = com.google.android.material.color.MaterialColors.getColor(
+                    this,
+                    androidx.appcompat.R.attr.colorError,
+                    androidx.core.content.ContextCompat.getColor(context, com.yahorzabotsin.openvpnclient.core.R.color.ping_weak_color)
                 )
+                connectButton.backgroundTintList = ColorStateList.valueOf(danger)
             }
         }
     }

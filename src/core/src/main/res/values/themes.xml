@@ -1,28 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base application theme. -->
+    <!-- Base application theme. Uses system Day/Night and maps brand + app attrs. -->
     <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Backgrounds -->
         <item name="android:windowBackground">@color/app_background</item>
+
+        <!-- Material color roles -->
         <item name="colorPrimary">@color/speedometer_progress_color</item>
+        <item name="colorSurface">@color/nav_bar_background</item>
+        <item name="colorOnSurface">@color/text_color_primary</item>
+
+        <!-- App-specific attributes -->
+        <item name="ovpnNavBarColor">@color/nav_bar_background</item>
+        <item name="ovpnSpeedometerArcColor">@color/speedometer_arc_color</item>
+        <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
+        <item name="ovpnSpeedometerTextColor">@color/speedometer_text_color</item>
+    </style>
+
+    <!-- Toolbar overlay to unify icon/text colors on toolbars -->
+    <style name="ThemeOverlay.OpenVPNClient.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
+        <item name="colorControlNormal">@color/text_color_primary</item>
+        <item name="android:textColorPrimary">@color/text_color_primary</item>
+        <item name="android:textColorSecondary">@color/text_color_secondary</item>
+        <item name="actionMenuTextColor">@color/text_color_primary</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.OpenVPNClient.Toolbar.NavButton</item>
+    </style>
+
+    <style name="Widget.OpenVPNClient.Toolbar.NavButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="android:background">@drawable/toolbar_nav_button_background</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:padding">8dp</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
     </style>
 
     <!-- Widget styles -->
-    <style name="Widget.OpenVPNClient.Button" parent="Widget.AppCompat.Button">
-        <item name="android:background">@color/button_background_color</item>
-        <item name="android:textColor">@android:color/white</item>
+    <style name="Widget.OpenVPNClient.Button" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
     </style>
 
     <!-- Text Appearances -->
     <style name="TextAppearance.OpenVPNClient.Title" parent="TextAppearance.AppCompat.Title">
-        <item name="android:textColor">@color/text_color_primary</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
     <style name="TextAppearance.OpenVPNClient.Body" parent="TextAppearance.AppCompat.Body1">
-        <item name="android:textColor">@color/text_color_primary</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
     <style name="TextAppearance.OpenVPNClient.Subtitle" parent="TextAppearance.AppCompat.Caption">
-        <item name="android:textColor">@color/text_color_secondary</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
 </resources>

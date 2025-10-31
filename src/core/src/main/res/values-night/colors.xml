@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Gray/black palette (apply for system Dark) -->
+    <color name="app_background">#121212</color>
+    <color name="nav_bar_background">#1A1A1A</color>
+    <color name="menu_icon_color">#FFFFFF</color>
+    <color name="text_color_primary">#FFFFFF</color>
+    <color name="text_color_secondary">#B0B0B0</color>
+    <color name="icon_color">#B0B0B0</color>
+
+    <!-- Speedometer Colors: neutral grays -->
+    <color name="speedometer_arc_color">#2A2A2A</color>
+    <color name="speedometer_progress_color">#424242</color>
+    <color name="speedometer_text_color">@color/text_color_primary</color>
+
+    <!-- Ping Colors -->
+    <color name="ping_strong_color">#4CAF50</color>
+    <color name="ping_medium_color">#FFB300</color>
+    <color name="ping_weak_color">#E53935</color>
+
+    <!-- TV specific -->
+    <color name="background_gradient_start">@color/app_background</color>
+    <color name="background_gradient_end">@color/nav_bar_background</color>
+    <color name="default_background">@color/nav_bar_background</color>
+    <color name="selected_background">#2F2F2F</color>
+    <color name="fastlane_background">@color/nav_bar_background</color>
+    <color name="search_opaque">#80FFFFFF</color>
+    <color name="toolbar_nav_focus_bg">#33424242</color>
+</resources>
