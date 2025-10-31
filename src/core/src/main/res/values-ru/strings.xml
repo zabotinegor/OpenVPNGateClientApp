@@ -14,6 +14,7 @@
     <string name="menu_telegram">Telegram</string>
     <string name="menu_rate">Оценить</string>
     <string name="menu_about">О приложении</string>
+    <string name="menu_settings">Настройки</string>
 
     <!-- Server Screen -->
     <string name="server_list_title">Список серверов</string>
