@@ -1,24 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Checked item -->
-    <item android:state_checked="true">
-        <shape android:shape="rectangle">
-            <corners android:radius="12dp" />
-            <solid android:color="@color/selected_background" />
-        </shape>
-    </item>
-    <!-- Focused/pressed item highlight like back button -->
-    <item android:state_focused="true">
-        <shape android:shape="rectangle">
-            <corners android:radius="12dp" />
-            <solid android:color="@color/toolbar_nav_focus_bg" />
-        </shape>
-    </item>
-    <item android:state_pressed="true">
-        <shape android:shape="rectangle">
-            <corners android:radius="12dp" />
-            <solid android:color="@color/toolbar_nav_focus_bg" />
-        </shape>
-    </item>
+    <item android:state_selected="true" android:drawable="@color/selected_background" />
+    <item android:state_focused="true" android:drawable="@color/selected_background" />
     <item android:drawable="@android:color/transparent" />
-</selector>
+  </selector>
+

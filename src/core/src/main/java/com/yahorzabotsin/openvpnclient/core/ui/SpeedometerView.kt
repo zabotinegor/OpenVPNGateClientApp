@@ -23,6 +23,13 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private var speedTextSize: Float
     private var subtitleTextSize: Float
 
+    private fun resolveColorAttr(attrRes: Int, fallback: Int): Int {
+        val tv = android.util.TypedValue()
+        return if (context.theme.resolveAttribute(attrRes, tv, true)) {
+            if (tv.resourceId != 0) context.getColor(tv.resourceId) else tv.data
+        } else fallback
+    }
+
     init {
         // Use software layer to avoid rendering artifacts with drawArc
         setLayerType(View.LAYER_TYPE_SOFTWARE, null)
@@ -34,10 +41,26 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         )
 
         try {
-            arcColor = typedArray.getColor(R.styleable.SpeedometerView_arcColor, Color.parseColor("#1E3A6E"))
-            progressColor = typedArray.getColor(R.styleable.SpeedometerView_progressColor, Color.parseColor("#3B7CFF"))
-            speedTextColor = typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, Color.WHITE)
-            subtitleTextColor = typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, Color.WHITE)
+            val defaultArc = resolveColorAttr(R.attr.ovpnSpeedometerArcColor, Color.parseColor("#1E3A6E"))
+            val defaultProgress = resolveColorAttr(R.attr.ovpnSpeedometerProgressColor, Color.parseColor("#3B7CFF"))
+            val defaultText = resolveColorAttr(R.attr.ovpnSpeedometerTextColor, Color.WHITE)
+
+            arcColor = if (typedArray.hasValue(R.styleable.SpeedometerView_arcColor))
+                typedArray.getColor(R.styleable.SpeedometerView_arcColor, defaultArc)
+            else defaultArc
+
+            progressColor = if (typedArray.hasValue(R.styleable.SpeedometerView_progressColor))
+                typedArray.getColor(R.styleable.SpeedometerView_progressColor, defaultProgress)
+            else defaultProgress
+
+            speedTextColor = if (typedArray.hasValue(R.styleable.SpeedometerView_speedTextColor))
+                typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, defaultText)
+            else defaultText
+
+            subtitleTextColor = if (typedArray.hasValue(R.styleable.SpeedometerView_subtitleTextColor))
+                typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, defaultText)
+            else defaultText
+
             arcWidth = typedArray.getDimension(R.styleable.SpeedometerView_arcWidth, 30f)
             speedTextSize = typedArray.getDimension(R.styleable.SpeedometerView_speedTextSize, 60f)
             subtitleTextSize = typedArray.getDimension(R.styleable.SpeedometerView_subtitleTextSize, 30f)

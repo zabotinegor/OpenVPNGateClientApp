@@ -17,12 +17,12 @@ import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import kotlinx.coroutines.launch
 import android.widget.Toast
 
-abstract class BaseServerListActivity : AppCompatActivity() {
+open class ServerListActivity : AppCompatActivity() {
 
     private val serverRepository = ServerRepository()
     private lateinit var servers: List<Server>
     private lateinit var binding: ActivityServerListBinding
-    private val TAG = BaseServerListActivity::class.simpleName
+    private val TAG = ServerListActivity::class.simpleName
 
     private var countries: List<String> = emptyList()
 
@@ -45,7 +45,7 @@ abstract class BaseServerListActivity : AppCompatActivity() {
                     Log.d(TAG, "Country selected: $country")
                     val countryServers = servers.filter { it.country.name == country }
                     if (countryServers.isNotEmpty()) {
-                        SelectedCountryStore.saveSelection(this@BaseServerListActivity, country, countryServers)
+                        SelectedCountryStore.saveSelection(this@ServerListActivity, country, countryServers)
                         val first = countryServers.first()
                         val resultIntent = Intent().apply {
                             putExtra(EXTRA_SELECTED_SERVER_COUNTRY, country)
@@ -55,7 +55,7 @@ abstract class BaseServerListActivity : AppCompatActivity() {
                         setResult(Activity.RESULT_OK, resultIntent)
                     } else {
                         Log.w(TAG, "No servers found for selected country: $country")
-                        Toast.makeText(this@BaseServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
                         setResult(Activity.RESULT_CANCELED)
                     }
                     finish()
@@ -79,7 +79,11 @@ abstract class BaseServerListActivity : AppCompatActivity() {
         binding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
     }
 
-    abstract fun setupToolbarAndBackButton()
+    open fun setupToolbarAndBackButton() {
+        findViewById<android.view.View>(R.id.back_button).setOnClickListener {
+            onBackPressedDispatcher.onBackPressed()
+        }
+    }
 
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
