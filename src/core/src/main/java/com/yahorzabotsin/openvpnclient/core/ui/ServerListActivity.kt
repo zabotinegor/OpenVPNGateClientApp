@@ -80,7 +80,7 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     open fun setupToolbarAndBackButton() {
-        findViewById<android.view.View>(R.id.back_button).setOnClickListener {
+        binding.backButton.setOnClickListener {
             onBackPressedDispatcher.onBackPressed()
         }
     }
