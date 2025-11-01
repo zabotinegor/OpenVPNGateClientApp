@@ -74,10 +74,10 @@ open class MainActivityCore : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        toolbarView = findViewById(R.id.toolbar)
-        connectionControlsView = findViewById(R.id.connection_controls)
+        toolbarView = binding.toolbar
+        connectionControlsView = binding.connectionControls
 
-        val center: FrameLayout = findViewById(R.id.main_center_container)
+        val center: FrameLayout = binding.mainCenterContainer
         if (center.childCount == 0) {
             val margin = resources.getDimensionPixelSize(R.dimen.speedometer_margin)
             val lp = FrameLayout.LayoutParams(
