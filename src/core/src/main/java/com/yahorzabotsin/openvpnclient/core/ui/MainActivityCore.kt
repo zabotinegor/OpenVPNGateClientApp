@@ -79,7 +79,7 @@ open class MainActivityCore : AppCompatActivity() {
 
         val center: FrameLayout = findViewById(R.id.main_center_container)
         if (center.childCount == 0) {
-            val margin = (32 * resources.displayMetrics.density).toInt()
+            val margin = resources.getDimensionPixelSize(R.dimen.speedometer_margin)
             val lp = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
