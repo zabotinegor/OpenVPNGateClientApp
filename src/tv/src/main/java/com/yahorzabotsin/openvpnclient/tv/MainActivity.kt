@@ -10,6 +10,7 @@ import com.yahorzabotsin.openvpnclient.core.R as coreR
 import com.yahorzabotsin.openvpnclient.tv.R as tvR
 
 class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() {
+    private companion object { const val TAG = "MainActivityTV" }
     private var selectedMenuItemId: Int = coreR.id.nav_server
 
     override fun styleNavigationView(nv: NavigationView) {
@@ -23,7 +24,7 @@ class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() 
         drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
             override fun onDrawerOpened(drawerView: View) {
-                Log.d("MainActivityTV", "Drawer opened, focusing on selected item.")
+                Log.d(TAG, "Drawer opened, focusing on selected item.")
                 binding.navView.setCheckedItem(selectedMenuItemId)
                 binding.navView.post {
                     val viewToFocus = binding.navView.findViewById<View>(selectedMenuItemId)
@@ -31,7 +32,7 @@ class MainActivity : com.yahorzabotsin.openvpnclient.core.ui.MainActivityCore() 
                 }
             }
             override fun onDrawerClosed(drawerView: View) {
-                Log.d("MainActivityTV", "Drawer closed, focusing on connection button.")
+                Log.d(TAG, "Drawer closed, focusing on connection button.")
                 connectionControlsView.requestPrimaryFocus()
             }
             override fun onDrawerStateChanged(newState: Int) {}
