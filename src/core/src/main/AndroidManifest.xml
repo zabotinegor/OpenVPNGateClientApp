@@ -24,7 +24,9 @@
             android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
             android:exported="false" />
 
-        
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.ServerListActivity"
+            android:exported="false" />
     </application>
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
