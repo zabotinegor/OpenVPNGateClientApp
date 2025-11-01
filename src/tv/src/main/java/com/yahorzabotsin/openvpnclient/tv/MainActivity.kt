@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclient.tv
+package com.yahorzabotsin.openvpnclient.tv
 
 import android.util.Log
 import android.view.View
