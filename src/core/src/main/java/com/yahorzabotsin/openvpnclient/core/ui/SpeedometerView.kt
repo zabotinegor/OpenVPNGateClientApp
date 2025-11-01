@@ -14,7 +14,6 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val arcRect = RectF()
 
-    // Customizable properties
     private var arcColor: Int
     private var progressColor: Int
     private var speedTextColor: Int
@@ -31,7 +30,6 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     init {
-        // Use software layer to avoid rendering artifacts with drawArc
         setLayerType(View.LAYER_TYPE_SOFTWARE, null)
 
         val typedArray = context.theme.obtainStyledAttributes(
@@ -45,21 +43,10 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             val defaultProgress = resolveColorAttr(R.attr.ovpnSpeedometerProgressColor, context.getColor(R.color.speedometer_progress_color))
             val defaultText = resolveColorAttr(R.attr.ovpnSpeedometerTextColor, Color.WHITE)
 
-            arcColor = if (typedArray.hasValue(R.styleable.SpeedometerView_arcColor))
-                typedArray.getColor(R.styleable.SpeedometerView_arcColor, defaultArc)
-            else defaultArc
-
-            progressColor = if (typedArray.hasValue(R.styleable.SpeedometerView_progressColor))
-                typedArray.getColor(R.styleable.SpeedometerView_progressColor, defaultProgress)
-            else defaultProgress
-
-            speedTextColor = if (typedArray.hasValue(R.styleable.SpeedometerView_speedTextColor))
-                typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, defaultText)
-            else defaultText
-
-            subtitleTextColor = if (typedArray.hasValue(R.styleable.SpeedometerView_subtitleTextColor))
-                typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, defaultText)
-            else defaultText
+            arcColor = typedArray.getColor(R.styleable.SpeedometerView_arcColor, defaultArc)
+            progressColor = typedArray.getColor(R.styleable.SpeedometerView_progressColor, defaultProgress)
+            speedTextColor = typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, defaultText)
+            subtitleTextColor = typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, defaultText)
 
             arcWidth = typedArray.getDimension(R.styleable.SpeedometerView_arcWidth, 30f)
             speedTextSize = typedArray.getDimension(R.styleable.SpeedometerView_speedTextSize, 60f)
@@ -75,12 +62,9 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val centerX = width / 2f
         val centerY = height / 2f
 
-        // To prevent clipping, the bounding box of the arc must be inset
-        // by at least half the stroke width.
         val inset = arcWidth / 2f
         arcRect.set(paddingLeft + inset, paddingTop + inset, width - paddingRight - inset, height - paddingBottom - inset)
 
-        // The arc should be circular, so we make the bounding box a square
         if (arcRect.width() > arcRect.height()) {
             val diff = arcRect.width() - arcRect.height()
             arcRect.left += diff / 2f
@@ -91,26 +75,22 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             arcRect.bottom -= diff / 2f
         }
 
-        // Draw the outer arc
         paint.color = arcColor
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = arcWidth
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, 150f, 240f, false, paint)
 
-        // Draw the inner progress arc
         paint.color = progressColor
         paint.strokeCap = Paint.Cap.ROUND
-        canvas.drawArc(arcRect, 150f, 100f, false, paint) // Example progress
+        canvas.drawArc(arcRect, 150f, 100f, false, paint)
 
-        // Draw the speed text
         paint.color = speedTextColor
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
         canvas.drawText("0.0", centerX, centerY, paint)
 
-        // Draw the subtitle text
         paint.color = subtitleTextColor
         paint.textSize = subtitleTextSize
         canvas.drawText("Mbit", centerX, centerY + subtitleTextSize * 1.5f, paint)
