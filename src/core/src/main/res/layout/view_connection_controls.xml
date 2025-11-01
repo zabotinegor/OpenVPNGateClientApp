@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:src="@drawable/ic_baseline_public_24"
-            app:tint="@color/text_color_primary" />
+            app:tint="?attr/colorOnSurface" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -51,7 +51,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:src="@drawable/ic_baseline_chevron_right_24"
-            app:tint="@color/text_color_primary" />
+            app:tint="?attr/colorOnSurface" />
+            
+        
+        
+        
+        
     </LinearLayout>
 
 

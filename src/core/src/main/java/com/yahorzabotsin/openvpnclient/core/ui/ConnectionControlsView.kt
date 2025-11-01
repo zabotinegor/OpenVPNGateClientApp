@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
                         Log.d(TAG, "Start VPN requested")
                         prepareAndStartVpn()
                     } else {
-                        Toast.makeText(context, "Please select a server first", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
                         Log.d(TAG, "Connect clicked but no VPN config; ignoring")
                     }
                 }
@@ -136,23 +136,25 @@ import kotlinx.coroutines.launch
         Log.d(TAG, "Update button state: $state")
         val connectButton = binding.startConnectionButton
         when (state) {
-            ConnectionState.CONNECTED -> {
+            ConnectionState.CONNECTED,
+            ConnectionState.CONNECTING,
+            ConnectionState.DISCONNECTING -> {
                 connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.red)
+                val danger = com.google.android.material.color.MaterialColors.getColor(
+                    this,
+                    androidx.appcompat.R.attr.colorError,
+                    androidx.core.content.ContextCompat.getColor(context, R.color.ping_weak_color)
                 )
+                connectButton.backgroundTintList = ColorStateList.valueOf(danger)
             }
             ConnectionState.DISCONNECTED -> {
                 connectButton.setText(R.string.start_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.green)
+                val primary = com.google.android.material.color.MaterialColors.getColor(
+                    this,
+                    androidx.appcompat.R.attr.colorPrimary,
+                    androidx.core.content.ContextCompat.getColor(context, R.color.speedometer_progress_color)
                 )
-            }
-            ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
-                connectButton.setText(R.string.stop_connection)
-                connectButton.backgroundTintList = ColorStateList.valueOf(
-                    ContextCompat.getColor(context, R.color.red)
-                )
+                connectButton.backgroundTintList = ColorStateList.valueOf(primary)
             }
         }
     }

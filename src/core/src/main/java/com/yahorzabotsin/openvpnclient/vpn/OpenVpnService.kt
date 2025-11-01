@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import com.yahorzabotsin.openvpnclient.core.R
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.ConfigParser.ConfigParseError
@@ -79,11 +80,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.getStringExtra(VpnManager.ACTION_VPN)) {
+        when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 Log.i(TAG, "ACTION_START")
-                val config = intent.getStringExtra(VpnManager.EXTRA_CONFIG)
-                val title = intent.getStringExtra(VpnManager.EXTRA_TITLE)
+                val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
+                val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
                 userInitiatedStop = false
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
@@ -98,7 +99,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                 requestStopIcsOpenVpn()
             }
-            else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.ACTION_VPN)}")
+            else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.actionKey(this))}")
         }
         return START_NOT_STICKY
     }
@@ -109,7 +110,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val isr = InputStreamReader(ByteArrayInputStream(ovpnConfig.toByteArray()))
             cp.parseConfig(isr)
             val profile: VpnProfile = cp.convertProfile().apply {
-                mName = displayName?.ifBlank { null } ?: (try { getString(com.yahorzabotsin.openvpnclient.core.R.string.app_name) } catch (_: Exception) { applicationInfo.loadLabel(packageManager)?.toString() ?: "VPN" })
+                mName = displayName?.ifBlank { null } ?: (try { getString(R.string.app_name) } catch (_: Exception) { applicationInfo.loadLabel(packageManager)?.toString() ?: "VPN" })
                 if (mCompatMode == 0) mCompatMode = 20400
             }
             ProfileManager.setTemporaryProfile(this, profile)

@@ -14,6 +14,7 @@
     <string name="menu_telegram">Telegram</string>
     <string name="menu_rate">Rate</string>
     <string name="menu_about">About</string>
+    <string name="menu_settings">Settings</string>
 
     <!-- Server Screen -->
     <string name="server_list_title">Server list</string>
@@ -26,11 +27,9 @@
     <string name="no_servers_for_country">No servers available for the selected country</string>
 
     <!-- Main Screen -->
-    <string name="current_country">Russia</string>
-    <string name="current_city">Novosibirsk</string>
+    <string name="current_country">Not selected</string>
+    <string name="current_city">Not selected</string>
     <string name="feature_in_development">Feature in Development</string>
-
-    
 
     <!-- VPN Notifications -->
     <string name="vpn_channel_name">VPN Status</string>
@@ -43,4 +42,9 @@
     <string name="vpn_notification_text_connected">Your VPN is active</string>
     <string name="vpn_notification_text_disconnecting">Tearing down connection…</string>
     <string name="vpn_notification_text_disconnected">VPN stopped</string>
+
+    <!-- Runtime messages / toasts -->
+    <string name="select_server_first">Please select a server first</string>
+    <string name="vpn_permission_not_granted">VPN permission was not granted</string>
+    <string name="notification_permission_required">Notification permission is required for VPN status</string>
 </resources>
