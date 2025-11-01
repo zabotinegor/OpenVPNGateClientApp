@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclient.core.ui
+package com.yahorzabotsin.openvpnclient.core.ui
 
 import android.content.Context
 import android.graphics.Canvas
