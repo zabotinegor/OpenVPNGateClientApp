@@ -74,11 +74,9 @@ open class MainActivityCore : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Resolve views from core layout
         toolbarView = findViewById(R.id.toolbar)
         connectionControlsView = findViewById(R.id.connection_controls)
 
-        // Center content: add SpeedometerView
         val center: FrameLayout = findViewById(R.id.main_center_container)
         if (center.childCount == 0) {
             val margin = (32 * resources.displayMetrics.density).toInt()
@@ -103,17 +101,14 @@ open class MainActivityCore : AppCompatActivity() {
     private fun setupConnectionControls() {
         connectionControlsView.setLifecycleOwner(this)
         connectionControlsView.setVpnPermissionRequestHandler {
-            Log.d(TAG, "Requesting VPN permission.")
             val intent = VpnService.prepare(this)
             if (intent != null) {
                 vpnPermissionLauncher.launch(intent)
             } else {
-                Log.d(TAG, "VPN permission already granted, triggering connection directly.")
                 connectionControlsView.performConnectionClick()
             }
         }
         connectionControlsView.setNotificationPermissionRequestHandler {
-            Log.d(TAG, "Requesting POST_NOTIFICATIONS permission.")
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             } else {
@@ -168,7 +163,6 @@ open class MainActivityCore : AppCompatActivity() {
         }
     }
 
-    // Hooks for per-variant tweaks
     protected open fun styleNavigationView(nv: NavigationView) {}
     protected open fun addDrawerExtras(drawerLayout: DrawerLayout) {}
     protected open fun afterViewsReady() {}
