@@ -11,7 +11,7 @@ class ExampleInstrumentedTest {
     @Test
     fun useAppContext() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        // In androidTest, packageName may include ".test" — avoid hardcoding base
-        assertTrue(appContext.packageName.contains(".core"))
+        val pn = appContext.packageName
+        assertTrue(pn.endsWith(".core") || pn.endsWith(".core.test"))
     }
 }

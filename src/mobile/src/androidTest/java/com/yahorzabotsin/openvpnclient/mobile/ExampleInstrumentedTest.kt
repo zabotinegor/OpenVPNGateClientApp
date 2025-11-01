@@ -11,7 +11,6 @@ class ExampleInstrumentedTest {
     @Test
     fun useAppContext() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        // Verify suffix rather than hardcoded base applicationId
         assertTrue(appContext.packageName.endsWith(".mobile"))
     }
 }
