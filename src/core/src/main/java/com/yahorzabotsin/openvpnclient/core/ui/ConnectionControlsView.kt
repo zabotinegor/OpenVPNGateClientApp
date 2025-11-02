@@ -137,24 +137,24 @@ import kotlinx.coroutines.launch
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED,
-            ConnectionState.CONNECTING,
             ConnectionState.DISCONNECTING -> {
                 connectButton.setText(R.string.stop_connection)
-                val danger = com.google.android.material.color.MaterialColors.getColor(
-                    this,
-                    androidx.appcompat.R.attr.colorError,
-                    androidx.core.content.ContextCompat.getColor(context, R.color.ping_weak_color)
-                )
-                connectButton.backgroundTintList = ColorStateList.valueOf(danger)
+                val color = ContextCompat.getColor(context, R.color.connection_button_active)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+            }
+            ConnectionState.CONNECTING -> {
+                connectButton.setText(R.string.stop_connection)
+                val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.DISCONNECTED -> {
                 connectButton.setText(R.string.start_connection)
-                val primary = com.google.android.material.color.MaterialColors.getColor(
+                val color = com.google.android.material.color.MaterialColors.getColor(
                     this,
                     androidx.appcompat.R.attr.colorPrimary,
-                    androidx.core.content.ContextCompat.getColor(context, R.color.speedometer_progress_color)
+                    ContextCompat.getColor(context, R.color.connection_button_disconnected)
                 )
-                connectButton.backgroundTintList = ColorStateList.valueOf(primary)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
         }
     }
