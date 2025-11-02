@@ -14,6 +14,7 @@ object ServerAutoSwitcher {
     private var runnable: Runnable? = null
     private var seconds: Int = 0
     @Volatile private var inNoReply: Boolean = false
+    internal var starter: (Context, String, String?) -> Unit = { ctx, config, title -> VpnManager.startVpn(ctx, config, title) }
 
     fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
         if (level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET) {
@@ -41,7 +42,7 @@ object ServerAutoSwitcher {
                     if (next != null) {
                         Log.i(TAG, "Timed switch: >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s without server reply, switching to: ${title} -> ${next.city}")
                         cancel()
-                        VpnManager.startVpn(appContext, next.config, title)
+                        starter(appContext, next.config, title)
                         return
                     } else {
                         Log.i(TAG, "Timed switch: no alternative servers available in selected country")

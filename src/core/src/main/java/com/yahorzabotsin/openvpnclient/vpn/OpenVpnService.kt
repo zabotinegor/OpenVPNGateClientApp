@@ -30,6 +30,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private companion object {
         const val TAG = "OpenVpnService"
+        private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
         private val AUTO_SWITCH_LEVELS = setOf(
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -48,9 +49,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val handler = Handler(Looper.getMainLooper())
     private var noReplySwitchRunnable: Runnable? = null
     private var noReplySeconds: Int = 0
-    private companion object {
-        private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
-    }
 
     private val engineConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
