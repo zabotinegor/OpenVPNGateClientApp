@@ -16,6 +16,7 @@ class EngineStatusReceiver : BroadcastReceiver() {
         try {
             val level = ConnectionStatus.valueOf(status)
             Log.d(TAG, "Broadcast level=$level")
+            ServerAutoSwitcher.onEngineLevel(context.applicationContext, level)
             ConnectionStateManager.updateFromEngine(level)
         } catch (t: Throwable) {
             Log.w(TAG, "Unknown status: $status", t)

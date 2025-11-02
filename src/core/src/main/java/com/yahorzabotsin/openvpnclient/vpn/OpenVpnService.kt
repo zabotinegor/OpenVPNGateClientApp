@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.RemoteException
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.R
@@ -41,6 +43,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
+    private var lastEngineLevel: ConnectionStatus? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var noReplySwitchRunnable: Runnable? = null
+    private var noReplySeconds: Int = 0
+    private companion object {
+        private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
+    }
 
     private val engineConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -163,6 +173,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         VpnStatus.removeLogListener(this)
         try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (_: Exception) {}; boundToEngine = false }
+        cancelNoReplySwitch()
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
     }
@@ -178,6 +189,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
+
+        lastEngineLevel = level
+        if (userInitiatedStart && level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET) {
+            scheduleNoReplySwitch()
+        } else {
+            cancelNoReplySwitch()
+        }
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS) {
             val next = SelectedCountryStore.nextServer(applicationContext)
             val title = SelectedCountryStore.getSelectedCountry(applicationContext)
@@ -210,6 +228,49 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> {}
         }
+    }
+
+    private fun scheduleNoReplySwitch() {
+        if (noReplySwitchRunnable != null) return
+        noReplySeconds = 0
+        val r = object : Runnable {
+            override fun run() {
+                if (!userInitiatedStart || lastEngineLevel != ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET) {
+                    Log.d(TAG, "No-reply timer canceled (state changed or user canceled)")
+                    noReplySwitchRunnable = null
+                    return
+                }
+
+                noReplySeconds += 1
+                Log.d(TAG, "No-reply wait: ${noReplySeconds}s")
+
+                if (noReplySeconds >= NO_REPLY_SWITCH_THRESHOLD_SECONDS) {
+                    val next = SelectedCountryStore.nextServer(applicationContext)
+                    val title = SelectedCountryStore.getSelectedCountry(applicationContext)
+                    if (next != null) {
+                        Log.i(TAG, "Timed switch: waiting for server reply >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s, switching to next: ${title} -> ${next.city}")
+                        try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during timed server switch", e) }
+                        cancelNoReplySwitch()
+                        VpnManager.startVpn(applicationContext, next.config, title)
+                        return
+                    } else {
+                        Log.i(TAG, "Timed switch: no alternative servers available in selected country")
+                        cancelNoReplySwitch()
+                        return
+                    }
+                }
+
+                handler.postDelayed(this, 1_000)
+            }
+        }
+        noReplySwitchRunnable = r
+        handler.postDelayed(r, 1_000)
+    }
+
+    private fun cancelNoReplySwitch() {
+        noReplySwitchRunnable?.let { handler.removeCallbacks(it) }
+        noReplySwitchRunnable = null
+        noReplySeconds = 0
     }
 
     override fun setConnectedVPN(uuid: String) { /* not used */ }
