@@ -16,7 +16,9 @@ object VpnManager {
     fun extraTitleKey(context: Context) = "${context.packageName}.vpn.TITLE"
     fun actionKey(context: Context) = "${context.packageName}.vpn.ACTION"
 
-    fun startVpn(context: Context, base64Config: String, displayName: String? = null) {
+    fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
+
+    fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false) {
         Log.d(TAG, "startVpn")
         val decodedConfig = try {
             String(Base64.decode(base64Config, Base64.DEFAULT))
@@ -27,6 +29,7 @@ object VpnManager {
             putExtra(extraConfigKey(context), decodedConfig)
             if (!displayName.isNullOrBlank()) putExtra(extraTitleKey(context), displayName)
             putExtra(actionKey(context), ACTION_START)
+            putExtra(extraAutoSwitchKey(context), isReconnect)
         }
         context.startService(intent)
     }

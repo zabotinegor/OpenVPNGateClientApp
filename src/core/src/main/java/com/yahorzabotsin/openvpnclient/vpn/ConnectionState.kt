@@ -25,6 +25,13 @@ object ConnectionStateManager {
     val engineLevel = _engineLevel.asStateFlow()
     private val _engineDetail = MutableStateFlow<String?>(null)
     val engineDetail = _engineDetail.asStateFlow()
+    private val _reconnectingHint = MutableStateFlow(false)
+    val reconnectingHint = _reconnectingHint.asStateFlow()
+
+    fun setReconnectingHint(value: Boolean) {
+        Log.d(tag, "setReconnectingHint=$value (was=${_reconnectingHint.value})")
+        _reconnectingHint.value = value
+    }
 
     @MainThread
     internal fun updateState(newState: ConnectionState) {
@@ -50,6 +57,7 @@ object ConnectionStateManager {
     fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
         _engineLevel.value = level
         _engineDetail.value = detail
+        Log.d(tag, "updateFromEngine level=$level detail=${detail ?: "<none>"}")
         val mapped = when (level) {
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
@@ -62,12 +70,15 @@ object ConnectionStateManager {
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
-        Log.d(tag, "Engine level=$level -> $mapped")
+        Log.d(tag, "Engine level=$level -> mapped=$mapped hint=${_reconnectingHint.value}")
         if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
             _error.value = VpnError.AUTH
         } else if (mapped != ConnectionState.DISCONNECTED) {
             _error.value = VpnError.NONE
         }
-        updateState(mapped)
+        if (mapped == ConnectionState.CONNECTED) _reconnectingHint.value = false
+        val effective = if (mapped == ConnectionState.DISCONNECTED && _reconnectingHint.value) ConnectionState.CONNECTING else mapped
+        if (effective != mapped) Log.d(tag, "Masking DISCONNECTED to CONNECTING due to reconnect hint")
+        updateState(effective)
     }
 }

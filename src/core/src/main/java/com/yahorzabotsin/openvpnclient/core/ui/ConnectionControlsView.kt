@@ -145,10 +145,20 @@ import kotlinx.coroutines.launch
                 }
             }
         }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.reconnectingHint.collect {
+                    updateButtonState(ConnectionStateManager.state.value)
+                }
+            }
+        }
     }
 
     private fun updateButtonState(state: ConnectionState) {
-        Log.d(TAG, "Update button state: $state")
+        val detail = ConnectionStateManager.engineDetail.value
+        val level = ConnectionStateManager.engineLevel.value
+        val hint = ConnectionStateManager.reconnectingHint.value
+        Log.d(TAG, "Update button: state=$state level=$level detail=${detail ?: "<none>"} hint=$hint")
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
@@ -162,19 +172,32 @@ import kotlinx.coroutines.launch
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.CONNECTING -> {
-                val detail = ConnectionStateManager.engineDetail.value
-                connectButton.text = engineDetailToText(detail)
+                val t = if (ConnectionStateManager.reconnectingHint.value &&
+                    (level == ConnectionStatus.LEVEL_NOTCONNECTED || detail == "NOPROCESS" || detail == "EXITING")) {
+                    engineDetailToText("RECONNECTING")
+                } else engineDetailToText(detail)
+                connectButton.text = t
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                Log.d(TAG, "CONNECTING ui -> text='${t}' color=${color}")
             }
             ConnectionState.DISCONNECTED -> {
-                connectButton.setText(R.string.start_connection)
-                val color = com.google.android.material.color.MaterialColors.getColor(
-                    this,
-                    androidx.appcompat.R.attr.colorPrimary,
-                    ContextCompat.getColor(context, R.color.connection_button_disconnected)
-                )
-                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                if (hint) {
+                    val t = engineDetailToText("RECONNECTING")
+                    connectButton.text = t
+                    val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
+                    connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                    Log.d(TAG, "DISCONNECTED masked as RECONNECTING -> text='${t}' color=${color}")
+                } else {
+                    connectButton.setText(R.string.start_connection)
+                    val color = com.google.android.material.color.MaterialColors.getColor(
+                        this,
+                        androidx.appcompat.R.attr.colorPrimary,
+                        ContextCompat.getColor(context, R.color.connection_button_disconnected)
+                    )
+                    connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                    Log.d(TAG, "DISCONNECTED ui -> text='START CONNECTION' color=${color}")
+                }
             }
         }
     }

@@ -95,6 +95,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
                 userInitiatedStop = false
+                val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
+                if (isReconnect) {
+                    try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (auto-switch start)") } catch (_: Exception) {}
+                } else {
+                    try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (manual start)") } catch (_: Exception) {}
+                }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
@@ -104,6 +110,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 Log.i(TAG, "ACTION_STOP")
                 userInitiatedStop = true
                 userInitiatedStart = false
+                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (_: Exception) {}
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                 requestStopIcsOpenVpn()
             }
@@ -200,10 +207,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (next != null) {
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
-                VpnManager.startVpn(applicationContext, next.config, title)
+                try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (_: Exception) {}
+                VpnManager.startVpn(applicationContext, next.config, title, true)
                 return
             } else {
                 userInitiatedStart = false
+                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (_: Exception) {}
             }
         }
         ConnectionStateManager.updateFromEngine(level)

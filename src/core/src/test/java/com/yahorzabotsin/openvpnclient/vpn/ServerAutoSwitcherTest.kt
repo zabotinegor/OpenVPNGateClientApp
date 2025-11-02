@@ -20,13 +20,18 @@ import java.time.Duration
 @RunWith(RobolectricTestRunner::class)
 class ServerAutoSwitcherTest {
     private val appContext = RuntimeEnvironment.getApplication()
-    private var originalStarter: ((android.content.Context, String, String?) -> Unit)? = null
-    private val calls = mutableListOf<Triple<android.content.Context, String, String?>>()
+    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Unit)? = null
+    private var originalStopper: ((android.content.Context) -> Unit)? = null
+    private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
+    private val calls = mutableListOf<Call>()
+    private var stopCalls = 0
 
     @Before
     fun setUp() {
         originalStarter = ServerAutoSwitcher.starter
-        ServerAutoSwitcher.starter = { ctx, config, title -> calls.add(Triple(ctx, config, title)) }
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
+        originalStopper = ServerAutoSwitcher.stopper
+        ServerAutoSwitcher.stopper = { _ -> stopCalls += 1 }
         val servers = listOf(
             Server("n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
             Server("n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
@@ -34,11 +39,13 @@ class ServerAutoSwitcherTest {
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
         calls.clear()
+        stopCalls = 0
     }
 
     @After
     fun tearDown() {
         originalStarter?.let { ServerAutoSwitcher.starter = it }
+        originalStopper?.let { ServerAutoSwitcher.stopper = it }
     }
 
     @Test
@@ -46,7 +53,8 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
         assertEquals(1, calls.size)
-        assertEquals("conf2", calls.first().second)
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf2", current?.config)
     }
@@ -80,5 +88,6 @@ class ServerAutoSwitcherTest {
 
         val hadNoAltLog = ShadowLog.getLogs().any { it.tag == "ServerAutoSwitcher" && it.msg.contains("no alternative servers available") }
         assertEquals(true, hadNoAltLog)
+        assertEquals(1, stopCalls)
     }
 }
