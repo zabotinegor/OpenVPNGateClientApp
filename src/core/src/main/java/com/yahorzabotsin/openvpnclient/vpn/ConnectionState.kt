@@ -21,6 +21,10 @@ object ConnectionStateManager {
     enum class VpnError { NONE, AUTH }
     private val _error = MutableStateFlow(VpnError.NONE)
     val error = _error.asStateFlow()
+    private val _engineLevel = MutableStateFlow<ConnectionStatus?>(null)
+    val engineLevel = _engineLevel.asStateFlow()
+    private val _engineDetail = MutableStateFlow<String?>(null)
+    val engineDetail = _engineDetail.asStateFlow()
 
     @MainThread
     internal fun updateState(newState: ConnectionState) {
@@ -43,7 +47,9 @@ object ConnectionStateManager {
     }
 
     @MainThread
-    fun updateFromEngine(level: ConnectionStatus) {
+    fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
+        _engineLevel.value = level
+        _engineDetail.value = detail
         val mapped = when (level) {
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,

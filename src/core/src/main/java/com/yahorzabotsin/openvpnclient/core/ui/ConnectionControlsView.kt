@@ -20,6 +20,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 
   class ConnectionControlsView @JvmOverloads constructor(
@@ -130,20 +131,39 @@ import kotlinx.coroutines.launch
                 }
             }
         }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.engineLevel.collect {
+                    if (ConnectionStateManager.state.value == ConnectionState.CONNECTING) updateButtonState(ConnectionState.CONNECTING)
+                }
+            }
+        }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.engineDetail.collect {
+                    if (ConnectionStateManager.state.value == ConnectionState.CONNECTING) updateButtonState(ConnectionState.CONNECTING)
+                }
+            }
+        }
     }
 
     private fun updateButtonState(state: ConnectionState) {
         Log.d(TAG, "Update button state: $state")
         val connectButton = binding.startConnectionButton
         when (state) {
-            ConnectionState.CONNECTED,
-            ConnectionState.DISCONNECTING -> {
+            ConnectionState.CONNECTED -> {
                 connectButton.setText(R.string.stop_connection)
                 val color = ContextCompat.getColor(context, R.color.connection_button_active)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
+            ConnectionState.DISCONNECTING -> {
+                connectButton.setText(R.string.start_connection)
+                val color = ContextCompat.getColor(context, R.color.connection_button_active)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+            }
             ConnectionState.CONNECTING -> {
-                connectButton.setText(R.string.stop_connection)
+                val detail = ConnectionStateManager.engineDetail.value
+                connectButton.text = engineDetailToText(detail)
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
@@ -157,6 +177,27 @@ import kotlinx.coroutines.launch
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
         }
+    }
+
+    private fun engineDetailToText(detail: String?): CharSequence {
+        val resId = when (detail) {
+            "CONNECTING" -> R.string.state_connecting
+            "WAIT" -> R.string.state_wait
+            "AUTH" -> R.string.state_auth
+            "VPN_GENERATE_CONFIG" -> R.string.building_configration
+            "GET_CONFIG" -> R.string.state_get_config
+            "ASSIGN_IP" -> R.string.state_assign_ip
+            "ADD_ROUTES" -> R.string.state_add_routes
+            "CONNECTED" -> R.string.state_connected
+            "DISCONNECTED" -> R.string.state_disconnected
+            "RECONNECTING" -> R.string.state_reconnecting
+            "EXITING" -> R.string.state_exiting
+            "RESOLVE" -> R.string.state_resolve
+            "TCP_CONNECT" -> R.string.state_tcp_connect
+            "AUTH_PENDING" -> R.string.state_auth_pending
+            else -> null
+        }
+        return if (resId != null) context.getString(resId) else (detail ?: context.getString(R.string.vpn_notification_text_connecting))
     }
 }
 

@@ -13,11 +13,12 @@ class EngineStatusReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != "de.blinkt.openvpn.VPN_STATUS") return
         val status = intent.getStringExtra("status") ?: return
+        val detail = intent.getStringExtra("detailstatus")
         try {
             val level = ConnectionStatus.valueOf(status)
             Log.d(TAG, "Broadcast level=$level")
             ServerAutoSwitcher.onEngineLevel(context.applicationContext, level)
-            ConnectionStateManager.updateFromEngine(level)
+            ConnectionStateManager.updateFromEngine(level, detail)
         } catch (t: Throwable) {
             Log.w(TAG, "Unknown status: $status", t)
         }
