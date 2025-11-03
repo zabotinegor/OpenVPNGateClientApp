@@ -204,9 +204,9 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun formatAdaptiveBytesPerSec(bps: Float): Pair<String, String> {
-        val kb = 1024f
-        val mb = kb * 1024f
-        val gb = mb * 1024f
+        val kb = 1000f
+        val mb = kb * 1000f
+        val gb = mb * 1000f
         val (value, unit) = when {
             bps >= gb -> bps / gb to context.getString(R.string.speed_unit_gbps)
             bps >= mb -> bps / mb to context.getString(R.string.speed_unit_mbps)
