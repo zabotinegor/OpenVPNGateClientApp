@@ -44,6 +44,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session connection attempts across auto-switches
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
+
+    private fun totalServersStr(): String =
+        if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
     
 
     private val engineConnection = object : ServiceConnection {
@@ -106,9 +109,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     sessionAttempt = 1
                 }
                 run {
-                    val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
                     val titleStr = title?.let { ": $it" } ?: ""
-                    Log.i(TAG, "Session attempt ${sessionAttempt}/${totalStr}${titleStr}")
+                    Log.i(TAG, "Session attempt ${sessionAttempt}/${totalServersStr()}${titleStr}")
                 }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -219,16 +221,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } else {
                 userInitiatedStart = false
                 try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
-                val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
-                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt}/${totalStr} attempts")
+                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt}/${totalServersStr()} attempts")
             }
         }
         when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
                 userInitiatedStart = false
                 userInitiatedStop = false
-                val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
-                Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalStr}")
+                Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalServersStr()}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
