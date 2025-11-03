@@ -40,7 +40,7 @@ object ServerAutoSwitcher {
         } catch (e: Exception) { Log.w(TAG, "Failed to log selected country info", e) }
         val r = object : Runnable {
             override fun run() {
-                if (!inNoReply) { Log.d(TAG, "No-reply timer canceled (state changed)"); runnable = null; return }
+                if (!inNoReply) { Log.d(TAG, "No-reply timer canceled (state changed)"); return }
                 seconds += 1
                 Log.d(TAG, "No-reply wait: ${seconds}s")
                 if (seconds >= NO_REPLY_SWITCH_THRESHOLD_SECONDS) {
