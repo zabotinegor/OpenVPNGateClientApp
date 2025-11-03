@@ -51,9 +51,18 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         )
 
         try {
-            val defaultArc = resolveColorAttr(R.attr.ovpnSpeedometerArcColor, context.getColor(R.color.speedometer_arc_color))
-            val defaultProgress = resolveColorAttr(R.attr.ovpnSpeedometerProgressColor, context.getColor(R.color.speedometer_progress_color))
-            val defaultText = resolveColorAttr(R.attr.ovpnSpeedometerTextColor, Color.WHITE)
+            val defaultArc = resolveColorAttr(
+                R.attr.ovpnSpeedometerArcColor,
+                context.getColor(R.color.speedometer_arc_color)
+            )
+            val defaultProgress = resolveColorAttr(
+                R.attr.ovpnSpeedometerProgressColor,
+                context.getColor(R.color.speedometer_progress_color)
+            )
+            val defaultText = resolveColorAttr(
+                R.attr.ovpnSpeedometerTextColor,
+                Color.WHITE
+            )
 
             arcColor = typedArray.getColor(R.styleable.SpeedometerView_arcColor, defaultArc)
             progressColor = typedArray.getColor(R.styleable.SpeedometerView_progressColor, defaultProgress)
@@ -75,7 +84,12 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val centerY = height / 2f
 
         val inset = arcWidth / 2f
-        arcRect.set(paddingLeft + inset, paddingTop + inset, width - paddingRight - inset, height - paddingBottom - inset)
+        arcRect.set(
+            paddingLeft + inset,
+            paddingTop + inset,
+            width - paddingRight - inset,
+            height - paddingBottom - inset
+        )
 
         if (arcRect.width() > arcRect.height()) {
             val diff = arcRect.width() - arcRect.height()
@@ -87,85 +101,23 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             arcRect.bottom -= diff / 2f
         }
 
+        // base arc
         paint.color = arcColor
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = arcWidth
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, 150f, 240f, false, paint)
 
-        // Ticks and numeric labels\n        drawTicksAndLabels(canvas)\n        /*
-        run {
-            val cx = arcRect.centerX()
-            val cy = arcRect.centerY()
-            val radius = arcRect.width() / 2f
-            val outer = radius - arcWidth / 2f + 2f
-            val majorLen = arcWidth * 0.60f
-            val minorLen = arcWidth * 0.35f
+        // ticks + numeric labels (0..100 Mb/s)
+        drawTicksAndLabels(canvas)
 
-            fun angleFor(valueMb: Float): Float {
-                val ratio = (valueMb / maxMbps).coerceIn(0f, 1f)
-                return 150f + 240f * ratio
-            }
-
-            // Use 4 major intervals (0..100 => 0,25,50,75,100)
-            val majorIntervals = 4
-            val majorStep = maxMbps / majorIntervals
-            val minorStep = majorStep / 2f
-
-            // minors at odd multiples of minorStep (between majors)
-            for (i in 1 until majorIntervals * 2) {
-                if (i % 2 == 1) {
-                    val v = i * minorStep
-                    val a = Math.toRadians(angleFor(v).toDouble())
-                    val cosA = cos(a).toFloat()
-                    val sinA = sin(a).toFloat()
-                    val x1 = cx + cosA * outer
-                    val y1 = cy + sinA * outer
-                    val x2 = cx + cosA * (outer - minorLen)
-                    val y2 = cy + sinA * (outer - minorLen)
-                    val savedWidth = paint.strokeWidth
-                    paint.color = arcColor
-                    paint.alpha = 150
-                    paint.strokeWidth = arcWidth * 0.08f
-                    canvas.drawLine(x1, y1, x2, y2, paint)
-                    paint.strokeWidth = savedWidth
-                    paint.alpha = 255
-                }
-            }
-
-            // majors with labels
-            for (i in 0..majorIntervals) {
-                val mv = i * majorStep
-                val a = Math.toRadians(angleFor(mv).toDouble())
-                val cosA = cos(a).toFloat()
-                val sinA = sin(a).toFloat()
-                val x1 = cx + cosA * outer
-                val y1 = cy + sinA * outer
-                val x2 = cx + cosA * (outer - majorLen)
-                val y2 = cy + sinA * (outer - majorLen)
-                val savedWidth = paint.strokeWidth
-                paint.color = arcColor
-                paint.strokeWidth = arcWidth * 0.12f
-                canvas.drawLine(x1, y1, x2, y2, paint)
-                paint.strokeWidth = savedWidth
-
-                // label
-                val labelR = outer - majorLen - (arcWidth * 0.5f)
-                val lx = cx + cosA * labelR
-                val ly = cy + sinA * labelR
-                paint.color = subtitleTextColor
-                paint.alpha = 220
-                paint.style = Paint.Style.FILL
-                paint.textAlign = Paint.Align.CENTER
-                paint.textSize = subtitleTextSize * 0.9f
-                canvas.drawText(mv.toInt().toString(), lx, ly, paint)
-                paint.alpha = 255
-            }
-        }\n        */\n        paint.color = progressColor
+        // progress arc (fills fully if > max)
+        paint.color = progressColor
         paint.strokeCap = Paint.Cap.ROUND
         val sweep = (currentMbps / maxMbps).coerceIn(0f, 1f) * 240f
         canvas.drawArc(arcRect, 150f, sweep, false, paint)
 
+        // centered value (adaptive B/s, KB/s, MB/s, GB/s)
         paint.color = speedTextColor
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
@@ -212,17 +164,12 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             else -> bps to context.getString(R.string.speed_unit_bps)
         }
         val str = when {
-            // removed redundant >=1000f case
             value >= 100f -> String.format(Locale.US, "%.0f", value)
             value >= 10f -> String.format(Locale.US, "%.1f", value)
             else -> String.format(Locale.US, "%.2f", value)
         }
         return str to unit
     }
-}
-
-
-
 
     private fun drawTicksAndLabels(canvas: Canvas) {
         val cx = arcRect.centerX()
@@ -231,13 +178,17 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val outer = radius - arcWidth / 2f + 2f
         val majorLen = arcWidth * 0.60f
         val minorLen = arcWidth * 0.35f
+
         fun angleFor(valueMb: Float): Float {
             val ratio = (valueMb / maxMbps).coerceIn(0f, 1f)
             return 150f + 240f * ratio
         }
+
         val majorIntervals = 4
         val majorStep = maxMbps / majorIntervals
         val minorStep = majorStep / 2f
+
+        // minor ticks between major ones
         for (i in 1 until majorIntervals * 2) {
             if (i % 2 == 1) {
                 val v = i * minorStep
@@ -257,6 +208,8 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
                 paint.alpha = 255
             }
         }
+
+        // major ticks with labels
         for (i in 0..majorIntervals) {
             val mv = i * majorStep
             val a = Math.toRadians(angleFor(mv).toDouble())
@@ -271,6 +224,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             paint.strokeWidth = arcWidth * 0.12f
             canvas.drawLine(x1, y1, x2, y2, paint)
             paint.strokeWidth = savedWidth
+
             val labelR = outer - majorLen - (arcWidth * 0.5f)
             val lx = cx + cosA * labelR
             val ly = cy + sinA * labelR
@@ -283,4 +237,5 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             paint.alpha = 255
         }
     }
+}
 
