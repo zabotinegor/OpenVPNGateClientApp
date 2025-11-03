@@ -20,11 +20,13 @@ import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
+import de.blinkt.openvpn.core.IServiceStatus
+import de.blinkt.openvpn.core.IStatusCallbacks
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
-class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener {
+class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
     private companion object {
         const val TAG = "OpenVpnService"
@@ -41,6 +43,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
+    private var lastByteUpdateTs: Long = 0L
+    private var lastInBytes: Long = 0L
+    private var lastOutBytes: Long = 0L
+
+    private var statusBinder: IServiceStatus? = null
+    private var boundToStatus = false
     
 
     private val engineConnection = object : ServiceConnection {
@@ -65,7 +73,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (t: Throwable) { Log.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t) }
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
+        // In-process listener (may not fire on TV if engine runs in :openvpn)
+        VpnStatus.addByteCountListener(this)
         Log.d(TAG, "Service created and listeners registered")
+
+        // Cross-process: bind to engine status service for byte counts on TV (:openvpn process)
+        try {
+            val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
+            boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
+            Log.d(TAG, "Binding to status service: $boundToStatus")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to bind status service", t)
+        }
     }
 
     private fun ensureEngineNotificationChannels() {
@@ -170,9 +189,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
+        try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
+        if (boundToStatus) {
+            try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
+            try { unbindService(statusConnection) } catch (_: Exception) {}
+            boundToStatus = false
+            statusBinder = null
+        }
         try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
-        
+
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
     }
@@ -244,5 +270,55 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 else -> Log.d("OpenVPN", msg)
             }
         } catch (e: Exception) { Log.w(TAG, "Failed to format OpenVPN log item", e) }
+    }
+
+    // In-process byte count callback
+    override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
+        val now = System.currentTimeMillis()
+        val last = lastByteUpdateTs
+        lastByteUpdateTs = now
+        val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
+        val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
+        val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+        val mbps = bitsPerSec / (1024.0 * 1024.0)
+        ConnectionStateManager.updateSpeedMbps(mbps)
+    }
+
+    // Cross-process byte count via AIDL status service
+    private val statusCallbacks = object : IStatusCallbacks.Stub() {
+        override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { /* ignore */ }
+        override fun updateStateString(state: String?, msg: String?, resid: Int, level: de.blinkt.openvpn.core.ConnectionStatus?, intent: Intent?) { /* ignore */ }
+        override fun connectedVPN(uuid: String?) { /* ignore */ }
+        override fun notifyProfileVersionChanged(uuid: String?, profileVersion: Int) { /* ignore */ }
+        override fun updateByteCount(inBytes: Long, outBytes: Long) {
+            val now = System.currentTimeMillis()
+            val last = lastByteUpdateTs
+            val prevIn = lastInBytes
+            val prevOut = lastOutBytes
+            lastInBytes = inBytes
+            lastOutBytes = outBytes
+            lastByteUpdateTs = now
+            val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
+            val diffIn = (inBytes - prevIn).coerceAtLeast(0)
+            val diffOut = (outBytes - prevOut).coerceAtLeast(0)
+            val totalDiffBytes = diffIn + diffOut
+            val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+            val mbps = bitsPerSec / (1024.0 * 1024.0)
+            ConnectionStateManager.updateSpeedMbps(mbps)
+        }
+    }
+
+    private val statusConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            statusBinder = IServiceStatus.Stub.asInterface(service)
+            try {
+                statusBinder?.registerStatusCallback(statusCallbacks)
+            } catch (e: RemoteException) {
+                Log.e(TAG, "Failed to register status callback", e)
+            }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            statusBinder = null
+        }
     }
 }

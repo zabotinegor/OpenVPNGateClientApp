@@ -7,6 +7,13 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
+import kotlinx.coroutines.launch
+import java.util.Locale
 import com.yahorzabotsin.openvpnclient.core.R
 
 class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
@@ -21,6 +28,8 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private var arcWidth: Float
     private var speedTextSize: Float
     private var subtitleTextSize: Float
+    private var maxMbps: Float = 100f
+    private var currentMbps: Float = 0f
 
     private fun resolveColorAttr(attrRes: Int, fallback: Int): Int {
         val tv = android.util.TypedValue()
@@ -83,17 +92,39 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
 
         paint.color = progressColor
         paint.strokeCap = Paint.Cap.ROUND
-        canvas.drawArc(arcRect, 150f, 100f, false, paint)
+        val sweep = (currentMbps / maxMbps).coerceIn(0f, 1f) * 240f
+        canvas.drawArc(arcRect, 150f, sweep, false, paint)
 
         paint.color = speedTextColor
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
-        canvas.drawText("0.0", centerX, centerY, paint)
+        canvas.drawText(String.format(Locale.US, "%.1f", currentMbps), centerX, centerY, paint)
 
         paint.color = subtitleTextColor
         paint.textSize = subtitleTextSize
-        canvas.drawText("Mbit", centerX, centerY + subtitleTextSize * 1.5f, paint)
+        canvas.drawText("Mbit/s", centerX, centerY + subtitleTextSize * 1.5f, paint)
+    }
+
+    fun setSpeedMbps(value: Double) {
+        val v = if (value.isFinite() && value >= 0) value.toFloat() else 0f
+        if (kotlin.math.abs(v - currentMbps) > 0.01f) {
+            currentMbps = v
+            invalidate()
+        }
+    }
+
+    fun setMaxMbps(max: Float) {
+        maxMbps = if (max > 0f) max else 100f
+        invalidate()
+    }
+
+    fun bindTo(lifecycleOwner: LifecycleOwner) {
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ConnectionStateManager.speedMbps.collect { setSpeedMbps(it) }
+            }
+        }
     }
 }
 
