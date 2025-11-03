@@ -88,12 +88,11 @@ object ConnectionStateManager {
         var effective = mapped
 
         if (mapped == ConnectionState.DISCONNECTED) {
-            if (_reconnectingHint.value) {
-                effective = ConnectionState.CONNECTING
-            } else if (current == ConnectionState.CONNECTING && (d == "NOPROCESS" || d == "EXITING")) {
-                effective = ConnectionState.CONNECTING
-            } else if (current == ConnectionState.DISCONNECTING && (d == "NOPROCESS" || d == "EXITING")) {
-                effective = ConnectionState.DISCONNECTING
+            effective = when {
+                _reconnectingHint.value -> ConnectionState.CONNECTING
+                current == ConnectionState.CONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.CONNECTING
+                current == ConnectionState.DISCONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.DISCONNECTING
+                else -> mapped
             }
         }
 
