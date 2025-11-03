@@ -214,7 +214,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             else -> bps to context.getString(R.string.speed_unit_bps)
         }
         val str = when {
-            value >= 1000f -> String.format(Locale.US, "%.0f", value)
+            // removed redundant >=1000f case
             value >= 100f -> String.format(Locale.US, "%.0f", value)
             value >= 10f -> String.format(Locale.US, "%.1f", value)
             else -> String.format(Locale.US, "%.2f", value)
@@ -222,4 +222,5 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         return str to unit
     }
 }
+
 
