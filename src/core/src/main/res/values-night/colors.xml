@@ -18,6 +18,11 @@
     <color name="ping_medium_color">#FFB300</color>
     <color name="ping_weak_color">#E53935</color>
 
+    <!-- Connection button dedicated colors (night) -->
+    <color name="connection_button_disconnected">#3B7CFF</color>
+    <color name="connection_button_connecting">#FFB300</color>
+    <color name="connection_button_active">#E53935</color>
+
     <!-- TV specific -->
     <color name="background_gradient_start">@color/app_background</color>
     <color name="background_gradient_end">@color/nav_bar_background</color>

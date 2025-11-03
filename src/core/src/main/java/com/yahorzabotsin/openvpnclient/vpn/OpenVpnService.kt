@@ -41,6 +41,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
+    
 
     private val engineConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -87,6 +88,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
                 userInitiatedStop = false
+                val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
+                try {
+                    ConnectionStateManager.setReconnectingHint(isReconnect)
+                    Log.d(TAG, "reconnectHint=${isReconnect} (start)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to set reconnecting hint on start", e)
+                }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
@@ -96,6 +104,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 Log.i(TAG, "ACTION_STOP")
                 userInitiatedStop = true
                 userInitiatedStart = false
+                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                 requestStopIcsOpenVpn()
             }
@@ -137,7 +146,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                         setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     })
-                } catch (_: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Failed to start DisconnectVPN activity", e) }
                 stopSelfSafely()
             }
         } else tryStopVpn()
@@ -150,7 +159,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (e: RemoteException) {
             Log.e(TAG, "Binder stop error", e)
         } finally {
-            if (boundToEngine) { try { unbindService(engineConnection) } catch (_: Exception) {}; boundToEngine = false }
+            if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine after stop", e) }; boundToEngine = false }
             if (userInitiatedStop) { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED); userInitiatedStop = false }
         }
     }
@@ -162,7 +171,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
         try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
-        if (boundToEngine) { try { unbindService(engineConnection) } catch (_: Exception) {}; boundToEngine = false }
+        if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
+        
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
     }
@@ -178,16 +188,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         if (suppressEngineState) return
+
+        
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS) {
+            val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+            if (candidates >= 0) Log.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
             val next = SelectedCountryStore.nextServer(applicationContext)
             val title = SelectedCountryStore.getSelectedCountry(applicationContext)
             if (next != null) {
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
-                VpnManager.startVpn(applicationContext, next.config, title)
+                try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
+                VpnManager.startVpn(applicationContext, next.config, title, true)
                 return
             } else {
                 userInitiatedStart = false
+                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
             }
         }
         ConnectionStateManager.updateFromEngine(level)
@@ -212,6 +228,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    
+
     override fun setConnectedVPN(uuid: String) { /* not used */ }
 
     override fun newLog(logItem: de.blinkt.openvpn.core.LogItem?) {
@@ -225,6 +243,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 VpnStatus.LogLevel.VERBOSE -> Log.d("OpenVPN", msg)
                 else -> Log.d("OpenVPN", msg)
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Log.w(TAG, "Failed to format OpenVPN log item", e) }
     }
 }

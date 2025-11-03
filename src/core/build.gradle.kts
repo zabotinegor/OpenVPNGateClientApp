@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.retrofit.converter.scalars)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation("androidx.test:core:1.5.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

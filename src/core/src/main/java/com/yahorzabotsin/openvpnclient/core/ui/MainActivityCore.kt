@@ -19,6 +19,7 @@ import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ActivityMainBinding
 import com.yahorzabotsin.openvpnclient.core.servers.SelectionBootstrap
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import kotlinx.coroutines.launch
 
@@ -47,7 +48,12 @@ open class MainActivityCore : AppCompatActivity() {
             val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
 
             if (country != null && city != null && config != null) {
-                Log.i(TAG, "Server selected: $country, $city")
+                val total = try { SelectedCountryStore.getServers(this).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
+                if (total >= 0) {
+                    Log.i(TAG, "Server selected: $country, $city, servers - $total")
+                } else {
+                    Log.i(TAG, "Server selected: $country, $city")
+                }
                 connectionControlsView.setServer(country, city)
                 connectionControlsView.setVpnConfig(config)
             } else {
