@@ -48,9 +48,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var sessionAttempt: Int = 0
 
     // Byte count tracking for speedometer/UI and AIDL binding (:openvpn process)
-    private var lastByteUpdateTs: Long = 0L
-    private var lastInBytes: Long = 0L
-    private var lastOutBytes: Long = 0L
+    private var lastLocalByteUpdateTs: Long = 0L
+    private var aidlLastInBytes: Long = 0L
+    private var aidlLastOutBytes: Long = 0L
+    private var lastAidlByteUpdateTs: Long = 0L
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
 
@@ -277,8 +278,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // In-process byte count callback (same process as UI)
     override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
         val now = System.currentTimeMillis()
-        val last = lastByteUpdateTs
-        lastByteUpdateTs = now
+        val last = lastAidlByteUpdateTs
+        lastAidlByteUpdateTs = now
         val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
         val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
         val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
@@ -297,12 +298,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         override fun notifyProfileVersionChanged(uuid: String?, profileVersion: Int) { }
         override fun updateByteCount(inBytes: Long, outBytes: Long) {
             val now = System.currentTimeMillis()
-            val last = lastByteUpdateTs
-            val prevIn = lastInBytes
-            val prevOut = lastOutBytes
-            lastInBytes = inBytes
-            lastOutBytes = outBytes
-            lastByteUpdateTs = now
+            val last = lastAidlByteUpdateTs
+            val prevIn = aidlLastInBytes
+            val prevOut = aidlLastOutBytes
+            aidlLastInBytes = inBytes
+            aidlLastOutBytes = outBytes
+            lastAidlByteUpdateTs = now
             val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
             val diffIn = (inBytes - prevIn).coerceAtLeast(0)
             val diffOut = (outBytes - prevOut).coerceAtLeast(0)
