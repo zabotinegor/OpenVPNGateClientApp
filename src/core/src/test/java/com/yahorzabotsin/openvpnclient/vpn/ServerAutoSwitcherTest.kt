@@ -28,6 +28,7 @@ class ServerAutoSwitcherTest {
 
     @Before
     fun setUp() {
+        ServerAutoSwitcher.setNoReplyThresholdForTest(2)
         originalStarter = ServerAutoSwitcher.starter
         ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
         originalStopper = ServerAutoSwitcher.stopper
@@ -46,12 +47,13 @@ class ServerAutoSwitcherTest {
     fun tearDown() {
         originalStarter?.let { ServerAutoSwitcher.starter = it }
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
+        ServerAutoSwitcher.resetNoReplyThreshold()
     }
 
     @Test
     fun switchesAfterThreshold() {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
         assertEquals(1, calls.size)
         assertEquals("conf2", calls.first().cfg)
         assertEquals(true, calls.first().reconnect)
@@ -62,9 +64,10 @@ class ServerAutoSwitcherTest {
     @Test
     fun cancelsOnStateChange() {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        // Cancel before crossing the (test) threshold of 2 seconds
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_START)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
         assertEquals(0, calls.size)
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf1", current?.config)
@@ -80,7 +83,7 @@ class ServerAutoSwitcherTest {
         ShadowLog.clear()
 
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(12))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
 
         assertEquals(0, calls.size)
         val current = SelectedCountryStore.currentServer(appContext)
