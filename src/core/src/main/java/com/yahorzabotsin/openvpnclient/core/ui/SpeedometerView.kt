@@ -173,7 +173,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
 
-        val bytesPerSec = (currentMbps * 1024f * 1024f / 8f).coerceAtLeast(0f)
+        val bytesPerSec = (currentMbps * 1_000_000f / 8f).coerceAtLeast(0f)
         val (valueStr, unitStr) = formatAdaptiveBytesPerSec(bytesPerSec)
         canvas.drawText(valueStr, centerX, centerY, paint)
 
