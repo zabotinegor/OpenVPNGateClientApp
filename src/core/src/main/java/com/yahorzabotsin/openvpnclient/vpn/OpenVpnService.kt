@@ -141,6 +141,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 userInitiatedStop = true
                 userInitiatedStart = false
                 try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
+                // Reset speed immediately for UI feedback
+                try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                 requestStopIcsOpenVpn()
             }
