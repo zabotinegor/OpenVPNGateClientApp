@@ -48,7 +48,7 @@ open class MainActivityCore : AppCompatActivity() {
             val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
 
             if (country != null && city != null && config != null) {
-                val total = try { SelectedCountryStore.getServers(this).size } catch (_: Exception) { -1 }
+                val total = try { SelectedCountryStore.getServers(this).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
                 if (total >= 0) {
                     Log.i(TAG, "Server selected: $country, $city, servers - $total")
                 } else {
