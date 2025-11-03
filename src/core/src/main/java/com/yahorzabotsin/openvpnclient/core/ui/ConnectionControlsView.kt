@@ -142,7 +142,7 @@ import kotlinx.coroutines.flow.combine
                     .collect {
                         val current = ConnectionStateManager.state.value
                         // When connecting, reflect granular engine changes; otherwise refresh using current state
-                        updateButtonState(if (current == ConnectionState.CONNECTING) ConnectionState.CONNECTING else current)
+                        updateButtonState(current)
                     }
             }
         }
