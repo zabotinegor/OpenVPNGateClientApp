@@ -23,6 +23,11 @@
     <color name="background_gradient_end">@color/nav_bar_background</color>
     <color name="default_background">@color/nav_bar_background</color>
     <color name="selected_background">@color/speedometer_progress_color</color>
+
+    <!-- Connection button dedicated colors -->
+    <color name="connection_button_disconnected">#3B7CFF</color>
+    <color name="connection_button_connecting">#FFC107</color>
+    <color name="connection_button_active">#E53935</color>
     <color name="fastlane_background">@color/nav_bar_background</color>
     <color name="search_opaque">#80FFFFFF</color>
 

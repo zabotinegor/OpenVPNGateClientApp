@@ -20,7 +20,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
 
   class ConnectionControlsView @JvmOverloads constructor(
       context: Context,
@@ -130,33 +132,89 @@ import kotlinx.coroutines.launch
                 }
             }
         }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    ConnectionStateManager.engineLevel,
+                    ConnectionStateManager.engineDetail,
+                    ConnectionStateManager.reconnectingHint
+                ) { _, _, _ -> }
+                    .collect {
+                        val current = ConnectionStateManager.state.value
+                        // When connecting, reflect granular engine changes; otherwise refresh using current state
+                        updateButtonState(current)
+                    }
+            }
+        }
     }
 
     private fun updateButtonState(state: ConnectionState) {
-        Log.d(TAG, "Update button state: $state")
+        val detail = ConnectionStateManager.engineDetail.value
+        val level = ConnectionStateManager.engineLevel.value
+        val hint = ConnectionStateManager.reconnectingHint.value
+        Log.d(TAG, "Update button: state=$state level=$level detail=${detail ?: "<none>"} hint=$hint")
         val connectButton = binding.startConnectionButton
         when (state) {
-            ConnectionState.CONNECTED,
-            ConnectionState.CONNECTING,
+            ConnectionState.CONNECTED -> {
+                connectButton.setText(R.string.stop_connection)
+                val color = ContextCompat.getColor(context, R.color.connection_button_active)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+            }
             ConnectionState.DISCONNECTING -> {
                 connectButton.setText(R.string.stop_connection)
-                val danger = com.google.android.material.color.MaterialColors.getColor(
-                    this,
-                    androidx.appcompat.R.attr.colorError,
-                    androidx.core.content.ContextCompat.getColor(context, R.color.ping_weak_color)
-                )
-                connectButton.backgroundTintList = ColorStateList.valueOf(danger)
+                val color = ContextCompat.getColor(context, R.color.connection_button_active)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+            }
+            ConnectionState.CONNECTING -> {
+                val t = if (ConnectionStateManager.reconnectingHint.value &&
+                    (level == ConnectionStatus.LEVEL_NOTCONNECTED || detail == "NOPROCESS" || detail == "EXITING")) {
+                    engineDetailToText("RECONNECTING")
+                } else engineDetailToText(detail)
+                connectButton.text = t
+                val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
+                connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                Log.d(TAG, "CONNECTING ui -> text='${t}' color=${color}")
             }
             ConnectionState.DISCONNECTED -> {
-                connectButton.setText(R.string.start_connection)
-                val primary = com.google.android.material.color.MaterialColors.getColor(
-                    this,
-                    androidx.appcompat.R.attr.colorPrimary,
-                    androidx.core.content.ContextCompat.getColor(context, R.color.speedometer_progress_color)
-                )
-                connectButton.backgroundTintList = ColorStateList.valueOf(primary)
+                if (hint) {
+                    val t = engineDetailToText("RECONNECTING")
+                    connectButton.text = t
+                    val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
+                    connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                    Log.d(TAG, "DISCONNECTED masked as RECONNECTING -> text='${t}' color=${color}")
+                } else {
+                    connectButton.setText(R.string.start_connection)
+                    val color = com.google.android.material.color.MaterialColors.getColor(
+                        this,
+                        androidx.appcompat.R.attr.colorPrimary,
+                        ContextCompat.getColor(context, R.color.connection_button_disconnected)
+                    )
+                    connectButton.backgroundTintList = ColorStateList.valueOf(color)
+                    Log.d(TAG, "DISCONNECTED ui -> text='START CONNECTION' color=${color}")
+                }
             }
         }
+    }
+
+    private fun engineDetailToText(detail: String?): CharSequence {
+        val resId = when (detail) {
+            "CONNECTING" -> R.string.state_connecting
+            "WAIT" -> R.string.state_wait
+            "AUTH" -> R.string.state_auth
+            "VPN_GENERATE_CONFIG" -> R.string.building_configuration
+            "GET_CONFIG" -> R.string.state_get_config
+            "ASSIGN_IP" -> R.string.state_assign_ip
+            "ADD_ROUTES" -> R.string.state_add_routes
+            "CONNECTED" -> R.string.state_connected
+            "DISCONNECTED" -> R.string.state_disconnected
+            "RECONNECTING" -> R.string.state_reconnecting
+            "EXITING" -> R.string.state_exiting
+            "RESOLVE" -> R.string.state_resolve
+            "TCP_CONNECT" -> R.string.state_tcp_connect
+            "AUTH_PENDING" -> R.string.state_auth_pending
+            else -> null
+        }
+        return if (resId != null) context.getString(resId) else (detail ?: context.getString(R.string.vpn_notification_text_connecting))
     }
 }
 

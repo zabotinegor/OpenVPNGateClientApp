@@ -40,6 +40,7 @@ Click this message to give the app notification permissions</string>
     <string name="state_noprocess">Not running</string>
     <string name="state_resolve">Resolving host names</string>
     <string name="state_tcp_connect">Connecting (TCP)</string>
+    <string name="state_auth_pending">Authentication pending</string>
     <string name="state_auth_failed">Authentication failed</string>
     <string name="state_nonetwork">Waiting for network</string>
     <string name="state_waitorbot">Waiting for Orbot to start</string>
@@ -61,4 +62,5 @@ Click this message to give the app notification permissions</string>
     
     <!-- Misc process messages -->
     <string name="building_configration">Building configuration…</string>
-</resources>
+    <!-- Alias with corrected spelling for app UI usage -->`n    <string name="building_configuration">@string/building_configration</string>`n</resources>
+
