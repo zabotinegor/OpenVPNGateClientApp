@@ -166,10 +166,13 @@ import kotlinx.coroutines.flow.combine
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.CONNECTING -> {
-                val t = if (ConnectionStateManager.reconnectingHint.value &&
-                    (level == ConnectionStatus.LEVEL_NOTCONNECTED || detail == "NOPROCESS" || detail == "EXITING")) {
+                val t = if (ConnectionStateManager.reconnectingHint.value) {
                     engineDetailToText("RECONNECTING")
-                } else engineDetailToText(detail)
+                } else {
+                    val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
+                            (detail in setOf(null, "NOPROCESS", "EXITING")))
+                    engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
+                }
                 connectButton.text = t
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
