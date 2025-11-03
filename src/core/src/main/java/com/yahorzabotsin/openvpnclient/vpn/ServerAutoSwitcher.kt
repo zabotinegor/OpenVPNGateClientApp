@@ -32,6 +32,12 @@ object ServerAutoSwitcher {
         if (runnable != null) return
         seconds = 0
         Log.d(TAG, "No-reply timer started")
+        try {
+            val country = SelectedCountryStore.getSelectedCountry(appContext)
+            val total = SelectedCountryStore.getServers(appContext).size
+            val current = SelectedCountryStore.currentServer(appContext)?.city
+            Log.d(TAG, "Selected country=${country ?: "<none>"} servers=$total current=${current ?: "<none>"}")
+        } catch (_: Exception) { }
         val r = object : Runnable {
             override fun run() {
                 if (!inNoReply) { Log.d(TAG, "No-reply timer canceled (state changed)"); runnable = null; return }
@@ -40,14 +46,15 @@ object ServerAutoSwitcher {
                 if (seconds >= NO_REPLY_SWITCH_THRESHOLD_SECONDS) {
                     val next = SelectedCountryStore.nextServer(appContext)
                     val title = SelectedCountryStore.getSelectedCountry(appContext)
+                    val total = try { SelectedCountryStore.getServers(appContext).size } catch (_: Exception) { -1 }
                     if (next != null) {
-                        Log.i(TAG, "Timed switch: >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s without server reply, switching to: ${title} -> ${next.city}")
+                        Log.i(TAG, "Timed switch: >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s without server reply, switching to: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
                         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (_: Exception) {}
                         starter(appContext, next.config, title, true)
                         return
                     } else {
-                        Log.i(TAG, "Timed switch: no alternative servers available in selected country")
+                        Log.i(TAG, "Timed switch: no alternative servers available in selected country (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
                         try {
                             ConnectionStateManager.setReconnectingHint(false)
