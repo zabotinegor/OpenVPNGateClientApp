@@ -61,4 +61,5 @@
 
     <!-- Прочие служебные сообщения -->
     <string name="building_configration">Сборка конфигурации…</string>
-</resources>
+    <string name="building_configuration">@string/building_configration</string>`n</resources>
+

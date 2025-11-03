@@ -62,4 +62,5 @@ Click this message to give the app notification permissions</string>
     
     <!-- Misc process messages -->
     <string name="building_configration">Building configuration…</string>
-</resources>
+    <!-- Alias with corrected spelling for app UI usage -->`n    <string name="building_configuration">@string/building_configration</string>`n</resources>
+

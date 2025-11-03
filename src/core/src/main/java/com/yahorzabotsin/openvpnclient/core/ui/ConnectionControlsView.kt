@@ -201,7 +201,7 @@ import kotlinx.coroutines.flow.combine
             "CONNECTING" -> R.string.state_connecting
             "WAIT" -> R.string.state_wait
             "AUTH" -> R.string.state_auth
-            "VPN_GENERATE_CONFIG" -> R.string.building_configration
+            "VPN_GENERATE_CONFIG" -> R.string.building_configuration
             "GET_CONFIG" -> R.string.state_get_config
             "ASSIGN_IP" -> R.string.state_assign_ip
             "ADD_ROUTES" -> R.string.state_add_routes

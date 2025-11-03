@@ -61,4 +61,5 @@ Kliknij tę wiadomość, aby nadać aplikacji uprawnienia do powiadomień</strin
 
     <!-- Inne komunikaty serwisowe -->
     <string name="building_configration">Budowanie konfiguracji…</string>
-</resources>
+    <string name="building_configuration">@string/building_configration</string>`n</resources>
+
