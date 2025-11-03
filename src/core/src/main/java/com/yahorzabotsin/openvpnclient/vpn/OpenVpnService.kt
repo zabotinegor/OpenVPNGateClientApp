@@ -41,6 +41,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
+    // Track per-session connection attempts across auto-switches
+    private var sessionTotalServers: Int = -1
+    private var sessionAttempt: Int = 0
     
 
     private val engineConnection = object : ServiceConnection {
@@ -94,6 +97,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     Log.d(TAG, "reconnectHint=${isReconnect} (start)")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set reconnecting hint on start", e)
+                }
+                // Update session attempt counters and log progress
+                if (isReconnect) {
+                    sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
+                } else {
+                    sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+                    sessionAttempt = 1
+                }
+                run {
+                    val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
+                    val titleStr = title?.let { ": $it" } ?: ""
+                    Log.i(TAG, "Session attempt ${sessionAttempt}/${totalStr}${titleStr}")
                 }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -204,13 +219,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } else {
                 userInitiatedStart = false
                 try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
+                val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
+                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt}/${totalStr} attempts")
             }
         }
-        ConnectionStateManager.updateFromEngine(level)
         when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
                 userInitiatedStart = false
                 userInitiatedStop = false
+                val totalStr = if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
+                Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalStr}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
