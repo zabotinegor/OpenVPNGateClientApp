@@ -47,4 +47,10 @@
     <string name="select_server_first">Najpierw wybierz serwer</string>
     <string name="vpn_permission_not_granted">Uprawnienie do VPN nie zostało udzielone</string>
     <string name="notification_permission_required">Wymagane jest uprawnienie do powiadomień dla statusu VPN</string>
+    
+    <!-- Speed units (bytes per second) -->
+    <string name="speed_unit_bps">B/s</string>
+    <string name="speed_unit_kbps">KB/s</string>
+    <string name="speed_unit_mbps">MB/s</string>
+    <string name="speed_unit_gbps">GB/s</string>
 </resources>

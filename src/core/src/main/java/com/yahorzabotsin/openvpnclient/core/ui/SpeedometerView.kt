@@ -99,11 +99,14 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
-        canvas.drawText(String.format(Locale.US, "%.1f", currentMbps), centerX, centerY, paint)
+
+        val bytesPerSec = (currentMbps * 1024f * 1024f / 8f).coerceAtLeast(0f)
+        val (valueStr, unitStr) = formatAdaptiveBytesPerSec(bytesPerSec)
+        canvas.drawText(valueStr, centerX, centerY, paint)
 
         paint.color = subtitleTextColor
         paint.textSize = subtitleTextSize
-        canvas.drawText("Mbit/s", centerX, centerY + subtitleTextSize * 1.5f, paint)
+        canvas.drawText(unitStr, centerX, centerY + subtitleTextSize * 1.5f, paint)
     }
 
     fun setSpeedMbps(value: Double) {
@@ -125,6 +128,25 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
                 ConnectionStateManager.speedMbps.collect { setSpeedMbps(it) }
             }
         }
+    }
+
+    private fun formatAdaptiveBytesPerSec(bps: Float): Pair<String, String> {
+        val kb = 1024f
+        val mb = kb * 1024f
+        val gb = mb * 1024f
+        val (value, unit) = when {
+            bps >= gb -> bps / gb to context.getString(R.string.speed_unit_gbps)
+            bps >= mb -> bps / mb to context.getString(R.string.speed_unit_mbps)
+            bps >= kb -> bps / kb to context.getString(R.string.speed_unit_kbps)
+            else -> bps to context.getString(R.string.speed_unit_bps)
+        }
+        val str = when {
+            value >= 1000f -> String.format(Locale.US, "%.0f", value)
+            value >= 100f -> String.format(Locale.US, "%.0f", value)
+            value >= 10f -> String.format(Locale.US, "%.1f", value)
+            else -> String.format(Locale.US, "%.2f", value)
+        }
+        return str to unit
     }
 }
 
