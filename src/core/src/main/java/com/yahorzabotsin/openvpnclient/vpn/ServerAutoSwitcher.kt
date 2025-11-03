@@ -10,6 +10,7 @@ import de.blinkt.openvpn.core.ConnectionStatus
 object ServerAutoSwitcher {
     private const val TAG = "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
+    @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     private val handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
     private var seconds: Int = 0
@@ -43,12 +44,12 @@ object ServerAutoSwitcher {
                 if (!inNoReply) { Log.d(TAG, "No-reply timer canceled (state changed)"); return }
                 seconds += 1
                 Log.d(TAG, "No-reply wait: ${seconds}s")
-                if (seconds >= NO_REPLY_SWITCH_THRESHOLD_SECONDS) {
+                if (seconds >= noReplyThresholdSeconds) {
                     val next = SelectedCountryStore.nextServer(appContext)
                     val title = SelectedCountryStore.getSelectedCountry(appContext)
                     val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
                     if (next != null) {
-                        Log.i(TAG, "Timed switch: >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s without server reply, switching to: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
+                        Log.i(TAG, "Timed switch: >${noReplyThresholdSeconds}s without server reply, switching to: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
                         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for timed switch", e) }
                         starter(appContext, next.config, title, true)
@@ -82,5 +83,15 @@ object ServerAutoSwitcher {
         }
         inNoReply = false
         seconds = 0
+    }
+
+    @JvmStatic
+    fun setNoReplyThresholdForTest(seconds: Int) {
+        noReplyThresholdSeconds = seconds.coerceAtLeast(1)
+    }
+
+    @JvmStatic
+    fun resetNoReplyThreshold() {
+        noReplyThresholdSeconds = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     }
 }

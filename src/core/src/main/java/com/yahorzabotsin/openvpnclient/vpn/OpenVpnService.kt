@@ -43,12 +43,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
+    // Track per-session connection attempts across auto-switches
+    private var sessionTotalServers: Int = -1
+    private var sessionAttempt: Int = 0
+
+    // Byte count tracking for speedometer/UI and AIDL binding (:openvpn process)
     private var lastByteUpdateTs: Long = 0L
     private var lastInBytes: Long = 0L
     private var lastOutBytes: Long = 0L
-
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
+
+    private fun totalServersStr(): String =
+        if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
     
 
     private val engineConnection = object : ServiceConnection {
@@ -73,11 +80,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (t: Throwable) { Log.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t) }
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
-        // In-process listener (may not fire on TV if engine runs in :openvpn)
         VpnStatus.addByteCountListener(this)
         Log.d(TAG, "Service created and listeners registered")
 
-        // Cross-process: bind to engine status service for byte counts on TV (:openvpn process)
+        // Bind to OpenVPNStatusService to receive cross-process byte counts on TV
         try {
             val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
             boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
@@ -113,6 +119,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     Log.d(TAG, "reconnectHint=${isReconnect} (start)")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set reconnecting hint on start", e)
+                }
+                // Update session attempt counters and log progress
+                if (isReconnect) {
+                    sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
+                } else {
+                    sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+                    sessionAttempt = 1
+                }
+                run {
+                    val titleStr = title?.let { ": $it" } ?: ""
+                    Log.i(TAG, "Session attempt ${sessionAttempt}/${totalServersStr()}${titleStr}")
                 }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -198,7 +215,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
-
+        
         if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
     }
@@ -230,13 +247,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } else {
                 userInitiatedStart = false
                 try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
+                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt}/${totalServersStr()} attempts")
             }
         }
-        ConnectionStateManager.updateFromEngine(level)
         when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
                 userInitiatedStart = false
                 userInitiatedStop = false
+                Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalServersStr()}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
@@ -252,6 +270,56 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> {}
         }
+    }
+
+    // In-process byte count callback (same process as UI)
+    override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
+        val now = System.currentTimeMillis()
+        val last = lastByteUpdateTs
+        lastByteUpdateTs = now
+        val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
+        val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
+        val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+        val mbps = bitsPerSec / (1024.0 * 1024.0)
+        val stateNow = ConnectionStateManager.state.value
+        if (stateNow != ConnectionState.DISCONNECTED) {
+            ConnectionStateManager.updateSpeedMbps(mbps)
+        }
+    }
+
+    // Cross-process byte count via AIDL status service (:openvpn process)
+    private val statusCallbacks = object : IStatusCallbacks.Stub() {
+        override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { }
+        override fun updateStateString(state: String?, msg: String?, resid: Int, level: de.blinkt.openvpn.core.ConnectionStatus?, intent: Intent?) { }
+        override fun connectedVPN(uuid: String?) { }
+        override fun notifyProfileVersionChanged(uuid: String?, profileVersion: Int) { }
+        override fun updateByteCount(inBytes: Long, outBytes: Long) {
+            val now = System.currentTimeMillis()
+            val last = lastByteUpdateTs
+            val prevIn = lastInBytes
+            val prevOut = lastOutBytes
+            lastInBytes = inBytes
+            lastOutBytes = outBytes
+            lastByteUpdateTs = now
+            val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
+            val diffIn = (inBytes - prevIn).coerceAtLeast(0)
+            val diffOut = (outBytes - prevOut).coerceAtLeast(0)
+            val totalDiffBytes = diffIn + diffOut
+            val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+            val mbps = bitsPerSec / (1024.0 * 1024.0)
+            val stateNow = ConnectionStateManager.state.value
+            if (stateNow != ConnectionState.DISCONNECTED) {
+                ConnectionStateManager.updateSpeedMbps(mbps)
+            }
+        }
+    }
+
+    private val statusConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            statusBinder = IServiceStatus.Stub.asInterface(service)
+            try { statusBinder?.registerStatusCallback(statusCallbacks) } catch (e: RemoteException) { Log.e(TAG, "Failed to register status callback", e) }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) { statusBinder = null }
     }
 
     
@@ -270,55 +338,5 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 else -> Log.d("OpenVPN", msg)
             }
         } catch (e: Exception) { Log.w(TAG, "Failed to format OpenVPN log item", e) }
-    }
-
-    // In-process byte count callback
-    override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
-        val now = System.currentTimeMillis()
-        val last = lastByteUpdateTs
-        lastByteUpdateTs = now
-        val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
-        val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
-        val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
-        val mbps = bitsPerSec / (1024.0 * 1024.0)
-        ConnectionStateManager.updateSpeedMbps(mbps)
-    }
-
-    // Cross-process byte count via AIDL status service
-    private val statusCallbacks = object : IStatusCallbacks.Stub() {
-        override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { /* ignore */ }
-        override fun updateStateString(state: String?, msg: String?, resid: Int, level: de.blinkt.openvpn.core.ConnectionStatus?, intent: Intent?) { /* ignore */ }
-        override fun connectedVPN(uuid: String?) { /* ignore */ }
-        override fun notifyProfileVersionChanged(uuid: String?, profileVersion: Int) { /* ignore */ }
-        override fun updateByteCount(inBytes: Long, outBytes: Long) {
-            val now = System.currentTimeMillis()
-            val last = lastByteUpdateTs
-            val prevIn = lastInBytes
-            val prevOut = lastOutBytes
-            lastInBytes = inBytes
-            lastOutBytes = outBytes
-            lastByteUpdateTs = now
-            val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
-            val diffIn = (inBytes - prevIn).coerceAtLeast(0)
-            val diffOut = (outBytes - prevOut).coerceAtLeast(0)
-            val totalDiffBytes = diffIn + diffOut
-            val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
-            val mbps = bitsPerSec / (1024.0 * 1024.0)
-            ConnectionStateManager.updateSpeedMbps(mbps)
-        }
-    }
-
-    private val statusConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            statusBinder = IServiceStatus.Stub.asInterface(service)
-            try {
-                statusBinder?.registerStatusCallback(statusCallbacks)
-            } catch (e: RemoteException) {
-                Log.e(TAG, "Failed to register status callback", e)
-            }
-        }
-        override fun onServiceDisconnected(name: ComponentName?) {
-            statusBinder = null
-        }
     }
 }

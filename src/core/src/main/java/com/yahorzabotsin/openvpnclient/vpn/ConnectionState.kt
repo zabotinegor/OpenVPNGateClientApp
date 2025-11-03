@@ -65,6 +65,7 @@ object ConnectionStateManager {
         _engineLevel.value = level
         _engineDetail.value = detail
         Log.d(tag, "updateFromEngine level=$level detail=${detail ?: "<none>"}")
+
         val mapped = when (level) {
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
@@ -77,15 +78,35 @@ object ConnectionStateManager {
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
+
         Log.d(tag, "Engine level=$level -> mapped=$mapped hint=${_reconnectingHint.value}")
+
         if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
             _error.value = VpnError.AUTH
         } else if (mapped != ConnectionState.DISCONNECTED) {
             _error.value = VpnError.NONE
         }
+
         if (mapped == ConnectionState.CONNECTED) _reconnectingHint.value = false
-        val effective = if (mapped == ConnectionState.DISCONNECTED && _reconnectingHint.value) ConnectionState.CONNECTING else mapped
-        if (effective != mapped) Log.d(tag, "Masking DISCONNECTED to CONNECTING due to reconnect hint")
+
+        // Smooth transient DISCONNECTED during engine (re)start/teardown
+        val current = _state.value
+        val d = detail ?: ""
+        var effective = mapped
+
+        if (mapped == ConnectionState.DISCONNECTED) {
+            effective = when {
+                _reconnectingHint.value -> ConnectionState.CONNECTING
+                current == ConnectionState.CONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.CONNECTING
+                current == ConnectionState.DISCONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.DISCONNECTING
+                else -> mapped
+            }
+        }
+
+        if (effective != mapped) {
+            Log.d(tag, "Masking $mapped to $effective (current=$current, detail='${d}')")
+        }
+
         updateState(effective)
     }
 
