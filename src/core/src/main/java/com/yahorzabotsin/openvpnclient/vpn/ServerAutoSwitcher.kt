@@ -46,7 +46,7 @@ object ServerAutoSwitcher {
                 if (seconds >= NO_REPLY_SWITCH_THRESHOLD_SECONDS) {
                     val next = SelectedCountryStore.nextServer(appContext)
                     val title = SelectedCountryStore.getSelectedCountry(appContext)
-                    val total = try { SelectedCountryStore.getServers(appContext).size } catch (_: Exception) { -1 }
+                    val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
                     if (next != null) {
                         Log.i(TAG, "Timed switch: >${NO_REPLY_SWITCH_THRESHOLD_SECONDS}s without server reply, switching to: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
