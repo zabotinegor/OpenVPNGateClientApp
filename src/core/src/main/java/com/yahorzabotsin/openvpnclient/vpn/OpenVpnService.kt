@@ -282,7 +282,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
         val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
         val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
-        val mbps = bitsPerSec / (1024.0 * 1024.0)
+        val mbps = bitsPerSec / 1_000_000.0
         val stateNow = ConnectionStateManager.state.value
         if (stateNow != ConnectionState.DISCONNECTED) {
             ConnectionStateManager.updateSpeedMbps(mbps)
@@ -308,7 +308,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val diffOut = (outBytes - prevOut).coerceAtLeast(0)
             val totalDiffBytes = diffIn + diffOut
             val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
-            val mbps = bitsPerSec / (1024.0 * 1024.0)
+            val mbps = bitsPerSec / 1_000_000.0
             val stateNow = ConnectionStateManager.state.value
             if (stateNow != ConnectionState.DISCONNECTED) {
                 ConnectionStateManager.updateSpeedMbps(mbps)
