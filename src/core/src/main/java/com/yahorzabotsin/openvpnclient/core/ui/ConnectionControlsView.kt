@@ -170,7 +170,7 @@ import kotlinx.coroutines.flow.combine
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                            (detail == null || detail == "NOPROCESS" || detail == "EXITING"))
+                            (detail in setOf(null, "NOPROCESS", "EXITING")))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
                 connectButton.text = t
