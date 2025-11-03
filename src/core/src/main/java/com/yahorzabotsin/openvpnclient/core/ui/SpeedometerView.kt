@@ -11,6 +11,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlin.math.cos
+import kotlin.math.sin
+import java.lang.Math
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -89,6 +92,76 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         paint.strokeWidth = arcWidth
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, 150f, 240f, false, paint)
+
+        // Ticks for fixed Mb/s scale: majors at 0,25,50,75,100; minors at midpoints
+        run {
+            val cx = arcRect.centerX()
+            val cy = arcRect.centerY()
+            val radius = arcRect.width() / 2f
+            val outer = radius - arcWidth / 2f + 2f
+            val majorLen = arcWidth * 0.60f
+            val minorLen = arcWidth * 0.35f
+
+            fun angleFor(valueMb: Float): Float {
+                val ratio = (valueMb / maxMbps).coerceIn(0f, 1f)
+                return 150f + 240f * ratio
+            }
+
+            // Use 4 major intervals (0..100 => 0,25,50,75,100)
+            val majorIntervals = 4
+            val majorStep = maxMbps / majorIntervals
+            val minorStep = majorStep / 2f
+
+            // minors at odd multiples of minorStep (between majors)
+            for (i in 1 until majorIntervals * 2) {
+                if (i % 2 == 1) {
+                    val v = i * minorStep
+                    val a = Math.toRadians(angleFor(v).toDouble())
+                    val cosA = cos(a).toFloat()
+                    val sinA = sin(a).toFloat()
+                    val x1 = cx + cosA * outer
+                    val y1 = cy + sinA * outer
+                    val x2 = cx + cosA * (outer - minorLen)
+                    val y2 = cy + sinA * (outer - minorLen)
+                    val savedWidth = paint.strokeWidth
+                    paint.color = arcColor
+                    paint.alpha = 150
+                    paint.strokeWidth = arcWidth * 0.08f
+                    canvas.drawLine(x1, y1, x2, y2, paint)
+                    paint.strokeWidth = savedWidth
+                    paint.alpha = 255
+                }
+            }
+
+            // majors with labels
+            for (i in 0..majorIntervals) {
+                val mv = i * majorStep
+                val a = Math.toRadians(angleFor(mv).toDouble())
+                val cosA = cos(a).toFloat()
+                val sinA = sin(a).toFloat()
+                val x1 = cx + cosA * outer
+                val y1 = cy + sinA * outer
+                val x2 = cx + cosA * (outer - majorLen)
+                val y2 = cy + sinA * (outer - majorLen)
+                val savedWidth = paint.strokeWidth
+                paint.color = arcColor
+                paint.strokeWidth = arcWidth * 0.12f
+                canvas.drawLine(x1, y1, x2, y2, paint)
+                paint.strokeWidth = savedWidth
+
+                // label
+                val labelR = outer - majorLen - (arcWidth * 0.5f)
+                val lx = cx + cosA * labelR
+                val ly = cy + sinA * labelR
+                paint.color = subtitleTextColor
+                paint.alpha = 220
+                paint.style = Paint.Style.FILL
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = subtitleTextSize * 0.9f
+                canvas.drawText(mv.toInt().toString(), lx, ly, paint)
+                paint.alpha = 255
+            }
+        }
 
         paint.color = progressColor
         paint.strokeCap = Paint.Cap.ROUND
