@@ -161,7 +161,7 @@ import kotlinx.coroutines.flow.combine
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.DISCONNECTING -> {
-                connectButton.setText(R.string.start_connection)
+                connectButton.setText(R.string.stop_connection)
                 val color = ContextCompat.getColor(context, R.color.connection_button_active)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
