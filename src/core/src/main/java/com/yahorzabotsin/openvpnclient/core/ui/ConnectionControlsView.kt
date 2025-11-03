@@ -22,6 +22,7 @@ import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
 
   class ConnectionControlsView @JvmOverloads constructor(
       context: Context,
@@ -133,23 +134,16 @@ import kotlinx.coroutines.launch
         }
         lifecycleOwner.lifecycleScope.launch {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStateManager.engineLevel.collect {
-                    if (ConnectionStateManager.state.value == ConnectionState.CONNECTING) updateButtonState(ConnectionState.CONNECTING)
-                }
-            }
-        }
-        lifecycleOwner.lifecycleScope.launch {
-            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStateManager.engineDetail.collect {
-                    if (ConnectionStateManager.state.value == ConnectionState.CONNECTING) updateButtonState(ConnectionState.CONNECTING)
-                }
-            }
-        }
-        lifecycleOwner.lifecycleScope.launch {
-            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStateManager.reconnectingHint.collect {
-                    updateButtonState(ConnectionStateManager.state.value)
-                }
+                combine(
+                    ConnectionStateManager.engineLevel,
+                    ConnectionStateManager.engineDetail,
+                    ConnectionStateManager.reconnectingHint
+                ) { _, _, _ -> }
+                    .collect {
+                        val current = ConnectionStateManager.state.value
+                        // When connecting, reflect granular engine changes; otherwise refresh using current state
+                        updateButtonState(if (current == ConnectionState.CONNECTING) ConnectionState.CONNECTING else current)
+                    }
             }
         }
     }
