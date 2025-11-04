@@ -31,6 +31,11 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private var arcWidth: Float
     private var speedTextSize: Float
     private var subtitleTextSize: Float
+
+    // Remember whether caller provided explicit dimensions via XML attrs
+    private var arcWidthFromAttrs: Boolean = false
+    private var speedTextFromAttrs: Boolean = false
+    private var subtitleTextFromAttrs: Boolean = false
     private var maxMbps: Float = 100f
     private var currentMbps: Float = 0f
 
@@ -42,8 +47,6 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     init {
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-
         val typedArray = context.theme.obtainStyledAttributes(
             attrs,
             R.styleable.SpeedometerView,
@@ -69,11 +72,31 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             speedTextColor = typedArray.getColor(R.styleable.SpeedometerView_speedTextColor, defaultText)
             subtitleTextColor = typedArray.getColor(R.styleable.SpeedometerView_subtitleTextColor, defaultText)
 
-            arcWidth = typedArray.getDimension(R.styleable.SpeedometerView_arcWidth, 30f)
-            speedTextSize = typedArray.getDimension(R.styleable.SpeedometerView_speedTextSize, 60f)
-            subtitleTextSize = typedArray.getDimension(R.styleable.SpeedometerView_subtitleTextSize, 30f)
+            arcWidthFromAttrs = typedArray.hasValue(R.styleable.SpeedometerView_arcWidth)
+            speedTextFromAttrs = typedArray.hasValue(R.styleable.SpeedometerView_speedTextSize)
+            subtitleTextFromAttrs = typedArray.hasValue(R.styleable.SpeedometerView_subtitleTextSize)
+
+            // Fallbacks are placeholders; they will be recalculated proportionally in onSizeChanged
+            arcWidth = typedArray.getDimension(R.styleable.SpeedometerView_arcWidth, 0f)
+            speedTextSize = typedArray.getDimension(R.styleable.SpeedometerView_speedTextSize, 0f)
+            subtitleTextSize = typedArray.getDimension(R.styleable.SpeedometerView_subtitleTextSize, 0f)
         } finally {
             typedArray.recycle()
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val base = kotlin.math.min(w, h).toFloat()
+        // Scale dimensions to view size when not provided explicitly
+        if (!arcWidthFromAttrs || arcWidth <= 0f) {
+            arcWidth = (base * 0.06f).coerceAtLeast(8f)
+        }
+        if (!speedTextFromAttrs || speedTextSize <= 0f) {
+            speedTextSize = (base * 0.20f).coerceAtLeast(24f)
+        }
+        if (!subtitleTextFromAttrs || subtitleTextSize <= 0f) {
+            subtitleTextSize = (base * 0.08f).coerceAtLeast(12f)
         }
     }
 
