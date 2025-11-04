@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.combine
     private val binding: ViewConnectionControlsBinding
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
+    private var openServerList: (() -> Unit)? = null
 
     private companion object {
         const val TAG = "ConnectionControlsView"
@@ -65,6 +66,11 @@ import kotlinx.coroutines.flow.combine
                     VpnManager.stopVpn(context)
                 }
             }
+        }
+
+        binding.serverSelectionContainer.setOnClickListener {
+            Log.d(TAG, "Server selection container clicked")
+            openServerList?.invoke()
         }
     }
 
@@ -109,6 +115,10 @@ import kotlinx.coroutines.flow.combine
 
     fun setNotificationPermissionRequestHandler(handler: () -> Unit) {
         this.requestNotificationPermission = handler
+    }
+
+    fun setOpenServerListHandler(handler: () -> Unit) {
+        this.openServerList = handler
     }
 
     fun setServer(country: String, city: String) {

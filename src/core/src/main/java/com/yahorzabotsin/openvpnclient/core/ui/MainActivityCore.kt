@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +32,13 @@ open class MainActivityCore : AppCompatActivity() {
     protected lateinit var connectionControlsView: ConnectionControlsView
     private val serverRepository = ServerRepository()
     private val TAG = MainActivityCore::class.simpleName
+    private var reopenDrawerAfterReturn = false
+    private var suppressNextBackPress = false
+    private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
+        override fun onDrawerClosed(drawerView: View) {
+            connectionControlsView.requestPrimaryFocus()
+        }
+    }
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -60,25 +68,37 @@ open class MainActivityCore : AppCompatActivity() {
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }
+        } else {
+            suppressNextBackPress = true
         }
-        // After returning from the screen, reopen the navigation menu as requested
-        binding.drawerLayout.openDrawer(GravityCompat.START)
+        if (!reopenDrawerAfterReturn) {
+            connectionControlsView.requestPrimaryFocus()
+        }
+        // After returning, reopen the navigation menu only if requested
+        if (reopenDrawerAfterReturn) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        reopenDrawerAfterReturn = false
     }
 
     private val dnsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         binding.drawerLayout.openDrawer(GravityCompat.START)
+        suppressNextBackPress = true
     }
 
     private val filterActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         binding.drawerLayout.openDrawer(GravityCompat.START)
+        suppressNextBackPress = true
     }
 
     private val settingsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         binding.drawerLayout.openDrawer(GravityCompat.START)
+        suppressNextBackPress = true
     }
 
     private val aboutActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         binding.drawerLayout.openDrawer(GravityCompat.START)
+        suppressNextBackPress = true
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -126,6 +146,10 @@ open class MainActivityCore : AppCompatActivity() {
         // Close drawer on back instead of exiting app
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (suppressNextBackPress) {
+                    suppressNextBackPress = false
+                    return
+                }
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 } else {
@@ -135,6 +159,14 @@ open class MainActivityCore : AppCompatActivity() {
                 }
             }
         })
+
+        // Make the country row clickable: open servers without reopening drawer on return
+        connectionControlsView.setOpenServerListHandler {
+            reopenDrawerAfterReturn = false
+            serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
+        }
+
+        connectionControlsView.requestPrimaryFocus()
     }
 
     private fun setupConnectionControls() {
@@ -169,6 +201,7 @@ open class MainActivityCore : AppCompatActivity() {
             R.string.navigation_drawer_close
         )
         drawerLayout.addDrawerListener(toggle)
+        drawerLayout.addDrawerListener(focusRestoringDrawerListener)
         toggle.syncState()
 
         addDrawerExtras(drawerLayout)
@@ -178,6 +211,7 @@ open class MainActivityCore : AppCompatActivity() {
         binding.navView.setNavigationItemSelectedListener {
             when (it.itemId) {
                 R.id.nav_server -> {
+                    reopenDrawerAfterReturn = true
                     serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
                 }
                 R.id.nav_dns -> dnsActivityLauncher.launch(Intent(this, DnsActivity::class.java))
@@ -191,6 +225,13 @@ open class MainActivityCore : AppCompatActivity() {
             binding.drawerLayout.closeDrawer(GravityCompat.START)
             true
         }
+    }
+
+    override fun onDestroy() {
+        if (::binding.isInitialized) {
+            binding.drawerLayout.removeDrawerListener(focusRestoringDrawerListener)
+        }
+        super.onDestroy()
     }
 
     private fun loadSelectedCountryOrDefault() {

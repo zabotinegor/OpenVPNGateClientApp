@@ -33,4 +33,12 @@
 
     <!-- TV toolbar nav focus circle (alpha over background) -->
     <color name="toolbar_nav_focus_bg">#333B7CFF</color>
+
+    <!-- Server selection chip states -->
+    <color name="server_selection_bg_default">#332196F3</color>
+    <color name="server_selection_bg_focus">#4D2196F3</color>
+    <color name="server_selection_bg_pressed">#662196F3</color>
+    <color name="server_selection_border_default">#802196F3</color>
+    <color name="server_selection_border_focus">#CC2196F3</color>
+    <color name="server_selection_border_pressed">#FF2196F3</color>
 </resources>

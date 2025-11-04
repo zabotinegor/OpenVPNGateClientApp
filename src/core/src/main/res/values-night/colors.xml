@@ -31,4 +31,12 @@
     <color name="fastlane_background">@color/nav_bar_background</color>
     <color name="search_opaque">#80FFFFFF</color>
     <color name="toolbar_nav_focus_bg">#33424242</color>
+
+    <!-- Server selection chip states (night) -->
+    <color name="server_selection_bg_default">#333B7CFF</color>
+    <color name="server_selection_bg_focus">#4D3B7CFF</color>
+    <color name="server_selection_bg_pressed">#663B7CFF</color>
+    <color name="server_selection_border_default">#803B7CFF</color>
+    <color name="server_selection_border_focus">#CC3B7CFF</color>
+    <color name="server_selection_border_pressed">#FF3B7CFF</color>
 </resources>
