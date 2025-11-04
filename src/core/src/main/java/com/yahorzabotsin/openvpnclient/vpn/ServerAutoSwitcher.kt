@@ -10,6 +10,7 @@ import de.blinkt.openvpn.core.ConnectionStatus
 object ServerAutoSwitcher {
     private const val TAG = "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
+    private const val START_AFTER_STOP_DELAY_MS = 350
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     private val handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
@@ -17,8 +18,24 @@ object ServerAutoSwitcher {
     @Volatile private var inNoReply: Boolean = false
     internal var starter: (Context, String, String?, Boolean) -> Unit = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
+    @Volatile private var waitingStopForRetry: Boolean = false
+    @Volatile private var pendingConfig: String? = null
+    @Volatile private var pendingTitle: String? = null
 
     fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
+        if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
+            val cfg = pendingConfig
+            val title = pendingTitle
+            pendingConfig = null
+            pendingTitle = null
+            waitingStopForRetry = false
+            if (cfg != null) {
+                Log.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
+                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+                return
+            }
+        }
+
         if (level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET) {
             if (!inNoReply) {
                 inNoReply = true
@@ -27,6 +44,14 @@ object ServerAutoSwitcher {
         } else {
             cancel()
         }
+    }
+
+    fun beginChainedSwitch(appContext: Context, config: String, title: String?) {
+        try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (_: Exception) {}
+        pendingConfig = config
+        pendingTitle = title
+        waitingStopForRetry = true
+        try { VpnManager.stopVpn(appContext, preserveReconnectHint = true) } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop for chained switch", e) }
     }
 
     private fun start(appContext: Context) {
@@ -52,7 +77,13 @@ object ServerAutoSwitcher {
                         Log.i(TAG, "Timed switch: >${noReplyThresholdSeconds}s without server reply, switching to: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
                         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for timed switch", e) }
-                        starter(appContext, next.config, title, true)
+                        try {
+                            Log.d(TAG, "Requesting explicit engine stop before retry")
+                            pendingConfig = next.config
+                            pendingTitle = title
+                            waitingStopForRetry = true
+                            VpnManager.stopVpn(appContext, preserveReconnectHint = true)
+                        } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
                         return
                     } else {
                         Log.i(TAG, "Timed switch: no alternative servers available in selected country (serversInCountry=${if (total>=0) total else "unknown"})")
@@ -83,6 +114,9 @@ object ServerAutoSwitcher {
         }
         inNoReply = false
         seconds = 0
+        waitingStopForRetry = false
+        pendingConfig = null
+        pendingTitle = null
     }
 
     @JvmStatic

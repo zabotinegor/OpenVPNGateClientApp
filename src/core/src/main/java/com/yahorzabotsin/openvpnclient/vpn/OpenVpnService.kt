@@ -43,11 +43,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var suppressEngineState = true
-    // Track per-session connection attempts across auto-switches
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
 
-    // Byte count tracking for speedometer/UI and AIDL binding (:openvpn process)
     private var lastLocalByteUpdateTs: Long = 0L
     private var aidlLastInBytes: Long = 0L
     private var aidlLastOutBytes: Long = 0L
@@ -84,7 +82,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         VpnStatus.addByteCountListener(this)
         Log.d(TAG, "Service created and listeners registered")
 
-        // Bind to OpenVPNStatusService to receive cross-process byte counts on TV
         try {
             val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
             boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
@@ -121,7 +118,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set reconnecting hint on start", e)
                 }
-                // Update session attempt counters and log progress
                 if (isReconnect) {
                     sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
                 } else {
@@ -139,13 +135,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP -> {
                 Log.i(TAG, "ACTION_STOP")
+                val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
+                if (preserveReconnect) {
+                    // Auto-switch retry: keep hint and state, just stop engine
+                    Log.d(TAG, "Preserving reconnect hint/state for retry stop")
+                    userInitiatedStop = false
+                    userInitiatedStart = true
+                    requestStopIcsOpenVpn()
+                } else {
                 userInitiatedStop = true
                 userInitiatedStart = false
                 try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
-                // Reset speed immediately for UI feedback
                 try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
                 ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                 requestStopIcsOpenVpn()
+            }
             }
             else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.actionKey(this))}")
         }
@@ -235,8 +239,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     ) {
         if (suppressEngineState) return
 
-        
-        if (userInitiatedStart && level in AUTO_SWITCH_LEVELS) {
+        if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
             val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
             if (candidates >= 0) Log.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
             val next = SelectedCountryStore.nextServer(applicationContext)
@@ -245,7 +248,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
                 try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                VpnManager.startVpn(applicationContext, next.config, title, true)
+                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (_: Exception) {}
                 return
             } else {
                 userInitiatedStart = false
@@ -275,9 +278,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    // In-process byte count callback (same process as UI)
     override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
-        // If we are bound to the cross-process status service, prefer its callback
         if (boundToStatus) return
         val now = System.currentTimeMillis()
         val last = lastLocalByteUpdateTs
@@ -292,7 +293,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    // Cross-process byte count via AIDL status service (:openvpn process)
     private val statusCallbacks = object : IStatusCallbacks.Stub() {
         override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { }
         override fun updateStateString(state: String?, msg: String?, resid: Int, level: de.blinkt.openvpn.core.ConnectionStatus?, intent: Intent?) { }
@@ -329,7 +329,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     
 
-    override fun setConnectedVPN(uuid: String) { /* not used */ }
+    override fun setConnectedVPN(uuid: String) { }
 
     override fun newLog(logItem: de.blinkt.openvpn.core.LogItem?) {
         if (logItem == null) return

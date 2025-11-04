@@ -51,9 +51,20 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
-    fun switchesAfterThreshold() {
+    fun switchesAfterThresholdUsingChainedStopStart() {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        // Cross threshold (configured to 2s in setUp). This requests a stop and
+        // arms a chained start pending NOTCONNECTED.
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // No start should be triggered yet until NOTCONNECTED is observed.
+        assertEquals(0, calls.size)
+
+        // Engine reports teardown state; chained start should fire shortly after.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        // Give a bit more than the internal delay (350ms)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
         assertEquals(1, calls.size)
         assertEquals("conf2", calls.first().cfg)
         assertEquals(true, calls.first().reconnect)
