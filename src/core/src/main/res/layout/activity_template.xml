@@ -17,12 +17,12 @@
 
     <ImageButton
         android:id="@+id/back_button"
+        style="@style/WidgetOpenVPNClientFocusableSurface"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/abc_action_bar_up_description"
-        android:focusable="true"
         android:padding="8dp"
         android:src="?attr/homeAsUpIndicator"
         app:tint="?attr/colorOnSurface"
@@ -50,4 +50,3 @@
         app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
-
