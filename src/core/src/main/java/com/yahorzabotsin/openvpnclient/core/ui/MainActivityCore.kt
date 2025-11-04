@@ -9,6 +9,7 @@ import android.util.Log
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
@@ -60,6 +61,24 @@ open class MainActivityCore : AppCompatActivity() {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }
         }
+        // After returning from the screen, reopen the navigation menu as requested
+        binding.drawerLayout.openDrawer(GravityCompat.START)
+    }
+
+    private val dnsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        binding.drawerLayout.openDrawer(GravityCompat.START)
+    }
+
+    private val filterActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        binding.drawerLayout.openDrawer(GravityCompat.START)
+    }
+
+    private val settingsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        binding.drawerLayout.openDrawer(GravityCompat.START)
+    }
+
+    private val aboutActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        binding.drawerLayout.openDrawer(GravityCompat.START)
     }
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -103,6 +122,19 @@ open class MainActivityCore : AppCompatActivity() {
         loadSelectedCountryOrDefault()
 
         afterViewsReady()
+
+        // Close drawer on back instead of exiting app
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    binding.drawerLayout.closeDrawer(GravityCompat.START)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
     }
 
     private fun setupConnectionControls() {
@@ -148,6 +180,10 @@ open class MainActivityCore : AppCompatActivity() {
                 R.id.nav_server -> {
                     serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
                 }
+                R.id.nav_dns -> dnsActivityLauncher.launch(Intent(this, DnsActivity::class.java))
+                R.id.nav_filter -> filterActivityLauncher.launch(Intent(this, FilterActivity::class.java))
+                R.id.nav_settings -> settingsActivityLauncher.launch(Intent(this, SettingsActivity::class.java))
+                R.id.nav_about -> aboutActivityLauncher.launch(Intent(this, AboutActivity::class.java))
                 else -> {
                     Toast.makeText(this, R.string.feature_in_development, Toast.LENGTH_SHORT).show()
                 }
