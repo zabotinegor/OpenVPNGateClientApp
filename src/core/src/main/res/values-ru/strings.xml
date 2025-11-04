@@ -47,4 +47,9 @@
     <string name="select_server_first">Сначала выберите сервер</string>
     <string name="vpn_permission_not_granted">Разрешение на VPN не предоставлено</string>
     <string name="notification_permission_required">Для статуса VPN требуется разрешение на уведомления</string>
+    <!-- Speed units (bytes per second) -->
+    <string name="speed_unit_bps">Б/с</string>
+    <string name="speed_unit_kbps">КБ/с</string>
+    <string name="speed_unit_mbps">МБ/с</string>
+    <string name="speed_unit_gbps">ГБ/с</string>
 </resources>

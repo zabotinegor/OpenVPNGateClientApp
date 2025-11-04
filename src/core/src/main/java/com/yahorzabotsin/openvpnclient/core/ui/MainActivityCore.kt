@@ -91,6 +91,7 @@ open class MainActivityCore : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             ).apply { setMargins(margin, 0, margin, 0) }
             val speedometer = SpeedometerView(this, null)
+            speedometer.bindTo(this)
             center.addView(speedometer, lp)
         }
 

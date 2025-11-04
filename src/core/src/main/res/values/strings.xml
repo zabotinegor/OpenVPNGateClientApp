@@ -47,4 +47,10 @@
     <string name="select_server_first">Please select a server first</string>
     <string name="vpn_permission_not_granted">VPN permission was not granted</string>
     <string name="notification_permission_required">Notification permission is required for VPN status</string>
+
+    <!-- Speed units (bytes per second) -->
+    <string name="speed_unit_bps">B/s</string>
+    <string name="speed_unit_kbps">KB/s</string>
+    <string name="speed_unit_mbps">MB/s</string>
+    <string name="speed_unit_gbps">GB/s</string>
 </resources>
