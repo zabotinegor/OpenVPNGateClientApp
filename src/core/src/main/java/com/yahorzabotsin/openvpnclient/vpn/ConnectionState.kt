@@ -28,6 +28,10 @@ object ConnectionStateManager {
     private val _reconnectingHint = MutableStateFlow(false)
     val reconnectingHint = _reconnectingHint.asStateFlow()
 
+    // Current throughput in Mbps (sum of in+out). 0 when disconnected
+    private val _speedMbps = MutableStateFlow(0.0)
+    val speedMbps = _speedMbps.asStateFlow()
+
     fun setReconnectingHint(value: Boolean) {
         Log.d(tag, "setReconnectingHint=$value (was=${_reconnectingHint.value})")
         _reconnectingHint.value = value
@@ -48,6 +52,9 @@ object ConnectionStateManager {
         if (newState in allowed) {
             Log.d(tag, "State changed from $current to $newState")
             _state.value = newState
+            if (newState == ConnectionState.DISCONNECTED) {
+                _speedMbps.value = 0.0
+            }
         } else {
             Log.d(tag, "Ignored transition $current -> $newState")
         }
@@ -101,5 +108,10 @@ object ConnectionStateManager {
         }
 
         updateState(effective)
+    }
+
+    // Update throughput from service callback
+    fun updateSpeedMbps(mbps: Double) {
+        _speedMbps.value = if (mbps.isFinite() && mbps >= 0) mbps else 0.0
     }
 }
