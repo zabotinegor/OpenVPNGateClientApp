@@ -277,9 +277,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     // In-process byte count callback (same process as UI)
     override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
+        // If we are bound to the cross-process status service, prefer its callback
+        if (boundToStatus) return
         val now = System.currentTimeMillis()
-        val last = lastAidlByteUpdateTs
-        lastAidlByteUpdateTs = now
+        val last = lastLocalByteUpdateTs
+        lastLocalByteUpdateTs = now
         val deltaMs = if (last > 0) (now - last).coerceAtLeast(1) else 1000L
         val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
         val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())

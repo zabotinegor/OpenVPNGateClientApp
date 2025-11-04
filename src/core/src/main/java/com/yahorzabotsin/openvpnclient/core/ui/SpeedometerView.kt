@@ -113,22 +113,23 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
 
         // progress arc (fills fully if > max)
         paint.color = progressColor
+        paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         val sweep = (currentMbps / maxMbps).coerceIn(0f, 1f) * 240f
         canvas.drawArc(arcRect, 150f, sweep, false, paint)
 
-        // centered value (adaptive B/s, KB/s, MB/s, GB/s)
+        // centered value shown in Mb/s (to match gauge scale 0..100 Mb/s)
         paint.color = speedTextColor
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
 
-        val bytesPerSec = (currentMbps * 1_000_000f / 8f).coerceAtLeast(0f)
-        val (valueStr, unitStr) = formatAdaptiveBytesPerSec(bytesPerSec)
+        val valueStr = formatMegabits(currentMbps.coerceAtLeast(0f))
         canvas.drawText(valueStr, centerX, centerY, paint)
 
         paint.color = subtitleTextColor
         paint.textSize = subtitleTextSize
+        val unitStr = "Mb/s"
         canvas.drawText(unitStr, centerX, centerY + subtitleTextSize * 1.5f, paint)
     }
 
@@ -169,6 +170,15 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             else -> String.format(Locale.US, "%.2f", value)
         }
         return str to unit
+    }
+
+    private fun formatMegabits(mbps: Float): String {
+        val v = mbps.coerceAtLeast(0f)
+        return when {
+            v >= 100f -> String.format(Locale.US, "%.0f", v)
+            v >= 10f -> String.format(Locale.US, "%.1f", v)
+            else -> String.format(Locale.US, "%.2f", v)
+        }
     }
 
     private fun drawTicksAndLabels(canvas: Canvas) {
@@ -238,4 +248,3 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         }
     }
 }
-
