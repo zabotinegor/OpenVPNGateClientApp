@@ -41,4 +41,7 @@
     <color name="server_selection_border_default">#802196F3</color>
     <color name="server_selection_border_focus">#CC2196F3</color>
     <color name="server_selection_border_pressed">#FF2196F3</color>
+
+    <!-- Loading indicator tint -->
+    <color name="loading_spinner_color">@color/speedometer_progress_color</color>
 </resources>
