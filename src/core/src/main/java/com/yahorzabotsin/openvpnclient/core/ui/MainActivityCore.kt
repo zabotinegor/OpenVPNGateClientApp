@@ -81,25 +81,19 @@ open class MainActivityCore : AppCompatActivity() {
         reopenDrawerAfterReturn = false
     }
 
-    private val dnsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        binding.drawerLayout.openDrawer(GravityCompat.START)
-        suppressNextBackPress = true
-    }
+    private fun createDrawerReopeningLauncher() =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+            suppressNextBackPress = true
+        }
 
-    private val filterActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        binding.drawerLayout.openDrawer(GravityCompat.START)
-        suppressNextBackPress = true
-    }
+    private val dnsActivityLauncher = createDrawerReopeningLauncher()
 
-    private val settingsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        binding.drawerLayout.openDrawer(GravityCompat.START)
-        suppressNextBackPress = true
-    }
+    private val filterActivityLauncher = createDrawerReopeningLauncher()
 
-    private val aboutActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        binding.drawerLayout.openDrawer(GravityCompat.START)
-        suppressNextBackPress = true
-    }
+    private val settingsActivityLauncher = createDrawerReopeningLauncher()
+
+    private val aboutActivityLauncher = createDrawerReopeningLauncher()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
