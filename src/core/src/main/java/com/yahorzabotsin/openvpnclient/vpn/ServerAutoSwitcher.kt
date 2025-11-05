@@ -47,7 +47,7 @@ object ServerAutoSwitcher {
     }
 
     fun beginChainedSwitch(appContext: Context, config: String, title: String?) {
-        try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (_: Exception) {}
+        try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         pendingConfig = config
         pendingTitle = title
         waitingStopForRetry = true
