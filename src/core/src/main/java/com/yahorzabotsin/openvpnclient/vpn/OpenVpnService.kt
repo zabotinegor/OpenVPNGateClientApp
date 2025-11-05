@@ -248,7 +248,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
                 try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (_: Exception) {}
+                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { Log.e(TAG, "Failed to begin chained server switch", e) }
                 return
             } else {
                 userInitiatedStart = false
