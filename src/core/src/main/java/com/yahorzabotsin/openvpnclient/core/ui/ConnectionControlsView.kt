@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
@@ -28,6 +29,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
+import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
   class ConnectionControlsView @JvmOverloads constructor(
       context: Context,
@@ -156,8 +158,9 @@ import kotlinx.coroutines.flow.combine
                 combine(
                     ConnectionStateManager.engineLevel,
                     ConnectionStateManager.engineDetail,
-                    ConnectionStateManager.reconnectingHint
-                ) { _, _, _ -> }
+                    ConnectionStateManager.reconnectingHint,
+                    ServerAutoSwitcher.remainingSeconds
+                ) { _, _, _, _ -> }
                     .collect {
                         val current = ConnectionStateManager.state.value
                         // When connecting, reflect granular engine changes; otherwise refresh using current state
@@ -214,6 +217,7 @@ import kotlinx.coroutines.flow.combine
         val detail = ConnectionStateManager.engineDetail.value
         val level = ConnectionStateManager.engineLevel.value
         val hint = ConnectionStateManager.reconnectingHint.value
+        val remaining = ServerAutoSwitcher.remainingSeconds.value
         Log.d(TAG, "Update button: state=$state level=$level detail=${detail ?: "<none>"} hint=$hint")
         val connectButton = binding.startConnectionButton
         when (state) {
@@ -228,17 +232,29 @@ import kotlinx.coroutines.flow.combine
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.CONNECTING -> {
-                val t = if (ConnectionStateManager.reconnectingHint.value) {
+                val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
+                        detail in setOf("NOPROCESS", "EXITING"))
+                val t = if (ConnectionStateManager.reconnectingHint.value && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                            (detail in setOf(null, "NOPROCESS", "EXITING")))
+                            detail in setOf(null, "NOPROCESS", "EXITING"))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
-                connectButton.text = t
+                val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
+                        level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+                val suffix = if (remaining != null && showCountdown) {
+                    try {
+                        context.getString(R.string.state_countdown_seconds, remaining)
+                    } catch (_: Exception) {
+                        context.getString(R.string.state_countdown_seconds, remaining)
+                    }
+                } else ""
+                val textWithTimer = "$t$suffix"
+                connectButton.text = textWithTimer
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
-                Log.d(TAG, "CONNECTING ui -> text='${t}' color=${color}")
+                Log.d(TAG, "CONNECTING ui -> text='${textWithTimer}' color=${color}")
             }
             ConnectionState.DISCONNECTED -> {
                 if (hint) {

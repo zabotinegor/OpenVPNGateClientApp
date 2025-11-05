@@ -53,4 +53,7 @@
     <string name="speed_unit_kbps">KB/s</string>
     <string name="speed_unit_mbps">MB/s</string>
     <string name="speed_unit_gbps">GB/s</string>
+
+    <!-- Sufiks odliczania na przycisku podczas łączenia -->
+    <string name="state_countdown_seconds"> (%1$d sek)</string>
 </resources>

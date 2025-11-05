@@ -53,4 +53,7 @@
     <string name="speed_unit_kbps">KB/s</string>
     <string name="speed_unit_mbps">MB/s</string>
     <string name="speed_unit_gbps">GB/s</string>
+
+    <!-- Countdown suffix for UI button during connecting phases -->
+    <string name="state_countdown_seconds"> (%1$d sec)</string>
 </resources>
