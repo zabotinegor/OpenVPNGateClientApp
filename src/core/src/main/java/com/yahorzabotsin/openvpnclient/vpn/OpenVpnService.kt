@@ -329,7 +329,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     
 
-    override fun setConnectedVPN(uuid: String) { }
+    override fun setConnectedVPN(uuid: String) { /* not used */ }
 
     override fun newLog(logItem: de.blinkt.openvpn.core.LogItem?) {
         if (logItem == null) return
