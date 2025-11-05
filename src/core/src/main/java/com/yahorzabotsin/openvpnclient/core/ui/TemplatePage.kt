@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclient.core.ui
 
 import android.content.Intent
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import com.yahorzabotsin.openvpnclient.core.databinding.ActivityTemplateBinding
 
 object TemplatePage {
@@ -12,13 +13,20 @@ object TemplatePage {
         backDestination: Intent? = null
     ) {
         binding.toolbarTitle.setText(titleResId)
-        binding.backButton.setOnClickListener {
-            if (backDestination != null) {
-                activity.startActivity(backDestination)
+
+        val backCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                backDestination?.let {
+                    val destinationIntent = Intent(it)
+                    destinationIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    activity.startActivity(destinationIntent)
+                }
                 activity.finish()
-            } else {
-                activity.onBackPressedDispatcher.onBackPressed()
             }
         }
+
+        binding.backButton.setOnClickListener { backCallback.handleOnBackPressed() }
+
+        activity.onBackPressedDispatcher.addCallback(activity, backCallback)
     }
 }
