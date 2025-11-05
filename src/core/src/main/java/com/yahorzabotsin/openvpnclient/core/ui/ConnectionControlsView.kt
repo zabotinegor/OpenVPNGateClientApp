@@ -4,8 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
 import android.net.VpnService
-import android.text.SpannableStringBuilder
-import android.text.Spanned
 import android.text.style.TextAppearanceSpan
 import android.util.AttributeSet
 import android.util.Log
@@ -14,6 +12,8 @@ import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
+import androidx.core.text.buildSpannedString
+import androidx.core.text.inSpans
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
@@ -180,26 +180,16 @@ import kotlinx.coroutines.flow.combine
         updateServerButtonIcons()
     }
 
-    private fun buildServerSelectionLabel(country: String, city: String): CharSequence {
-        val builder = SpannableStringBuilder()
-        builder.append(country)
-        builder.setSpan(
-            TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body),
-            0,
-            builder.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        builder.append('\n')
-        val secondaryStart = builder.length
-        builder.append(city)
-        builder.setSpan(
-            TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle),
-            secondaryStart,
-            builder.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        return builder
-    }
+    private fun buildServerSelectionLabel(country: String, city: String): CharSequence =
+        buildSpannedString {
+            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
+                append(country)
+            }
+            append("\n")
+            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
+                append(city)
+            }
+        }
 
     private fun updateServerButtonIcons() {
         val defaultTint = ContextCompat.getColor(context, R.color.text_color_primary)
