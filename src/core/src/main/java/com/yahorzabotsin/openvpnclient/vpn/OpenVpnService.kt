@@ -38,18 +38,28 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         )
     }
 
+    // Track engine binding for start/stop coordination
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
+
+    // Remember whether start/stop were user-driven vs auto-switch
     private var userInitiatedStart = false
     private var userInitiatedStop = false
+
+    // Suppress duplicate engine state callbacks while we manage retries
     private var suppressEngineState = true
+
+    // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
 
+    // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
     private var aidlLastInBytes: Long = 0L
     private var aidlLastOutBytes: Long = 0L
     private var lastAidlByteUpdateTs: Long = 0L
+
+    // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
 
