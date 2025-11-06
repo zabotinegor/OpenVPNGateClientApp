@@ -10,7 +10,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclient.core.R
-import com.yahorzabotsin.openvpnclient.core.databinding.ActivityServerListBinding
+import com.yahorzabotsin.openvpnclient.core.databinding.ActivityTemplateBinding
+import com.yahorzabotsin.openvpnclient.core.databinding.ContentServerListBinding
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
@@ -21,7 +22,8 @@ open class ServerListActivity : AppCompatActivity() {
 
     private val serverRepository = ServerRepository()
     private lateinit var servers: List<Server>
-    private lateinit var binding: ActivityServerListBinding
+    private lateinit var templateBinding: ActivityTemplateBinding
+    private lateinit var contentBinding: ContentServerListBinding
     private val TAG = ServerListActivity::class.simpleName
 
     private var countries: List<String> = emptyList()
@@ -29,8 +31,11 @@ open class ServerListActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called")
-        binding = ActivityServerListBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        templateBinding = ActivityTemplateBinding.inflate(layoutInflater)
+        setContentView(templateBinding.root)
+
+        // Inflate page content into the template container
+        contentBinding = ContentServerListBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
 
         setupToolbarAndBackButton()
         setupRecyclerView()
@@ -41,7 +46,7 @@ open class ServerListActivity : AppCompatActivity() {
                 servers = serverRepository.getServers()
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
                 countries = servers.map { it.country.name }.distinct().sorted()
-                binding.serversRecyclerView.adapter = CountryListAdapter(countries) { country ->
+                contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { country ->
                     Log.d(TAG, "Country selected: $country")
                     val countryServers = servers.filter { it.country.name == country }
                     if (countryServers.isNotEmpty()) {
@@ -64,25 +69,29 @@ open class ServerListActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
                 setLoadingState(false)
-                Snackbar.make(binding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
+                Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
             }
         }
     }
 
     private fun setLoadingState(isLoading: Boolean) {
-        binding.progressBar.isVisible = isLoading
-        binding.serversRecyclerView.isVisible = !isLoading
+        contentBinding.progressBar.isVisible = isLoading
+        contentBinding.serversRecyclerView.isVisible = !isLoading
     }
 
     private fun setupRecyclerView() {
-        binding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
-        binding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
+        contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
+        contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
     }
 
     open fun setupToolbarAndBackButton() {
-        binding.backButton.setOnClickListener {
-            onBackPressedDispatcher.onBackPressed()
-        }
+        // Set title and optional back-destination for the template header
+        TemplatePage.setupHeader(
+            activity = this,
+            binding = templateBinding,
+            titleResId = R.string.menu_server,
+            backDestination = null
+        )
     }
 
     companion object {

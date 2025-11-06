@@ -11,12 +11,12 @@ object VpnManager {
     const val ACTION_STOP = "stop"
     private const val TAG = "VpnManager"
 
-    // Keys derived from the real applicationId to avoid hardcoded package strings
     fun extraConfigKey(context: Context) = "${context.packageName}.vpn.CONFIG"
     fun extraTitleKey(context: Context) = "${context.packageName}.vpn.TITLE"
     fun actionKey(context: Context) = "${context.packageName}.vpn.ACTION"
 
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
+    fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false) {
         Log.d(TAG, "startVpn")
@@ -34,10 +34,11 @@ object VpnManager {
         context.startService(intent)
     }
 
-    fun stopVpn(context: Context) {
+    fun stopVpn(context: Context, preserveReconnectHint: Boolean = false) {
         Log.d(TAG, "stopVpn")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_STOP)
+            putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
         context.startService(intent)
     }

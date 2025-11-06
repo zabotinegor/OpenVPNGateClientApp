@@ -29,6 +29,7 @@ class ServerAutoSwitcherTest {
     @Before
     fun setUp() {
         ServerAutoSwitcher.setNoReplyThresholdForTest(2)
+        ServerAutoSwitcher.setRepliedThresholdForTest(2)
         originalStarter = ServerAutoSwitcher.starter
         ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
         originalStopper = ServerAutoSwitcher.stopper
@@ -48,17 +49,47 @@ class ServerAutoSwitcherTest {
         originalStarter?.let { ServerAutoSwitcher.starter = it }
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
         ServerAutoSwitcher.resetNoReplyThreshold()
+        ServerAutoSwitcher.resetRepliedThreshold()
     }
 
     @Test
-    fun switchesAfterThreshold() {
+    fun switchesAfterThresholdUsingChainedStopStart() {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        // Cross threshold (configured to 2s in setUp). This requests a stop and
+        // arms a chained start pending NOTCONNECTED.
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // No start should be triggered yet until NOTCONNECTED is observed.
+        assertEquals(0, calls.size)
+
+        // Engine reports teardown state; chained start should fire shortly after.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        // Give a bit more than the internal delay (350ms)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
         assertEquals(1, calls.size)
         assertEquals("conf2", calls.first().cfg)
         assertEquals(true, calls.first().reconnect)
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf2", current?.config)
+    }
+
+    @Test
+    fun startsTimerForServerRepliedAndSwitches() {
+        // Trigger timer on SERVER_REPLIED
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED)
+        // After 1s, remaining should be 1
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, ServerAutoSwitcher.remainingSeconds.value)
+        // Cross threshold (2s) -> should request stop and arm chained start
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        // No immediate start until NOTCONNECTED
+        assertEquals(0, calls.size)
+        // Now report NOTCONNECTED and allow delayed start
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertEquals(1, calls.size)
+        assertEquals(true, calls.first().reconnect)
     }
 
     @Test

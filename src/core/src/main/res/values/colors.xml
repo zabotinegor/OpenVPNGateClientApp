@@ -33,4 +33,15 @@
 
     <!-- TV toolbar nav focus circle (alpha over background) -->
     <color name="toolbar_nav_focus_bg">#333B7CFF</color>
+
+    <!-- Server selection chip states -->
+    <color name="server_selection_bg_default">#00000000</color>
+    <color name="server_selection_bg_focus">#1A3B7CFF</color>
+    <color name="server_selection_bg_pressed">#333B7CFF</color>
+    <color name="server_selection_border_default">#3B7CFF</color>
+    <color name="server_selection_border_focus">#FF3B7CFF</color>
+    <color name="server_selection_border_pressed">#FF3B7CFF</color>
+
+    <!-- Loading indicator tint -->
+    <color name="loading_spinner_color">@color/speedometer_progress_color</color>
 </resources>
