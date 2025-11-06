@@ -4,60 +4,18 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
 
-    <LinearLayout
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/server_selection_container"
+        style="@style/Widget.OpenVPNClient.ServerSelectionButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="?android:attr/selectableItemBackground"
-        android:focusable="true"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="16dp"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="12dp"
         app:layout_constraintBottom_toTopOf="@+id/start_connection_button"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
-
-        <ImageView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@drawable/ic_baseline_public_24"
-            app:tint="?attr/colorOnSurface" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/current_country"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/current_country"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-                tools:text="Russia" />
-
-            <TextView
-                android:id="@+id/current_city"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/current_city"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
-                tools:text="Novosibirsk" />
-        </LinearLayout>
-
-        <ImageView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@drawable/ic_baseline_chevron_right_24"
-            app:tint="?attr/colorOnSurface" />
-            
-        
-        
-        
-        
-    </LinearLayout>
+        app:layout_constraintStart_toStartOf="parent"
+        tools:text="Japan\nTokyo" />
 
 
     <com.google.android.material.button.MaterialButton
@@ -65,8 +23,12 @@
         style="@style/Widget.OpenVPNClient.Button"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="24dp"
         android:focusable="true"
+        android:clipToOutline="false"
+        android:outlineProvider="none"
         android:text="@string/start_connection"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"

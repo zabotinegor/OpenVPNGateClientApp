@@ -27,6 +27,18 @@
         <activity
             android:name="com.yahorzabotsin.openvpnclient.core.ui.ServerListActivity"
             android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.DnsActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.FilterActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.SettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.AboutActivity"
+            android:exported="false" />
     </application>
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

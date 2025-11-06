@@ -15,4 +15,5 @@
     <attr name="ovpnSpeedometerArcColor" format="color" />
     <attr name="ovpnSpeedometerProgressColor" format="color" />
     <attr name="ovpnSpeedometerTextColor" format="color" />
+    <attr name="ovpnFocusableStateListAnimator" format="reference" />
 </resources>

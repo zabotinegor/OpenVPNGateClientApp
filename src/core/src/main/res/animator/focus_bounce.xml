@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Pressed while focused: quick dip then bounce up -->
+    <item
+        android:state_enabled="true"
+        android:state_pressed="true"
+        android:state_focused="true">
+        <set>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.02" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.04" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.02" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.04" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+    <!-- Pressed without focus (touch input) -->
+    <item
+        android:state_enabled="true"
+        android:state_pressed="true">
+        <set>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.04" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.04" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+    <!-- Focus gained: overshoot to focused scale while avoiding large jumps -->
+    <item
+        android:state_enabled="true"
+        android:state_focused="true">
+        <set>
+            <objectAnimator
+                android:duration="220"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.55" android:value="1.05" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="220"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.55" android:value="1.05" />
+                    <keyframe android:fraction="1.0" android:value="1.02" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+    <!-- Default / focus lost: settle back to base without dipping below scale 1 to avoid visible gaps -->
+    <item>
+        <set>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.02" />
+                    <keyframe android:fraction="0.5" android:value="1.01" />
+                    <keyframe android:fraction="1.0" android:value="1.0" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.02" />
+                    <keyframe android:fraction="0.5" android:value="1.01" />
+                    <keyframe android:fraction="1.0" android:value="1.0" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+</selector>

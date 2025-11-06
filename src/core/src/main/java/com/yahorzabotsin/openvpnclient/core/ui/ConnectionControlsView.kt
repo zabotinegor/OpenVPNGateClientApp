@@ -4,16 +4,22 @@ import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
 import android.net.VpnService
+import android.text.style.TextAppearanceSpan
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
+import androidx.core.text.buildSpannedString
+import androidx.core.text.inSpans
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import java.util.Locale
+import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
@@ -23,6 +29,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
+import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
   class ConnectionControlsView @JvmOverloads constructor(
       context: Context,
@@ -33,6 +40,7 @@ import kotlinx.coroutines.flow.combine
     private val binding: ViewConnectionControlsBinding
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
+    private var openServerList: (() -> Unit)? = null
 
     private companion object {
         const val TAG = "ConnectionControlsView"
@@ -43,6 +51,11 @@ import kotlinx.coroutines.flow.combine
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
+
+        applyServerSelectionLabel(
+            context.getString(R.string.current_country),
+            context.getString(R.string.current_city)
+        )
 
         binding.startConnectionButton.setOnClickListener {
             Log.d(TAG, "Connect clicked. State=${ConnectionStateManager.state.value}")
@@ -65,6 +78,11 @@ import kotlinx.coroutines.flow.combine
                     VpnManager.stopVpn(context)
                 }
             }
+        }
+
+        binding.serverSelectionContainer.setOnClickListener {
+            Log.d(TAG, "Server selection container clicked")
+            openServerList?.invoke()
         }
     }
 
@@ -111,10 +129,13 @@ import kotlinx.coroutines.flow.combine
         this.requestNotificationPermission = handler
     }
 
+    fun setOpenServerListHandler(handler: () -> Unit) {
+        this.openServerList = handler
+    }
+
     fun setServer(country: String, city: String) {
         Log.d(TAG, "Server set: $country, $city")
-        binding.currentCountry.text = country
-        binding.currentCity.text = city
+        applyServerSelectionLabel(country, city)
         selectedCountry = country
     }
 
@@ -137,8 +158,9 @@ import kotlinx.coroutines.flow.combine
                 combine(
                     ConnectionStateManager.engineLevel,
                     ConnectionStateManager.engineDetail,
-                    ConnectionStateManager.reconnectingHint
-                ) { _, _, _ -> }
+                    ConnectionStateManager.reconnectingHint,
+                    ServerAutoSwitcher.remainingSeconds
+                ) { _, _, _, _ -> }
                     .collect {
                         val current = ConnectionStateManager.state.value
                         // When connecting, reflect granular engine changes; otherwise refresh using current state
@@ -148,10 +170,54 @@ import kotlinx.coroutines.flow.combine
         }
     }
 
+    private fun applyServerSelectionLabel(country: String, city: String) {
+        val primary = country.ifBlank { context.getString(R.string.current_country) }
+        val secondary = city.ifBlank { context.getString(R.string.current_city) }
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primary, secondary)
+        val description = listOf(primary, secondary)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .joinToString(separator = ", ")
+        binding.serverSelectionContainer.contentDescription = description
+        updateServerButtonIcons()
+    }
+
+    private fun buildServerSelectionLabel(country: String, city: String): CharSequence =
+        buildSpannedString {
+            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
+                append(country)
+            }
+            append("\n")
+            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
+                append(city)
+            }
+        }
+
+    private fun updateServerButtonIcons() {
+        val defaultTint = ContextCompat.getColor(context, R.color.text_color_primary)
+        val tint = MaterialColors.getColor(
+            binding.serverSelectionContainer,
+            com.google.android.material.R.attr.colorOnSurface,
+            defaultTint
+        )
+        val globe = ContextCompat.getDrawable(context, R.drawable.ic_baseline_public_24)?.mutate()
+        val chevron = ContextCompat.getDrawable(context, R.drawable.ic_baseline_chevron_right_24)?.mutate()
+        globe?.let { DrawableCompat.setTint(it, tint) }
+        chevron?.let { DrawableCompat.setTint(it, tint) }
+        binding.serverSelectionContainer.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            globe,
+            null,
+            chevron,
+            null
+        )
+    }
+
     private fun updateButtonState(state: ConnectionState) {
         val detail = ConnectionStateManager.engineDetail.value
         val level = ConnectionStateManager.engineLevel.value
         val hint = ConnectionStateManager.reconnectingHint.value
+        val remaining = ServerAutoSwitcher.remainingSeconds.value
         Log.d(TAG, "Update button: state=$state level=$level detail=${detail ?: "<none>"} hint=$hint")
         val connectButton = binding.startConnectionButton
         when (state) {
@@ -166,17 +232,30 @@ import kotlinx.coroutines.flow.combine
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
             ConnectionState.CONNECTING -> {
-                val t = if (ConnectionStateManager.reconnectingHint.value) {
+                val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
+                        detail in setOf("NOPROCESS", "EXITING"))
+                val t = if (ConnectionStateManager.reconnectingHint.value && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                            (detail in setOf(null, "NOPROCESS", "EXITING")))
+                            detail in setOf(null, "NOPROCESS", "EXITING"))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
-                connectButton.text = t
+                val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
+                        level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+                val suffix = if (remaining != null && showCountdown) {
+                    try {
+                        context.getString(R.string.state_countdown_seconds, remaining)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to format countdown string", e)
+                        ""
+                    }
+                } else ""
+                val textWithTimer = "$t$suffix"
+                connectButton.text = textWithTimer
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
-                Log.d(TAG, "CONNECTING ui -> text='${t}' color=${color}")
+                Log.d(TAG, "CONNECTING ui -> text='${textWithTimer}' color=${color}")
             }
             ConnectionState.DISCONNECTED -> {
                 if (hint) {
