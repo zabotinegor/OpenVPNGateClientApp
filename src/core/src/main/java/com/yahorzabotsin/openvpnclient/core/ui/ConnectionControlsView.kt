@@ -246,8 +246,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 val suffix = if (remaining != null && showCountdown) {
                     try {
                         context.getString(R.string.state_countdown_seconds, remaining)
-                    } catch (_: Exception) {
-                        context.getString(R.string.state_countdown_seconds, remaining)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to format countdown string", e)
+                        ""
                     }
                 } else ""
                 val textWithTimer = "$t$suffix"

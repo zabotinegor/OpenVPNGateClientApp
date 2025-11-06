@@ -52,4 +52,5 @@
     <string name="speed_unit_kbps">КБ/с</string>
     <string name="speed_unit_mbps">МБ/с</string>
     <string name="speed_unit_gbps">ГБ/с</string>
-    <string name="state_countdown_seconds"> (%1$d сек)</string></resources>
+    <string name="state_countdown_seconds"> (%1$d сек)</string>
+</resources>
