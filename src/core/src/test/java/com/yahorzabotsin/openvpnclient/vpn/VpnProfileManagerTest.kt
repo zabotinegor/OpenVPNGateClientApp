@@ -3,7 +3,7 @@ package com.yahorzabotsin.openvpnclient.vpn
 import android.content.Context
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ProfileManager
-import org.junit.Assert.*
+import org.junit.Assert.*`nimport de.blinkt.openvpn.core.VpnStatus
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -119,21 +119,38 @@ class VpnProfileManagerTest {
     }
 
     @Test
-    fun `notifies version changes`() {
-        var notificationReceived = false
-        
-        profileManager.addProfile(testProfile)
-        profileManager.saveProfileList(context)
+fun `notifies version changes`() {
+    profileManager.addProfile(testProfile)
+    profileManager.saveProfileList(context)
 
-        // Update profile and check for version notification
+    var received: Triple<String, Int, Boolean>? = null
+    val listener = object : VpnStatus.ProfileNotifyListener {
+        override fun notifyProfileVersionChanged(uuid: String, version: Int, changedInThisProcess: Boolean) {
+            received = Triple(uuid, version, changedInThisProcess)
+        }
+    }
+    try {
+        VpnStatus.addProfileStateListener(listener)
+
         testProfile.mServerName = "changed.example.com"
         ProfileManager.saveProfile(context, testProfile)
-        
-        // Version change should be notified
-        ProfileManager.notifyProfileVersionChanged(context, testProfile.getUUIDString(), testProfile.mVersion)
-        
-        // In real implementation, you would verify this through a listener
-        // Here we just verify the method doesn't throw
-        assertTrue(true)
+
+        ProfileManager.notifyProfileVersionChanged(
+            context,
+            testProfile.getUUIDString(),
+            testProfile.mVersion
+        )
+
+        assertNotNull("Expected profile version change notification", received)
+        assertEquals(testProfile.getUUIDString(), received!!.first)
+        assertEquals(testProfile.mVersion, received!!.second)
+    } finally {
+        VpnStatus.removeProfileStateListener(listener)
     }
 }
+
+
+
+
+
+
