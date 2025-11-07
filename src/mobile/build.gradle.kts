@@ -80,7 +80,7 @@ dependencies {
     testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation("androidx.test.espresso:espresso-contrib:3.7.0")
+    androidTestImplementation(libs.androidx.espresso.contrib)
 }
 
 apply(from = "../copy_drawables.gradle.kts")

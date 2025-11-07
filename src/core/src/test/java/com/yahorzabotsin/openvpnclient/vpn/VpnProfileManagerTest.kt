@@ -3,7 +3,8 @@ package com.yahorzabotsin.openvpnclient.vpn
 import android.content.Context
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ProfileManager
-import org.junit.Assert.*`nimport de.blinkt.openvpn.core.VpnStatus
+import de.blinkt.openvpn.core.VpnStatus
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -149,8 +150,5 @@ fun `notifies version changes`() {
     }
 }
 
-
-
-
-
+}
 
