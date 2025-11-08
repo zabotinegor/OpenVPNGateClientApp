@@ -1,0 +1,4 @@
+# Local temp files in src
+*.tmp
+*.kt.tmp
+
