@@ -1,14 +1,146 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="16dp">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/about_root"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="@string/feature_in_development" />
+        android:orientation="vertical"
+        android:padding="16dp">
 
-</FrameLayout>
+        <TextView
+            android:id="@+id/section_app"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/about_section_app"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tv_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingBottom="4dp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/tv_package"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingBottom="12dp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/tv_engine"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingBottom="16dp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/section_links"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/about_section_links"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:id="@+id/row_website"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_website"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_email"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_email"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_telegram"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_telegram"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_github"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_github"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_play"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_google_play"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/section_legal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/about_section_legal"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:paddingTop="16dp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:id="@+id/row_privacy"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_privacy_policy"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_terms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_terms_of_use"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_license"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_licenses"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+    </LinearLayout>
+
+</ScrollView>
 
