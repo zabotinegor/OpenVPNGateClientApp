@@ -104,61 +104,38 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private fun openUrl(url: String) {
         if (url.isBlank()) return
         val uri = Uri.parse(url)
-        val browse = Intent(Intent.ACTION_VIEW, uri).apply {
-            addCategory(Intent.CATEGORY_BROWSABLE)
-        }
+        val isHttp = uri.scheme == "http" || uri.scheme == "https"
+        val browse = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
 
-        val resolveInfos = packageManager.queryIntentActivities(browse, PackageManager.MATCH_DEFAULT_ONLY)
-        val exported = resolveInfos.mapNotNull { it.activityInfo }
+        val exported = packageManager
+            .queryIntentActivities(browse, PackageManager.MATCH_DEFAULT_ONLY)
+            .mapNotNull { it.activityInfo }
             .filter { it.exported }
 
+        val isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+
         try {
-            val isTv = (getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
             when {
-                isTv && (uri.scheme == "http" || uri.scheme == "https") -> {
-                    val wv = Intent(this, WebViewActivity::class.java)
-                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
-                    startActivity(wv)
-                }
-                exported.isEmpty() -> {
-                    if (uri.scheme == "http" || uri.scheme == "https") {
-                        val wv = Intent(this, WebViewActivity::class.java)
-                        wv.putExtra(WebViewActivity.EXTRA_URL, url)
-                        startActivity(wv)
-                    } else {
-                        startActivity(browse)
-                    }
-                }
+                isTv && isHttp -> openInWebView(url)
+                exported.isEmpty() && isHttp -> openInWebView(url)
+                exported.isEmpty() -> startActivity(browse)
                 exported.size == 1 -> {
                     browse.setPackage(exported[0].packageName)
                     startActivity(browse)
                 }
-                else -> {
-                    val chooser = Intent.createChooser(browse, getString(R.string.intent_open_with))
-                    startActivity(chooser)
-                }
+                else -> startActivity(Intent.createChooser(browse, getString(R.string.intent_open_with)))
             }
-        } catch (e: SecurityException) {
-            try {
-                if (uri.scheme == "http" || uri.scheme == "https") {
-                    val wv = Intent(this, WebViewActivity::class.java)
-                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
-                    startActivity(wv)
-                } else {
-                    val chooser = Intent.createChooser(browse, getString(R.string.intent_open_with))
-                    startActivity(chooser)
-                }
-            } catch (_: Exception) {
-            }
-        } catch (_: Exception) {
-            if (uri.scheme == "http" || uri.scheme == "https") {
-                try {
-                    val wv = Intent(this, WebViewActivity::class.java)
-                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
-                    startActivity(wv)
-                } catch (_: Exception) { }
-            }
+        } catch (_: SecurityException) {
+            if (isHttp) openInWebView(url) else startActivity(Intent.createChooser(browse, getString(R.string.intent_open_with)))
+        } catch (_: ActivityNotFoundException) {
+            if (isHttp) openInWebView(url)
         }
+    }
+
+    private fun openInWebView(url: String) {
+        val wv = Intent(this, WebViewActivity::class.java)
+        wv.putExtra(WebViewActivity.EXTRA_URL, url)
+        startActivity(wv)
     }
 
     private fun openEmail(email: String) {
