@@ -57,10 +57,13 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         copyrightView.text = getString(R.string.about_copyright_format, year, AboutMeta.COPYRIGHT_OWNER)
 
         setupRow(websiteRow, AboutMeta.WEBSITE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.WEBSITE) }
-        setupRow(emailRow, AboutMeta.EMAIL, copyLabel = getString(R.string.copy_label_email)) { openEmail(AboutMeta.EMAIL) }
-        if (AboutMeta.EMAIL.isNotBlank()) {
-            emailRow.text = getString(R.string.about_email) + ": " + AboutMeta.EMAIL
-        }
+        setupRow(
+            emailRow,
+            AboutMeta.EMAIL,
+            copyLabel = getString(R.string.copy_label_email),
+            onClick = { openEmail(AboutMeta.EMAIL) },
+            setText = { tv, v -> tv.text = getString(R.string.about_email) + ": " + v }
+        )
         setupRow(telegramRow, AboutMeta.TELEGRAM, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TELEGRAM) }
         setupRow(githubRow, AboutMeta.GITHUB, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB) }
         setupRow(githubEngineRow, AboutMeta.GITHUB_ENGINE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB_ENGINE) }
@@ -76,10 +79,19 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         }
     }
 
-    private fun setupRow(view: View, value: String, copyLabel: String? = null, onClick: () -> Unit) {
+    private fun setupRow(
+        view: View,
+        value: String,
+        copyLabel: String? = null,
+        setText: ((TextView, String) -> Unit)? = null,
+        onClick: () -> Unit
+    ) {
         val hasValue = value.isNotBlank()
         view.isVisible = hasValue
         if (hasValue) {
+            if (view is TextView) {
+                setText?.invoke(view, value)
+            }
             view.setOnClickListener {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (now - lastActionAt < 1200) return@setOnClickListener
