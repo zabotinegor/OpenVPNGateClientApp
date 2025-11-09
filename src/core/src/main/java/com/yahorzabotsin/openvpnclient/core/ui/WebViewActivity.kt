@@ -46,6 +46,7 @@ class WebViewActivity : BaseTemplateActivity(R.string.web_title) {
             loadWithOverviewMode = true
             loadsImagesAutomatically = true
             blockNetworkImage = false
+            allowFileAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             val isTv = (getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
             if (isTv) {
