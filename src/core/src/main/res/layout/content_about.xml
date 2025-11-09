@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -24,7 +25,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
             android:paddingBottom="4dp"
-            android:text="" />
+            tools:text="Version: 1.0 (1)" />
 
         <TextView
             android:id="@+id/tv_package"
@@ -32,7 +33,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
             android:paddingBottom="12dp"
-            android:text="" />
+            tools:text="Package: com.example.app" />
 
         <TextView
             android:id="@+id/tv_engine"
@@ -40,7 +41,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
             android:paddingBottom="16dp"
-            android:text="" />
+            tools:text="VPN Engine: OpenVPN for Android" />
 
         <TextView
             android:id="@+id/tv_copyright"
@@ -48,7 +49,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
             android:paddingBottom="16dp"
-            android:text="" />
+            tools:text="© 2025 Your Name" />
 
         <TextView
             android:id="@+id/section_links"
