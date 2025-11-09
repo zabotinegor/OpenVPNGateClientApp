@@ -70,10 +70,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         setupRow(playRow, AboutMeta.GOOGLE_PLAY, copyLabel = getString(R.string.copy_label_link)) { openPlay(AboutMeta.GOOGLE_PLAY) }
         setupRow(privacyRow, AboutMeta.PRIVACY_POLICY, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.PRIVACY_POLICY) }
         setupRow(termsRow, AboutMeta.TERMS_OF_USE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TERMS_OF_USE) }
-        licenseRow.setOnClickListener {
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastActionAt < 1200) return@setOnClickListener
-            lastActionAt = now
+        setupRow(licenseRow, AboutMeta.GPLV2_URL, copyLabel = getString(R.string.copy_label_link)) {
             openUrl(AboutMeta.GPLV2_URL)
         }
 
@@ -86,7 +83,12 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val hasValue = value.isNotBlank()
         view.isVisible = hasValue
         if (hasValue) {
-            view.setOnClickListener { onClick() }
+            view.setOnClickListener {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastActionAt < 1200) return@setOnClickListener
+                lastActionAt = now
+                onClick()
+            }
             view.setOnLongClickListener {
                 val textToCopy = value
                 copyToClipboard(copyLabel ?: getString(R.string.copy_label_link), textToCopy)
