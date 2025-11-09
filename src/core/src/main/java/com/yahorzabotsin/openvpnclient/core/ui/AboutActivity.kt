@@ -21,30 +21,29 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentAboutBinding
 
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private var lastActionAt: Long = 0
+    private lateinit var bindingContent: ContentAboutBinding
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        ContentAboutBinding.inflate(inflater, container, true)
+        bindingContent = ContentAboutBinding.inflate(inflater, container, true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val root = templateBinding.contentContainer
+        val versionView = bindingContent.tvVersion
+        val packageView = bindingContent.tvPackage
+        val engineView = bindingContent.tvEngine
+        val copyrightView = bindingContent.tvCopyright
 
-        val versionView = root.findViewById<TextView>(R.id.tv_version)
-        val packageView = root.findViewById<TextView>(R.id.tv_package)
-        val engineView = root.findViewById<TextView>(R.id.tv_engine)
-        val copyrightView = root.findViewById<TextView>(R.id.tv_copyright)
-
-        val websiteRow = root.findViewById<View>(R.id.row_website)
-        val emailRow = root.findViewById<View>(R.id.row_email)
-        val telegramRow = root.findViewById<View>(R.id.row_telegram)
-        val githubRow = root.findViewById<View>(R.id.row_github)
-        val githubEngineRow = root.findViewById<View>(R.id.row_github_engine)
-        val playRow = root.findViewById<View>(R.id.row_play)
-        val privacyRow = root.findViewById<View>(R.id.row_privacy)
-        val termsRow = root.findViewById<View>(R.id.row_terms)
-        val licenseRow = root.findViewById<View>(R.id.row_license)
-        val icsGithubRow = root.findViewById<View>(R.id.row_ics_github)
+        val websiteRow = bindingContent.rowWebsite
+        val emailRow = bindingContent.rowEmail
+        val telegramRow = bindingContent.rowTelegram
+        val githubRow = bindingContent.rowGithub
+        val githubEngineRow = bindingContent.rowGithubEngine
+        val playRow = bindingContent.rowPlay
+        val privacyRow = bindingContent.rowPrivacy
+        val termsRow = bindingContent.rowTerms
+        val licenseRow = bindingContent.rowLicense
+        val icsGithubRow = bindingContent.rowIcsGithub
 
         val pInfo = packageManager.getPackageInfo(packageName, 0)
         val versionName = pInfo.versionName ?: ""
@@ -59,10 +58,8 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
 
         setupRow(websiteRow, AboutMeta.WEBSITE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.WEBSITE) }
         setupRow(emailRow, AboutMeta.EMAIL, copyLabel = getString(R.string.copy_label_email)) { openEmail(AboutMeta.EMAIL) }
-        (emailRow as? TextView)?.let { tv ->
-            if (AboutMeta.EMAIL.isNotBlank()) {
-                tv.text = getString(R.string.about_email) + ": " + AboutMeta.EMAIL
-            }
+        if (AboutMeta.EMAIL.isNotBlank()) {
+            emailRow.text = getString(R.string.about_email) + ": " + AboutMeta.EMAIL
         }
         setupRow(telegramRow, AboutMeta.TELEGRAM, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TELEGRAM) }
         setupRow(githubRow, AboutMeta.GITHUB, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB) }
