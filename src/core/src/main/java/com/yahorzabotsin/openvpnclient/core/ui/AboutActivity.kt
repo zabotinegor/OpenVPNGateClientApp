@@ -143,7 +143,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val intent = Intent(Intent.ACTION_SENDTO).apply { data = Uri.parse("mailto:$email") }
         try {
             startActivity(Intent.createChooser(intent, getString(R.string.intent_send_email)))
-        } catch (_: Exception) { }
+        } catch (_: ActivityNotFoundException) { }
     }
 
     private fun openPlay(webUrl: String) {
