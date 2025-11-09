@@ -61,63 +61,51 @@
 
         <TextView
             android:id="@+id/row_website"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_website"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_email"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_email"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_telegram"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_telegram"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_github"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_github"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_github_engine"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_github_engine"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_play"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_google_play"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/section_legal"
@@ -130,33 +118,27 @@
 
         <TextView
             android:id="@+id/row_privacy"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_privacy_policy"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_terms"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_terms_of_use"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
         <TextView
             android:id="@+id/row_license"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_licenses"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
-            android:paddingVertical="8dp"
-            android:clickable="true"
-            android:foreground="?attr/selectableItemBackground" />
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
     </LinearLayout>
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Blue theme palette (apply for system Light) -->
+    <!-- Section: Theme palette (Light) -->
     <color name="app_background">#0E1932</color>
     <color name="nav_bar_background">#172A4E</color>
     <color name="menu_icon_color">#FFFFFF</color>
@@ -8,33 +8,33 @@
     <color name="text_color_secondary">#A9A9A9</color>
     <color name="icon_color">#3B7CFF</color>
 
-    <!-- Speedometer Colors -->
+    <!-- Section: Speedometer -->
     <color name="speedometer_arc_color">#1E3A6E</color>
     <color name="speedometer_progress_color">#3B7CFF</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
 
-    <!-- Ping Colors -->
+    <!-- Section: Ping -->
     <color name="ping_strong_color">#00FF00</color>
     <color name="ping_medium_color">#FFFF00</color>
     <color name="ping_weak_color">#FF0000</color>
 
-    <!-- TV specific colors -->
+    <!-- Section: TV-specific colors -->
     <color name="background_gradient_start">@color/app_background</color>
     <color name="background_gradient_end">@color/nav_bar_background</color>
     <color name="default_background">@color/nav_bar_background</color>
     <color name="selected_background">@color/speedometer_progress_color</color>
 
-    <!-- Connection button dedicated colors -->
+    <!-- Section: Connection button -->
     <color name="connection_button_disconnected">#3B7CFF</color>
     <color name="connection_button_connecting">#FFC107</color>
     <color name="connection_button_active">#E53935</color>
     <color name="fastlane_background">@color/nav_bar_background</color>
     <color name="search_opaque">#80FFFFFF</color>
 
-    <!-- TV toolbar nav focus circle (alpha over background) -->
+    <!-- Section: Toolbar nav focus (TV) -->
     <color name="toolbar_nav_focus_bg">#333B7CFF</color>
 
-    <!-- Server selection chip states -->
+    <!-- Section: Server selection chips -->
     <color name="server_selection_bg_default">#00000000</color>
     <color name="server_selection_bg_focus">#1A3B7CFF</color>
     <color name="server_selection_bg_pressed">#333B7CFF</color>
@@ -42,6 +42,6 @@
     <color name="server_selection_border_focus">#FF3B7CFF</color>
     <color name="server_selection_border_pressed">#FF3B7CFF</color>
 
-    <!-- Loading indicator tint -->
+    <!-- Section: Loading indicator -->
     <color name="loading_spinner_color">@color/speedometer_progress_color</color>
 </resources>

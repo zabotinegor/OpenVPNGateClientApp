@@ -1,6 +1,11 @@
 package com.yahorzabotsin.openvpnclient.core.ui
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.app.UiModeManager
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,12 +13,14 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.about.AboutMeta
 import com.yahorzabotsin.openvpnclient.core.databinding.ContentAboutBinding
 
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
+    private var lastActionAt: Long = 0
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         ContentAboutBinding.inflate(inflater, container, true)
     }
@@ -49,45 +56,112 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
         copyrightView.text = getString(R.string.about_copyright_format, year, AboutMeta.COPYRIGHT_OWNER)
 
-        setupRow(websiteRow, AboutMeta.WEBSITE) { openUrl(AboutMeta.WEBSITE) }
-        setupRow(emailRow, AboutMeta.EMAIL) { openEmail(AboutMeta.EMAIL) }
-        // Show email address inline for clarity
+        setupRow(websiteRow, AboutMeta.WEBSITE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.WEBSITE) }
+        setupRow(emailRow, AboutMeta.EMAIL, copyLabel = getString(R.string.copy_label_email)) { openEmail(AboutMeta.EMAIL) }
         (emailRow as? TextView)?.let { tv ->
             if (AboutMeta.EMAIL.isNotBlank()) {
                 tv.text = getString(R.string.about_email) + ": " + AboutMeta.EMAIL
             }
         }
-        setupRow(telegramRow, AboutMeta.TELEGRAM) { openUrl(AboutMeta.TELEGRAM) }
-        setupRow(githubRow, AboutMeta.GITHUB) { openUrl(AboutMeta.GITHUB) }
-        setupRow(githubEngineRow, AboutMeta.GITHUB_ENGINE) { openUrl(AboutMeta.GITHUB_ENGINE) }
-        setupRow(playRow, AboutMeta.GOOGLE_PLAY) { openPlay(AboutMeta.GOOGLE_PLAY) }
-        setupRow(privacyRow, AboutMeta.PRIVACY_POLICY) { openUrl(AboutMeta.PRIVACY_POLICY) }
-        setupRow(termsRow, AboutMeta.TERMS_OF_USE) { openUrl(AboutMeta.TERMS_OF_USE) }
+        setupRow(telegramRow, AboutMeta.TELEGRAM, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TELEGRAM) }
+        setupRow(githubRow, AboutMeta.GITHUB, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB) }
+        setupRow(githubEngineRow, AboutMeta.GITHUB_ENGINE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB_ENGINE) }
+        setupRow(playRow, AboutMeta.GOOGLE_PLAY, copyLabel = getString(R.string.copy_label_link)) { openPlay(AboutMeta.GOOGLE_PLAY) }
+        setupRow(privacyRow, AboutMeta.PRIVACY_POLICY, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.PRIVACY_POLICY) }
+        setupRow(termsRow, AboutMeta.TERMS_OF_USE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TERMS_OF_USE) }
         licenseRow.setOnClickListener {
-            // Open engine repo and GPL text in browser tabs
-            openUrl(AboutMeta.ENGINE_URL)
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastActionAt < 1200) return@setOnClickListener
+            lastActionAt = now
             openUrl(AboutMeta.GPLV2_URL)
         }
     }
 
-    private fun setupRow(view: View, value: String, onClick: () -> Unit) {
+    private fun setupRow(view: View, value: String, copyLabel: String? = null, onClick: () -> Unit) {
         val hasValue = value.isNotBlank()
         view.isVisible = hasValue
-        if (hasValue) view.setOnClickListener { onClick() }
+        if (hasValue) {
+            view.setOnClickListener { onClick() }
+            view.setOnLongClickListener {
+                val textToCopy = if (view.id == R.id.row_email) value else value
+                copyToClipboard(copyLabel ?: getString(R.string.copy_label_link), textToCopy)
+                Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show()
+                true
+            }
+        }
+    }
+
+    private fun copyToClipboard(label: String, text: String) {
+        val cm = getSystemService(ClipboardManager::class.java)
+        cm?.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
     private fun openUrl(url: String) {
         if (url.isBlank()) return
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-        startActivity(intent)
+        val uri = Uri.parse(url)
+        val browse = Intent(Intent.ACTION_VIEW, uri).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+        }
+
+        val resolveInfos = packageManager.queryIntentActivities(browse, PackageManager.MATCH_DEFAULT_ONLY)
+        val exported = resolveInfos.mapNotNull { it.activityInfo }
+            .filter { it.exported }
+
+        try {
+            val isTv = (getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
+            when {
+                isTv && (uri.scheme == "http" || uri.scheme == "https") -> {
+                    val wv = Intent(this, WebViewActivity::class.java)
+                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
+                    startActivity(wv)
+                }
+                exported.isEmpty() -> {
+                    if (uri.scheme == "http" || uri.scheme == "https") {
+                        val wv = Intent(this, WebViewActivity::class.java)
+                        wv.putExtra(WebViewActivity.EXTRA_URL, url)
+                        startActivity(wv)
+                    } else {
+                        startActivity(browse)
+                    }
+                }
+                exported.size == 1 -> {
+                    browse.setPackage(exported[0].packageName)
+                    startActivity(browse)
+                }
+                else -> {
+                    val chooser = Intent.createChooser(browse, getString(R.string.intent_open_with))
+                    startActivity(chooser)
+                }
+            }
+        } catch (e: SecurityException) {
+            try {
+                if (uri.scheme == "http" || uri.scheme == "https") {
+                    val wv = Intent(this, WebViewActivity::class.java)
+                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
+                    startActivity(wv)
+                } else {
+                    val chooser = Intent.createChooser(browse, getString(R.string.intent_open_with))
+                    startActivity(chooser)
+                }
+            } catch (_: Exception) {
+            }
+        } catch (_: Exception) {
+            if (uri.scheme == "http" || uri.scheme == "https") {
+                try {
+                    val wv = Intent(this, WebViewActivity::class.java)
+                    wv.putExtra(WebViewActivity.EXTRA_URL, url)
+                    startActivity(wv)
+                } catch (_: Exception) { }
+            }
+        }
     }
 
     private fun openEmail(email: String) {
         if (email.isBlank()) return
-        val intent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("mailto:$email")
-        }
-        startActivity(intent)
+        val intent = Intent(Intent.ACTION_SENDTO).apply { data = Uri.parse("mailto:$email") }
+        try {
+            startActivity(Intent.createChooser(intent, getString(R.string.intent_send_email)))
+        } catch (_: Exception) { }
     }
 
     private fun openPlay(webUrl: String) {

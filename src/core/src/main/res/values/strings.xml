@@ -5,7 +5,7 @@
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
 
-    <!-- Menu Items -->
+    <!-- Section: Menu -->
     <string name="menu_connection">Connection</string>
     <string name="menu_server">Server</string>
     <string name="menu_protocol">Protocol</string>
@@ -16,22 +16,22 @@
     <string name="menu_about">About</string>
     <string name="menu_settings">Settings</string>
 
-    <!-- Server Screen -->
+    <!-- Section: Server screen -->
     <string name="server_list_title">Server list</string>
     <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
 
-    <!-- Error Fragment -->
+    <!-- Section: Error screen -->
     <string name="error_fragment_message">An error occurred</string>
     <string name="dismiss_error">Dismiss</string>
     <string name="error_getting_servers">Error getting servers</string>
     <string name="no_servers_for_country">No servers available for the selected country</string>
 
-    <!-- Main Screen -->
+    <!-- Section: Main screen -->
     <string name="current_country">Not selected</string>
     <string name="current_city">Not selected</string>
     <string name="feature_in_development">Feature in Development</string>
 
-    <!-- About -->
+    <!-- Section: About -->
     <string name="about_section_app">Application</string>
     <string name="about_section_links">Links</string>
     <string name="about_section_legal">Legal</string>
@@ -46,10 +46,16 @@
     <string name="about_google_play">Google Play</string>
     <string name="about_privacy_policy">Privacy Policy</string>
     <string name="about_terms_of_use">Terms of Use</string>
-    <string name="about_licenses">Open-source Licenses</string>
+    <string name="about_licenses">GPLv2 License</string>
+    <string name="intent_open_with">Open with</string>
+    <string name="intent_send_email">Send email</string>
+    <string name="web_title">Web Page</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="copy_label_link">Link</string>
+    <string name="copy_label_email">Email</string>
     <string name="about_copyright_format">© %1$d %2$s</string>
 
-    <!-- VPN Notifications -->
+    <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">VPN Status</string>
     <string name="vpn_channel_description">Status of the VPN connection</string>
     <string name="vpn_notification_title_connecting">VPN connecting</string>
@@ -61,17 +67,17 @@
     <string name="vpn_notification_text_disconnecting">Tearing down connection...</string>
     <string name="vpn_notification_text_disconnected">VPN stopped</string>
 
-    <!-- Runtime messages / toasts -->
+    <!-- Section: Runtime messages / toasts -->
     <string name="select_server_first">Please select a server first</string>
     <string name="vpn_permission_not_granted">VPN permission was not granted</string>
     <string name="notification_permission_required">Notification permission is required for VPN status</string>
 
-    <!-- Speed units (bytes per second) -->
+    <!-- Section: Speed units (bytes per second) -->
     <string name="speed_unit_bps">B/s</string>
     <string name="speed_unit_kbps">KB/s</string>
     <string name="speed_unit_mbps">MB/s</string>
     <string name="speed_unit_gbps">GB/s</string>
 
-    <!-- Countdown suffix for UI button during connecting phases -->
+    <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d sec)</string>
 </resources>
