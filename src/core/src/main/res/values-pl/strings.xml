@@ -47,6 +47,7 @@
     <string name="about_privacy_policy">Polityka prywatności</string>
     <string name="about_terms_of_use">Warunki korzystania</string>
     <string name="about_licenses">Licencja GPLv2</string>
+    <string name="about_ics_github">ics-openvpn na GitHubie</string>
     <string name="intent_open_with">Otwórz za pomocą</string>
     <string name="intent_send_email">Wyślij e-mail</string>
     <string name="web_title">Strona WWW</string>

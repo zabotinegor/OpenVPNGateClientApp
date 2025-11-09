@@ -7,6 +7,7 @@ object AboutMeta {
     const val TELEGRAM = "" // no channel yet
     const val GITHUB = "https://github.com/zabotinegor/OpenVPNClientApp"
     const val GITHUB_ENGINE = "https://github.com/zabotinegor/OpenVPNEngine"
+    const val ICS_OPENVPN_GITHUB = "https://github.com/schwabe/ics-openvpn"
     const val GOOGLE_PLAY = "" // not published yet
     const val PRIVACY_POLICY = "" // to be added later
     const val TERMS_OF_USE = "" // optional; to be added later

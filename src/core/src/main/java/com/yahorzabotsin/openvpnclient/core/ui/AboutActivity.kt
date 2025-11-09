@@ -44,6 +44,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val privacyRow = root.findViewById<View>(R.id.row_privacy)
         val termsRow = root.findViewById<View>(R.id.row_terms)
         val licenseRow = root.findViewById<View>(R.id.row_license)
+        val icsGithubRow = root.findViewById<View>(R.id.row_ics_github)
 
         val pInfo = packageManager.getPackageInfo(packageName, 0)
         val versionName = pInfo.versionName ?: ""
@@ -74,6 +75,10 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
             if (now - lastActionAt < 1200) return@setOnClickListener
             lastActionAt = now
             openUrl(AboutMeta.GPLV2_URL)
+        }
+
+        setupRow(icsGithubRow, AboutMeta.ICS_OPENVPN_GITHUB, copyLabel = getString(R.string.copy_label_link)) {
+            openUrl(AboutMeta.ICS_OPENVPN_GITHUB)
         }
     }
 

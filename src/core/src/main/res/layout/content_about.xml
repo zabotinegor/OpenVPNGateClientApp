@@ -140,6 +140,14 @@
             android:text="@string/about_licenses"
             android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
+        <TextView
+            android:id="@+id/row_ics_github"
+            style="@style/Widget.OpenVPNClient.ClickableRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_ics_github"
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
+
     </LinearLayout>
 
 </ScrollView>
