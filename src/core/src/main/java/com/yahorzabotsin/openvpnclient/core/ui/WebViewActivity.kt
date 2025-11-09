@@ -54,13 +54,13 @@ class WebViewActivity : BaseTemplateActivity(R.string.web_title) {
         }
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val target = request?.url?.toString() ?: return false
-                val scheme = request?.url?.scheme
+                val uri = request?.url ?: return false
+                val scheme = uri.scheme
                 return if (scheme == "http" || scheme == "https") {
                     false
                 } else {
                     try {
-                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, request?.url))
+                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
                     } catch (_: Exception) { }
                     true
                 }
