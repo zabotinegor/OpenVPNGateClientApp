@@ -88,7 +88,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         if (hasValue) {
             view.setOnClickListener { onClick() }
             view.setOnLongClickListener {
-                val textToCopy = if (view.id == R.id.row_email) value else value
+                val textToCopy = value
                 copyToClipboard(copyLabel ?: getString(R.string.copy_label_link), textToCopy)
                 Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show()
                 true
