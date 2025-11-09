@@ -26,11 +26,13 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val versionView = root.findViewById<TextView>(R.id.tv_version)
         val packageView = root.findViewById<TextView>(R.id.tv_package)
         val engineView = root.findViewById<TextView>(R.id.tv_engine)
+        val copyrightView = root.findViewById<TextView>(R.id.tv_copyright)
 
         val websiteRow = root.findViewById<View>(R.id.row_website)
         val emailRow = root.findViewById<View>(R.id.row_email)
         val telegramRow = root.findViewById<View>(R.id.row_telegram)
         val githubRow = root.findViewById<View>(R.id.row_github)
+        val githubEngineRow = root.findViewById<View>(R.id.row_github_engine)
         val playRow = root.findViewById<View>(R.id.row_play)
         val privacyRow = root.findViewById<View>(R.id.row_privacy)
         val termsRow = root.findViewById<View>(R.id.row_terms)
@@ -44,10 +46,20 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         packageView.text = getString(R.string.about_package_format, packageName)
         engineView.text = getString(R.string.about_engine_format, AboutMeta.ENGINE_NAME, AboutMeta.ENGINE_LICENSE)
 
+        val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        copyrightView.text = getString(R.string.about_copyright_format, year, AboutMeta.COPYRIGHT_OWNER)
+
         setupRow(websiteRow, AboutMeta.WEBSITE) { openUrl(AboutMeta.WEBSITE) }
         setupRow(emailRow, AboutMeta.EMAIL) { openEmail(AboutMeta.EMAIL) }
+        // Show email address inline for clarity
+        (emailRow as? TextView)?.let { tv ->
+            if (AboutMeta.EMAIL.isNotBlank()) {
+                tv.text = getString(R.string.about_email) + ": " + AboutMeta.EMAIL
+            }
+        }
         setupRow(telegramRow, AboutMeta.TELEGRAM) { openUrl(AboutMeta.TELEGRAM) }
         setupRow(githubRow, AboutMeta.GITHUB) { openUrl(AboutMeta.GITHUB) }
+        setupRow(githubEngineRow, AboutMeta.GITHUB_ENGINE) { openUrl(AboutMeta.GITHUB_ENGINE) }
         setupRow(playRow, AboutMeta.GOOGLE_PLAY) { openPlay(AboutMeta.GOOGLE_PLAY) }
         setupRow(privacyRow, AboutMeta.PRIVACY_POLICY) { openUrl(AboutMeta.PRIVACY_POLICY) }
         setupRow(termsRow, AboutMeta.TERMS_OF_USE) { openUrl(AboutMeta.TERMS_OF_USE) }

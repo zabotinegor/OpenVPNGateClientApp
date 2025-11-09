@@ -43,6 +43,14 @@
             android:text="" />
 
         <TextView
+            android:id="@+id/tv_copyright"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+            android:paddingBottom="16dp"
+            android:text="" />
+
+        <TextView
             android:id="@+id/section_links"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -86,6 +94,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_github"
+            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:paddingVertical="8dp"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/row_github_engine"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_github_engine"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
             android:paddingVertical="8dp"
             android:clickable="true"

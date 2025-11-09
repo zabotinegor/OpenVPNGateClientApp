@@ -42,10 +42,12 @@
     <string name="about_email">Contact Email</string>
     <string name="about_telegram">Telegram</string>
     <string name="about_github">Source Code</string>
+    <string name="about_github_engine">Engine Source</string>
     <string name="about_google_play">Google Play</string>
     <string name="about_privacy_policy">Privacy Policy</string>
     <string name="about_terms_of_use">Terms of Use</string>
     <string name="about_licenses">Open-source Licenses</string>
+    <string name="about_copyright_format">© %1$d %2$s</string>
 
     <!-- VPN Notifications -->
     <string name="vpn_channel_name">VPN Status</string>
