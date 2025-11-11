@@ -1,12 +1,12 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="start_connection">Подключиться</string>
-    <string name="stop_connection">Отключиться</string>
-    <string name="navigation_drawer_open">Открыть навигационную панель</string>
-    <string name="navigation_drawer_close">Закрыть навигационную панель</string>
+    <string name="start_connection">НАЧАТЬ ПОДКЛЮЧЕНИЕ</string>
+    <string name="stop_connection">ОСТАНОВИТЬ ПОДКЛЮЧЕНИЕ</string>
+    <string name="navigation_drawer_open">Открыть панель навигации</string>
+    <string name="navigation_drawer_close">Закрыть панель навигации</string>
 
-    <!-- Menu Items -->
-    <string name="menu_connection">Соединение</string>
+    <!-- Section: Menu -->
+    <string name="menu_connection">Подключение</string>
     <string name="menu_server">Сервер</string>
     <string name="menu_protocol">Протокол</string>
     <string name="menu_dns">DNS</string>
@@ -16,41 +16,70 @@
     <string name="menu_about">О приложении</string>
     <string name="menu_settings">Настройки</string>
 
-    <!-- Server Screen -->
+    <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>
-    <string name="server_list_subtitle">Если есть проблемы с соединением, выберите другой сервер.</string>
+    <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
 
-    <!-- Error Fragment -->
+    <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>
     <string name="dismiss_error">Закрыть</string>
-    <string name="error_getting_servers">Ошибка при получении серверов</string>
+    <string name="error_getting_servers">Ошибка получения серверов</string>
     <string name="no_servers_for_country">Нет серверов для выбранной страны</string>
 
-    <!-- Main Screen -->
+    <!-- Section: Main screen -->
     <string name="current_country">Не выбрано</string>
     <string name="current_city">Не выбрано</string>
     <string name="feature_in_development">Функция в разработке</string>
 
-    <!-- VPN Notifications -->
+    <!-- Section: About -->
+    <string name="about_section_app">Приложение</string>
+    <string name="about_section_links">Ссылки</string>
+    <string name="about_section_legal">Правовая информация</string>
+    <string name="about_version_format">Версия: %1$s (%2$d)</string>
+    <string name="about_package_format">Пакет: %1$s</string>
+    <string name="about_engine_format">Движок VPN: %1$s — %2$s</string>
+    <string name="about_website">Веб‑сайт</string>
+    <string name="about_email">Эл. почта</string>
+    <string name="about_telegram">Telegram</string>
+    <string name="about_github">Исходный код</string>
+    <string name="about_github_engine">Исходный код (движок)</string>
+    <string name="about_google_play">Google Play</string>
+    <string name="about_privacy_policy">Политика конфиденциальности</string>
+    <string name="about_terms_of_use">Условия использования</string>
+    <string name="about_licenses">Лицензия GPLv2</string>
+    <string name="about_ics_github">ics-openvpn на GitHub</string>
+    <string name="intent_open_with">Открыть с помощью</string>
+    <string name="intent_send_email">Отправить письмо</string>
+    <string name="email_app_not_found">Не найдено приложение для почты</string>
+    <string name="web_title">Веб‑страница</string>
+    <string name="copied_to_clipboard">Скопировано в буфер обмена</string>
+    <string name="copy_label_link">Ссылка</string>
+    <string name="copy_label_email">Эл. почта</string>
+    <string name="about_copyright_format">© %1$d %2$s</string>
+
+    <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">Статус VPN</string>
-    <string name="vpn_channel_description">Состояние VPN‑соединения</string>
-    <string name="vpn_notification_title_connecting">Подключение VPN</string>
+    <string name="vpn_channel_description">Статус подключения VPN</string>
+    <string name="vpn_notification_title_connecting">Подключение к VPN</string>
     <string name="vpn_notification_title_connected">VPN подключен</string>
-    <string name="vpn_notification_title_disconnecting">Отключение VPN</string>
-    <string name="vpn_notification_title_disconnected">VPN отключён</string>
-    <string name="vpn_notification_text_connecting">Устанавливаем защищённое соединение…</string>
+    <string name="vpn_notification_title_disconnecting">Отключение от VPN</string>
+    <string name="vpn_notification_title_disconnected">VPN отключен</string>
+    <string name="vpn_notification_text_connecting">Устанавливается защищённое соединение...</string>
     <string name="vpn_notification_text_connected">Ваш VPN активен</string>
-    <string name="vpn_notification_text_disconnecting">Завершаем соединение…</string>
+    <string name="vpn_notification_text_disconnecting">Завершение соединения...</string>
     <string name="vpn_notification_text_disconnected">VPN остановлен</string>
 
-    <!-- Runtime messages / toasts -->
+    <!-- Section: Runtime messages / toasts -->
     <string name="select_server_first">Сначала выберите сервер</string>
     <string name="vpn_permission_not_granted">Разрешение на VPN не предоставлено</string>
     <string name="notification_permission_required">Для статуса VPN требуется разрешение на уведомления</string>
-    <!-- Speed units (bytes per second) -->
+
+    <!-- Section: Speed units (bytes per second) -->
     <string name="speed_unit_bps">Б/с</string>
     <string name="speed_unit_kbps">КБ/с</string>
     <string name="speed_unit_mbps">МБ/с</string>
     <string name="speed_unit_gbps">ГБ/с</string>
+
+    <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d сек)</string>
 </resources>

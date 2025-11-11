@@ -10,7 +10,7 @@
         <attr name="subtitleTextSize" format="dimension" />
     </declare-styleable>
 
-    <!-- App theme attributes (centralized color tokens for app-specific parts) -->
+    <!-- Section: App theme attributes (centralized color tokens for app-specific parts) -->
     <attr name="ovpnNavBarColor" format="color" />
     <attr name="ovpnSpeedometerArcColor" format="color" />
     <attr name="ovpnSpeedometerProgressColor" format="color" />

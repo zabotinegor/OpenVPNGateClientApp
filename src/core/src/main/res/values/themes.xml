@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base application theme. Uses system Day/Night and maps brand + app attrs. -->
+    <!-- Section: Base application theme (Day/Night + brand/app attrs) -->
     <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Backgrounds -->
+        <!-- Section: Backgrounds -->
         <item name="android:windowBackground">@color/app_background</item>
 
-        <!-- Material color roles -->
+        <!-- Section: Material color roles -->
         <item name="colorPrimary">@color/speedometer_progress_color</item>
+        <item name="colorOnPrimary">@color/text_color_primary</item>
         <item name="colorSurface">@color/nav_bar_background</item>
         <item name="colorOnSurface">@color/text_color_primary</item>
 
-        <!-- App-specific attributes -->
+        <!-- Section: App-specific attributes -->
         <item name="ovpnNavBarColor">@color/nav_bar_background</item>
         <item name="ovpnSpeedometerArcColor">@color/speedometer_arc_color</item>
         <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
@@ -18,7 +19,7 @@
         <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
     </style>
 
-    <!-- Toolbar overlay to unify icon/text colors on toolbars -->
+    <!-- Section: Toolbar overlay (unify icon/text colors) -->
     <style name="ThemeOverlay.OpenVPNClient.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
         <item name="colorControlNormal">@color/text_color_primary</item>
         <item name="android:textColorPrimary">@color/text_color_primary</item>
@@ -44,7 +45,7 @@
         <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
     </style>
 
-    <!-- Widget styles -->
+    <!-- Section: Widgets -->
     <style name="Widget.OpenVPNClient.Button" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">?attr/colorPrimary</item>
         <item name="android:textColor">?attr/colorOnPrimary</item>
@@ -93,7 +94,21 @@
         <item name="rippleColor">@android:color/transparent</item>
     </style>
 
-    <!-- Text Appearances -->
+    <!-- Section: Clickable rows (About links etc.) -->
+    <style name="Widget.OpenVPNClient.ClickableRow" parent="WidgetOpenVPNClientFocusableSurface">
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClient.Body</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+    </style>
+
+    <!-- Section: Text appearances -->
     <style name="TextAppearance.OpenVPNClient.Title" parent="TextAppearance.AppCompat.Title">
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>

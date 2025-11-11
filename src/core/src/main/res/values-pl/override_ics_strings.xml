@@ -9,24 +9,24 @@
     <string name="channel_name_userreq">Żądania VPN</string>
     <string name="channel_description_userreq">Żądania akcji użytkownika</string>
 
-    <!-- Akcje i podpowiedzi silnika w powiadomieniach -->
+    <!-- Section: Actions and prompts used by the OpenVPN engine notifications -->
     <string name="cancel_connection">Zatrzymaj</string>
     <string name="cancel_connection_long">Zatrzymaj</string>
-    <string name="cancel_connection_query">Zatrzymać VPN lub anulować próbę połączenia?</string>
+    <string name="cancel_connection_query">Zatrzymać VPN czy anulować próbę połączenia?</string>
     <string name="pauseVPN">Wstrzymaj</string>
     <string name="resumevpn">Wznów</string>
 
-    <!-- Uprawnienia -->
+    <!-- Section: Permission-related notifications from engine -->
     <string name="permission_requested">Wymagane jest uprawnienie do uruchomienia połączenia VPN</string>
-    <string name="missing_notification_permission">Brak uprawnienia do powiadomień. Służy ono do wyświetlania statusu VPN oraz powiadomień o wymaganych działaniach użytkownika (np. uwierzytelnianie wieloskładnikowe).
+    <string name="missing_notification_permission">Brak uprawnienia do powiadomień. Służy ono do wyświetlania statusu VPN oraz powiadomień o wymaganych działaniach użytkownika, np. uwierzytelnianiu wieloskładnikowym.
 
 Kliknij tę wiadomość, aby nadać aplikacji uprawnienia do powiadomień</string>
 
-    <!-- Interakcje z użytkownikiem -->
+    <!-- Section: User interaction titles -->
     <string name="openurl_requested">Otwórz adres URL, aby kontynuować uwierzytelnianie VPN</string>
     <string name="crtext_requested">Odpowiedz na wyzwanie, aby kontynuować uwierzytelnianie VPN</string>
 
-    <!-- Stany połączenia -->
+    <!-- Section: Connection state labels used in notification body -->
     <string name="state_connecting">Łączenie</string>
     <string name="state_wait">Oczekiwanie na odpowiedź serwera</string>
     <string name="state_auth">Uwierzytelnianie</string>
@@ -40,14 +40,15 @@ Kliknij tę wiadomość, aby nadać aplikacji uprawnienia do powiadomień</strin
     <string name="state_noprocess">Nie uruchomiono</string>
     <string name="state_resolve">Rozwiązywanie nazw hostów</string>
     <string name="state_tcp_connect">Łączenie (TCP)</string>
+    <string name="state_auth_pending">Oczekiwanie na uwierzytelnienie</string>
     <string name="state_auth_failed">Uwierzytelnianie nie powiodło się</string>
-    <string name="state_nonetwork">Oczekiwanie na dostęp do sieci</string>
+    <string name="state_nonetwork">Oczekiwanie na sieć</string>
     <string name="state_waitorbot">Oczekiwanie na uruchomienie Orbot</string>
     <string name="state_userpause">Wstrzymanie VPN na żądanie użytkownika</string>
-    <string name="state_screenoff">VPN wstrzymany — wyłączony ekran</string>
+    <string name="state_screenoff">VPN wstrzymany — ekran wyłączony</string>
 
-    <!-- Linia ruchu i jednostki -->
-    <string name="statusline_bytecount">↓%2$s %1$s - ↑%4$s %3$s</string>
+    <!-- Section: Byte counters and units used for live traffic line -->
+    <string name="statusline_bytecount">↑%2$s %1$s - ↓%4$s %3$s</string>
     <string name="bits_per_second">%.0f bit/s</string>
     <string name="kbits_per_second">%.1f kbit/s</string>
     <string name="mbits_per_second">%.1f Mbit/s</string>
@@ -59,7 +60,7 @@ Kliknij tę wiadomość, aby nadać aplikacji uprawnienia do powiadomień</strin
     <string name="session_ipv4string">%1$s - %2$s</string>
     <string name="session_ipv6string">%1$s - %3$s, %2$s</string>
 
-    <!-- Inne komunikaty serwisowe -->
+    <!-- Section: Misc process messages -->
     <string name="building_configration">Budowanie konfiguracji…</string>
-    <string name="building_configuration">@string/building_configration</string>`n</resources>
-
+    <string name="building_configuration">@string/building_configration</string>
+</resources>
