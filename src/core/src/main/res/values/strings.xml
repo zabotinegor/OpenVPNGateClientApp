@@ -50,6 +50,7 @@
     <string name="about_ics_github">ics-openvpn on GitHub</string>
     <string name="intent_open_with">Open with</string>
     <string name="intent_send_email">Send email</string>
+    <string name="email_app_not_found">No email app available</string>
     <string name="web_title">Web Page</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="copy_label_link">Link</string>

@@ -50,6 +50,7 @@
     <string name="about_ics_github">ics-openvpn на GitHub</string>
     <string name="intent_open_with">Открыть с помощью</string>
     <string name="intent_send_email">Отправить письмо</string>
+    <string name="email_app_not_found">Не найдено приложение для почты</string>
     <string name="web_title">Веб‑страница</string>
     <string name="copied_to_clipboard">Скопировано в буфер обмена</string>
     <string name="copy_label_link">Ссылка</string>

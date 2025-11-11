@@ -157,7 +157,9 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val intent = Intent(Intent.ACTION_SENDTO).apply { data = Uri.parse("mailto:$email") }
         try {
             startActivity(Intent.createChooser(intent, getString(R.string.intent_send_email)))
-        } catch (_: ActivityNotFoundException) { }
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.email_app_not_found), Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun openPlay(webUrl: String) {
