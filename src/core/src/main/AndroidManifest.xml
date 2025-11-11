@@ -39,6 +39,9 @@
         <activity
             android:name="com.yahorzabotsin.openvpnclient.core.ui.AboutActivity"
             android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclient.core.ui.WebViewActivity"
+            android:exported="false" />
     </application>
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

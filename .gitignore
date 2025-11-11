@@ -39,3 +39,11 @@ keystore.properties
 
 # Keystore
 /keystore/
+
+# Kotlin caches and error logs
+**/.kotlin/
+src/.kotlin/
+src/.kotlin/errors/*.log
+
+# Ignore only helper note under src; keep workflows tracked
+src/.github/copilot-instructions.md
