@@ -56,7 +56,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         packageView.text = getString(R.string.about_package_format, packageName)
         engineView.text = getString(R.string.about_engine_format, AboutMeta.ENGINE_NAME, AboutMeta.ENGINE_LICENSE)
 
-        val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        val year = java.time.Year.now().value
         copyrightView.text = getString(R.string.about_copyright_format, year, AboutMeta.COPYRIGHT_OWNER)
 
         setupRow(websiteRow, AboutMeta.WEBSITE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.WEBSITE) }
