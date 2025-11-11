@@ -21,6 +21,9 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentAboutBinding
 
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private var lastActionAt: Long = 0
+    companion object {
+        private const val CLICK_DEBOUNCE_MS = 1200L
+    }
     private lateinit var bindingContent: ContentAboutBinding
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         bindingContent = ContentAboutBinding.inflate(inflater, container, true)
@@ -94,7 +97,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
             }
             view.setOnClickListener {
                 val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastActionAt < 1200) return@setOnClickListener
+                if (now - lastActionAt < CLICK_DEBOUNCE_MS) return@setOnClickListener
                 lastActionAt = now
                 onClick()
             }
