@@ -62,7 +62,7 @@ class WebViewActivity : BaseTemplateActivity(R.string.web_title) {
                 } else {
                     try {
                         startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
-                    } catch (_: Exception) { }
+                    } catch (_: android.content.ActivityNotFoundException) { }
                     true
                 }
             }
