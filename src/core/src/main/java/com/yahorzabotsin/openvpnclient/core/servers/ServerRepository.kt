@@ -6,16 +6,12 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Url
 import java.util.concurrent.TimeUnit
 
-interface PrimaryVpnApi {
-    @GET(ApiConstants.PRIMARY_API_ENDPOINT)
-    suspend fun getServers(): String
-}
-
-interface FallbackVpnGateApi {
-    @GET(ApiConstants.FALLBACK_API_ENDPOINT)
-    suspend fun getServers(): String
+interface VpnServersApi {
+    @GET
+    suspend fun getServers(@Url url: String): String
 }
 
 class ServerRepository {
@@ -29,28 +25,24 @@ class ServerRepository {
         .connectTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val primaryRetrofit = Retrofit.Builder()
-        .baseUrl(ApiConstants.PRIMARY_BASE_URL)
+    private val retrofit = Retrofit.Builder()
+        .baseUrl("https://openvpnclient.local/")
         .client(okHttpClient)
         .addConverterFactory(ScalarsConverterFactory.create())
         .build()
 
-    private val fallbackRetrofit = Retrofit.Builder()
-        .baseUrl(ApiConstants.FALLBACK_BASE_URL)
-        .client(okHttpClient)
-        .addConverterFactory(ScalarsConverterFactory.create())
-        .build()
-
-    private val primaryApi = primaryRetrofit.create(PrimaryVpnApi::class.java)
-    private val fallbackApi = fallbackRetrofit.create(FallbackVpnGateApi::class.java)
+    private val api = retrofit.create(VpnServersApi::class.java)
 
     suspend fun getServers(): List<Server> {
+        val primaryUrl = ApiConstants.PRIMARY_SERVERS_URL
+        val fallbackUrl = ApiConstants.FALLBACK_SERVERS_URL
+
         val response = try {
-            Log.d(TAG, "Requesting servers from PRIMARY: ${ApiConstants.PRIMARY_BASE_URL}${ApiConstants.PRIMARY_API_ENDPOINT}")
-            primaryApi.getServers()
+            Log.d(TAG, "Requesting servers from PRIMARY: $primaryUrl")
+            api.getServers(primaryUrl)
         } catch (e: Exception) {
-            Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: ${ApiConstants.FALLBACK_BASE_URL}${ApiConstants.FALLBACK_API_ENDPOINT}", e)
-            fallbackApi.getServers()
+            Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
+            api.getServers(fallbackUrl)
         }
 
         return response.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
