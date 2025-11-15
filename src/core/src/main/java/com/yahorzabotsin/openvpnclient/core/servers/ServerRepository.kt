@@ -14,24 +14,28 @@ interface VpnServersApi {
     suspend fun getServers(@Url url: String): String
 }
 
-class ServerRepository {
+class ServerRepository(
+    private val api: VpnServersApi = createDefaultApi()
+) {
 
     private companion object {
         private const val TAG = "ServerRepository"
+
+        private fun createDefaultApi(): VpnServersApi {
+            val okHttpClient = OkHttpClient.Builder()
+                .readTimeout(60, TimeUnit.SECONDS)
+                .connectTimeout(60, TimeUnit.SECONDS)
+                .build()
+
+            val retrofit = Retrofit.Builder()
+                .baseUrl("https://openvpnclient.local/")
+                .client(okHttpClient)
+                .addConverterFactory(ScalarsConverterFactory.create())
+                .build()
+
+            return retrofit.create(VpnServersApi::class.java)
+        }
     }
-
-    private val okHttpClient = OkHttpClient.Builder()
-        .readTimeout(60, TimeUnit.SECONDS)
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .build()
-
-    private val retrofit = Retrofit.Builder()
-        .baseUrl("https://openvpnclient.local/")
-        .client(okHttpClient)
-        .addConverterFactory(ScalarsConverterFactory.create())
-        .build()
-
-    private val api = retrofit.create(VpnServersApi::class.java)
 
     suspend fun getServers(): List<Server> {
         val primaryUrl = ApiConstants.PRIMARY_SERVERS_URL
