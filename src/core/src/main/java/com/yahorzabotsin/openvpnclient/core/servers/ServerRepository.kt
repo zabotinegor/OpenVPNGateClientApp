@@ -3,10 +3,12 @@ package com.yahorzabotsin.openvpnclient.core.servers
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.ApiConstants
 import okhttp3.OkHttpClient
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Url
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 interface VpnServersApi {
@@ -45,8 +47,13 @@ class ServerRepository(
             Log.d(TAG, "Requesting servers from PRIMARY: $primaryUrl")
             api.getServers(primaryUrl)
         } catch (e: Exception) {
-            Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
-            api.getServers(fallbackUrl)
+            when (e) {
+                is IOException, is HttpException -> {
+                    Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
+                    api.getServers(fallbackUrl)
+                }
+                else -> throw e
+            }
         }
 
         return response.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->

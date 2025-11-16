@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
@@ -26,7 +27,7 @@ class ServerRepositoryTest {
 
             // First call simulates primary, second call simulates fallback.
             return if (callCount == 1) {
-                primaryResponse ?: throw RuntimeException("Primary failed")
+                primaryResponse ?: throw IOException("Primary failed")
             } else {
                 fallbackResponse
             }
