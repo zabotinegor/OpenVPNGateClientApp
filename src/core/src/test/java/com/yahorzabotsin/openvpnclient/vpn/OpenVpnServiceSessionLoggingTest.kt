@@ -139,5 +139,8 @@ class OpenVpnServiceSessionLoggingTest {
 
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
         assertTrue(logs.any { it.contains("Connected after attempt 2/2") })
+
+        val lastConfig = SelectedCountryStore.getLastSuccessfulConfigForSelected(appContext)
+        assertEquals("client\n", lastConfig)
     }
 }
