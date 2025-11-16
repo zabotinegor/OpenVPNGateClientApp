@@ -52,6 +52,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
+    private var lastStartedConfig: String? = null
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -139,6 +140,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     Log.i(TAG, "Session attempt ${sessionAttempt}/${totalServersStr()}${titleStr}")
                 }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                lastStartedConfig = config
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
                 startIcsOpenVpn(config, title)
@@ -271,6 +273,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 userInitiatedStart = false
                 userInitiatedStop = false
                 Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalServersStr()}")
+                try {
+                    val country = SelectedCountryStore.getSelectedCountry(applicationContext)
+                    val cfg = lastStartedConfig
+                    if (!cfg.isNullOrBlank()) {
+                        SelectedCountryStore.saveLastSuccessfulConfig(applicationContext, country, cfg)
+                        Log.d(TAG, "Saved last successful config for country=${country ?: "<none>"}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save last successful config", e)
+                }
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }

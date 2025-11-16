@@ -114,7 +114,14 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
             try { SelectedCountryStore.resetIndex(context) } catch (e: Exception) { Log.e(TAG, "Failed to reset server index", e) }
-            VpnManager.startVpn(context, vpnConfig!!, selectedCountry)
+            val configToUse = try {
+                SelectedCountryStore.getLastSuccessfulConfigForSelected(context) ?: vpnConfig!!
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to resolve last successful config; falling back to current selection", e)
+                vpnConfig!!
+            }
+            Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"}")
+            VpnManager.startVpn(context, configToUse, selectedCountry)
         } else {
             Log.d(TAG, "VPN permission not granted; requesting")
             requestVpnPermission?.invoke()

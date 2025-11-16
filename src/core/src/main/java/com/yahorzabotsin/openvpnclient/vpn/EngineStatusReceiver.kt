@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.annotation.MainThread
+import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.ConnectionStatus
 
 class EngineStatusReceiver : BroadcastReceiver() {
@@ -17,6 +18,19 @@ class EngineStatusReceiver : BroadcastReceiver() {
         try {
             val level = ConnectionStatus.valueOf(status)
             Log.d(TAG, "Broadcast level=$level detail=${detail ?: "<none>"}")
+            if (level == ConnectionStatus.LEVEL_CONNECTED) {
+                try {
+                    val country = SelectedCountryStore.getSelectedCountry(context)
+                    val current = SelectedCountryStore.currentServer(context)
+                    Log.d(TAG, "On CONNECTED: selectedCountry=${country ?: "<none>"} currentServerCity=${current?.city ?: "<none>"} hasConfig=${current?.config != null}")
+                    if (current != null && current.config.isNotBlank()) {
+                        SelectedCountryStore.saveLastSuccessfulConfig(context, country, current.config)
+                        Log.d(TAG, "Saved last successful config (receiver) for country=${country ?: "<none>"}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save last successful config from receiver", e)
+                }
+            }
             ServerAutoSwitcher.onEngineLevel(context.applicationContext, level)
             ConnectionStateManager.updateFromEngine(level, detail)
         } catch (t: Throwable) {
