@@ -77,4 +77,65 @@ class SelectedCountryStoreTest {
         val again = SelectedCountryStore.currentServer(ctx)
         assertEquals("City1", again!!.city)
     }
+
+    @Test
+    fun last_successful_config_is_scoped_to_selected_country() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val serversA = listOf(
+            Server(
+                name = "srv-1",
+                city = "City1",
+                country = Country("CountryA"),
+                ping = 10,
+                signalStrength = SignalStrength.STRONG,
+                ip = "1.1.1.1",
+                score = 100,
+                speed = 1000,
+                numVpnSessions = 1,
+                uptime = 100,
+                totalUsers = 10,
+                totalTraffic = 1000,
+                logType = "",
+                operator = "",
+                message = "",
+                configData = "configA1"
+            )
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "CountryA", serversA)
+        SelectedCountryStore.resetIndex(ctx)
+
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "CountryA", "configA1")
+        val forA = SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx)
+        assertEquals("configA1", forA)
+
+        val serversB = listOf(
+            Server(
+                name = "srv-2",
+                city = "City2",
+                country = Country("CountryB"),
+                ping = 20,
+                signalStrength = SignalStrength.MEDIUM,
+                ip = "2.2.2.2",
+                score = 90,
+                speed = 900,
+                numVpnSessions = 2,
+                uptime = 200,
+                totalUsers = 20,
+                totalTraffic = 2000,
+                logType = "",
+                operator = "",
+                message = "",
+                configData = "configB1"
+            )
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "CountryB", serversB)
+        SelectedCountryStore.resetIndex(ctx)
+
+        val forB = SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx)
+        assertNull(forB)
+    }
 }
