@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclient.core.servers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -130,5 +131,51 @@ class ServerRepositoryTest {
         assertEquals(1, result.size)
         assertEquals(expectedServer.name, result[0].name)
         assertEquals(expectedServer.ip, result[0].ip)
+    }
+
+    @Test
+    fun throws_when_both_primary_and_fallback_fail() = runBlocking {
+        val calledUrls = mutableListOf<String>()
+
+        val api = object : VpnServersApi {
+            override suspend fun getServers(url: String): String {
+                calledUrls += url
+                throw IOException("Network failure")
+            }
+        }
+
+        val repo = ServerRepository(api)
+
+        try {
+            repo.getServers()
+            fail("Expected IOException when both primary and fallback fail")
+        } catch (e: IOException) {
+            // Expected
+        }
+
+        assertEquals(2, calledUrls.size)
+    }
+
+    @Test
+    fun rethrows_unexpected_exception_without_fallback() = runBlocking {
+        val calledUrls = mutableListOf<String>()
+
+        val api = object : VpnServersApi {
+            override suspend fun getServers(url: String): String {
+                calledUrls += url
+                throw IllegalStateException("Unexpected failure")
+            }
+        }
+
+        val repo = ServerRepository(api)
+
+        try {
+            repo.getServers()
+            fail("Expected IllegalStateException to be rethrown")
+        } catch (e: IllegalStateException) {
+            // Expected
+        }
+
+        assertEquals(1, calledUrls.size)
     }
 }
