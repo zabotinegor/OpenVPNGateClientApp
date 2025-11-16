@@ -1,6 +1,6 @@
 package com.yahorzabotsin.openvpnclient.core
 
 object ApiConstants {
-    const val BASE_URL = "https://www.vpngate.net/"
-    const val API_ENDPOINT = "/api/iphone/"
+    val PRIMARY_SERVERS_URL: String = BuildConfig.PRIMARY_SERVERS_URL
+    val FALLBACK_SERVERS_URL: String = BuildConfig.FALLBACK_SERVERS_URL
 }
