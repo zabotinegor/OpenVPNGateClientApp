@@ -24,10 +24,9 @@ fun loadLocalServersConfig(): Map<String, String> {
         val parsedJson = groovy.json.JsonSlurper().parse(file) as? Map<String, Any>
             ?: return emptyMap()
 
-        val result = mutableMapOf<String, String>()
-        (parsedJson["PRIMARY_SERVERS_URL"] as? String)?.let { result["PRIMARY_SERVERS_URL"] = it }
-        (parsedJson["FALLBACK_SERVERS_URL"] as? String)?.let { result["FALLBACK_SERVERS_URL"] = it }
-        return result
+        return listOf("PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL")
+            .mapNotNull { key -> (parsedJson[key] as? String)?.let { key to it } }
+            .toMap()
     } catch (e: Exception) {
         project.logger.warn("Could not parse servers.local.json: ${e.message}")
         emptyMap()
