@@ -10,6 +10,9 @@ jobs:
   build:
     name: Build and Release
     runs-on: ubuntu-latest
+    env:
+      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
 
     steps:
       - name: Checkout code

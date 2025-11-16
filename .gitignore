@@ -9,6 +9,7 @@ local.properties
 .externalNativeBuild
 .cxx
 keystore.properties
+servers.local.json
 
 # IDE-files-and-directories
 # Ignoring the entire .idea directory is a common and safe practice.

@@ -1,34 +1,63 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
+import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.ApiConstants
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Url
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-interface VpnGateApi {
-    @GET(ApiConstants.API_ENDPOINT)
-    suspend fun getServers(): String
+interface VpnServersApi {
+    @GET
+    suspend fun getServers(@Url url: String): String
 }
 
-class ServerRepository {
+class ServerRepository(
+    private val api: VpnServersApi = createDefaultApi()
+) {
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .readTimeout(60, TimeUnit.SECONDS)
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .build()
+    private companion object {
+        private const val TAG = "ServerRepository"
 
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(ApiConstants.BASE_URL)
-        .client(okHttpClient)
-        .addConverterFactory(ScalarsConverterFactory.create())
-        .build()
+        private fun createDefaultApi(): VpnServersApi {
+            val okHttpClient = OkHttpClient.Builder()
+                .readTimeout(30, TimeUnit.SECONDS)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .build()
 
-    private val vpnGateApi = retrofit.create(VpnGateApi::class.java)
+            val retrofit = Retrofit.Builder()
+                .baseUrl("https://openvpnclient.local/")
+                .client(okHttpClient)
+                .addConverterFactory(ScalarsConverterFactory.create())
+                .build()
+
+            return retrofit.create(VpnServersApi::class.java)
+        }
+    }
 
     suspend fun getServers(): List<Server> {
-        val response = vpnGateApi.getServers()
+        val primaryUrl = ApiConstants.PRIMARY_SERVERS_URL
+        val fallbackUrl = ApiConstants.FALLBACK_SERVERS_URL
+
+        val response = try {
+            Log.d(TAG, "Requesting servers from PRIMARY: $primaryUrl")
+            api.getServers(primaryUrl)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            when (e) {
+                is IOException, is HttpException -> {
+                    Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
+                    api.getServers(fallbackUrl)
+                }
+                else -> throw e
+            }
+        }
+
         return response.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
             val values = line.split(",")
             if (values.size < 15) {
