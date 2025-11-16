@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclient.core.servers
 
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.ApiConstants
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -47,6 +48,7 @@ class ServerRepository(
             Log.d(TAG, "Requesting servers from PRIMARY: $primaryUrl")
             api.getServers(primaryUrl)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             when (e) {
                 is IOException, is HttpException -> {
                     Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
