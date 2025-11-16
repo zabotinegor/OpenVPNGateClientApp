@@ -18,17 +18,20 @@ fun loadLocalServersConfig(): Map<String, String> {
     )
 
     val file = candidates.firstOrNull { it.exists() } ?: return emptyMap()
-    val text = file.readText()
 
-    fun extract(key: String): String? {
-        val regex = Regex(""""$key"\s*:\s*"([^"]+)"""")
-        return regex.find(text)?.groups?.get(1)?.value
+    return try {
+        @Suppress("UNCHECKED_CAST")
+        val parsedJson = groovy.json.JsonSlurper().parse(file) as? Map<String, Any>
+            ?: return emptyMap()
+
+        val result = mutableMapOf<String, String>()
+        (parsedJson["PRIMARY_SERVERS_URL"] as? String)?.let { result["PRIMARY_SERVERS_URL"] = it }
+        (parsedJson["FALLBACK_SERVERS_URL"] as? String)?.let { result["FALLBACK_SERVERS_URL"] = it }
+        return result
+    } catch (e: Exception) {
+        project.logger.warn("Could not parse servers.local.json: ${e.message}")
+        emptyMap()
     }
-
-    val result = mutableMapOf<String, String>()
-    extract("PRIMARY_SERVERS_URL")?.let { result["PRIMARY_SERVERS_URL"] = it }
-    extract("FALLBACK_SERVERS_URL")?.let { result["FALLBACK_SERVERS_URL"] = it }
-    return result
 }
 
 android {
