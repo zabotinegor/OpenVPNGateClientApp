@@ -54,7 +54,13 @@ object ServerAutoSwitcher {
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
         )
         if (level in timeoutLevels) {
-            if (!timerActive || timerLevel != level) start(appContext, level)
+            if (!timerActive) {
+                start(appContext, level)
+            } else if (timerLevel != level) {
+                // Restart timer when CONNECTING sub-level changes, giving full timeout per level
+                cancel()
+                start(appContext, level)
+            }
         } else {
             cancel()
         }
