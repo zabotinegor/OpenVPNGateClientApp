@@ -56,6 +56,8 @@ object SelectedCountryStore {
 
     fun resetIndex(ctx: Context) { prefs(ctx).edit().putInt(KEY_INDEX, 0).apply() }
 
+    fun prepareAutoSwitchFromStart(ctx: Context) { prefs(ctx).edit().putInt(KEY_INDEX, -1).apply() }
+
     private fun getIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_INDEX, 0)
 
     private fun setIndex(ctx: Context, index: Int) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
