@@ -11,8 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object ServerAutoSwitcher {
     private const val TAG = "ServerAutoSwitcher"
-    private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 10
-    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 10
+    private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
+    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 5
     private const val START_AFTER_STOP_DELAY_MS = 350
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     @Volatile private var repliedThresholdSeconds: Int = REPLIED_SWITCH_THRESHOLD_SECONDS
