@@ -136,6 +136,12 @@ class OpenVpnServiceSessionLoggingTest {
 
         // Now engine connects
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+        EngineStatusReceiver().onReceive(
+            appContext,
+            Intent("de.blinkt.openvpn.VPN_STATUS").apply {
+                putExtra("status", ConnectionStatus.LEVEL_CONNECTED.name)
+            }
+        )
 
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
         assertTrue(logs.any { it.contains("Connected after attempt 2/2") })
