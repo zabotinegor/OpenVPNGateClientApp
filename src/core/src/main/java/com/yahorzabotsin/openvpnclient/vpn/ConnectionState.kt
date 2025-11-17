@@ -1,6 +1,5 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
-import android.util.Log
 import androidx.annotation.MainThread
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +14,6 @@ enum class ConnectionState {
 
 object ConnectionStateManager {
 
-    private val tag = ConnectionStateManager::class.simpleName
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
     enum class VpnError { NONE, AUTH }
@@ -28,12 +26,10 @@ object ConnectionStateManager {
     private val _reconnectingHint = MutableStateFlow(false)
     val reconnectingHint = _reconnectingHint.asStateFlow()
 
-    // Current throughput in Mbps (sum of in+out). 0 when disconnected
     private val _speedMbps = MutableStateFlow(0.0)
     val speedMbps = _speedMbps.asStateFlow()
 
     fun setReconnectingHint(value: Boolean) {
-        Log.d(tag, "setReconnectingHint=$value (was=${_reconnectingHint.value})")
         _reconnectingHint.value = value
     }
 
@@ -50,13 +46,10 @@ object ConnectionStateManager {
         }
 
         if (newState in allowed) {
-            Log.d(tag, "State changed from $current to $newState")
             _state.value = newState
             if (newState == ConnectionState.DISCONNECTED) {
                 _speedMbps.value = 0.0
             }
-        } else {
-            Log.d(tag, "Ignored transition $current -> $newState")
         }
     }
 
@@ -64,7 +57,6 @@ object ConnectionStateManager {
     fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
         _engineLevel.value = level
         _engineDetail.value = detail
-        Log.d(tag, "updateFromEngine level=$level detail=${detail ?: "<none>"}")
 
         val mapped = when (level) {
             ConnectionStatus.LEVEL_START,
@@ -79,8 +71,6 @@ object ConnectionStateManager {
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
 
-        Log.d(tag, "Engine level=$level -> mapped=$mapped hint=${_reconnectingHint.value}")
-
         if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
             _error.value = VpnError.AUTH
         } else if (mapped != ConnectionState.DISCONNECTED) {
@@ -89,7 +79,6 @@ object ConnectionStateManager {
 
         if (mapped == ConnectionState.CONNECTED) _reconnectingHint.value = false
 
-        // Smooth transient DISCONNECTED during engine (re)start/teardown
         val current = _state.value
         val d = detail ?: ""
         var effective = mapped
@@ -103,14 +92,9 @@ object ConnectionStateManager {
             }
         }
 
-        if (effective != mapped) {
-            Log.d(tag, "Masking $mapped to $effective (current=$current, detail='${d}')")
-        }
-
         updateState(effective)
     }
 
-    // Update throughput from service callback
     fun updateSpeedMbps(mbps: Double) {
         _speedMbps.value = if (mbps.isFinite() && mbps >= 0) mbps else 0.0
     }

@@ -58,7 +58,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         )
 
         binding.startConnectionButton.setOnClickListener {
-            Log.d(TAG, "Connect clicked. State=${ConnectionStateManager.state.value}")
             when (ConnectionStateManager.state.value) {
                 ConnectionState.DISCONNECTED -> {
                     if (vpnConfig != null) {
@@ -168,7 +167,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
-        Log.d(TAG, "Observe connection state")
         lifecycleOwner.lifecycleScope.launch {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
@@ -241,7 +239,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val level = ConnectionStateManager.engineLevel.value
         val hint = ConnectionStateManager.reconnectingHint.value
         val remaining = ServerAutoSwitcher.remainingSeconds.value
-        Log.d(TAG, "Update button: state=$state level=$level detail=${detail ?: "<none>"} hint=$hint")
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
@@ -278,7 +275,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 connectButton.text = textWithTimer
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
-                Log.d(TAG, "CONNECTING ui -> text='${textWithTimer}' color=${color}")
             }
             ConnectionState.DISCONNECTED -> {
                 if (hint) {
@@ -286,7 +282,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     connectButton.text = t
                     val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                     connectButton.backgroundTintList = ColorStateList.valueOf(color)
-                    Log.d(TAG, "DISCONNECTED masked as RECONNECTING -> text='${t}' color=${color}")
                 } else {
                     connectButton.setText(R.string.start_connection)
                     val color = com.google.android.material.color.MaterialColors.getColor(
@@ -295,7 +290,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                         ContextCompat.getColor(context, R.color.connection_button_disconnected)
                     )
                     connectButton.backgroundTintList = ColorStateList.valueOf(color)
-                    Log.d(TAG, "DISCONNECTED ui -> text='START CONNECTION' color=${color}")
                 }
             }
         }
