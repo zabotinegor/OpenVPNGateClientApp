@@ -113,19 +113,28 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
-            val configToUse = try {
-                val last = SelectedCountryStore.getLastSuccessfulConfigForSelected(context)
-                if (last != null) {
-                    try { SelectedCountryStore.prepareAutoSwitchFromStart(context) } catch (e: Exception) { Log.e(TAG, "Failed to prepare index for auto-switch from start", e) }
-                    last
+            val configToUse = run {
+                val lastSuccessfulConfig = try {
+                    SelectedCountryStore.getLastSuccessfulConfigForSelected(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to resolve last successful config; falling back to current selection", e)
+                    null
+                }
+                if (lastSuccessfulConfig != null) {
+                    try {
+                        SelectedCountryStore.prepareAutoSwitchFromStart(context)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to prepare index for auto-switch from start", e)
+                    }
+                    lastSuccessfulConfig
                 } else {
-                    try { SelectedCountryStore.resetIndex(context) } catch (e: Exception) { Log.e(TAG, "Failed to reset server index", e) }
+                    try {
+                        SelectedCountryStore.resetIndex(context)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to reset server index", e)
+                    }
                     vpnConfig!!
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to resolve last successful config; falling back to current selection", e)
-                try { SelectedCountryStore.resetIndex(context) } catch (ex: Exception) { Log.e(TAG, "Failed to reset server index after error", ex) }
-                vpnConfig!!
             }
             Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"}")
             VpnManager.startVpn(context, configToUse, selectedCountry)
