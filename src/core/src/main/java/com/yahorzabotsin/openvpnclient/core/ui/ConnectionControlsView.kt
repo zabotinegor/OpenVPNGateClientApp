@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
@@ -48,6 +49,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
+    private var connectionStartTimeMs: Long? = null
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
@@ -170,6 +172,8 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         lifecycleOwner.lifecycleScope.launch {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
+                    updateStatusLabel(state)
+                    handleDurationOnStateChange(state)
                     updateButtonState(state)
                 }
             }
@@ -189,6 +193,27 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     }
             }
         }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    updateDurationTimer()
+                    delay(1000L)
+                }
+            }
+        }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    ConnectionStateManager.downloadedBytes,
+                    ConnectionStateManager.uploadedBytes
+                ) { downloaded, uploaded -> downloaded to uploaded }
+                    .collect { (downloaded, uploaded) ->
+                        updateTraffic(downloaded, uploaded)
+                    }
+            }
+        }
+        // Version is static for the running app; resolve once
+        updateVersionLabel()
     }
 
     private fun applyServerSelectionLabel(country: String, city: String) {
@@ -232,6 +257,86 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             chevron,
             null
         )
+    }
+
+    private fun handleDurationOnStateChange(state: ConnectionState) {
+        when (state) {
+            ConnectionState.CONNECTED -> if (connectionStartTimeMs == null) {
+                connectionStartTimeMs = System.currentTimeMillis()
+            }
+            ConnectionState.DISCONNECTED -> {
+                connectionStartTimeMs = null
+                binding.textDurationValue.text = context.getString(R.string.main_duration_default)
+            }
+            else -> { /* keep current start time */ }
+        }
+    }
+
+    private fun updateDurationTimer() {
+        val start = connectionStartTimeMs ?: return
+        val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
+        val hours = elapsedSec / 3600
+        val minutes = (elapsedSec % 3600) / 60
+        val seconds = elapsedSec % 60
+        val formatted = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        binding.textDurationValue.text = formatted
+    }
+
+    private fun updateTraffic(downloaded: Long, uploaded: Long) {
+        binding.textDownloadedValue.text = formatBytes(downloaded)
+        binding.textUploadedValue.text = formatBytes(uploaded)
+    }
+
+    private fun formatBytes(value: Long): String {
+        val abs = value.coerceAtLeast(0L).toDouble()
+        val kb = 1024.0
+        val mb = kb * 1024.0
+        val gb = mb * 1024.0
+        val (amount, unit) = when {
+            abs >= gb -> abs / gb to "GB"
+            abs >= mb -> abs / mb to "MB"
+            abs >= kb -> abs / kb to "kB"
+            else -> abs to "B"
+        }
+        val number = when {
+            amount >= 100 -> String.format(Locale.US, "%.0f", amount)
+            amount >= 10 -> String.format(Locale.US, "%.1f", amount)
+            else -> String.format(Locale.US, "%.2f", amount)
+        }
+        return "$number $unit"
+    }
+
+    private fun updateVersionLabel() {
+        try {
+            val pm = context.packageManager
+            val pInfo = pm.getPackageInfo(context.packageName, 0)
+            val versionName = pInfo.versionName ?: ""
+            val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) {
+                pInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.versionCode.toLong()
+            }
+            val formatted = context.getString(
+                R.string.about_version_format,
+                versionName,
+                versionCode
+            )
+            binding.textVersionValue.text = formatted
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to resolve app version for main screen", e)
+            binding.textVersionValue.text = context.getString(R.string.main_version_default)
+        }
+    }
+
+    private fun updateStatusLabel(state: ConnectionState) {
+        val statusRes = when (state) {
+            ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
+            ConnectionState.CONNECTING -> R.string.main_status_connecting
+            ConnectionState.CONNECTED -> R.string.main_status_connected
+            ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
+        }
+        binding.textStatusValue.text = context.getString(statusRes)
     }
 
     private fun updateButtonState(state: ConnectionState) {

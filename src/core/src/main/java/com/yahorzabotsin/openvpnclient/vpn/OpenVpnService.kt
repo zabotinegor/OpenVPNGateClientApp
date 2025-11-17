@@ -305,6 +305,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val stateNow = ConnectionStateManager.state.value
         if (stateNow != ConnectionState.DISCONNECTED) {
             ConnectionStateManager.updateSpeedMbps(mbps)
+            ConnectionStateManager.updateTraffic(inBytes, outBytes)
         }
     }
 
@@ -330,6 +331,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val stateNow = ConnectionStateManager.state.value
             if (stateNow != ConnectionState.DISCONNECTED) {
                 ConnectionStateManager.updateSpeedMbps(mbps)
+                ConnectionStateManager.updateTraffic(inBytes, outBytes)
             }
         }
     }

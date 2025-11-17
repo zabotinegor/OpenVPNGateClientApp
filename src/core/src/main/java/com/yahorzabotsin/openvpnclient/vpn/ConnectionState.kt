@@ -28,6 +28,10 @@ object ConnectionStateManager {
 
     private val _speedMbps = MutableStateFlow(0.0)
     val speedMbps = _speedMbps.asStateFlow()
+    private val _downloadedBytes = MutableStateFlow(0L)
+    val downloadedBytes = _downloadedBytes.asStateFlow()
+    private val _uploadedBytes = MutableStateFlow(0L)
+    val uploadedBytes = _uploadedBytes.asStateFlow()
 
     fun setReconnectingHint(value: Boolean) {
         _reconnectingHint.value = value
@@ -49,6 +53,8 @@ object ConnectionStateManager {
             _state.value = newState
             if (newState == ConnectionState.DISCONNECTED) {
                 _speedMbps.value = 0.0
+                _downloadedBytes.value = 0L
+                _uploadedBytes.value = 0L
             }
         }
     }
@@ -97,5 +103,10 @@ object ConnectionStateManager {
 
     fun updateSpeedMbps(mbps: Double) {
         _speedMbps.value = if (mbps.isFinite() && mbps >= 0) mbps else 0.0
+    }
+
+    fun updateTraffic(inBytes: Long, outBytes: Long) {
+        _downloadedBytes.value = inBytes.coerceAtLeast(0L)
+        _uploadedBytes.value = outBytes.coerceAtLeast(0L)
     }
 }
