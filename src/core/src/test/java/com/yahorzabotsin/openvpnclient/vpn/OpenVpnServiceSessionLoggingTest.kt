@@ -87,8 +87,8 @@ class OpenVpnServiceSessionLoggingTest {
         }
 
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
-        assertTrue(logs.any { it.contains("Session attempt 1/3") })
-        assertTrue(logs.any { it.contains("Session attempt 2/3") })
+        assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=3)") })
+        assertTrue(logs.any { it.contains("Session attempt 2 (serversInCountry=3)") })
     }
 
     @Test
@@ -108,7 +108,7 @@ class OpenVpnServiceSessionLoggingTest {
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
 
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
-        assertTrue(logs.any { it.contains("Exhausted server list without success") && it.contains("1/1") })
+        assertTrue(logs.any { it.contains("Exhausted server list without success") && it.contains("1 attempts (serversInCountry=1)") })
     }
 
     @Test
@@ -136,8 +136,59 @@ class OpenVpnServiceSessionLoggingTest {
 
         // Now engine connects
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+        EngineStatusReceiver().onReceive(
+            appContext,
+            Intent("de.blinkt.openvpn.VPN_STATUS").apply {
+                putExtra("status", ConnectionStatus.LEVEL_CONNECTED.name)
+            }
+        )
 
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
-        assertTrue(logs.any { it.contains("Connected after attempt 2/2") })
+        assertTrue(logs.any { it.contains("Connected after attempt 2 (serversInCountry=2)") })
+
+        val lastConfig = SelectedCountryStore.getLastSuccessfulConfigForSelected(appContext)
+        assertEquals("client\n", lastConfig)
+    }
+
+    @Test
+    fun countsSavedConfigPlusAllServersWhenExhausted() {
+        saveServers(10)
+        SelectedCountryStore.saveLastSuccessfulConfig(appContext, "RU", "saved-config")
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        // First attempt: start with saved config
+        val first = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "saved-config")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(first, 0, 1)
+
+        // Next 10 attempts: auto-switch reconnects
+        repeat(10) { idx ->
+            val reconnect = Intent(appContext, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+                putExtra(VpnManager.extraAutoSwitchKey(appContext), true)
+                putExtra(VpnManager.extraConfigKey(appContext), "conf${idx + 1}")
+                putExtra(VpnManager.extraTitleKey(appContext), "RU")
+            }
+            service.onStartCommand(reconnect, 0, idx + 2)
+        }
+
+        // Move index to the last server so that nextServer() returns null
+        repeat(9) { SelectedCountryStore.nextServer(appContext) }
+        ConnectionStateManager.setReconnectingHint(false)
+
+        service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
+        assertTrue(
+            logs.any {
+                it.contains("Exhausted server list without success") &&
+                    it.contains("11 attempts (serversInCountry=10)")
+            }
+        )
     }
 }

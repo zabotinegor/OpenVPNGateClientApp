@@ -128,17 +128,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set reconnecting hint on start", e)
                 }
-                if (isReconnect) {
+                  if (isReconnect) {
                     sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
-                } else {
-                    sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
-                    sessionAttempt = 1
-                }
-                run {
-                    val titleStr = title?.let { ": $it" } ?: ""
-                    Log.i(TAG, "Session attempt ${sessionAttempt}/${totalServersStr()}${titleStr}")
-                }
+                  } else {
+                      sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+                      sessionAttempt = 1
+                  }
+                  run {
+                      val titleStr = title?.let { ": $it" } ?: ""
+                      Log.i(TAG, "Session attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})${titleStr}")
+                  }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                try {
+                    SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to persist last started config", e)
+                }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
                 startIcsOpenVpn(config, title)
@@ -260,17 +265,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
                 try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { Log.e(TAG, "Failed to begin chained server switch", e) }
                 return
-            } else {
-                userInitiatedStart = false
-                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
-                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt}/${totalServersStr()} attempts")
-            }
+              } else {
+                  userInitiatedStart = false
+                  try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
+                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")
+              }
         }
         when (level) {
-            ConnectionStatus.LEVEL_CONNECTED -> {
-                userInitiatedStart = false
-                userInitiatedStop = false
-                Log.i(TAG, "Connected after attempt ${sessionAttempt}/${totalServersStr()}")
+              ConnectionStatus.LEVEL_CONNECTED -> {
+                  userInitiatedStart = false
+                  userInitiatedStop = false
+                Log.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
                 stopSelfSafely()
             }
