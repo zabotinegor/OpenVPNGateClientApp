@@ -141,6 +141,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 lastStartedConfig = config
+                try {
+                    SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to persist last started config", e)
+                }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
                 startIcsOpenVpn(config, title)

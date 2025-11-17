@@ -16,6 +16,8 @@ object SelectedCountryStore {
     private const val KEY_INDEX = "selected_country_index"
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
+    private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
+    private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val TAG = "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
@@ -93,5 +95,21 @@ object SelectedCountryStore {
         Log.d(TAG, "getLastSuccessfulConfigForSelected: selected=${selected ?: "<none>"} storedCountry=${country ?: "<none>"} hasConfig=${config != null}")
         if (config.isNullOrBlank() || selected.isNullOrBlank()) return null
         return if (selected == country) config else null
+    }
+
+    fun saveLastStartedConfig(ctx: Context, country: String?, config: String) {
+        if (config.isBlank()) return
+        prefs(ctx).edit()
+            .putString(KEY_LAST_STARTED_CONFIG, config)
+            .putString(KEY_LAST_STARTED_COUNTRY, country)
+            .apply()
+    }
+
+    fun getLastStartedConfig(ctx: Context): Pair<String?, String?>? {
+        val prefs = prefs(ctx)
+        val cfg = prefs.getString(KEY_LAST_STARTED_CONFIG, null)
+        val country = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        Log.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
+        return if (cfg.isNullOrBlank()) null else (country to cfg)
     }
 }

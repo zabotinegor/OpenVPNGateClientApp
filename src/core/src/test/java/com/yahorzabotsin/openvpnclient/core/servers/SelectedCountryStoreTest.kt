@@ -138,4 +138,23 @@ class SelectedCountryStoreTest {
         val forB = SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx)
         assertNull(forB)
     }
+
+    @Test
+    fun last_started_config_persists_and_is_read_back() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "conf-start-A")
+        val last = SelectedCountryStore.getLastStartedConfig(ctx)
+        assertNotNull(last)
+        assertEquals("CountryA", last!!.first)
+        assertEquals("conf-start-A", last.second)
+
+        // Blank configs should be ignored
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "")
+        val stillLast = SelectedCountryStore.getLastStartedConfig(ctx)
+        assertNotNull(stillLast)
+        assertEquals("CountryA", stillLast!!.first)
+        assertEquals("conf-start-A", stillLast.second)
+    }
 }
