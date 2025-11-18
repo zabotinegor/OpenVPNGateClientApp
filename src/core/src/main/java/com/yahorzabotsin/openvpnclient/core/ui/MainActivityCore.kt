@@ -7,7 +7,6 @@ import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
@@ -116,17 +115,7 @@ open class MainActivityCore : AppCompatActivity() {
         toolbarView = binding.toolbar
         connectionControlsView = binding.connectionControls
 
-        val center: FrameLayout = binding.mainCenterContainer
-        if (center.childCount == 0) {
-            val margin = resources.getDimensionPixelSize(R.dimen.speedometer_margin)
-            val lp = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ).apply { setMargins(margin, 0, margin, 0) }
-            val speedometer = SpeedometerView(this, null)
-            speedometer.bindTo(this)
-            center.addView(speedometer, lp)
-        }
+        binding.connectionDetails.speedometer.bindTo(this)
 
         styleNavigationView(binding.navView)
 
