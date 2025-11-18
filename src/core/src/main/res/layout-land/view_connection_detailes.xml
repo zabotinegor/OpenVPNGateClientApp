@@ -60,18 +60,17 @@
             android:background="@color/speedometer_arc_color" />
 
         <TextView
-            android:id="@+id/version_label"
+            android:id="@+id/city_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/connection_detail_version_label"
+            android:text="@string/connection_detail_city_label"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/version_value"
+            android:id="@+id/city_value"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            tools:text="Version: 1.0 (1)"
             android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
 
     </LinearLayout>

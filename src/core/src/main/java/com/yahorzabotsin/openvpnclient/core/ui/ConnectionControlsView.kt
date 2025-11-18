@@ -51,6 +51,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionStartTimeMs: Long? = null
+    private var serverCity: String? = null
 
     private fun durationTextView(): TextView? =
         rootView.findViewById(R.id.duration_value)
@@ -61,8 +62,8 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private fun uploadedTextView(): TextView? =
         rootView.findViewById(R.id.uploaded_value)
 
-    private fun versionTextView(): TextView? =
-        rootView.findViewById(R.id.version_value)
+    private fun cityTextView(): TextView? =
+        rootView.findViewById(R.id.city_value)
 
     private fun statusTextView(): TextView? =
         rootView.findViewById(R.id.status_value)
@@ -177,6 +178,8 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         Log.d(TAG, "Server set: $country, $city")
         applyServerSelectionLabel(country, city)
         selectedCountry = country
+        serverCity = city
+        updateCityLabel()
     }
 
     fun setVpnConfig(config: String) {
@@ -204,7 +207,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 ) { _, _, _, _ -> }
                     .collect {
                         val current = ConnectionStateManager.state.value
-                        // When connecting, reflect granular engine changes; otherwise refresh using current state
                         updateButtonState(current)
                     }
             }
@@ -228,15 +230,13 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     }
             }
         }
-        // Version is static for the running app; resolve once
-        updateVersionLabel()
     }
 
     private fun applyServerSelectionLabel(country: String, city: String) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
         val secondary = city.ifBlank { context.getString(R.string.current_city) }
         binding.serverSelectionContainer.text = buildServerSelectionLabel(primary, secondary)
-        val description = listOf(primary) // do not expose city for now
+        val description = listOf(primary)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -318,27 +318,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         return "$number $unit"
     }
 
-    private fun updateVersionLabel() {
-        try {
-            val pm = context.packageManager
-            val pInfo = pm.getPackageInfo(context.packageName, 0)
-            val versionName = pInfo.versionName ?: ""
-            val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) {
-                pInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode.toLong()
-            }
-            val formatted = context.getString(
-                R.string.about_version_format,
-                versionName,
-                versionCode
-            )
-            versionTextView()?.text = formatted
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to resolve app version for main screen", e)
-            versionTextView()?.text = context.getString(R.string.main_version_default)
-        }
+    private fun updateCityLabel() {
+        val tv = cityTextView() ?: return
+        tv.text = serverCity?.takeIf { it.isNotBlank() } ?: ""
     }
 
     private fun updateStatusLabel(state: ConnectionState) {

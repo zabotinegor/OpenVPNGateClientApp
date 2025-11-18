@@ -16,14 +16,8 @@ object IpInfoService {
     private const val TAG = "IpInfoService"
     private const val ENDPOINT_URL = "https://ipinfo.io/json"
 
-    // OkHttp is already available transitively via Retrofit
     private val client: OkHttpClient by lazy { OkHttpClient() }
 
-    /**
-     * Fetches public IP information (IP + optional city) from ipinfo.io.
-     *
-     * Returns null on any network or parsing error.
-     */
     suspend fun fetchPublicIpInfo(): IpInfo? {
         val body = try {
             withContext(Dispatchers.IO) {
@@ -48,19 +42,6 @@ object IpInfoService {
         return parseIpInfoJson(body)
     }
 
-    /**
-     * Extracts IP and city from ipinfo.io JSON response.
-     *
-     * Expected shape:
-     * {
-     *   "ip": "203.0.113.10",
-     *   "city": "Tokyo",
-     *   ...
-     * }
-     *
-     * Intentionally uses a lightweight regex-based parser instead of a full JSON library
-     * so it works the same in both unit tests and on Android.
-     */
     internal fun parseIpInfoJson(json: String): IpInfo? {
         val ip = """"ip"\s*:\s*"([^"]+)"""".toRegex()
             .find(json)
@@ -78,4 +59,3 @@ object IpInfoService {
         return IpInfo(ip = ip, city = city)
     }
 }
-

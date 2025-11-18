@@ -91,7 +91,7 @@
     <!-- Section: Connection details (landscape) -->
     <string name="connection_detail_duration_label">DURATION</string>
     <string name="connection_detail_downloaded_label">DOWNLOADED</string>
-    <string name="connection_detail_version_label">VERSION</string>
+    <string name="connection_detail_city_label">CITY</string>
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">UPLOADED</string>
     <string name="connection_detail_address_label">ADDRESS</string>

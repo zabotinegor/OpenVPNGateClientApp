@@ -90,10 +90,10 @@
     <string name="main_status_connected">Подключено</string>
     <string name="main_status_disconnecting">Отключение…</string>
 
-    <!-- Section: Connection details (landscape) -->
+    <!-- Section: Connection details -->
     <string name="connection_detail_duration_label">ДЛИТЕЛЬНОСТЬ</string>
     <string name="connection_detail_downloaded_label">СКАЧАНО</string>
-    <string name="connection_detail_version_label">ВЕРСИЯ</string>
+    <string name="connection_detail_city_label">ГОРОД</string>
     <string name="connection_detail_status_label">СТАТУС</string>
     <string name="connection_detail_uploaded_label">ОТПРАВЛЕНО</string>
     <string name="connection_detail_address_label">АДРЕС</string>
