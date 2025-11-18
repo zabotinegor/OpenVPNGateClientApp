@@ -236,7 +236,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val primary = country.ifBlank { context.getString(R.string.current_country) }
         val secondary = city.ifBlank { context.getString(R.string.current_city) }
         binding.serverSelectionContainer.text = buildServerSelectionLabel(primary, secondary)
-        val description = listOf(primary, secondary)
+        val description = listOf(primary) // do not expose city for now
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -248,11 +248,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private fun buildServerSelectionLabel(country: String, city: String): CharSequence =
         buildSpannedString {
             inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
-                append(country)
-            }
-            append("\n")
-            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
-                append(city)
+                append(country.trim())
             }
         }
 
