@@ -8,6 +8,7 @@ import android.text.style.TextAppearanceSpan
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
+import android.widget.TextView
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -50,6 +51,21 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionStartTimeMs: Long? = null
+
+    private fun durationTextView(): TextView? =
+        rootView.findViewById(R.id.duration_value)
+
+    private fun downloadedTextView(): TextView? =
+        rootView.findViewById(R.id.downloaded_value)
+
+    private fun uploadedTextView(): TextView? =
+        rootView.findViewById(R.id.uploaded_value)
+
+    private fun versionTextView(): TextView? =
+        rootView.findViewById(R.id.version_value)
+
+    private fun statusTextView(): TextView? =
+        rootView.findViewById(R.id.status_value)
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
@@ -266,7 +282,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             }
             ConnectionState.DISCONNECTED -> {
                 connectionStartTimeMs = null
-                binding.textDurationValue.text = context.getString(R.string.main_duration_default)
+                durationTextView()?.text = context.getString(R.string.main_duration_default)
             }
             else -> { /* keep current start time */ }
         }
@@ -279,12 +295,12 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val minutes = (elapsedSec % 3600) / 60
         val seconds = elapsedSec % 60
         val formatted = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-        binding.textDurationValue.text = formatted
+        durationTextView()?.text = formatted
     }
 
     private fun updateTraffic(downloaded: Long, uploaded: Long) {
-        binding.textDownloadedValue.text = formatBytes(downloaded)
-        binding.textUploadedValue.text = formatBytes(uploaded)
+        downloadedTextView()?.text = formatBytes(downloaded)
+        uploadedTextView()?.text = formatBytes(uploaded)
     }
 
     private fun formatBytes(value: Long): String {
@@ -322,10 +338,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 versionName,
                 versionCode
             )
-            binding.textVersionValue.text = formatted
+            versionTextView()?.text = formatted
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve app version for main screen", e)
-            binding.textVersionValue.text = context.getString(R.string.main_version_default)
+            versionTextView()?.text = context.getString(R.string.main_version_default)
         }
     }
 
@@ -336,7 +352,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             ConnectionState.CONNECTED -> R.string.main_status_connected
             ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
         }
-        binding.textStatusValue.text = context.getString(statusRes)
+        statusTextView()?.text = context.getString(statusRes)
     }
 
     private fun updateButtonState(state: ConnectionState) {
