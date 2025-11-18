@@ -24,6 +24,8 @@ import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
+import com.yahorzabotsin.openvpnclient.core.net.IpInfo
+import com.yahorzabotsin.openvpnclient.core.net.IpInfoService
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
@@ -51,7 +53,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionStartTimeMs: Long? = null
-    private var serverCity: String? = null
+    private var ipInfo: IpInfo? = null
 
     private fun durationTextView(): TextView? =
         rootView.findViewById(R.id.duration_value)
@@ -64,6 +66,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private fun cityTextView(): TextView? =
         rootView.findViewById(R.id.city_value)
+
+    private fun addressTextView(): TextView? =
+        rootView.findViewById(R.id.address_value)
 
     private fun statusTextView(): TextView? =
         rootView.findViewById(R.id.status_value)
@@ -178,8 +183,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         Log.d(TAG, "Server set: $country, $city")
         applyServerSelectionLabel(country, city)
         selectedCountry = country
-        serverCity = city
-        updateCityLabel()
+        if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+            ipInfo = null
+            updateLocationPlaceholders()
+        }
     }
 
     fun setVpnConfig(config: String) {
@@ -194,6 +201,27 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     updateStatusLabel(state)
                     handleDurationOnStateChange(state)
                     updateButtonState(state)
+                    when (state) {
+                        ConnectionState.CONNECTED -> {
+                            lifecycleOwner.lifecycleScope.launch {
+                                val info = try {
+                                    IpInfoService.fetchPublicIpInfo()
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to fetch IP info", e)
+                                    null
+                                }
+                                if (info != null) {
+                                    ipInfo = info
+                                    updateLocationPlaceholders()
+                                }
+                            }
+                        }
+                        ConnectionState.DISCONNECTED -> {
+                            ipInfo = null
+                            updateLocationPlaceholders()
+                        }
+                        else -> Unit
+                    }
                 }
             }
         }
@@ -318,9 +346,17 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         return "$number $unit"
     }
 
-    private fun updateCityLabel() {
-        val tv = cityTextView() ?: return
-        tv.text = serverCity?.takeIf { it.isNotBlank() } ?: ""
+    private fun updateLocationPlaceholders() {
+        val cityView = cityTextView()
+        val addressView = addressTextView()
+        val info = ipInfo
+        if (info != null) {
+            cityView?.text = info.city.orEmpty()
+            addressView?.text = info.ip
+        } else {
+            cityView?.text = ""
+            addressView?.text = ""
+        }
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
