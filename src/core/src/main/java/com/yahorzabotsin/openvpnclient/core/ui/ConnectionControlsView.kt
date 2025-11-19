@@ -430,6 +430,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             "ADD_ROUTES" -> R.string.state_add_routes
             "CONNECTED" -> R.string.state_connected
             "DISCONNECTED" -> R.string.state_disconnected
+            "CONNECTRETRY" -> R.string.state_reconnecting
             "RECONNECTING" -> R.string.state_reconnecting
             "EXITING" -> R.string.state_exiting
             "RESOLVE" -> R.string.state_resolve
