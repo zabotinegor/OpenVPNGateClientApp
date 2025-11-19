@@ -27,7 +27,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentServerListBinding
     private val TAG = ServerListActivity::class.simpleName
 
-    private var countries: List<ServerCountry> = emptyList()
+    private var countries: List<Country> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,11 +49,8 @@ open class ServerListActivity : AppCompatActivity() {
                 countries = servers
                     .map { it.country }
                     .distinctBy { it.name }
-                    .map { ServerCountry(it.name, it.code) }
                     .sortedBy { it.name }
-                contentBinding.serversRecyclerView.adapter = CountryListAdapter(
-                    countries.map { Country(it.name, it.code) }
-                ) { selected ->
+                contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { selected ->
                     val countryName = selected.name
                     val countryCode = selected.code
                     Log.d(TAG, "Country selected: $countryName")
@@ -111,5 +108,3 @@ open class ServerListActivity : AppCompatActivity() {
         const val EXTRA_SELECTED_SERVER_CONFIG = "EXTRA_SELECTED_SERVER_CONFIG"
     }
 }
-
-private data class ServerCountry(val name: String, val code: String?)
