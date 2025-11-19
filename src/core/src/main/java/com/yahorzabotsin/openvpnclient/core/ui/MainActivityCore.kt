@@ -143,6 +143,22 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         }
 
         connectionControlsView.requestPrimaryFocus()
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            updateDetailsVisibility()
+        }
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode)
+        Log.d(TAG, "Multi-window mode changed: $isInMultiWindowMode")
+        updateDetailsVisibility()
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
+    private fun updateDetailsVisibility() {
+        binding.connectionDetails.detailsContainer?.visibility = if (isInMultiWindowMode) View.GONE else View.VISIBLE
     }
 
     private fun setupConnectionControls() {
