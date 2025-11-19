@@ -32,7 +32,6 @@ open class MainActivityCore : AppCompatActivity() {
     private val serverRepository = ServerRepository()
     private val TAG = MainActivityCore::class.simpleName
     private var reopenDrawerAfterReturn = false
-    private var suppressNextBackPress = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
             connectionControlsView.requestPrimaryFocus()
@@ -68,8 +67,6 @@ open class MainActivityCore : AppCompatActivity() {
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }
-        } else {
-            suppressNextBackPress = true
         }
         if (!reopenDrawerAfterReturn) {
             connectionControlsView.requestPrimaryFocus()
@@ -84,7 +81,6 @@ open class MainActivityCore : AppCompatActivity() {
     private fun createDrawerReopeningLauncher() =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             binding.drawerLayout.openDrawer(GravityCompat.START)
-            suppressNextBackPress = true
         }
 
     private val dnsActivityLauncher = createDrawerReopeningLauncher()
@@ -130,10 +126,6 @@ open class MainActivityCore : AppCompatActivity() {
         // Close drawer on back instead of exiting app
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (suppressNextBackPress) {
-                    suppressNextBackPress = false
-                    return
-                }
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 } else {
