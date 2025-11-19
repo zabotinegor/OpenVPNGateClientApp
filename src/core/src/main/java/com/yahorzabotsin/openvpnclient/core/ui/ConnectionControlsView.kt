@@ -52,7 +52,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
-    private var connectionStartTimeMs: Long? = null
     private var ipInfo: IpInfo? = null
 
     private fun durationTextView(): TextView? =
@@ -199,7 +198,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
                     updateStatusLabel(state)
-                    handleDurationOnStateChange(state)
                     updateButtonState(state)
                     when (state) {
                         ConnectionState.CONNECTED -> {
@@ -299,21 +297,12 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         )
     }
 
-    private fun handleDurationOnStateChange(state: ConnectionState) {
-        when (state) {
-            ConnectionState.CONNECTED -> if (connectionStartTimeMs == null) {
-                connectionStartTimeMs = System.currentTimeMillis()
-            }
-            ConnectionState.DISCONNECTED -> {
-                connectionStartTimeMs = null
-                durationTextView()?.text = context.getString(R.string.main_duration_default)
-            }
-            else -> { /* keep current start time */ }
-        }
-    }
-
     private fun updateDurationTimer() {
-        val start = connectionStartTimeMs ?: return
+        val start = ConnectionStateManager.connectionStartTimeMs.value
+        if (start == null) {
+            durationTextView()?.text = context.getString(R.string.main_duration_default)
+            return
+        }
         val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
         val hours = elapsedSec / 3600
         val minutes = (elapsedSec % 3600) / 60
