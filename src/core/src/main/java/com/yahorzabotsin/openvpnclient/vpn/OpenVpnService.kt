@@ -374,8 +374,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
         if (nonEmptyLists.isEmpty()) return
 
-        val earliest = nonEmptyLists.minByOrNull { it.first().timestamp }!!.first()
-        val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
+        val earliest = nonEmptyLists
+            .map { it.first() }
+            .minByOrNull { it.timestamp }
+            ?: return
+        val latest = nonEmptyLists
+            .map { it.last() }
+            .maxByOrNull { it.timestamp }
+            ?: return
 
         ConnectionStateManager.restoreConnectionStartIfEmpty(earliest.timestamp)
         ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
