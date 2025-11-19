@@ -143,6 +143,21 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         }
 
         connectionControlsView.requestPrimaryFocus()
+        
+        updateDetailsVisibility()
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode)
+        Log.d(TAG, "Multi-window mode changed: $isInMultiWindowMode")
+        updateDetailsVisibility()
+    }
+
+    private fun updateDetailsVisibility() {
+        val detailsContainer = binding.connectionDetails.root.findViewById<View>(R.id.details_container)
+        if (detailsContainer != null) {
+            detailsContainer.visibility = if (isInMultiWindowMode) View.GONE else View.VISIBLE
+        }
     }
 
     private fun setupConnectionControls() {
