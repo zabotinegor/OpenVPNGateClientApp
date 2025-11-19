@@ -438,6 +438,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     }
                 }
             } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "Error in trafficPollRunnable", e)
+                }
             }
 
             trafficHandler.postDelayed(this, 2_000L)
