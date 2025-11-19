@@ -302,6 +302,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     override fun updateByteCount(inBytes: Long, outBytes: Long, diffIn: Long, diffOut: Long) {
+        if (boundToStatus) return
         val now = System.currentTimeMillis()
         val last = lastLocalByteUpdateTs
         lastLocalByteUpdateTs = now
