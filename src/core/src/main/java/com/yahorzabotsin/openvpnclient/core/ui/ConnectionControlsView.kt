@@ -321,12 +321,13 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val kb = 1024.0
         val mb = kb * 1024.0
         val gb = mb * 1024.0
-        val (amount, unit) = when {
-            abs >= gb -> abs / gb to "GB"
-            abs >= mb -> abs / mb to "MB"
-            abs >= kb -> abs / kb to "kB"
-            else -> abs to "B"
+        val (amount, unitResId) = when {
+            abs >= gb -> abs / gb to R.string.traffic_unit_gb
+            abs >= mb -> abs / mb to R.string.traffic_unit_mb
+            abs >= kb -> abs / kb to R.string.traffic_unit_kb
+            else -> abs to R.string.traffic_unit_b
         }
+        val unit = context.getString(unitResId)
         val number = when {
             amount >= 100 -> String.format(Locale.US, "%.0f", amount)
             amount >= 10 -> String.format(Locale.US, "%.1f", amount)

@@ -97,4 +97,9 @@
     <string name="connection_detail_status_label">СТАТУС</string>
     <string name="connection_detail_uploaded_label">ОТПРАВЛЕНО</string>
     <string name="connection_detail_address_label">АДРЕС</string>
+    <!-- Section: Traffic units (total bytes) -->
+    <string name="traffic_unit_b">Б</string>
+    <string name="traffic_unit_kb">КБ</string>
+    <string name="traffic_unit_mb">МБ</string>
+    <string name="traffic_unit_gb">ГБ</string>
 </resources>
