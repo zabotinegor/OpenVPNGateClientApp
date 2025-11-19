@@ -43,19 +43,14 @@ object IpInfoService {
     }
 
     internal fun parseIpInfoJson(json: String): IpInfo? {
-        val ip = """"ip"\s*:\s*"([^"]+)"""".toRegex()
-            .find(json)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
-
-        val city = """"city"\s*:\s*"([^"]*)"""".toRegex()
-            .find(json)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.takeIf { it.isNotBlank() }
-
-        return IpInfo(ip = ip, city = city)
+        return try {
+            val jsonObj = org.json.JSONObject(json)
+            val ip = jsonObj.optString("ip", null)?.takeIf { it.isNotBlank() } ?: return null
+            val city = jsonObj.optString("city", null)?.takeIf { it.isNotBlank() }
+            IpInfo(ip = ip, city = city)
+        } catch (e: org.json.JSONException) {
+            Log.w(TAG, "Failed to parse ipinfo.io JSON", e)
+            null
+        }
     }
 }
