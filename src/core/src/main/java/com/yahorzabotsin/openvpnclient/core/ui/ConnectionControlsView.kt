@@ -77,10 +77,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
-        applyServerSelectionLabel(
-            context.getString(R.string.current_country),
-            context.getString(R.string.current_city)
-        )
+        applyServerSelectionLabel(context.getString(R.string.current_country))
 
         binding.startConnectionButton.setOnClickListener {
             when (ConnectionStateManager.state.value) {
@@ -180,11 +177,11 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         this.openServerList = handler
     }
 
-    fun setServer(country: String, city: String, countryCode: String? = null) {
-        Log.d(TAG, "Server set: $country, $city")
+    fun setServer(country: String, countryCode: String? = null) {
+        Log.d(TAG, "Server set: $country")
         selectedCountry = country
         selectedCountryCode = countryCode
-        applyServerSelectionLabel(country, city)
+        applyServerSelectionLabel(country)
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
             ipInfo = null
             updateLocationPlaceholders()
@@ -261,12 +258,11 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         }
     }
 
-    private fun applyServerSelectionLabel(country: String, city: String) {
+    private fun applyServerSelectionLabel(country: String) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
-        val secondary = city.ifBlank { context.getString(R.string.current_city) }
         val flag = countryFlagEmoji(selectedCountryCode)
         val primaryWithFlag = if (!flag.isNullOrEmpty()) "$flag $primary" else primary
-        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag, secondary)
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag)
         val description = listOf(primaryWithFlag)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -276,7 +272,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         updateServerButtonIcons()
     }
 
-    private fun buildServerSelectionLabel(country: String, city: String): CharSequence =
+    private fun buildServerSelectionLabel(country: String): CharSequence =
         buildSpannedString {
             inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
                 append(country.trim())
