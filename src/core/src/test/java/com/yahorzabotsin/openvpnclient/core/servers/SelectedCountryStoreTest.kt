@@ -214,4 +214,39 @@ class SelectedCountryStoreTest {
         assertNotNull(current)
         assertEquals("City2", current!!.city)
     }
+
+    @Test
+    fun saveSelection_persists_country_code_in_stored_servers() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            Server(
+                name = "srv-1",
+                city = "City1",
+                country = Country("CountryA", "AA"),
+                ping = 10,
+                signalStrength = SignalStrength.STRONG,
+                ip = "1.1.1.1",
+                score = 100,
+                speed = 1000,
+                numVpnSessions = 1,
+                uptime = 100,
+                totalUsers = 10,
+                totalTraffic = 1000,
+                logType = "",
+                operator = "",
+                message = "",
+                configData = "config1"
+            )
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+
+        val stored = SelectedCountryStore.getServers(ctx)
+        assertEquals(1, stored.size)
+        assertEquals("City1", stored[0].city)
+        assertEquals("config1", stored[0].config)
+        assertEquals("AA", stored[0].countryCode)
+    }
 }
