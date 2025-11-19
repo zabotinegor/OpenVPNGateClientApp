@@ -156,11 +156,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         updateDetailsVisibility()
     }
 
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
     private fun updateDetailsVisibility() {
-        val detailsContainer = binding.connectionDetails.root.findViewById<View>(R.id.details_container)
-        if (detailsContainer != null) {
-            detailsContainer.visibility = if (isInMultiWindowMode) View.GONE else View.VISIBLE
-        }
+        binding.connectionDetails.detailsContainer?.visibility = if (isInMultiWindowMode) View.GONE else View.VISIBLE
     }
 
     private fun setupConnectionControls() {
