@@ -23,10 +23,13 @@ class EngineStatusReceiver : BroadcastReceiver() {
                     val last = SelectedCountryStore.getLastStartedConfig(context)
                     val cfg = last?.second
                     val country = last?.first
-                    Log.d(TAG, "On CONNECTED: lastStartedCountry=${country ?: "<none>"} hasConfig=${cfg != null}")
                     if (!cfg.isNullOrBlank()) {
                         SelectedCountryStore.saveLastSuccessfulConfig(context, country, cfg)
-                        Log.d(TAG, "Saved last successful config for country=${country ?: "<none>"}")
+                        try {
+                            SelectedCountryStore.ensureIndexForConfig(context, cfg)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to ensure index for last successful config", e)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to save last successful config from receiver", e)

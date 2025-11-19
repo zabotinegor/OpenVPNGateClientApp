@@ -9,8 +9,11 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.os.RemoteException
+import android.os.Handler
 import android.util.Log
+import com.yahorzabotsin.openvpnclient.core.BuildConfig
 import com.yahorzabotsin.openvpnclient.core.R
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
@@ -23,6 +26,7 @@ import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
 import de.blinkt.openvpn.core.IStatusCallbacks
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import de.blinkt.openvpn.core.TrafficHistory
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
@@ -62,6 +66,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
+    private val trafficHandler = Handler(Looper.getMainLooper())
+    private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
+    private var lastPolledState: ConnectionState? = null
 
     private fun totalServersStr(): String =
         if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
@@ -90,15 +97,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
-        Log.d(TAG, "Service created and listeners registered")
 
         try {
             val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
             boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
-            Log.d(TAG, "Binding to status service: $boundToStatus")
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to bind status service", t)
         }
+
+        trafficHandler.post(trafficPollRunnable)
     }
 
     private fun ensureEngineNotificationChannels() {
@@ -229,6 +236,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
         try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
+        trafficHandler.removeCallbacks(trafficPollRunnable)
+        lastPolledDatapoint = null
+        lastPolledState = null
         if (boundToStatus) {
             try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
             try { unbindService(statusConnection) } catch (_: Exception) {}
@@ -237,8 +247,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
-        
-        if (!userInitiatedStart) ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Log.d(TAG, "Service destroyed and listener removed")
     }
 
@@ -302,17 +310,35 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val totalDiffBytes = (diffIn + diffOut).coerceAtLeast(0)
         val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
         val mbps = bitsPerSec / 1_000_000.0
-        val stateNow = ConnectionStateManager.state.value
-        if (stateNow != ConnectionState.DISCONNECTED) {
-            ConnectionStateManager.updateSpeedMbps(mbps)
-        }
+        ConnectionStateManager.updateSpeedMbps(mbps)
+        ConnectionStateManager.updateTraffic(inBytes, outBytes)
     }
 
     private val statusCallbacks = object : IStatusCallbacks.Stub() {
         override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { }
-        override fun updateStateString(state: String?, msg: String?, resid: Int, level: de.blinkt.openvpn.core.ConnectionStatus?, intent: Intent?) { }
+
+        override fun updateStateString(
+            state: String?,
+            msg: String?,
+            resid: Int,
+            level: ConnectionStatus?,
+            intent: Intent?
+        ) {
+            if (level == null) return
+            try {
+                ConnectionStateManager.updateFromEngine(level, state)
+                if (level == ConnectionStatus.LEVEL_CONNECTED) {
+                    tryRestoreTrafficSnapshot()
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
+            }
+        }
+
         override fun connectedVPN(uuid: String?) { }
+
         override fun notifyProfileVersionChanged(uuid: String?, profileVersion: Int) { }
+
         override fun updateByteCount(inBytes: Long, outBytes: Long) {
             val now = System.currentTimeMillis()
             val last = lastAidlByteUpdateTs
@@ -327,22 +353,106 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val totalDiffBytes = diffIn + diffOut
             val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
             val mbps = bitsPerSec / 1_000_000.0
-            val stateNow = ConnectionStateManager.state.value
-            if (stateNow != ConnectionState.DISCONNECTED) {
-                ConnectionStateManager.updateSpeedMbps(mbps)
-            }
+            ConnectionStateManager.updateSpeedMbps(mbps)
+            ConnectionStateManager.updateTraffic(inBytes, outBytes)
         }
+    }
+
+    private fun tryRestoreTrafficSnapshot() {
+        val binder = statusBinder ?: return
+        val history: TrafficHistory = try {
+            binder.trafficHistory
+        } catch (e: RemoteException) {
+            Log.w(TAG, "Failed to get traffic history from status service", e)
+            return
+        } ?: return
+
+        val seconds = history.seconds
+        val minutes = history.minutes
+        val hours = history.hours
+
+        val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
+        if (nonEmptyLists.isEmpty()) return
+
+        val earliest = nonEmptyLists
+            .map { it.first() }
+            .minByOrNull { it.timestamp }
+            ?: return
+        val latest = nonEmptyLists
+            .map { it.last() }
+            .maxByOrNull { it.timestamp }
+            ?: return
+
+        ConnectionStateManager.restoreConnectionStartIfEmpty(earliest.timestamp)
+        ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
     }
 
     private val statusConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             statusBinder = IServiceStatus.Stub.asInterface(service)
+            boundToStatus = true
             try { statusBinder?.registerStatusCallback(statusCallbacks) } catch (e: RemoteException) { Log.e(TAG, "Failed to register status callback", e) }
         }
-        override fun onServiceDisconnected(name: ComponentName?) { statusBinder = null }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            statusBinder = null
+            boundToStatus = false
+        }
     }
 
-    
+    private val trafficPollRunnable = object : Runnable {
+        override fun run() {
+            try {
+                val currentState = ConnectionStateManager.state.value
+                if (currentState != lastPolledState) {
+                    if (currentState != ConnectionState.CONNECTED) {
+                        lastPolledDatapoint = null
+                    }
+                    lastPolledState = currentState
+                }
+
+                if (currentState == ConnectionState.CONNECTED) {
+                    val binder = statusBinder
+                    if (binder != null) {
+                        val history = try {
+                            binder.trafficHistory
+                        } catch (_: Exception) {
+                            null
+                        }
+
+                        if (history != null) {
+                            val seconds = history.seconds
+                            val minutes = history.minutes
+                            val hours = history.hours
+                            val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
+                            if (nonEmptyLists.isNotEmpty()) {
+                                val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
+                                val previous = lastPolledDatapoint
+
+                                if (previous != null && latest.timestamp > previous.timestamp) {
+                                    val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
+                                    val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
+                                    val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
+                                    val totalDiffBytes = diffIn + diffOut
+                                    val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+                                    val mbps = bitsPerSec / 1_000_000.0
+                                    ConnectionStateManager.updateSpeedMbps(mbps)
+                                }
+
+                                ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
+                                lastPolledDatapoint = latest
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "Error in trafficPollRunnable", e)
+                }
+            }
+
+            trafficHandler.postDelayed(this, 2_000L)
+        }
+    }
 
     override fun setConnectedVPN(uuid: String) { /* not used */ }
 

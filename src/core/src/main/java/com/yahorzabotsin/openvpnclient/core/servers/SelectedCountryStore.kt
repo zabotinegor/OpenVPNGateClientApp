@@ -7,7 +7,7 @@ import org.json.JSONObject
 import org.json.JSONException
 import android.util.Log
 
-data class StoredServer(val city: String, val config: String)
+data class StoredServer(val city: String, val config: String, val countryCode: String? = null)
 
 object SelectedCountryStore {
     private const val PREFS_NAME = "vpn_selection_prefs"
@@ -21,6 +21,7 @@ object SelectedCountryStore {
     private const val TAG = "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
+    private const val KEY_JSON_CODE = "code"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -31,6 +32,7 @@ object SelectedCountryStore {
             val o = JSONObject()
                 .put(KEY_JSON_CITY, s.city)
                 .put(KEY_JSON_CONFIG, s.configData)
+                .put(KEY_JSON_CODE, s.country.code)
             arr.put(o)
         }
         prefs(ctx).edit()
@@ -48,7 +50,11 @@ object SelectedCountryStore {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                StoredServer(o.optString(KEY_JSON_CITY), o.optString(KEY_JSON_CONFIG))
+                StoredServer(
+                    city = o.optString(KEY_JSON_CITY),
+                    config = o.optString(KEY_JSON_CONFIG),
+                    countryCode = o.optString(KEY_JSON_CODE, null)
+                )
             }
         } catch (e: JSONException) {
             Log.e(TAG, "Error parsing servers JSON from SharedPreferences", e)
@@ -111,5 +117,16 @@ object SelectedCountryStore {
         val country = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
         Log.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
         return if (cfg.isNullOrBlank()) null else (country to cfg)
+    }
+
+    fun ensureIndexForConfig(ctx: Context, config: String?) {
+        if (config.isNullOrBlank()) return
+        val list = getServers(ctx)
+        if (list.isEmpty()) return
+        val current = getIndex(ctx)
+        if (current in list.indices && list[current].config == config) return
+        val found = list.indexOfFirst { it.config == config }
+        val newIndex = if (found >= 0) found else 0
+        setIndex(ctx, newIndex)
     }
 }

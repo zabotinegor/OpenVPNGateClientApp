@@ -65,10 +65,10 @@ class ServerRepository(
             } else {
                 Server(
                     name = values[0],
-                    city = values[5],
-                    country = Country(values[5]),
+                    city = "",
+                    country = Country(values[5], values.getOrNull(6)),
                     ping = values[3].toIntOrNull() ?: 0,
-                    signalStrength = SignalStrength.STRONG, // You may want to calculate this based on ping or other metrics
+                    signalStrength = SignalStrength.STRONG,
                     ip = values[1],
                     score = values[2].toIntOrNull() ?: 0,
                     speed = values[4].toLongOrNull() ?: 0L,

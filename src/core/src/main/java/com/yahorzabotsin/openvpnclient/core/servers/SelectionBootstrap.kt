@@ -6,12 +6,12 @@ object SelectionBootstrap {
     suspend fun ensureSelection(
         context: Context,
         getServers: suspend () -> List<Server>,
-        apply: (country: String, city: String, config: String) -> Unit
+        apply: (country: String, city: String, config: String, countryCode: String?) -> Unit
     ) {
         val stored = SelectedCountryStore.currentServer(context)
         if (stored != null) {
             val country = SelectedCountryStore.getSelectedCountry(context) ?: return
-            apply(country, stored.city, stored.config)
+            apply(country, stored.city, stored.config, stored.countryCode)
             return
         }
 
@@ -35,6 +35,6 @@ object SelectionBootstrap {
         val country = targetCountry ?: return
         val firstServer = first ?: return
         SelectedCountryStore.saveSelection(context, country, countryServers)
-        apply(country, firstServer.city, firstServer.configData)
+        apply(country, firstServer.city, firstServer.configData, firstServer.country.code)
     }
 }

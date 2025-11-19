@@ -25,8 +25,9 @@ class SelectionBootstrapTest {
         var appliedConfig = ""
 
         runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { c, city, conf ->
+            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { c, city, conf, code ->
                 appliedCountry = c; appliedCity = city; appliedConfig = conf
+                assertEquals(null, code)
             }
         }
 
@@ -51,8 +52,9 @@ class SelectionBootstrapTest {
         var appliedConfig = ""
 
         runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { servers }) { c, city, conf ->
+            SelectionBootstrap.ensureSelection(ctx, { servers }) { c, city, conf, code ->
                 appliedCountry = c; appliedCity = city; appliedConfig = conf
+                assertEquals(null, code)
             }
         }
 
@@ -64,6 +66,29 @@ class SelectionBootstrapTest {
         assertEquals("A", storedCountry)
         val storedServers = SelectedCountryStore.getServers(ctx)
         assertEquals(2, storedServers.size)
+    }
+
+    @Test
+    fun passes_country_code_when_available() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            Server("srv1","C1", Country("A", "AA"),10, SignalStrength.STRONG,"",0,0,0,0,0,0,"","","", "conf1"),
+            Server("srv2","C2", Country("A", "AA"),20, SignalStrength.MEDIUM,"",0,0,0,0,0,0,"","","", "conf2")
+        )
+
+        var appliedCode: String? = null
+
+        SelectedCountryStore.saveSelection(ctx, "A", servers)
+
+        runBlockingCompat {
+            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { _, _, _, code ->
+                appliedCode = code
+            }
+        }
+
+        assertEquals("AA", appliedCode)
     }
 }
 

@@ -26,8 +26,15 @@ object ConnectionStateManager {
     private val _reconnectingHint = MutableStateFlow(false)
     val reconnectingHint = _reconnectingHint.asStateFlow()
 
+    private val _connectionStartTimeMs = MutableStateFlow<Long?>(null)
+    val connectionStartTimeMs = _connectionStartTimeMs.asStateFlow()
+
     private val _speedMbps = MutableStateFlow(0.0)
     val speedMbps = _speedMbps.asStateFlow()
+    private val _downloadedBytes = MutableStateFlow(0L)
+    val downloadedBytes = _downloadedBytes.asStateFlow()
+    private val _uploadedBytes = MutableStateFlow(0L)
+    val uploadedBytes = _uploadedBytes.asStateFlow()
 
     fun setReconnectingHint(value: Boolean) {
         _reconnectingHint.value = value
@@ -39,7 +46,7 @@ object ConnectionStateManager {
         if (current == newState) return
 
         val allowed = when (current) {
-            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING)
+            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
             ConnectionState.CONNECTING -> setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
             ConnectionState.CONNECTED -> setOf(ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
             ConnectionState.DISCONNECTING -> setOf(ConnectionState.DISCONNECTED)
@@ -47,8 +54,20 @@ object ConnectionStateManager {
 
         if (newState in allowed) {
             _state.value = newState
-            if (newState == ConnectionState.DISCONNECTED) {
-                _speedMbps.value = 0.0
+            when (newState) {
+                ConnectionState.DISCONNECTED -> {
+                    _speedMbps.value = 0.0
+                    _downloadedBytes.value = 0L
+                    _uploadedBytes.value = 0L
+                    _connectionStartTimeMs.value = null
+                }
+                ConnectionState.CONNECTED -> {
+                    if (current != ConnectionState.CONNECTED) {
+                        _connectionStartTimeMs.value = System.currentTimeMillis()
+                    }
+                }
+                ConnectionState.CONNECTING,
+                ConnectionState.DISCONNECTING -> Unit
             }
         }
     }
@@ -97,5 +116,17 @@ object ConnectionStateManager {
 
     fun updateSpeedMbps(mbps: Double) {
         _speedMbps.value = if (mbps.isFinite() && mbps >= 0) mbps else 0.0
+    }
+
+    fun updateTraffic(inBytes: Long, outBytes: Long) {
+        _downloadedBytes.value = inBytes.coerceAtLeast(0L)
+        _uploadedBytes.value = outBytes.coerceAtLeast(0L)
+    }
+
+    @MainThread
+    fun restoreConnectionStartIfEmpty(startTimeMs: Long) {
+        if (_connectionStartTimeMs.value == null && startTimeMs > 0L) {
+            _connectionStartTimeMs.value = startTimeMs
+        }
     }
 }

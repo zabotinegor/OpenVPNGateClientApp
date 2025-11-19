@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="top|center_horizontal"
+    tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
+
+    <com.yahorzabotsin.openvpnclient.core.ui.SpeedometerView
+        android:id="@+id/speedometer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/speedometer_margin"
+        android:layout_marginEnd="@dimen/speedometer_margin"
+        android:layout_marginTop="24dp"
+        android:layout_marginBottom="24dp" />
+
+    <!-- Details block: two columns under the speedometer, like in mockup -->
+    <LinearLayout
+        android:id="@+id/details_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="24dp">
+
+        <!-- Left column: duration, downloaded, city -->
+        <LinearLayout
+            android:id="@+id/left_column"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/duration_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_duration_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/duration_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                tools:text="00:00:00"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/speedometer_arc_color" />
+
+            <TextView
+                android:id="@+id/downloaded_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_downloaded_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/downloaded_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                tools:text="0.00 B"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/speedometer_arc_color" />
+
+            <TextView
+                android:id="@+id/city_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_city_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/city_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+
+        </LinearLayout>
+
+        <!-- Right column: status, uploaded, address -->
+        <LinearLayout
+            android:id="@+id/right_column"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:id="@+id/status_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_status_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+            <TextView
+                android:id="@+id/status_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="Disconnected"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/speedometer_arc_color" />
+
+            <TextView
+                android:id="@+id/uploaded_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_uploaded_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+            <TextView
+                android:id="@+id/uploaded_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="0.00 B"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp"
+                android:background="@color/speedometer_arc_color" />
+
+            <TextView
+                android:id="@+id/address_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_detail_address_label"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textStyle="bold"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+            <TextView
+                android:id="@+id/address_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="0.0.0.0"
+                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:gravity="end"
+                android:textAlignment="viewEnd" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>
+

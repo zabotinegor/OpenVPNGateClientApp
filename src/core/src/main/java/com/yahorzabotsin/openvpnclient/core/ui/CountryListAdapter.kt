@@ -6,10 +6,12 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclient.core.R
+import com.yahorzabotsin.openvpnclient.core.servers.Country
+import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
 
 class CountryListAdapter(
-    private val countries: List<String>,
-    private val onClick: (String) -> Unit
+    private val countries: List<Country>,
+    private val onClick: (Country) -> Unit
 ) : RecyclerView.Adapter<CountryListAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -27,7 +29,18 @@ class CountryListAdapter(
 
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val name: TextView = itemView.findViewById(R.id.country_name)
-        fun bind(country: String) { name.text = country }
+        private val flagView: TextView = itemView.findViewById(R.id.country_flag)
+        fun bind(country: Country) {
+            name.text = country.name
+            val flag = countryFlagEmoji(country.code)
+            if (!flag.isNullOrEmpty()) {
+                flagView.text = flag
+                flagView.visibility = View.VISIBLE
+            } else {
+                flagView.text = ""
+                flagView.visibility = View.GONE
+            }
+        }
     }
 }
 

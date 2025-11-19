@@ -18,14 +18,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
+import com.yahorzabotsin.openvpnclient.core.net.IpInfo
+import com.yahorzabotsin.openvpnclient.core.net.IpInfoService
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
@@ -40,6 +44,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private val binding: ViewConnectionControlsBinding
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
+    private var selectedCountryCode: String? = null
     private var openServerList: (() -> Unit)? = null
 
     private companion object {
@@ -48,14 +53,13 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
+    private var ipInfo: IpInfo? = null
+    private var connectionDetailsListener: ConnectionDetailsListener? = null
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
-        applyServerSelectionLabel(
-            context.getString(R.string.current_country),
-            context.getString(R.string.current_city)
-        )
+        applyServerSelectionLabel(context.getString(R.string.current_country))
 
         binding.startConnectionButton.setOnClickListener {
             when (ConnectionStateManager.state.value) {
@@ -94,6 +98,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
           binding.startConnectionButton.isFocusableInTouchMode = true
           binding.startConnectionButton.requestFocus()
       }
+
+    fun setConnectionDetailsListener(listener: ConnectionDetailsListener?) {
+        connectionDetailsListener = listener
+    }
 
     private fun prepareAndStartVpn() {
         val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
@@ -155,10 +163,15 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         this.openServerList = handler
     }
 
-    fun setServer(country: String, city: String) {
-        Log.d(TAG, "Server set: $country, $city")
-        applyServerSelectionLabel(country, city)
+    fun setServer(country: String, countryCode: String? = null) {
+        Log.d(TAG, "Server set: $country")
         selectedCountry = country
+        selectedCountryCode = countryCode
+        applyServerSelectionLabel(country)
+        if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+            ipInfo = null
+            updateLocationPlaceholders()
+        }
     }
 
     fun setVpnConfig(config: String) {
@@ -170,7 +183,29 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         lifecycleOwner.lifecycleScope.launch {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
+                    updateStatusLabel(state)
                     updateButtonState(state)
+                    when (state) {
+                        ConnectionState.CONNECTED -> {
+                            lifecycleOwner.lifecycleScope.launch {
+                                val info = try {
+                                    IpInfoService.fetchPublicIpInfo()
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to fetch IP info", e)
+                                    null
+                                }
+                                if (info != null) {
+                                    ipInfo = info
+                                    updateLocationPlaceholders()
+                                }
+                            }
+                        }
+                        ConnectionState.DISCONNECTED -> {
+                            ipInfo = null
+                            updateLocationPlaceholders()
+                        }
+                        else -> Unit
+                    }
                 }
             }
         }
@@ -184,18 +219,37 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 ) { _, _, _, _ -> }
                     .collect {
                         val current = ConnectionStateManager.state.value
-                        // When connecting, reflect granular engine changes; otherwise refresh using current state
                         updateButtonState(current)
+                    }
+            }
+        }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    updateDurationTimer()
+                    delay(1000L)
+                }
+            }
+        }
+        lifecycleOwner.lifecycleScope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    ConnectionStateManager.downloadedBytes,
+                    ConnectionStateManager.uploadedBytes
+                ) { downloaded, uploaded -> downloaded to uploaded }
+                    .collect { (downloaded, uploaded) ->
+                        updateTraffic(downloaded, uploaded)
                     }
             }
         }
     }
 
-    private fun applyServerSelectionLabel(country: String, city: String) {
+    private fun applyServerSelectionLabel(country: String) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
-        val secondary = city.ifBlank { context.getString(R.string.current_city) }
-        binding.serverSelectionContainer.text = buildServerSelectionLabel(primary, secondary)
-        val description = listOf(primary, secondary)
+        val flag = countryFlagEmoji(selectedCountryCode)
+        val primaryWithFlag = if (!flag.isNullOrEmpty()) "$flag $primary" else primary
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag)
+        val description = listOf(primaryWithFlag)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -204,14 +258,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         updateServerButtonIcons()
     }
 
-    private fun buildServerSelectionLabel(country: String, city: String): CharSequence =
+    private fun buildServerSelectionLabel(country: String): CharSequence =
         buildSpannedString {
             inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
-                append(country)
-            }
-            append("\n")
-            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
-                append(city)
+                append(country.trim())
             }
         }
 
@@ -226,12 +276,71 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val chevron = ContextCompat.getDrawable(context, R.drawable.ic_baseline_chevron_right_24)?.mutate()
         globe?.let { DrawableCompat.setTint(it, tint) }
         chevron?.let { DrawableCompat.setTint(it, tint) }
+        val hasFlag = !countryFlagEmoji(selectedCountryCode).isNullOrEmpty()
         binding.serverSelectionContainer.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            globe,
+            if (hasFlag) null else globe,
             null,
             chevron,
             null
         )
+    }
+
+    private fun updateDurationTimer() {
+        val start = ConnectionStateManager.connectionStartTimeMs.value
+        val text = if (start == null) {
+            context.getString(R.string.main_duration_default)
+        } else {
+            val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
+            val hours = elapsedSec / 3600
+            val minutes = (elapsedSec % 3600) / 60
+            val seconds = elapsedSec % 60
+            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        }
+        connectionDetailsListener?.updateDuration(text)
+    }
+
+    private fun updateTraffic(downloaded: Long, uploaded: Long) {
+        val downloadedText = formatBytes(downloaded)
+        val uploadedText = formatBytes(uploaded)
+        connectionDetailsListener?.updateTraffic(downloadedText, uploadedText)
+    }
+
+    private fun formatBytes(value: Long): String {
+        val abs = value.coerceAtLeast(0L).toDouble()
+        val kb = 1024.0
+        val mb = kb * 1024.0
+        val gb = mb * 1024.0
+        val (amount, unitResId) = when {
+            abs >= gb -> abs / gb to R.string.traffic_unit_gb
+            abs >= mb -> abs / mb to R.string.traffic_unit_mb
+            abs >= kb -> abs / kb to R.string.traffic_unit_kb
+            else -> abs to R.string.traffic_unit_b
+        }
+        val unit = context.getString(unitResId)
+        val number = when {
+            amount >= 100 -> String.format(Locale.US, "%.0f", amount)
+            amount >= 10 -> String.format(Locale.US, "%.1f", amount)
+            else -> String.format(Locale.US, "%.2f", amount)
+        }
+        return "$number $unit"
+    }
+
+    private fun updateLocationPlaceholders() {
+        val info = ipInfo
+        val cityText = info?.city.orEmpty()
+        val addressText = info?.ip ?: ""
+        connectionDetailsListener?.updateCity(cityText)
+        connectionDetailsListener?.updateAddress(addressText)
+    }
+
+    private fun updateStatusLabel(state: ConnectionState) {
+        val statusRes = when (state) {
+            ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
+            ConnectionState.CONNECTING -> R.string.main_status_connecting
+            ConnectionState.CONNECTED -> R.string.main_status_connected
+            ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
+        }
+        connectionDetailsListener?.updateStatus(context.getString(statusRes))
     }
 
     private fun updateButtonState(state: ConnectionState) {
@@ -306,6 +415,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             "ADD_ROUTES" -> R.string.state_add_routes
             "CONNECTED" -> R.string.state_connected
             "DISCONNECTED" -> R.string.state_disconnected
+            "CONNECTRETRY" -> R.string.state_reconnecting
             "RECONNECTING" -> R.string.state_reconnecting
             "EXITING" -> R.string.state_exiting
             "RESOLVE" -> R.string.state_resolve
@@ -314,6 +424,14 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             else -> null
         }
         return if (resId != null) context.getString(resId) else (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    interface ConnectionDetailsListener {
+        fun updateDuration(text: String)
+        fun updateTraffic(downloaded: String, uploaded: String)
+        fun updateCity(city: String)
+        fun updateAddress(address: String)
+        fun updateStatus(text: String)
     }
 }
 

@@ -80,6 +80,28 @@
     <string name="speed_unit_mbps">MB/s</string>
     <string name="speed_unit_gbps">GB/s</string>
 
+    <!-- Section: Traffic units (total bytes) -->
+    <string name="traffic_unit_b">B</string>
+    <string name="traffic_unit_kb">KB</string>
+    <string name="traffic_unit_mb">MB</string>
+    <string name="traffic_unit_gb">GB</string>
+
+    <!-- Section: Main screen defaults / status -->
+    <string name="main_duration_default">00:00:00</string>
+    <string name="main_version_default">Wersja: -</string>
+    <string name="main_status_disconnected">Rozłączono</string>
+    <string name="main_status_connecting">Łączenie…</string>
+    <string name="main_status_connected">Połączono</string>
+    <string name="main_status_disconnecting">Rozłączanie…</string>
+
+    <!-- Section: Connection details (landscape) -->
+    <string name="connection_detail_duration_label">CZAS</string>
+    <string name="connection_detail_downloaded_label">POBRANO</string>
+    <string name="connection_detail_city_label">MIASTO</string>
+    <string name="connection_detail_status_label">STATUS</string>
+    <string name="connection_detail_uploaded_label">WYSŁANO</string>
+    <string name="connection_detail_address_label">ADRES</string>
+
     <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d sek)</string>
 </resources>

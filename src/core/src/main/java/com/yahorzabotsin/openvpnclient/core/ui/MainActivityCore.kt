@@ -7,7 +7,6 @@ import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
@@ -25,7 +24,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import kotlinx.coroutines.launch
 
-open class MainActivityCore : AppCompatActivity() {
+open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
@@ -33,7 +32,6 @@ open class MainActivityCore : AppCompatActivity() {
     private val serverRepository = ServerRepository()
     private val TAG = MainActivityCore::class.simpleName
     private var reopenDrawerAfterReturn = false
-    private var suppressNextBackPress = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
             connectionControlsView.requestPrimaryFocus()
@@ -53,6 +51,7 @@ open class MainActivityCore : AppCompatActivity() {
     private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY)
+            val countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE)
             val city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY)
             val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
 
@@ -63,13 +62,11 @@ open class MainActivityCore : AppCompatActivity() {
                 } else {
                     Log.i(TAG, "Server selected: $country, $city")
                 }
-                connectionControlsView.setServer(country, city)
+                connectionControlsView.setServer(country, countryCode)
                 connectionControlsView.setVpnConfig(config)
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }
-        } else {
-            suppressNextBackPress = true
         }
         if (!reopenDrawerAfterReturn) {
             connectionControlsView.requestPrimaryFocus()
@@ -84,7 +81,6 @@ open class MainActivityCore : AppCompatActivity() {
     private fun createDrawerReopeningLauncher() =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             binding.drawerLayout.openDrawer(GravityCompat.START)
-            suppressNextBackPress = true
         }
 
     private val dnsActivityLauncher = createDrawerReopeningLauncher()
@@ -116,17 +112,7 @@ open class MainActivityCore : AppCompatActivity() {
         toolbarView = binding.toolbar
         connectionControlsView = binding.connectionControls
 
-        val center: FrameLayout = binding.mainCenterContainer
-        if (center.childCount == 0) {
-            val margin = resources.getDimensionPixelSize(R.dimen.speedometer_margin)
-            val lp = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ).apply { setMargins(margin, 0, margin, 0) }
-            val speedometer = SpeedometerView(this, null)
-            speedometer.bindTo(this)
-            center.addView(speedometer, lp)
-        }
+        binding.connectionDetails.speedometer.bindTo(this)
 
         styleNavigationView(binding.navView)
 
@@ -140,10 +126,6 @@ open class MainActivityCore : AppCompatActivity() {
         // Close drawer on back instead of exiting app
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (suppressNextBackPress) {
-                    suppressNextBackPress = false
-                    return
-                }
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 } else {
@@ -165,6 +147,7 @@ open class MainActivityCore : AppCompatActivity() {
 
     private fun setupConnectionControls() {
         connectionControlsView.setLifecycleOwner(this)
+        connectionControlsView.setConnectionDetailsListener(this)
         connectionControlsView.setVpnPermissionRequestHandler {
             val intent = VpnService.prepare(this)
             if (intent != null) {
@@ -231,8 +214,11 @@ open class MainActivityCore : AppCompatActivity() {
     private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
             try {
-                SelectionBootstrap.ensureSelection(this@MainActivityCore, serverRepository::getServers) { country, city, config ->
-                    connectionControlsView.setServer(country, city)
+                SelectionBootstrap.ensureSelection(
+                    this@MainActivityCore,
+                    serverRepository::getServers
+                ) { country, city, config, countryCode ->
+                    connectionControlsView.setServer(country, countryCode)
                     connectionControlsView.setVpnConfig(config)
                 }
             } catch (e: Exception) {
@@ -244,4 +230,25 @@ open class MainActivityCore : AppCompatActivity() {
     protected open fun styleNavigationView(nv: NavigationView) {}
     protected open fun addDrawerExtras(drawerLayout: DrawerLayout) {}
     protected open fun afterViewsReady() {}
+
+    override fun updateDuration(text: String) {
+        binding.connectionDetails.durationValue.text = text
+    }
+
+    override fun updateTraffic(downloaded: String, uploaded: String) {
+        binding.connectionDetails.downloadedValue.text = downloaded
+        binding.connectionDetails.uploadedValue.text = uploaded
+    }
+
+    override fun updateCity(city: String) {
+        binding.connectionDetails.cityValue.text = city
+    }
+
+    override fun updateAddress(address: String) {
+        binding.connectionDetails.addressValue.text = address
+    }
+
+    override fun updateStatus(text: String) {
+        binding.connectionDetails.statusValue.text = text
+    }
 }
