@@ -3,7 +3,10 @@ package com.yahorzabotsin.openvpnclient.core.net
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class IpInfoServiceTest {
 
     @Test
@@ -48,4 +51,3 @@ class IpInfoServiceTest {
         assertNull(IpInfoService.parseIpInfoJson(invalid))
     }
 }
-
