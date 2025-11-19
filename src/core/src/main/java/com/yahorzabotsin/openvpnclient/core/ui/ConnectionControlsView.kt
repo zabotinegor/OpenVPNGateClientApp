@@ -8,7 +8,6 @@ import android.text.style.TextAppearanceSpan
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
-import android.widget.TextView
 import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -55,24 +54,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var ipInfo: IpInfo? = null
-
-    private fun durationTextView(): TextView? =
-        rootView.findViewById(R.id.duration_value)
-
-    private fun downloadedTextView(): TextView? =
-        rootView.findViewById(R.id.downloaded_value)
-
-    private fun uploadedTextView(): TextView? =
-        rootView.findViewById(R.id.uploaded_value)
-
-    private fun cityTextView(): TextView? =
-        rootView.findViewById(R.id.city_value)
-
-    private fun addressTextView(): TextView? =
-        rootView.findViewById(R.id.address_value)
-
-    private fun statusTextView(): TextView? =
-        rootView.findViewById(R.id.status_value)
+    private var connectionDetailsListener: ConnectionDetailsListener? = null
 
     init {
         binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
@@ -116,6 +98,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
           binding.startConnectionButton.isFocusableInTouchMode = true
           binding.startConnectionButton.requestFocus()
       }
+
+    fun setConnectionDetailsListener(listener: ConnectionDetailsListener?) {
+        connectionDetailsListener = listener
+    }
 
     private fun prepareAndStartVpn() {
         val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
@@ -301,21 +287,22 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private fun updateDurationTimer() {
         val start = ConnectionStateManager.connectionStartTimeMs.value
-        if (start == null) {
-            durationTextView()?.text = context.getString(R.string.main_duration_default)
-            return
+        val text = if (start == null) {
+            context.getString(R.string.main_duration_default)
+        } else {
+            val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
+            val hours = elapsedSec / 3600
+            val minutes = (elapsedSec % 3600) / 60
+            val seconds = elapsedSec % 60
+            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
         }
-        val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
-        val hours = elapsedSec / 3600
-        val minutes = (elapsedSec % 3600) / 60
-        val seconds = elapsedSec % 60
-        val formatted = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-        durationTextView()?.text = formatted
+        connectionDetailsListener?.updateDuration(text)
     }
 
     private fun updateTraffic(downloaded: Long, uploaded: Long) {
-        downloadedTextView()?.text = formatBytes(downloaded)
-        uploadedTextView()?.text = formatBytes(uploaded)
+        val downloadedText = formatBytes(downloaded)
+        val uploadedText = formatBytes(uploaded)
+        connectionDetailsListener?.updateTraffic(downloadedText, uploadedText)
     }
 
     private fun formatBytes(value: Long): String {
@@ -339,16 +326,11 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     }
 
     private fun updateLocationPlaceholders() {
-        val cityView = cityTextView()
-        val addressView = addressTextView()
         val info = ipInfo
-        if (info != null) {
-            cityView?.text = info.city.orEmpty()
-            addressView?.text = info.ip
-        } else {
-            cityView?.text = ""
-            addressView?.text = ""
-        }
+        val cityText = info?.city.orEmpty()
+        val addressText = info?.ip ?: ""
+        connectionDetailsListener?.updateCity(cityText)
+        connectionDetailsListener?.updateAddress(addressText)
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
@@ -358,7 +340,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             ConnectionState.CONNECTED -> R.string.main_status_connected
             ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
         }
-        statusTextView()?.text = context.getString(statusRes)
+        connectionDetailsListener?.updateStatus(context.getString(statusRes))
     }
 
     private fun updateButtonState(state: ConnectionState) {
@@ -442,6 +424,14 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             else -> null
         }
         return if (resId != null) context.getString(resId) else (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    interface ConnectionDetailsListener {
+        fun updateDuration(text: String)
+        fun updateTraffic(downloaded: String, uploaded: String)
+        fun updateCity(city: String)
+        fun updateAddress(address: String)
+        fun updateStatus(text: String)
     }
 }
 

@@ -24,7 +24,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import kotlinx.coroutines.launch
 
-open class MainActivityCore : AppCompatActivity() {
+open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
@@ -147,6 +147,7 @@ open class MainActivityCore : AppCompatActivity() {
 
     private fun setupConnectionControls() {
         connectionControlsView.setLifecycleOwner(this)
+        connectionControlsView.setConnectionDetailsListener(this)
         connectionControlsView.setVpnPermissionRequestHandler {
             val intent = VpnService.prepare(this)
             if (intent != null) {
@@ -229,4 +230,25 @@ open class MainActivityCore : AppCompatActivity() {
     protected open fun styleNavigationView(nv: NavigationView) {}
     protected open fun addDrawerExtras(drawerLayout: DrawerLayout) {}
     protected open fun afterViewsReady() {}
+
+    override fun updateDuration(text: String) {
+        binding.connectionDetails.durationValue.text = text
+    }
+
+    override fun updateTraffic(downloaded: String, uploaded: String) {
+        binding.connectionDetails.downloadedValue.text = downloaded
+        binding.connectionDetails.uploadedValue.text = uploaded
+    }
+
+    override fun updateCity(city: String) {
+        binding.connectionDetails.cityValue.text = city
+    }
+
+    override fun updateAddress(address: String) {
+        binding.connectionDetails.addressValue.text = address
+    }
+
+    override fun updateStatus(text: String) {
+        binding.connectionDetails.statusValue.text = text
+    }
 }
