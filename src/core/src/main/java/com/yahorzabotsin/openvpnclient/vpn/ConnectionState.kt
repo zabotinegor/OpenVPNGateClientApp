@@ -46,7 +46,7 @@ object ConnectionStateManager {
         if (current == newState) return
 
         val allowed = when (current) {
-            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING)
+            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
             ConnectionState.CONNECTING -> setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
             ConnectionState.CONNECTED -> setOf(ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
             ConnectionState.DISCONNECTING -> setOf(ConnectionState.DISCONNECTED)
@@ -121,5 +121,12 @@ object ConnectionStateManager {
     fun updateTraffic(inBytes: Long, outBytes: Long) {
         _downloadedBytes.value = inBytes.coerceAtLeast(0L)
         _uploadedBytes.value = outBytes.coerceAtLeast(0L)
+    }
+
+    @MainThread
+    fun restoreConnectionStartIfEmpty(startTimeMs: Long) {
+        if (_connectionStartTimeMs.value == null && startTimeMs > 0L) {
+            _connectionStartTimeMs.value = startTimeMs
+        }
     }
 }

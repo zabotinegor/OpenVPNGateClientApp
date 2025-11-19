@@ -112,4 +112,15 @@ object SelectedCountryStore {
         Log.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
         return if (cfg.isNullOrBlank()) null else (country to cfg)
     }
+
+    fun ensureIndexForConfig(ctx: Context, config: String?) {
+        if (config.isNullOrBlank()) return
+        val list = getServers(ctx)
+        if (list.isEmpty()) return
+        val current = getIndex(ctx)
+        if (current in list.indices && list[current].config == config) return
+        val found = list.indexOfFirst { it.config == config }
+        val newIndex = if (found >= 0) found else 0
+        setIndex(ctx, newIndex)
+    }
 }

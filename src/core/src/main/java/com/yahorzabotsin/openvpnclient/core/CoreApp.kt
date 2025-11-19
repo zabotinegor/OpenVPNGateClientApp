@@ -3,9 +3,11 @@ package com.yahorzabotsin.openvpnclient.core
 import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver
+import com.yahorzabotsin.openvpnclient.vpn.OpenVpnService
 
 class CoreApp : Application() {
     override fun onCreate() {
@@ -18,6 +20,7 @@ class CoreApp : Application() {
             } else {
                 registerReceiver(EngineStatusReceiver(), filter, permission, null)
             }
+            startService(Intent(this, OpenVpnService::class.java))
         }
     }
 
