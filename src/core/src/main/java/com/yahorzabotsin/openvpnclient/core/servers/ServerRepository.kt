@@ -66,7 +66,7 @@ class ServerRepository(
                 Server(
                     name = values[0],
                     city = "",
-                    country = Country(values[5]),
+                    country = Country(values[5], values.getOrNull(6)),
                     ping = values[3].toIntOrNull() ?: 0,
                     signalStrength = SignalStrength.STRONG,
                     ip = values[1],

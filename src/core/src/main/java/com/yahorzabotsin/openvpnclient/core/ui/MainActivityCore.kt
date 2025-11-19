@@ -52,6 +52,7 @@ open class MainActivityCore : AppCompatActivity() {
     private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY)
+            val countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE)
             val city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY)
             val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
 
@@ -62,7 +63,7 @@ open class MainActivityCore : AppCompatActivity() {
                 } else {
                     Log.i(TAG, "Server selected: $country, $city")
                 }
-                connectionControlsView.setServer(country, city)
+                connectionControlsView.setServer(country, city, countryCode)
                 connectionControlsView.setVpnConfig(config)
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
@@ -220,8 +221,11 @@ open class MainActivityCore : AppCompatActivity() {
     private fun loadSelectedCountryOrDefault() {
         lifecycleScope.launch {
             try {
-                SelectionBootstrap.ensureSelection(this@MainActivityCore, serverRepository::getServers) { country, city, config ->
-                    connectionControlsView.setServer(country, city)
+                SelectionBootstrap.ensureSelection(
+                    this@MainActivityCore,
+                    serverRepository::getServers
+                ) { country, city, config, countryCode ->
+                    connectionControlsView.setServer(country, city, countryCode)
                     connectionControlsView.setVpnConfig(config)
                 }
             } catch (e: Exception) {

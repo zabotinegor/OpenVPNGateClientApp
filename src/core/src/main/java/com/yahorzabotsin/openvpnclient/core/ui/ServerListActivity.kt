@@ -15,6 +15,7 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentServerListBinding
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.core.servers.Country
 import kotlinx.coroutines.launch
 import android.widget.Toast
 
@@ -26,7 +27,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentServerListBinding
     private val TAG = ServerListActivity::class.simpleName
 
-    private var countries: List<String> = emptyList()
+    private var countries: List<ServerCountry> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,21 +46,30 @@ open class ServerListActivity : AppCompatActivity() {
             try {
                 servers = serverRepository.getServers()
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
-                countries = servers.map { it.country.name }.distinct().sorted()
-                contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { country ->
-                    Log.d(TAG, "Country selected: $country")
-                    val countryServers = servers.filter { it.country.name == country }
+                countries = servers
+                    .map { it.country }
+                    .distinctBy { it.name }
+                    .map { ServerCountry(it.name, it.code) }
+                    .sortedBy { it.name }
+                contentBinding.serversRecyclerView.adapter = CountryListAdapter(
+                    countries.map { Country(it.name, it.code) }
+                ) { selected ->
+                    val countryName = selected.name
+                    val countryCode = selected.code
+                    Log.d(TAG, "Country selected: $countryName")
+                    val countryServers = servers.filter { it.country.name == countryName }
                     if (countryServers.isNotEmpty()) {
-                        SelectedCountryStore.saveSelection(this@ServerListActivity, country, countryServers)
+                        SelectedCountryStore.saveSelection(this@ServerListActivity, countryName, countryServers)
                         val first = countryServers.first()
                         val resultIntent = Intent().apply {
-                            putExtra(EXTRA_SELECTED_SERVER_COUNTRY, country)
+                            putExtra(EXTRA_SELECTED_SERVER_COUNTRY, countryName)
+                            putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
                             putExtra(EXTRA_SELECTED_SERVER_CITY, first.city)
                             putExtra(EXTRA_SELECTED_SERVER_CONFIG, first.configData)
                         }
                         setResult(Activity.RESULT_OK, resultIntent)
                     } else {
-                        Log.w(TAG, "No servers found for selected country: $country")
+                        Log.w(TAG, "No servers found for selected country: $countryName")
                         Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
                         setResult(Activity.RESULT_CANCELED)
                     }
@@ -96,7 +106,10 @@ open class ServerListActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
+        const val EXTRA_SELECTED_SERVER_COUNTRY_CODE = "EXTRA_SELECTED_SERVER_COUNTRY_CODE"
         const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"
         const val EXTRA_SELECTED_SERVER_CONFIG = "EXTRA_SELECTED_SERVER_CONFIG"
     }
 }
+
+private data class ServerCountry(val name: String, val code: String?)

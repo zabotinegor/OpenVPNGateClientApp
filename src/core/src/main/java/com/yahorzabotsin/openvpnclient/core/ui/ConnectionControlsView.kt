@@ -30,6 +30,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
@@ -44,6 +45,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private val binding: ViewConnectionControlsBinding
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
+    private var selectedCountryCode: String? = null
     private var openServerList: (() -> Unit)? = null
 
     private companion object {
@@ -178,10 +180,11 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         this.openServerList = handler
     }
 
-    fun setServer(country: String, city: String) {
+    fun setServer(country: String, city: String, countryCode: String? = null) {
         Log.d(TAG, "Server set: $country, $city")
-        applyServerSelectionLabel(country, city)
         selectedCountry = country
+        selectedCountryCode = countryCode
+        applyServerSelectionLabel(country, city)
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
             ipInfo = null
             updateLocationPlaceholders()
@@ -261,8 +264,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private fun applyServerSelectionLabel(country: String, city: String) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
         val secondary = city.ifBlank { context.getString(R.string.current_city) }
-        binding.serverSelectionContainer.text = buildServerSelectionLabel(primary, secondary)
-        val description = listOf(primary)
+        val flag = countryFlagEmoji(selectedCountryCode)
+        val primaryWithFlag = if (!flag.isNullOrEmpty()) "$flag $primary" else primary
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag, secondary)
+        val description = listOf(primaryWithFlag)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -289,8 +294,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         val chevron = ContextCompat.getDrawable(context, R.drawable.ic_baseline_chevron_right_24)?.mutate()
         globe?.let { DrawableCompat.setTint(it, tint) }
         chevron?.let { DrawableCompat.setTint(it, tint) }
+        val hasFlag = !countryFlagEmoji(selectedCountryCode).isNullOrEmpty()
         binding.serverSelectionContainer.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            globe,
+            if (hasFlag) null else globe,
             null,
             chevron,
             null

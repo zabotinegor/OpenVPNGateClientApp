@@ -25,7 +25,7 @@ class SelectionBootstrapTest {
         var appliedConfig = ""
 
         runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { c, city, conf ->
+            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { c, city, conf, _ ->
                 appliedCountry = c; appliedCity = city; appliedConfig = conf
             }
         }
@@ -51,7 +51,7 @@ class SelectionBootstrapTest {
         var appliedConfig = ""
 
         runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { servers }) { c, city, conf ->
+            SelectionBootstrap.ensureSelection(ctx, { servers }) { c, city, conf, _ ->
                 appliedCountry = c; appliedCity = city; appliedConfig = conf
             }
         }
