@@ -8,10 +8,12 @@ import android.content.IntentFilter
 import android.os.Build
 import com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver
 import com.yahorzabotsin.openvpnclient.vpn.OpenVpnService
+import de.blinkt.openvpn.core.GlobalPreferences
 
 class CoreApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        GlobalPreferences.setInstance(false, false)
         if (isMainProcess()) {
             val filter = IntentFilter("de.blinkt.openvpn.VPN_STATUS")
             val permission = "$packageName.permission.VPN_STATUS"
