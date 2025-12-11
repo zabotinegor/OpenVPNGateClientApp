@@ -1,9 +1,9 @@
-# This is the central version catalog for the entire OpenVPNClientApp project.
+# This is the central version catalog for the entire OpenVPNGateClient project.
 # It contains dependencies for your app and for the OpenVPNEngine module.
 
 [versions]
 # Core App versions
-agp = "8.13.1"
+agp = "8.13.2"
 kotlin = "2.0.21"
 coreKtx = "1.17.0"
 junit = "4.13.2"

@@ -2,15 +2,15 @@ package com.yahorzabotsin.openvpnclient.core.about
 
 object AboutMeta {
     // Centralized app links and contacts. Update in one place.
-    const val WEBSITE = "" // plan to add site later
+    const val WEBSITE = "https://openvpngateclient.azurewebsites.net"
     const val EMAIL = "openvpngateclient@gmail.com"
     const val TELEGRAM = "" // no channel yet
-    const val GITHUB = "https://github.com/zabotinegor/OpenVPNClientApp"
+    const val GITHUB = "https://github.com/zabotinegor/OpenVPNGateClient"
     const val GITHUB_ENGINE = "https://github.com/zabotinegor/OpenVPNEngine"
     const val ICS_OPENVPN_GITHUB = "https://github.com/schwabe/ics-openvpn"
-    const val GOOGLE_PLAY = "" // not published yet
-    const val PRIVACY_POLICY = "" // to be added later
-    const val TERMS_OF_USE = "" // optional; to be added later
+    const val GOOGLE_PLAY = "" // to be set after publishing
+    const val PRIVACY_POLICY = "https://openvpngateclient.azurewebsites.net/privacy-policy"
+    const val TERMS_OF_USE = "https://github.com/zabotinegor/OpenVPNGateClient/blob/main/TERMS.md"
     const val COPYRIGHT_OWNER = "Yahor Zabotsin"
 
     // Open-source acknowledgments

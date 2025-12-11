@@ -6,7 +6,7 @@ plugins {
 }
 
 val basePackageName by extra("com.yahorzabotsin.openvpnclient")
-val appName by extra("Open VPN Gate Client")
+val appName by extra("Client for OpenVPN Gate")
 
 // Show test results in console across all subprojects
 subprojects {
