@@ -203,7 +203,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           artifacts: |
-            output/OpenVPNClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
             output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.aab
             output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.apk
             output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.aab

@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -96,7 +97,7 @@ jobs:
           V=${{ steps.versioning.outputs.version }}
           mkdir -p output
           APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
           AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
           mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
           APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)

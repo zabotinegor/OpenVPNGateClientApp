@@ -38,6 +38,7 @@ android {
         targetSdk = 36
         versionCode = (project.findProperty("appVersionCode") as String? ?: "1").toInt()
         versionName = project.findProperty("appVersionName") as String? ?: "1.0"
+        missingDimensionStrategy("version", "full")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -66,6 +67,11 @@ android {
     }
     lint {
         checkReleaseBuilds = false
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
