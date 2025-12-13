@@ -23,8 +23,6 @@ import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
-import com.yahorzabotsin.openvpnclient.core.net.IpInfo
-import com.yahorzabotsin.openvpnclient.core.net.IpInfoService
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
@@ -53,7 +51,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
-    private var ipInfo: IpInfo? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
 
     init {
@@ -169,7 +166,6 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         selectedCountryCode = countryCode
         applyServerSelectionLabel(country)
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
-            ipInfo = null
             updateLocationPlaceholders()
         }
     }
@@ -185,26 +181,8 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 ConnectionStateManager.state.collect { state ->
                     updateStatusLabel(state)
                     updateButtonState(state)
-                    when (state) {
-                        ConnectionState.CONNECTED -> {
-                            lifecycleOwner.lifecycleScope.launch {
-                                val info = try {
-                                    IpInfoService.fetchPublicIpInfo()
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Failed to fetch IP info", e)
-                                    null
-                                }
-                                if (info != null) {
-                                    ipInfo = info
-                                    updateLocationPlaceholders()
-                                }
-                            }
-                        }
-                        ConnectionState.DISCONNECTED -> {
-                            ipInfo = null
-                            updateLocationPlaceholders()
-                        }
-                        else -> Unit
+                    if (state == ConnectionState.DISCONNECTED) {
+                        updateLocationPlaceholders()
                     }
                 }
             }
@@ -326,11 +304,8 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     }
 
     private fun updateLocationPlaceholders() {
-        val info = ipInfo
-        val cityText = info?.city.orEmpty()
-        val addressText = info?.ip ?: ""
-        connectionDetailsListener?.updateCity(cityText)
-        connectionDetailsListener?.updateAddress(addressText)
+        connectionDetailsListener?.updateCity("")
+        connectionDetailsListener?.updateAddress("")
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
@@ -434,5 +409,4 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         fun updateStatus(text: String)
     }
 }
-
 
