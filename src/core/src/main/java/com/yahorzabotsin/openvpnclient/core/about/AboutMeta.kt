@@ -10,7 +10,7 @@ object AboutMeta {
     const val ICS_OPENVPN_GITHUB = "https://github.com/schwabe/ics-openvpn"
     const val GOOGLE_PLAY = "" // to be set after publishing
     const val PRIVACY_POLICY = "https://openvpngateclient.azurewebsites.net/privacy-policy"
-    const val TERMS_OF_USE = "https://github.com/zabotinegor/OpenVPNGateClient/blob/main/TERMS.md"
+    const val TERMS_OF_USE = "https://openvpngateclient.azurewebsites.net/terms-of-use"
     const val COPYRIGHT_OWNER = "Yahor Zabotsin"
 
     // Open-source acknowledgments

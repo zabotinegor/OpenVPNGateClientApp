@@ -4,7 +4,7 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 
 - Homepage: https://openvpngateclient.azurewebsites.net
 - Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy (copy in [PRIVACY_POLICY.md](PRIVACY_POLICY.md))
-- Terms of Use / Disclaimer: [TERMS.md](TERMS.md)
+- Terms of Use / Disclaimer: https://openvpngateclient.azurewebsites.net/terms-of-use (copy in [TERMS.md](TERMS.md))
 - Google Play: internal testing planned (AAB builds ready; link will appear after publish)
 - License: [GPL-2.0-only](LICENSE)
 

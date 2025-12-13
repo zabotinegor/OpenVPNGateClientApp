@@ -1,6 +1,9 @@
 # Terms of Use — Client for OpenVPN Gate
 
-_Last updated: 2025-12-01_
+_Last updated: 2025-12-01_  
+Canonical version: https://openvpngateclient.azurewebsites.net/terms-of-use
+
+> This file mirrors the canonical Terms published on the project site.
 
 These Terms govern your use of the **Client for OpenVPN Gate** (“Application”). By installing or using the Application, you agree to these Terms. If you do not agree, do not use the Application.
 
