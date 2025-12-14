@@ -10,11 +10,10 @@ tasks.register("copyAndRenameDrawables") {
         val sourceDir = sourceDirs.firstOrNull { it.exists() }
 
         if (sourceDir == null) {
-            println(
-                "Source media directory not found. Make sure submodule 'media' is checked out:\n" +
+            throw GradleException(
+                "Source media directory not found. Ensure 'media' submodule is cloned:\n" +
                         "  git submodule update --init --recursive"
             )
-            return@doLast
         }
 
         // Map destination -> list of candidate source filenames (first existing is used)
