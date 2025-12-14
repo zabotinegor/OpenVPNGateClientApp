@@ -1,4 +1,7 @@
 [submodule "src/external/OpenVPNEngine"]
 	path = src/external/OpenVPNEngine
-	url = https://github.com/zabotinegor/OpenVPNGateEngine.git
+	url = https://github.com/zabotinegor/OpenVPNGateClientEngine.git
 	branch = OpenVPNClientApp-integration
+[submodule "media"]
+	path = media
+	url = https://github.com/zabotinegor/OpenVPNGateClientMedia.git

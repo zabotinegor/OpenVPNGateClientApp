@@ -18,6 +18,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -59,9 +63,23 @@ jobs:
             -PappVersionCode="${{ github.run_number }}"
         working-directory: ./src
 
+      - name: Build Mobile App Bundle (AAB)
+        run: |
+          ./gradlew :mobile:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
       - name: Build TV APK
         run: |
           ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
+      - name: Build TV App Bundle (AAB)
+        run: |
+          ./gradlew :tv:bundleRelease \
             -PappVersionName="${{ steps.versioning.outputs.version }}" \
             -PappVersionCode="${{ github.run_number }}"
         working-directory: ./src
@@ -72,16 +90,22 @@ jobs:
           V=${{ steps.versioning.outputs.version }}
           mkdir -p output
           APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNClient_Phone_${V}.apk
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
           APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNClient_TV_${V}.apk
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
 
       - name: Publish Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNClient_Phone_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNClient_TV_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
