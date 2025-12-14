@@ -25,6 +25,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          token: ${{ secrets.GH_PAT }}
 
       - name: Install swig
         run: |
@@ -98,4 +99,3 @@ jobs:
       - name: Build Debug APKs (mobile+tv)
         run: ./gradlew :mobile:assembleDebug :tv:assembleDebug --stacktrace
         working-directory: ./src
-
