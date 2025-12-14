@@ -10,6 +10,16 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - Google Play: internal testing planned (AAB builds ready; link will appear after publish)
 - License: [GPL-2.0-only](LICENSE)
 
+## Media assets (icons/banners/screenshots)
+- Media is stored in a private submodule (`media`, repo: OpenVPNGateClientMedia). Fetch it before building:
+  ```bash
+  git submodule update --init --recursive
+  ```
+- Gradle task `copyAndRenameDrawables` (applied to `mobile` and `tv`) copies assets from `media/Logos` into module resources:
+  - `appicon.png` → `src/main/res/drawable/appicon.png`
+  - `logo_with_text_1536x1024.png` → `src/main/res/drawable-nodpi/banner.png`
+  The build fails if these files are missing.
+
 ## Features
 - OpenVPN-based client with the `ics-openvpn` engine (bundled as the `openVpnEngine` submodule)
 - Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed
