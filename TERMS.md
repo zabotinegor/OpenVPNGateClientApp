@@ -38,4 +38,4 @@ These Terms govern your use of the **Client for OpenVPN Gate** (â€œApplicationâ€
 ## 8. Contact
 - Email: openvpngateclient@gmail.com  
 - Homepage: https://openvpngateclient.azurewebsites.net  
-- Repository: https://github.com/zabotinegor/OpenVPNGateClient
+- Repository: https://github.com/zabotinegor/OpenVPNGateClientApp

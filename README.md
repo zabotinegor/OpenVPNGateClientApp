@@ -3,6 +3,8 @@
 Open-source Android client for connecting to the public VPN Gate network. The app is built on top of the `ics-openvpn` engine (GPLv2) and ships mobile and TV variants that share a common core UI/logic module.
 
 - Homepage: https://openvpngateclient.azurewebsites.net
+- GitHub (app): https://github.com/zabotinegor/OpenVPNGateClientApp
+- GitHub (engine submodule): https://github.com/zabotinegor/OpenVPNGateClientEngine
 - Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy (copy in [PRIVACY_POLICY.md](PRIVACY_POLICY.md))
 - Terms of Use / Disclaimer: https://openvpngateclient.azurewebsites.net/terms-of-use (copy in [TERMS.md](TERMS.md))
 - Google Play: internal testing planned (AAB builds ready; link will appear after publish)

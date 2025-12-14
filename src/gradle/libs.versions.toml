@@ -1,4 +1,4 @@
-# This is the central version catalog for the entire OpenVPNGateClient project.
+# This is the central version catalog for the entire OpenVPNGateClientApp project.
 # It contains dependencies for your app and for the OpenVPNEngine module.
 
 [versions]
