@@ -104,4 +104,20 @@
 
     <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d sek)</string>
+    <!-- Section: Settings -->
+    <string name="settings_language_title">Język</string>
+    <string name="settings_language_system">Język systemu</string>
+    <string name="settings_language_english">Angielski</string>
+    <string name="settings_language_russian">Rosyjski</string>
+    <string name="settings_language_polish">Polski</string>
+    <string name="settings_theme_title">Motyw</string>
+    <string name="settings_theme_system">Motyw systemu</string>
+    <string name="settings_theme_light">Jasny</string>
+    <string name="settings_theme_dark">Ciemny</string>
+    <string name="settings_server_title">Źródło listy serwerów</string>
+    <string name="settings_server_subtitle">Wybierz skąd pobierać listę serwerów.</string>
+    <string name="settings_server_default">OpenVPN Gate (domyślnie)</string>
+    <string name="settings_server_vpngate">VPNGate (API iPhone)</string>
+    <string name="settings_server_custom">Własny serwer (wpisz URL niżej)</string>
+    <string name="settings_server_custom_hint">https://twoj-serwer.example/api</string>
 </resources>
