@@ -15,12 +15,12 @@ The Application collects information when you download and use it. This informat
 - The time spent on the Application
 - The operating system you use on your mobile device
 
-The Application does not gather precise information about the location of your mobile device.
+The Application does not collect precise GPS coordinates of your mobile device.
 
-The Application collects your device's location, which helps the Service Provider determine your approximate geographical location and make use of in below ways:
-- **Geolocation Services:** The Service Provider utilizes location data to provide features such as personalized content, relevant recommendations, and location-based services.
-- **Analytics and Improvements:** Aggregated and anonymized location data helps the Service Provider to analyze user behavior, identify trends, and improve the overall performance and functionality of the Application.
-- **Third-Party Services:** Periodically, the Service Provider may transmit anonymized location data to external services. These services assist them in enhancing the Application and optimizing their offerings.
+The Application may derive your **approximate** location from your public IP address (country/region only). No GPS or coarse/fine location sensors are used. Approximate IP-based location is used in the following ways:
+- **Geolocation Services:** To provide basic country-level content and recommendations.
+- **Analytics and Improvements:** Aggregated and anonymized, to analyze trends and improve performance.
+- **Third-Party Services:** Anonymized IP-based location may be sent to external services to enhance the Application and optimize offerings.
 
 ## VPN Service and BIND_VPN_SERVICE Permission
 The Application uses Android's VPNService (which requires the BIND_VPN_SERVICE permission) solely to create a secure VPN tunnel to the OpenVPN Gate servers that you explicitly choose. Traffic is routed through the VPN tunnel only while you are connected, and the Application does not inspect, store, or sell your traffic; packets are forwarded only to maintain the VPN session.
