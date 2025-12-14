@@ -84,7 +84,6 @@ GitHub Actions workflows are located in `.github/workflows` and build signed rel
 
 ## Data and Privacy
 - Server list: fetched from the configured primary endpoint with fallback to VPN Gate.
-- Public IP info: fetched from `https://ipinfo.io/json` to display IP and city.
 - Local storage: selected servers and last connection metadata are kept in shared preferences on the device.
 - No analytics or advertising SDKs are included. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for details.
 
