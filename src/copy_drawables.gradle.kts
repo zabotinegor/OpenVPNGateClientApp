@@ -51,7 +51,7 @@ tasks.register("copyAndRenameDrawables") {
 
         if (missing) {
             throw GradleException(
-                "Required media files are missing. Ensure the 'media' submodule is cloned and contains appicon.png and logo_with_text_1536x1024.png"
+                "Required media files are missing. Ensure the 'media' submodule is cloned and contains appicon_GP_512x512.png (or appicon.png) and appbanner_GP_1280x720.png (or appdesc_GP_1024x500.png/logo_with_text_1536x1024.png)."
             )
         }
     }
