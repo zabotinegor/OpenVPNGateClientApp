@@ -114,8 +114,8 @@
     <string name="settings_theme_dark">Тёмная</string>
     <string name="settings_server_title">Источник списка серверов</string>
     <string name="settings_server_subtitle">Выберите, откуда загружать список серверов.</string>
-    <string name="settings_server_default">OpenVPN Gate (по умолчанию)</string>
-    <string name="settings_server_vpngate">VPNGate (API для iPhone)</string>
-    <string name="settings_server_custom">Свой сервер (введите URL ниже)</string>
+    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_vpngate">VPN Gate</string>
+    <string name="settings_server_custom">Свой сервер (введите url)</string>
     <string name="settings_server_custom_hint">https://ваш-сервер.example/api</string>
 </resources>

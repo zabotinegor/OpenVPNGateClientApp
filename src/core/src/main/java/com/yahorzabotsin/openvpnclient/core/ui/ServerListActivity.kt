@@ -44,7 +44,7 @@ open class ServerListActivity : AppCompatActivity() {
         lifecycleScope.launch {
             setLoadingState(true)
             try {
-                servers = serverRepository.getServers()
+                servers = serverRepository.getServers(this@ServerListActivity)
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
                 countries = servers
                     .map { it.country }

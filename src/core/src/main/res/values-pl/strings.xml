@@ -116,8 +116,8 @@
     <string name="settings_theme_dark">Ciemny</string>
     <string name="settings_server_title">Źródło listy serwerów</string>
     <string name="settings_server_subtitle">Wybierz skąd pobierać listę serwerów.</string>
-    <string name="settings_server_default">OpenVPN Gate (domyślnie)</string>
-    <string name="settings_server_vpngate">VPNGate (API iPhone)</string>
-    <string name="settings_server_custom">Własny serwer (wpisz URL niżej)</string>
+    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_vpngate">VPN Gate</string>
+    <string name="settings_server_custom">Własny serwer (wpisz url niżej)</string>
     <string name="settings_server_custom_hint">https://twoj-serwer.example/api</string>
 </resources>

@@ -232,7 +232,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             try {
                 SelectionBootstrap.ensureSelection(
                     this@MainActivityCore,
-                    serverRepository::getServers
+                    { serverRepository.getServers(this@MainActivityCore) }
                 ) { country, city, config, countryCode ->
                     connectionControlsView.setServer(country, countryCode)
                     connectionControlsView.setVpnConfig(config)

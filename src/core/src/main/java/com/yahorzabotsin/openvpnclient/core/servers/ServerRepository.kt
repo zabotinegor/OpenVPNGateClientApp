@@ -1,7 +1,8 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
+import android.content.Context
 import android.util.Log
-import com.yahorzabotsin.openvpnclient.core.ApiConstants
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
@@ -18,7 +19,8 @@ interface VpnServersApi {
 }
 
 class ServerRepository(
-    private val api: VpnServersApi = createDefaultApi()
+    private val api: VpnServersApi = createDefaultApi(),
+    private val settingsStore: UserSettingsStore = UserSettingsStore
 ) {
 
     private companion object {
@@ -40,25 +42,28 @@ class ServerRepository(
         }
     }
 
-    suspend fun getServers(): List<Server> {
-        val primaryUrl = ApiConstants.PRIMARY_SERVERS_URL
-        val fallbackUrl = ApiConstants.FALLBACK_SERVERS_URL
+    suspend fun getServers(context: Context): List<Server> {
+        val settings = settingsStore.load(context)
+        val urls = settingsStore.resolveServerUrls(settings)
+        require(urls.isNotEmpty()) { "No server URLs configured" }
 
-        val response = try {
-            Log.d(TAG, "Requesting servers from PRIMARY: $primaryUrl")
-            api.getServers(primaryUrl)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            when (e) {
-                is IOException, is HttpException -> {
-                    Log.w(TAG, "Primary servers endpoint failed, falling back to VPNGate: $fallbackUrl", e)
-                    api.getServers(fallbackUrl)
-                }
-                else -> throw e
+        var lastError: Exception? = null
+        var response: String? = null
+        for ((index, url) in urls.withIndex()) {
+            try {
+                Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}: $url")
+                response = api.getServers(url)
+                break
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                lastError = e
+                Log.w(TAG, "Server request failed for $url", e)
             }
         }
 
-        return response.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
+        val body = response ?: throw (lastError ?: IOException("No server response"))
+
+        return body.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
             val values = line.split(",")
             if (values.size < 15) {
                 null
