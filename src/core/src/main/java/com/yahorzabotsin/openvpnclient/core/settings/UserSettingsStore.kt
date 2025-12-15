@@ -56,19 +56,19 @@ object UserSettingsStore {
     }
 
     fun saveLanguage(ctx: Context, language: LanguageOption) =
-        save(ctx, load(ctx).copy(language = language))
+        prefs(ctx).edit().putString(KEY_LANGUAGE, language.name).apply()
 
     fun saveTheme(ctx: Context, theme: ThemeOption) =
-        save(ctx, load(ctx).copy(theme = theme))
+        prefs(ctx).edit().putString(KEY_THEME, theme.name).apply()
 
     fun saveServerSource(ctx: Context, source: ServerSource) =
-        save(ctx, load(ctx).copy(serverSource = source))
+        prefs(ctx).edit().putString(KEY_SERVER_SOURCE, source.name).apply()
 
     fun saveCustomServerUrl(ctx: Context, url: String) =
-        save(ctx, load(ctx).copy(customServerUrl = url))
+        prefs(ctx).edit().putString(KEY_CUSTOM_SERVER_URL, url).apply()
 
     fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =
-        save(ctx, load(ctx).copy(cacheTtlMs = ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)))
+        prefs(ctx).edit().putLong(KEY_CACHE_TTL_MS, ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)).apply()
 
     fun applyThemeAndLocale(ctx: Context) {
         val settings = load(ctx)
