@@ -5,6 +5,8 @@ import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -13,6 +15,9 @@ import retrofit2.http.GET
 import retrofit2.http.Url
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import android.content.SharedPreferences
+import android.content.Context.MODE_PRIVATE
+import java.security.MessageDigest
 
 interface VpnServersApi {
     @GET
@@ -26,6 +31,10 @@ class ServerRepository(
 
     private companion object {
         private const val TAG = "ServerRepository"
+        private const val CACHE_PREFS = "server_cache"
+        private const val KEY_PREFIX_DATA = "data_"
+        private const val KEY_PREFIX_TS = "ts_"
+        private const val CACHE_TTL_MS = 20 * 60 * 1000L // 20 minutes
 
         private fun createDefaultApi(): VpnServersApi {
             val okHttpClient = OkHttpClient.Builder()
@@ -41,6 +50,30 @@ class ServerRepository(
 
             return retrofit.create(VpnServersApi::class.java)
         }
+
+        private fun cachePrefs(ctx: Context): SharedPreferences =
+            ctx.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+
+        private fun cacheKey(urls: List<String>): String {
+            val joined = urls.joinToString("|")
+            val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
+            return digest.joinToString("") { "%02x".format(it) }
+        }
+
+        private fun readCache(ctx: Context, key: String): Pair<String, Long>? {
+            val prefs = cachePrefs(ctx)
+            val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
+            if (ts <= 0) return null
+            val data = prefs.getString(KEY_PREFIX_DATA + key, null) ?: return null
+            return data to ts
+        }
+
+        private fun writeCache(ctx: Context, key: String, body: String) {
+            cachePrefs(ctx).edit()
+                .putString(KEY_PREFIX_DATA + key, body)
+                .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
+                .apply()
+        }
     }
 
     suspend fun getServers(context: Context): List<Server> {
@@ -48,35 +81,56 @@ class ServerRepository(
         val urls = settingsStore.resolveServerUrls(settings)
         require(urls.isNotEmpty()) { "No server URLs configured" }
 
-        Log.i(TAG, "Server fetch start. Source=${settings.serverSource}, urls_count=${urls.size}")
+        val cacheKey = cacheKey(urls)
+        val cached = readCache(context, cacheKey)
+        val now = System.currentTimeMillis()
+        val cachedFresh = cached?.let { (body, ts) -> if (now - ts <= CACHE_TTL_MS) body else null }
+
+        if (cachedFresh != null) {
+            Log.i(TAG, "Using cached servers (fresh). age=${now - cached.second} ms")
+            return parseServers(cachedFresh)
+        }
+
+        Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}")
 
         var lastError: Exception? = null
         var response: String? = null
         var usedIndex = -1
         for ((index, url) in urls.withIndex()) {
             try {
-                Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}: $url")
+                Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}")
                 response = api.getServers(url)
                 usedIndex = index
                 break
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 lastError = e
-                Log.w(TAG, "Server request failed for $url", e)
+                Log.w(TAG, "Server request failed (index=$index)", e)
             }
         }
 
-        val body = response ?: throw (lastError ?: IOException("No server response"))
+        if (response != null) {
+            writeCache(context, cacheKey, response)
+            Log.d(TAG, "Server response cached. body_size=${response.length}, cache_key=${cacheKey.take(8)}")
+        }
 
-        // If default source failed and we successfully used the fallback, persist the choice.
+        val body = response ?: cached?.first ?: throw (lastError ?: IOException("No server response"))
+        if (response == null && cached != null) {
+            Log.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
+        }
+
         if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
             settingsStore.saveServerSource(context, ServerSource.VPNGATE)
             Log.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
-        } else {
+        } else if (usedIndex >= 0) {
             Log.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
         }
 
-        return body.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
+        return parseServers(body)
+    }
+
+    private suspend fun parseServers(body: String): List<Server> = withContext(Dispatchers.Default) {
+        body.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
             val values = line.split(",")
             if (values.size < 15) {
                 null
