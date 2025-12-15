@@ -37,7 +37,6 @@ class ServerRepository(
         private const val CACHE_PREFS = "server_cache"
         private const val KEY_PREFIX_DATA = "data_"
         private const val KEY_PREFIX_TS = "ts_"
-        private const val CACHE_TTL_MS = 20 * 60 * 1000L // 20 minutes
         private val gson = Gson()
         private val serversListType = object : TypeToken<List<Server>>() {}.type
 
