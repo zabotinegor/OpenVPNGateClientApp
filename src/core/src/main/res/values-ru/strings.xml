@@ -19,6 +19,7 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>
     <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
+    <string name="action_refresh">Обновить</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>

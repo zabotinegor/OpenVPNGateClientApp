@@ -19,6 +19,7 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Lista serwerów</string>
     <string name="server_list_subtitle">Jeśli występują problemy z połączeniem, wybierz inny serwer.</string>
+    <string name="action_refresh">Odśwież</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Wystąpił błąd</string>

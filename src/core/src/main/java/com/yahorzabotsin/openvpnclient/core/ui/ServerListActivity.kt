@@ -40,11 +40,37 @@ open class ServerListActivity : AppCompatActivity() {
 
         setupToolbarAndBackButton()
         setupRecyclerView()
+        contentBinding.refreshFab.setOnClickListener { loadServers(forceRefresh = true) }
 
+        loadServers(forceRefresh = false)
+    }
+
+    private fun setLoadingState(isLoading: Boolean) {
+        contentBinding.progressBar.isVisible = isLoading
+        contentBinding.serversRecyclerView.isVisible = !isLoading
+        contentBinding.refreshFab.isEnabled = !isLoading
+    }
+
+    private fun setupRecyclerView() {
+        contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
+        contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
+    }
+
+    open fun setupToolbarAndBackButton() {
+        // Set title and optional back-destination for the template header
+        TemplatePage.setupHeader(
+            activity = this,
+            binding = templateBinding,
+            titleResId = R.string.menu_server,
+            backDestination = null
+        )
+    }
+
+    private fun loadServers(forceRefresh: Boolean) {
         lifecycleScope.launch {
             setLoadingState(true)
             try {
-                servers = serverRepository.getServers(this@ServerListActivity)
+                servers = serverRepository.getServers(this@ServerListActivity, forceRefresh)
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
                 countries = servers
                     .map { it.country }
@@ -72,33 +98,13 @@ open class ServerListActivity : AppCompatActivity() {
                     }
                     finish()
                 }
-                setLoadingState(false)
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
-                setLoadingState(false)
                 Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
+            } finally {
+                setLoadingState(false)
             }
         }
-    }
-
-    private fun setLoadingState(isLoading: Boolean) {
-        contentBinding.progressBar.isVisible = isLoading
-        contentBinding.serversRecyclerView.isVisible = !isLoading
-    }
-
-    private fun setupRecyclerView() {
-        contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
-        contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
-    }
-
-    open fun setupToolbarAndBackButton() {
-        // Set title and optional back-destination for the template header
-        TemplatePage.setupHeader(
-            activity = this,
-            binding = templateBinding,
-            titleResId = R.string.menu_server,
-            backDestination = null
-        )
     }
 
     companion object {

@@ -77,7 +77,7 @@ class ServerRepository(
         }
     }
 
-    suspend fun getServers(context: Context): List<Server> {
+    suspend fun getServers(context: Context, forceRefresh: Boolean = false): List<Server> {
         val settings = settingsStore.load(context)
         val urls = settingsStore.resolveServerUrls(settings)
         require(urls.isNotEmpty()) { "No server URLs configured" }
@@ -86,14 +86,14 @@ class ServerRepository(
         val cached = readCache(context, cacheKey)
         val now = System.currentTimeMillis()
         val ttlMs = settings.cacheTtlMs.takeIf { it > 0 } ?: DEFAULT_CACHE_TTL_MS
-        val cachedFresh = cached?.let { (body, ts) -> if (now - ts <= ttlMs) body else null }
+        val cachedFresh = if (forceRefresh) null else cached?.let { (body, ts) -> if (now - ts <= ttlMs) body else null }
 
         if (cachedFresh != null) {
-            Log.i(TAG, "Using cached servers (fresh). age=${now - cached.second} ms")
+            Log.i(TAG, "Using cached servers (fresh). age=${cached?.let { now - it.second } ?: -1} ms")
             return parseServers(cachedFresh)
         }
 
-        Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs")
+        Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs, force=$forceRefresh")
 
         var lastError: Exception? = null
         var response: String? = null
