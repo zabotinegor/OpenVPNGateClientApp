@@ -51,7 +51,7 @@ object UserSettingsStore {
             .putString(KEY_THEME, settings.theme.name)
             .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
             .putString(KEY_CUSTOM_SERVER_URL, settings.customServerUrl)
-            .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs)
+            .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
             .apply()
     }
 
