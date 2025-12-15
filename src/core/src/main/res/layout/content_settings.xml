@@ -320,5 +320,79 @@
                 </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </LinearLayout>
+
+        <!-- Cache TTL -->
+        <LinearLayout
+            android:id="@+id/cache_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/cache_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/section_cache_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_cache_title"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+
+                    <TextView
+                        android:id="@+id/cache_summary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                    android:ellipsize="end"
+                    android:maxLines="1" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/cache_chevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:padding="4dp"
+                    android:rotation="90"
+                    android:src="@drawable/ic_baseline_chevron_right_24"
+                    android:tint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/cache_input_layout"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/cache_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="@string/settings_cache_hint"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

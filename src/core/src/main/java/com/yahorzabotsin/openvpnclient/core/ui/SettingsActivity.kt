@@ -21,6 +21,7 @@ import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private lateinit var binding: ContentSettingsBinding
     private var isUpdatingUi = false
+    private var currentCacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
 
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         binding = ContentSettingsBinding.inflate(inflater, container, true)
@@ -32,6 +33,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         setupCollapsibles()
         setupRadioGroups()
         setupCustomInputWatcher()
+        setupCacheInputWatcher()
         updateSummaries()
     }
 
@@ -50,6 +52,11 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
             header = binding.serverHeader,
             content = binding.serverContent,
             chevron = binding.serverChevron
+        )
+        setupCollapsibleSection(
+            header = binding.cacheHeader,
+            content = binding.cacheInputLayout,
+            chevron = binding.cacheChevron
         )
     }
 
@@ -89,6 +96,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
             })
             updateSummaries()
         }
+
     }
 
     private fun setupCustomInputWatcher() {
@@ -102,6 +110,18 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         }
     }
 
+    private fun setupCacheInputWatcher() {
+        binding.cacheInput.addTextChangedListener { text ->
+            if (isUpdatingUi) return@addTextChangedListener
+            val minutes = text?.toString()?.toLongOrNull() ?: return@addTextChangedListener
+            if (minutes <= 0) return@addTextChangedListener
+            val ttlMs = minutes * 60 * 1000
+            currentCacheTtlMs = ttlMs
+            UserSettingsStore.saveCacheTtlMs(this, ttlMs)
+            updateSummaries()
+        }
+    }
+
     private fun updateSummaries() {
         binding.languageSummary.text = selectedRadioText(binding.languageRadioGroup)
         binding.themeSummary.text = selectedRadioText(binding.themeRadioGroup)
@@ -111,6 +131,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         } else {
             selectedRadioText(binding.serverRadioGroup)
         }
+        binding.cacheSummary.text = formatMinutesSummary(currentCacheTtlMs)
     }
 
     private fun setupCollapsibleSection(header: View, content: View, chevron: ImageView) {
@@ -157,6 +178,15 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         binding.customServerInputLayout.visibility =
             if (settings.serverSource == ServerSource.CUSTOM) View.VISIBLE else View.GONE
 
+        currentCacheTtlMs = settings.cacheTtlMs
+        val cacheMinutes = (settings.cacheTtlMs / 60000).coerceAtLeast(1)
+        binding.cacheInput.setText(cacheMinutes.toString())
+
         isUpdatingUi = false
+    }
+
+    private fun formatMinutesSummary(ttlMs: Long): String {
+        val minutes = (ttlMs / 60000).coerceAtLeast(1)
+        return getString(R.string.settings_cache_summary_format, minutes)
     }
 }

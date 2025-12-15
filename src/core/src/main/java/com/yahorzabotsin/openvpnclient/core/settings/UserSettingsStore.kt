@@ -11,7 +11,8 @@ data class UserSettings(
     val language: LanguageOption = LanguageOption.SYSTEM,
     val theme: ThemeOption = ThemeOption.SYSTEM,
     val serverSource: ServerSource = ServerSource.DEFAULT,
-    val customServerUrl: String = ""
+    val customServerUrl: String = "",
+    val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
 )
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
@@ -24,6 +25,9 @@ object UserSettingsStore {
     private const val KEY_THEME = "theme"
     private const val KEY_SERVER_SOURCE = "server_source"
     private const val KEY_CUSTOM_SERVER_URL = "custom_server_url"
+    private const val KEY_CACHE_TTL_MS = "cache_ttl_ms"
+    private const val MIN_CACHE_TTL_MS = 60_000L
+    const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1000L
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -37,7 +41,8 @@ object UserSettingsStore {
         val serverSource = ServerSource.values()
             .firstOrNull { it.name == p.getString(KEY_SERVER_SOURCE, null) } ?: ServerSource.DEFAULT
         val customUrl = p.getString(KEY_CUSTOM_SERVER_URL, "") ?: ""
-        return UserSettings(language, theme, serverSource, customUrl)
+        val cacheTtl = p.getLong(KEY_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS).coerceAtLeast(MIN_CACHE_TTL_MS)
+        return UserSettings(language, theme, serverSource, customUrl, cacheTtl)
     }
 
     fun save(ctx: Context, settings: UserSettings) {
@@ -46,6 +51,7 @@ object UserSettingsStore {
             .putString(KEY_THEME, settings.theme.name)
             .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
             .putString(KEY_CUSTOM_SERVER_URL, settings.customServerUrl)
+            .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs)
             .apply()
     }
 
@@ -60,6 +66,9 @@ object UserSettingsStore {
 
     fun saveCustomServerUrl(ctx: Context, url: String) =
         save(ctx, load(ctx).copy(customServerUrl = url))
+
+    fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =
+        save(ctx, load(ctx).copy(cacheTtlMs = ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)))
 
     fun applyThemeAndLocale(ctx: Context) {
         val settings = load(ctx)

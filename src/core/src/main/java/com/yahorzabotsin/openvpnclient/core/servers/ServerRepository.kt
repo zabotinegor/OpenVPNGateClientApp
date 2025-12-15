@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,14 +85,15 @@ class ServerRepository(
         val cacheKey = cacheKey(urls)
         val cached = readCache(context, cacheKey)
         val now = System.currentTimeMillis()
-        val cachedFresh = cached?.let { (body, ts) -> if (now - ts <= CACHE_TTL_MS) body else null }
+        val ttlMs = settings.cacheTtlMs.takeIf { it > 0 } ?: DEFAULT_CACHE_TTL_MS
+        val cachedFresh = cached?.let { (body, ts) -> if (now - ts <= ttlMs) body else null }
 
         if (cachedFresh != null) {
             Log.i(TAG, "Using cached servers (fresh). age=${now - cached.second} ms")
             return parseServers(cachedFresh)
         }
 
-        Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}")
+        Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs")
 
         var lastError: Exception? = null
         var response: String? = null
@@ -111,7 +113,7 @@ class ServerRepository(
 
         if (response != null) {
             writeCache(context, cacheKey, response)
-            Log.d(TAG, "Server response cached. body_size=${response.length}, cache_key=${cacheKey.take(8)}")
+            Log.d(TAG, "Server response cached. body_size=${response.length}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
         }
 
         val body = response ?: cached?.first ?: throw (lastError ?: IOException("No server response"))
