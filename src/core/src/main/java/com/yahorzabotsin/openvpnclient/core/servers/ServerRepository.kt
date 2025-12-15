@@ -5,6 +5,8 @@ import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +38,8 @@ class ServerRepository(
         private const val KEY_PREFIX_DATA = "data_"
         private const val KEY_PREFIX_TS = "ts_"
         private const val CACHE_TTL_MS = 20 * 60 * 1000L // 20 minutes
+        private val gson = Gson()
+        private val serversListType = object : TypeToken<List<Server>>() {}.type
 
         private fun createDefaultApi(): VpnServersApi {
             val okHttpClient = OkHttpClient.Builder()
@@ -61,17 +65,18 @@ class ServerRepository(
             return digest.joinToString("") { "%02x".format(it) }
         }
 
-        private fun readCache(ctx: Context, key: String): Pair<String, Long>? {
+        private fun readCache(ctx: Context, key: String): Pair<List<Server>, Long>? {
             val prefs = cachePrefs(ctx)
             val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
             if (ts <= 0) return null
             val data = prefs.getString(KEY_PREFIX_DATA + key, null) ?: return null
-            return data to ts
+            val list = runCatching { gson.fromJson<List<Server>>(data, serversListType) }.getOrNull() ?: return null
+            return list to ts
         }
 
-        private fun writeCache(ctx: Context, key: String, body: String) {
+        private fun writeCache(ctx: Context, key: String, servers: List<Server>) {
             cachePrefs(ctx).edit()
-                .putString(KEY_PREFIX_DATA + key, body)
+                .putString(KEY_PREFIX_DATA + key, gson.toJson(servers, serversListType))
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
                 .apply()
         }
@@ -89,8 +94,8 @@ class ServerRepository(
         val cachedFresh = if (forceRefresh) null else cached?.let { (body, ts) -> if (now - ts <= ttlMs) body else null }
 
         if (cachedFresh != null) {
-            Log.i(TAG, "Using cached servers (fresh). age=${cached?.let { now - it.second } ?: -1} ms")
-            return parseServers(cachedFresh)
+            Log.i(TAG, "Using cached servers (fresh). age=${cached?.let { now - it.second } ?: -1} ms, items=${cachedFresh.size}")
+            return cachedFresh
         }
 
         Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs, force=$forceRefresh")
@@ -98,6 +103,7 @@ class ServerRepository(
         var lastError: Exception? = null
         var response: String? = null
         var usedIndex = -1
+        var parsedResponse: List<Server>? = null
         for ((index, url) in urls.withIndex()) {
             try {
                 Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}")
@@ -112,11 +118,12 @@ class ServerRepository(
         }
 
         if (response != null) {
-            writeCache(context, cacheKey, response)
-            Log.d(TAG, "Server response cached. body_size=${response.length}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+            parsedResponse = parseServers(response)
+            writeCache(context, cacheKey, parsedResponse)
+            Log.d(TAG, "Server response cached. items=${parsedResponse.size}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
         }
 
-        val body = response ?: cached?.first ?: throw (lastError ?: IOException("No server response"))
+        val result = parsedResponse ?: cached?.first ?: throw (lastError ?: IOException("No server response"))
         if (response == null && cached != null) {
             Log.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
         }
@@ -128,7 +135,7 @@ class ServerRepository(
             Log.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
         }
 
-        return parseServers(body)
+        return result
     }
 
     private suspend fun parseServers(body: String): List<Server> = withContext(Dispatchers.Default) {
