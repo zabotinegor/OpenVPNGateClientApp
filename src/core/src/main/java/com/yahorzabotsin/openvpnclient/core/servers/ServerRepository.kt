@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclient.core.servers
 
 import android.content.Context
 import android.util.Log
+import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
@@ -47,12 +48,16 @@ class ServerRepository(
         val urls = settingsStore.resolveServerUrls(settings)
         require(urls.isNotEmpty()) { "No server URLs configured" }
 
+        Log.i(TAG, "Server fetch start. Source=${settings.serverSource}, urls_count=${urls.size}")
+
         var lastError: Exception? = null
         var response: String? = null
+        var usedIndex = -1
         for ((index, url) in urls.withIndex()) {
             try {
                 Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}: $url")
                 response = api.getServers(url)
+                usedIndex = index
                 break
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -62,6 +67,14 @@ class ServerRepository(
         }
 
         val body = response ?: throw (lastError ?: IOException("No server response"))
+
+        // If default source failed and we successfully used the fallback, persist the choice.
+        if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
+            settingsStore.saveServerSource(context, ServerSource.VPNGATE)
+            Log.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+        } else {
+            Log.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
+        }
 
         return body.lines().drop(2).filter { it.isNotBlank() }.mapNotNull { line ->
             val values = line.split(",")
