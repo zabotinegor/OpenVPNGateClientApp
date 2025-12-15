@@ -1,9 +1,14 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -12,33 +17,33 @@ import java.io.IOException
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
 
-    private class FakeVpnServersApi(
-        private val primaryResponse: String?,
-        private val fallbackResponse: String
-    ) : VpnServersApi {
+    private val context: Context = ApplicationProvider.getApplicationContext()
 
+    private class SequenceApi(private val responses: List<() -> String>) : VpnServersApi {
         var callCount: Int = 0
             private set
-
         val calledUrls: MutableList<String> = mutableListOf()
 
         override suspend fun getServers(url: String): String {
-            callCount += 1
             calledUrls += url
-
-            // First call simulates primary, second call simulates fallback.
-            return if (callCount == 1) {
-                primaryResponse ?: throw IOException("Primary failed")
-            } else {
-                fallbackResponse
-            }
+            val idx = callCount
+            callCount += 1
+            val block = responses.getOrElse(idx) { { throw IOException("No more responses") } }
+            return block()
         }
     }
 
+    @Before
+    fun setUp() {
+        // Reset user settings and cache between tests
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
+        context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT)
+        UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
+    }
+
     private fun sampleCsv(servers: List<Server>): String {
-        // Mimic vpngate CSV structure: first two lines are headers, then comma-separated values.
-        val header = "TITLE, SAMPLE\n" +
-                "HEADER, IGNORE\n"
+        val header = "TITLE, SAMPLE\nHEADER, IGNORE\n"
         val body = servers.joinToString(separator = "\n") { s ->
             listOf(
                 s.name,
@@ -61,121 +66,128 @@ class ServerRepositoryTest {
         return header + body
     }
 
+    private fun makeServer(name: String) = Server(
+        name = name,
+        city = "City",
+        country = Country("Country"),
+        ping = 50,
+        signalStrength = SignalStrength.STRONG,
+        ip = "1.2.3.4",
+        score = 100,
+        speed = 1000,
+        numVpnSessions = 1,
+        uptime = 10,
+        totalUsers = 5,
+        totalTraffic = 500,
+        logType = "L",
+        operator = "op",
+        message = "msg",
+        configData = "cfg"
+    )
+
     @Test
     fun uses_primary_when_successful() = runBlocking {
-        val expectedServer = Server(
-            name = "srv-primary",
-            city = "City",
-            country = Country("Country"),
-            ping = 50,
-            signalStrength = SignalStrength.STRONG,
-            ip = "1.2.3.4",
-            score = 100,
-            speed = 1000,
-            numVpnSessions = 1,
-            uptime = 10,
-            totalUsers = 5,
-            totalTraffic = 500,
-            logType = "L",
-            operator = "op",
-            message = "msg",
-            configData = "cfg"
-        )
-
-        val api = FakeVpnServersApi(
-            primaryResponse = sampleCsv(listOf(expectedServer)),
-            fallbackResponse = sampleCsv(emptyList())
+        val expected = makeServer("srv-primary")
+        val api = SequenceApi(
+            listOf({ sampleCsv(listOf(expected)) }, { sampleCsv(emptyList()) })
         )
 
         val repo = ServerRepository(api)
-        val result = repo.getServers()
+        val result = repo.getServers(context, forceRefresh = true)
 
         assertEquals(1, api.callCount)
-        assertTrue("Primary URL should be called first", api.calledUrls.isNotEmpty())
-        // We don't assert exact URL string, only that at least one server is parsed.
         assertEquals(1, result.size)
-        assertEquals(expectedServer.name, result[0].name)
-        assertEquals(expectedServer.ip, result[0].ip)
+        assertEquals(expected.name, result[0].name)
+        assertTrue("Primary URL should be called first", api.calledUrls.isNotEmpty())
     }
 
     @Test
-    fun falls_back_when_primary_fails() = runBlocking {
-        val expectedServer = Server(
-            name = "srv-fallback",
-            city = "CityF",
-            country = Country("CountryF"),
-            ping = 70,
-            signalStrength = SignalStrength.STRONG,
-            ip = "5.6.7.8",
-            score = 80,
-            speed = 2000,
-            numVpnSessions = 2,
-            uptime = 20,
-            totalUsers = 10,
-            totalTraffic = 1000,
-            logType = "L2",
-            operator = "op2",
-            message = "msg2",
-            configData = "cfg2"
-        )
-
-        val api = FakeVpnServersApi(
-            primaryResponse = null, // first call throws
-            fallbackResponse = sampleCsv(listOf(expectedServer))
+    fun falls_back_when_primary_fails_and_switches_source() = runBlocking {
+        val expected = makeServer("srv-fallback")
+        val api = SequenceApi(
+            listOf({ throw IOException("primary down") }, { sampleCsv(listOf(expected)) })
         )
 
         val repo = ServerRepository(api)
-        val result = repo.getServers()
+        val result = repo.getServers(context, forceRefresh = true)
 
         assertEquals(2, api.callCount)
         assertEquals(1, result.size)
-        assertEquals(expectedServer.name, result[0].name)
-        assertEquals(expectedServer.ip, result[0].ip)
+        assertEquals(expected.name, result[0].name)
+        // After fallback, source should persist as VPN Gate
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
+    fun uses_cache_when_fresh() = runBlocking {
+        val initial = makeServer("cached")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }, { throw IOException("should not be called") }))
+        val repo = ServerRepository(api)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals(1, api.callCount)
+        assertEquals("cached", first.single().name)
+
+        val second = repo.getServers(context, forceRefresh = false)
+        assertEquals("cached", second.single().name)
+        // callCount stays 1 because cache served the second call
+        assertEquals(1, api.callCount)
+    }
+
+    @Test
+    fun force_refresh_bypasses_cache_and_updates_it() = runBlocking {
+        val initial = makeServer("old")
+        val updated = makeServer("new")
+        val api = SequenceApi(
+            listOf(
+                { sampleCsv(listOf(initial)) },
+                { sampleCsv(listOf(updated)) }
+            )
+        )
+        val repo = ServerRepository(api)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("old", first.single().name)
+        assertEquals(1, api.callCount)
+
+        val second = repo.getServers(context, forceRefresh = true)
+        assertEquals("new", second.single().name)
+        assertEquals(2, api.callCount)
+
+        // Cache now contains updated; a non-forced call should hit cache
+        val third = repo.getServers(context, forceRefresh = false)
+        assertEquals("new", third.single().name)
+        assertEquals(2, api.callCount)
     }
 
     @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
-        val calledUrls = mutableListOf<String>()
-
-        val api = object : VpnServersApi {
-            override suspend fun getServers(url: String): String {
-                calledUrls += url
-                throw IOException("Network failure")
-            }
-        }
-
+        val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
         val repo = ServerRepository(api)
 
         try {
-            repo.getServers()
+            repo.getServers(context, forceRefresh = true)
             fail("Expected IOException when both primary and fallback fail")
         } catch (e: IOException) {
-            // Expected
+            // expected
         }
 
-        assertEquals(2, calledUrls.size)
+        assertEquals(2, api.callCount)
     }
 
     @Test
-    fun rethrows_unexpected_exception_without_fallback() = runBlocking {
-        val calledUrls = mutableListOf<String>()
-
-        val api = object : VpnServersApi {
-            override suspend fun getServers(url: String): String {
-                calledUrls += url
-                throw IllegalStateException("Unexpected failure")
-            }
-        }
-
+    fun propagates_error_after_fallback_attempts() = runBlocking {
+        val api = SequenceApi(listOf({ throw IllegalStateException("boom") }, { throw IOException("fallback fail") }))
         val repo = ServerRepository(api)
 
         try {
-            repo.getServers()
-            fail("Expected IllegalStateException to be rethrown")
-        } catch (e: IllegalStateException) {
-            // Expected
+            repo.getServers(context, forceRefresh = true)
+            fail("Expected failure to propagate after retries")
+        } catch (e: Exception) {
+            // expected
         }
 
-        assertEquals(1, calledUrls.size)
+        // Both URLs attempted
+        assertEquals(2, api.callCount)
     }
 }
