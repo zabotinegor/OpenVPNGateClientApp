@@ -19,6 +19,7 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Lista serwerów</string>
     <string name="server_list_subtitle">Jeśli występują problemy z połączeniem, wybierz inny serwer.</string>
+    <string name="action_refresh">Odśwież</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Wystąpił błąd</string>
@@ -104,4 +105,23 @@
 
     <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d sek)</string>
+    <!-- Section: Settings -->
+    <string name="settings_language_title">Język</string>
+    <string name="settings_language_system">Język systemu</string>
+    <string name="settings_language_english">Angielski</string>
+    <string name="settings_language_russian">Rosyjski</string>
+    <string name="settings_language_polish">Polski</string>
+    <string name="settings_theme_title">Motyw</string>
+    <string name="settings_theme_system">Motyw systemu</string>
+    <string name="settings_theme_light">Jasny</string>
+    <string name="settings_theme_dark">Ciemny</string>
+    <string name="settings_server_title">Źródło listy serwerów</string>
+    <string name="settings_server_subtitle">Wybierz skąd pobierać listę serwerów.</string>
+    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_vpngate">VPN Gate</string>
+    <string name="settings_server_custom">Własny serwer (wpisz url niżej)</string>
+    <string name="settings_server_custom_hint">https://twoj-serwer.example/api</string>
+    <string name="settings_cache_title">Cache listy serwerów</string>
+    <string name="settings_cache_hint">Minuty (większe niż 0)</string>
+    <string name="settings_cache_summary_format">%1$d minut</string>
 </resources>

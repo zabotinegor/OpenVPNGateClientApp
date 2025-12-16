@@ -2,18 +2,22 @@ package com.yahorzabotsin.openvpnclient.core
 
 import android.app.ActivityManager
 import android.app.Application
+import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.os.Build
 import com.yahorzabotsin.openvpnclient.vpn.EngineStatusReceiver
 import com.yahorzabotsin.openvpnclient.vpn.OpenVpnService
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.GlobalPreferences
 
 class CoreApp : Application() {
     override fun onCreate() {
         super.onCreate()
         GlobalPreferences.setInstance(false, false)
+        UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
             val filter = IntentFilter("de.blinkt.openvpn.VPN_STATUS")
             val permission = "$packageName.permission.VPN_STATUS"
@@ -22,7 +26,9 @@ class CoreApp : Application() {
             } else {
                 registerReceiver(EngineStatusReceiver(), filter, permission, null)
             }
-            startService(Intent(this, OpenVpnService::class.java))
+            if (!isTelevision()) {
+                startService(Intent(this, OpenVpnService::class.java))
+            }
         }
     }
 
@@ -34,5 +40,10 @@ class CoreApp : Application() {
         val am = getSystemService(ActivityManager::class.java)
         val name = am?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
         return name == packageName
+    }
+
+    private fun isTelevision(): Boolean {
+        val uiModeManager = getSystemService(UiModeManager::class.java)
+        return uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }
 }
