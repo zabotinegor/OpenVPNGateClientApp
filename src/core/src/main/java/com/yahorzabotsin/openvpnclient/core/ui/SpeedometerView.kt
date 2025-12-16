@@ -13,7 +13,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlin.math.cos
 import kotlin.math.sin
-import java.lang.Math
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import kotlinx.coroutines.launch
 import java.util.Locale
