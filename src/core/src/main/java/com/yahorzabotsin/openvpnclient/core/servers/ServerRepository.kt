@@ -1,26 +1,32 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
 import android.content.Context
+import android.content.Context.MODE_PRIVATE
+import android.content.SharedPreferences
+import android.util.Base64
 import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Url
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import android.content.SharedPreferences
-import android.content.Context.MODE_PRIVATE
-import java.security.MessageDigest
 
 interface VpnServersApi {
     @GET
@@ -37,6 +43,7 @@ class ServerRepository(
         private const val CACHE_PREFS = "server_cache"
         private const val KEY_PREFIX_DATA = "data_"
         private const val KEY_PREFIX_TS = "ts_"
+        private const val CACHE_ENCODING_PREFIX = "gz:"
         private val gson = Gson()
         private val serversListType = object : TypeToken<List<Server>>() {}.type
 
@@ -69,15 +76,45 @@ class ServerRepository(
             val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
             if (ts <= 0) return null
             val data = prefs.getString(KEY_PREFIX_DATA + key, null) ?: return null
-            val list = runCatching { gson.fromJson<List<Server>>(data, serversListType) }.getOrNull() ?: return null
+            val list = runCatching { decodeServers(data) }.getOrNull() ?: return null
             return list to ts
         }
 
         private fun writeCache(ctx: Context, key: String, servers: List<Server>) {
+            val encoded = runCatching { encodeServers(servers) }.getOrNull()
+            if (encoded == null) {
+                Log.w(TAG, "Skipping cache write: failed to encode servers list")
+                return
+            }
             cachePrefs(ctx).edit()
-                .putString(KEY_PREFIX_DATA + key, gson.toJson(servers, serversListType))
+                .putString(KEY_PREFIX_DATA + key, encoded)
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
                 .apply()
+        }
+
+        private fun encodeServers(servers: List<Server>): String {
+            val byteOut = ByteArrayOutputStream()
+            GZIPOutputStream(byteOut).use { gzip ->
+                OutputStreamWriter(gzip, Charsets.UTF_8).use { writer ->
+                    gson.toJson(servers, serversListType, writer)
+                }
+            }
+            val compressed = byteOut.toByteArray()
+            val encoded = Base64.encodeToString(compressed, Base64.NO_WRAP)
+            return CACHE_ENCODING_PREFIX + encoded
+        }
+
+        private fun decodeServers(raw: String): List<Server> {
+            val jsonString = if (raw.startsWith(CACHE_ENCODING_PREFIX)) {
+                val payload = raw.removePrefix(CACHE_ENCODING_PREFIX)
+                val bytes = Base64.decode(payload, Base64.DEFAULT)
+                GZIPInputStream(ByteArrayInputStream(bytes)).use { inflater ->
+                    InputStreamReader(inflater, Charsets.UTF_8).use { it.readText() }
+                }
+            } else {
+                raw
+            }
+            return gson.fromJson(jsonString, serversListType)
         }
     }
 
