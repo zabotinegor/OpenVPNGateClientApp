@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -20,11 +22,12 @@ fun loadLocalServersConfig(): Map<String, String> {
     val file = candidates.firstOrNull { it.exists() } ?: return emptyMap()
 
     return try {
-        val text = file.readText()
-        val regex = Regex("\"(PRIMARY_SERVERS_URL|FALLBACK_SERVERS_URL)\"\\s*:\\s*\"([^\"]+)\"")
-        regex.findAll(text)
-            .map { matchResult -> matchResult.groupValues[1] to matchResult.groupValues[2] }
-            .toMap()
+        val allowedKeys = setOf("PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL")
+        @Suppress("UNCHECKED_CAST")
+        val parsed = JsonSlurper().parse(file) as? Map<String, Any?> ?: emptyMap()
+        parsed.mapNotNull { (k, v) ->
+            if (k in allowedKeys && v is String && v.isNotBlank()) k to v else null
+        }.toMap()
     } catch (e: Exception) {
         project.logger.warn("Could not parse servers.local.json: ${e.message}")
         emptyMap()
