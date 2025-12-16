@@ -285,9 +285,9 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     private fun formatBytes(value: Long): String {
         val abs = value.coerceAtLeast(0L).toDouble()
-        val kb = 1024.0
-        val mb = kb * 1024.0
-        val gb = mb * 1024.0
+        val kb = 1000.0
+        val mb = kb * 1000.0
+        val gb = mb * 1000.0
         val (amount, unitResId) = when {
             abs >= gb -> abs / gb to R.string.traffic_unit_gb
             abs >= mb -> abs / mb to R.string.traffic_unit_mb
@@ -409,4 +409,3 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         fun updateStatus(text: String)
     }
 }
-
