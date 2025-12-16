@@ -32,6 +32,15 @@
     <string name="current_city">Nie wybrano</string>
     <string name="feature_in_development">Funkcja w przygotowaniu</string>
 
+    <!-- Section: App filter -->
+    <string name="filter_tab_user">Uzytkownika</string>
+    <string name="filter_tab_system">Systemowe</string>
+    <string name="filter_info_title">Filtrowanie aplikacji</string>
+    <string name="filter_info_subtitle">Wylacz aplikacje, jesli ma dzialac bez VPN.</string>
+    <string name="filter_select_all">Zaznacz wszystkie</string>
+    <string name="filter_empty_state">Brak aplikacji</string>
+    <string name="filter_switch_content_description">Przelacz tunelowanie dla %1$s</string>
+
     <!-- Section: About -->
     <string name="about_section_app">Aplikacja</string>
     <string name="about_section_links">Linki</string>
