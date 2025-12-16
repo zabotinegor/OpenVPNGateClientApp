@@ -148,7 +148,11 @@ class ServerRepository(
                     city = "",
                     country = Country(values[5], values.getOrNull(6)),
                     ping = values[3].toIntOrNull() ?: 0,
-                    signalStrength = SignalStrength.STRONG,
+                    signalStrength = when (values[3].toIntOrNull() ?: 999) {
+                        in 0..99 -> SignalStrength.STRONG
+                        in 100..249 -> SignalStrength.MEDIUM
+                        else -> SignalStrength.WEAK
+                    },
                     ip = values[1],
                     score = values[2].toIntOrNull() ?: 0,
                     speed = values[4].toLongOrNull() ?: 0L,
