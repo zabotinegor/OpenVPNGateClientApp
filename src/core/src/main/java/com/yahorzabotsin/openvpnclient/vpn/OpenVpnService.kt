@@ -35,6 +35,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private companion object {
         const val TAG = "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
+        const val KEY_OVPN3 = "ovpn3"
+        const val KEY_DISABLE_CONFIRMATION = "disableconfirmation"
         private val AUTO_SWITCH_LEVELS = setOf(
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -90,11 +92,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     override fun onCreate() {
         super.onCreate()
         ensureEngineNotificationChannels()
-        try {
-            val prefs = de.blinkt.openvpn.core.Preferences.getDefaultSharedPreferences(this)
-            if (prefs.getBoolean("ovpn3", true)) prefs.edit().putBoolean("ovpn3", false).apply()
-            if (!prefs.getBoolean("disableconfirmation", false)) prefs.edit().putBoolean("disableconfirmation", true).apply()
-        } catch (t: Throwable) { Log.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t) }
+        ensureEnginePreferences()
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
@@ -107,6 +105,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         trafficHandler.post(trafficPollRunnable)
+    }
+
+    private fun ensureEnginePreferences() {
+        try {
+            val prefs = de.blinkt.openvpn.core.Preferences.getDefaultSharedPreferences(this)
+            if (prefs.getBoolean(KEY_OVPN3, true)) prefs.edit().putBoolean(KEY_OVPN3, false).apply()
+            if (!prefs.getBoolean(KEY_DISABLE_CONFIRMATION, false)) prefs.edit().putBoolean(KEY_DISABLE_CONFIRMATION, true).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t)
+        }
     }
 
     private fun ensureEngineNotificationChannels() {
