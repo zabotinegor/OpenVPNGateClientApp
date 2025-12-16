@@ -22,7 +22,7 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentAboutBinding
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private var lastActionAt: Long = 0
     companion object {
-        private const val CLICK_DEBOUNCE_MS = 1200L
+        private const val CLICK_DEBOUNCE_MS = 500L
     }
     private lateinit var bindingContent: ContentAboutBinding
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
