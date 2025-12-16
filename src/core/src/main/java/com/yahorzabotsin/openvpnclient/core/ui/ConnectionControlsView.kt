@@ -117,6 +117,12 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
         if (VpnService.prepare(context) == null) {
             Log.d(TAG, "VPN permission granted; starting VPN")
+            val currentConfig = vpnConfig
+            if (currentConfig.isNullOrBlank()) {
+                Log.w(TAG, "No VPN config available to start")
+                Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
+                return
+            }
             val configToUse = run {
                 val lastSuccessfulConfig = try {
                     SelectedCountryStore.getLastSuccessfulConfigForSelected(context)
@@ -137,7 +143,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to reset server index", e)
                     }
-                    vpnConfig!!
+                    currentConfig
                 }
             }
             Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"}")
