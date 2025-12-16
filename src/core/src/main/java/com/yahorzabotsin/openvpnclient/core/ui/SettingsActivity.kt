@@ -113,9 +113,9 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private fun setupCacheInputWatcher() {
         binding.cacheInput.addTextChangedListener { text ->
             if (isUpdatingUi) return@addTextChangedListener
-            val minutes = text?.toString()?.toLongOrNull() ?: return@addTextChangedListener
-            if (minutes <= 0) return@addTextChangedListener
-            val ttlMs = minutes * 60 * 1000
+        val minutes = text?.toString()?.toLongOrNull() ?: return@addTextChangedListener
+        if (minutes <= 0) return@addTextChangedListener
+        val ttlMs = minutes * 60 * 1000L
             currentCacheTtlMs = ttlMs
             UserSettingsStore.saveCacheTtlMs(this, ttlMs)
             updateSummaries()
