@@ -34,6 +34,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private companion object {
         const val TAG = "OpenVpnService"
+        const val DEFAULT_COMPAT_MODE = 20400
         private val AUTO_SWITCH_LEVELS = setOf(
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -185,7 +186,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             cp.parseConfig(isr)
             val profile: VpnProfile = cp.convertProfile().apply {
                 mName = displayName?.ifBlank { null } ?: (try { getString(R.string.app_name) } catch (_: Exception) { applicationInfo.loadLabel(packageManager)?.toString() ?: "VPN" })
-                if (mCompatMode == 0) mCompatMode = 20400
+                if (mCompatMode == 0) mCompatMode = DEFAULT_COMPAT_MODE
             }
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
