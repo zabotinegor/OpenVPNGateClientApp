@@ -176,24 +176,6 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         }
     }
 
-    private fun formatAdaptiveBytesPerSec(bps: Float): Pair<String, String> {
-        val kb = 1000f
-        val mb = kb * 1000f
-        val gb = mb * 1000f
-        val (value, unit) = when {
-            bps >= gb -> bps / gb to context.getString(R.string.speed_unit_gbps)
-            bps >= mb -> bps / mb to context.getString(R.string.speed_unit_mbps)
-            bps >= kb -> bps / kb to context.getString(R.string.speed_unit_kbps)
-            else -> bps to context.getString(R.string.speed_unit_bps)
-        }
-        val str = when {
-            value >= 100f -> String.format(Locale.US, "%.0f", value)
-            value >= 10f -> String.format(Locale.US, "%.1f", value)
-            else -> String.format(Locale.US, "%.2f", value)
-        }
-        return str to unit
-    }
-
     private fun formatMegabits(mbps: Float): String {
         val v = mbps.coerceAtLeast(0f)
         return when {
