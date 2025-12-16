@@ -35,9 +35,7 @@ fun loadLocalServersConfig(): Map<String, String> {
 
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.core"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     buildFeatures {
         viewBinding = true

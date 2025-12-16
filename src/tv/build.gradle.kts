@@ -13,9 +13,7 @@ if (keystorePropertiesFile.isFile) {
 
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.tv"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     signingConfigs {
         create("release") {

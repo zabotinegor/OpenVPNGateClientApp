@@ -13,9 +13,7 @@ if (keystorePropertiesFile.isFile) {
 
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.mobile"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     buildFeatures {
         viewBinding = true
