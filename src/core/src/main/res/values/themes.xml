@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Section: Base application theme (Day/Night + brand/app attrs) -->
+    <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Section: Backgrounds -->
+        <item name="android:windowBackground">@color/app_background</item>
+
+        <!-- Section: Material color roles -->
+        <item name="colorPrimary">@color/speedometer_progress_color</item>
+        <item name="colorOnPrimary">@color/text_color_primary</item>
+        <item name="colorSurface">@color/nav_bar_background</item>
+        <item name="colorOnSurface">@color/text_color_primary</item>
+
+        <!-- Section: App-specific attributes -->
+        <item name="ovpnNavBarColor">@color/nav_bar_background</item>
+        <item name="ovpnSpeedometerArcColor">@color/speedometer_arc_color</item>
+        <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
+        <item name="ovpnSpeedometerTextColor">@color/speedometer_text_color</item>
+        <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
+    </style>
+
+    <!-- Section: Toolbar overlay (unify icon/text colors) -->
+    <style name="ThemeOverlay.OpenVPNClient.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
+        <item name="colorControlNormal">@color/text_color_primary</item>
+        <item name="android:textColorPrimary">@color/text_color_primary</item>
+        <item name="android:textColorSecondary">@color/text_color_secondary</item>
+        <item name="actionMenuTextColor">@color/text_color_primary</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.OpenVPNClient.Toolbar.NavButton</item>
+    </style>
+
+    <style name="Widget.OpenVPNClient.Toolbar.NavButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="android:background">@drawable/toolbar_nav_button_background</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:padding">8dp</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
+    </style>
+
+    <style name="WidgetOpenVPNClientFocusableSurface">
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
+    </style>
+
+    <!-- Section: Widgets -->
+    <style name="Widget.OpenVPNClient.Button" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:paddingTop">16dp</item>
+        <item name="android:paddingBottom">16dp</item>
+        <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="rippleColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Widget.OpenVPNClient.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/server_selection_background_tint</item>
+        <item name="strokeColor">@color/server_selection_stroke_color</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:gravity">center_vertical|start</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:paddingTop">16dp</item>
+        <item name="android:paddingBottom">16dp</item>
+        <item name="android:drawablePadding">16dp</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:elevation">0dp</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
+        <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
+        <item name="rippleColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Section: Clickable rows (About links etc.) -->
+    <style name="Widget.OpenVPNClient.ClickableRow" parent="WidgetOpenVPNClientFocusableSurface">
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClient.Body</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+    </style>
+
+    <!-- Section: Text appearances -->
+    <style name="TextAppearance.OpenVPNClient.Title" parent="TextAppearance.AppCompat.Title">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClient.Body" parent="TextAppearance.AppCompat.Body1">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClient.Subtitle" parent="TextAppearance.AppCompat.Caption">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+</resources>

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="start_connection">НАЧАТЬ ПОДКЛЮЧЕНИЕ</string>
+    <string name="stop_connection">ОСТАНОВИТЬ ПОДКЛЮЧЕНИЕ</string>
+    <string name="navigation_drawer_open">Открыть панель навигации</string>
+    <string name="navigation_drawer_close">Закрыть панель навигации</string>
+
+    <!-- Section: Menu -->
+    <string name="menu_connection">Подключение</string>
+    <string name="menu_server">Сервер</string>
+    <string name="menu_protocol">Протокол</string>
+    <string name="menu_dns">DNS</string>
+    <string name="menu_filter">Фильтр</string>
+    <string name="menu_telegram">Telegram</string>
+    <string name="menu_rate">Оценить</string>
+    <string name="menu_about">О приложении</string>
+    <string name="menu_settings">Настройки</string>
+
+    <!-- Section: Server screen -->
+    <string name="server_list_title">Список серверов</string>
+    <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
+    <string name="action_refresh">Обновить</string>
+
+    <!-- Section: Error screen -->
+    <string name="error_fragment_message">Произошла ошибка</string>
+    <string name="dismiss_error">Закрыть</string>
+    <string name="error_getting_servers">Ошибка получения серверов</string>
+    <string name="no_servers_for_country">Нет серверов для выбранной страны</string>
+
+    <!-- Section: Main screen -->
+    <string name="current_country">Не выбрано</string>
+    <string name="current_city">Не выбрано</string>
+    <string name="feature_in_development">Функция в разработке</string>
+
+    <!-- Section: About -->
+    <string name="about_section_app">Приложение</string>
+    <string name="about_section_links">Ссылки</string>
+    <string name="about_section_legal">Правовая информация</string>
+    <string name="about_version_format">Версия: %1$s (%2$d)</string>
+    <string name="about_package_format">Пакет: %1$s</string>
+    <string name="about_engine_format">Движок VPN: %1$s — %2$s</string>
+    <string name="about_website">Веб‑сайт</string>
+    <string name="about_email">Эл. почта</string>
+    <string name="about_telegram">Telegram</string>
+    <string name="about_github">Исходный код</string>
+    <string name="about_github_engine">Исходный код (движок)</string>
+    <string name="about_google_play">Google Play</string>
+    <string name="about_privacy_policy">Политика конфиденциальности</string>
+    <string name="about_terms_of_use">Условия использования</string>
+    <string name="about_licenses">Лицензия GPLv2</string>
+    <string name="about_ics_github">ics-openvpn на GitHub</string>
+    <string name="intent_open_with">Открыть с помощью</string>
+    <string name="intent_send_email">Отправить письмо</string>
+    <string name="email_app_not_found">Не найдено приложение для почты</string>
+    <string name="web_title">Веб‑страница</string>
+    <string name="copied_to_clipboard">Скопировано в буфер обмена</string>
+    <string name="copy_label_link">Ссылка</string>
+    <string name="copy_label_email">Эл. почта</string>
+    <string name="about_copyright_format">© %1$d %2$s</string>
+
+    <!-- Section: VPN notifications -->
+    <string name="vpn_channel_name">Статус VPN</string>
+    <string name="vpn_channel_description">Статус подключения VPN</string>
+    <string name="vpn_notification_title_connecting">Подключение к VPN</string>
+    <string name="vpn_notification_title_connected">VPN подключен</string>
+    <string name="vpn_notification_title_disconnecting">Отключение от VPN</string>
+    <string name="vpn_notification_title_disconnected">VPN отключен</string>
+    <string name="vpn_notification_text_connecting">Устанавливается защищённое соединение...</string>
+    <string name="vpn_notification_text_connected">Ваш VPN активен</string>
+    <string name="vpn_notification_text_disconnecting">Завершение соединения...</string>
+    <string name="vpn_notification_text_disconnected">VPN остановлен</string>
+
+    <!-- Section: Runtime messages / toasts -->
+    <string name="select_server_first">Сначала выберите сервер</string>
+    <string name="vpn_permission_not_granted">Разрешение на VPN не предоставлено</string>
+    <string name="notification_permission_required">Для статуса VPN требуется разрешение на уведомления</string>
+
+    <!-- Section: Speed units (bytes per second) -->
+    <string name="speed_unit_bps">Б/с</string>
+    <string name="speed_unit_kbps">КБ/с</string>
+    <string name="speed_unit_mbps">МБ/с</string>
+    <string name="speed_unit_gbps">ГБ/с</string>
+
+    <!-- Section: Countdown suffix for UI button during connecting phases -->
+    <string name="state_countdown_seconds"> (%1$d сек)</string>
+    <!-- Section: Main screen defaults / status -->
+    <string name="main_duration_default">00:00:00</string>
+    <string name="main_version_default">Версия: -</string>
+    <string name="main_status_disconnected">Отключено</string>
+    <string name="main_status_connecting">Подключение…</string>
+    <string name="main_status_connected">Подключено</string>
+    <string name="main_status_disconnecting">Отключение…</string>
+
+    <!-- Section: Connection details -->
+    <string name="connection_detail_duration_label">ДЛИТЕЛЬНОСТЬ</string>
+    <string name="connection_detail_downloaded_label">СКАЧАНО</string>
+    <string name="connection_detail_city_label">ГОРОД</string>
+    <string name="connection_detail_status_label">СТАТУС</string>
+    <string name="connection_detail_uploaded_label">ОТПРАВЛЕНО</string>
+    <string name="connection_detail_address_label">АДРЕС</string>
+    <!-- Section: Traffic units (total bytes) -->
+    <string name="traffic_unit_b">Б</string>
+    <string name="traffic_unit_kb">КБ</string>
+    <string name="traffic_unit_mb">МБ</string>
+    <string name="traffic_unit_gb">ГБ</string>
+    <!-- Section: Settings -->
+    <string name="settings_language_title">Язык</string>
+    <string name="settings_language_system">Язык системы</string>
+    <string name="settings_language_english">Английский</string>
+    <string name="settings_language_russian">Русский</string>
+    <string name="settings_language_polish">Польский</string>
+    <string name="settings_theme_title">Тема</string>
+    <string name="settings_theme_system">Системная тема</string>
+    <string name="settings_theme_light">Светлая</string>
+    <string name="settings_theme_dark">Тёмная</string>
+    <string name="settings_server_title">Источник списка серверов</string>
+    <string name="settings_server_subtitle">Выберите, откуда загружать список серверов.</string>
+    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_vpngate">VPN Gate</string>
+    <string name="settings_server_custom">Свой сервер (введите url)</string>
+    <string name="settings_server_custom_hint">https://ваш-сервер.example/api</string>
+    <string name="settings_cache_title">Кэш списка серверов</string>
+    <string name="settings_cache_hint">Минуты (больше 0)</string>
+    <string name="settings_cache_summary_format">%1$d минут</string>
+</resources>

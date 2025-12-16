@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="start_connection">START CONNECTION</string>
+    <string name="stop_connection">STOP CONNECTION</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+
+    <!-- Section: Menu -->
+    <string name="menu_connection">Connection</string>
+    <string name="menu_server">Server</string>
+    <string name="menu_protocol">Protocol</string>
+    <string name="menu_dns">DNS</string>
+    <string name="menu_filter">Filter</string>
+    <string name="menu_telegram">Telegram</string>
+    <string name="menu_rate">Rate</string>
+    <string name="menu_about">About</string>
+    <string name="menu_settings">Settings</string>
+
+    <!-- Section: Server screen -->
+    <string name="server_list_title">Server list</string>
+    <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
+    <string name="action_refresh">Refresh</string>
+
+    <!-- Section: Error screen -->
+    <string name="error_fragment_message">An error occurred</string>
+    <string name="dismiss_error">Dismiss</string>
+    <string name="error_getting_servers">Error getting servers</string>
+    <string name="no_servers_for_country">No servers available for the selected country</string>
+
+    <!-- Section: Main screen -->
+    <string name="current_country">Not selected</string>
+    <string name="current_city">Not selected</string>
+    <string name="feature_in_development">Feature in Development</string>
+
+    <!-- Section: About -->
+    <string name="about_section_app">Application</string>
+    <string name="about_section_links">Links</string>
+    <string name="about_section_legal">Legal</string>
+    <string name="about_version_format">Version: %1$s (%2$d)</string>
+    <string name="about_package_format">Package: %1$s</string>
+    <string name="about_engine_format">VPN Engine: %1$s - %2$s</string>
+    <string name="about_website">Website</string>
+    <string name="about_email">Contact Email</string>
+    <string name="about_telegram">Telegram</string>
+    <string name="about_github">Source Code</string>
+    <string name="about_github_engine">Engine Source</string>
+    <string name="about_google_play">Google Play</string>
+    <string name="about_privacy_policy">Privacy Policy</string>
+    <string name="about_terms_of_use">Terms of Use</string>
+    <string name="about_licenses">GPLv2 License</string>
+    <string name="about_ics_github">ics-openvpn on GitHub</string>
+    <string name="intent_open_with">Open with</string>
+    <string name="intent_send_email">Send email</string>
+    <string name="email_app_not_found">No email app available</string>
+    <string name="web_title">Web Page</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="copy_label_link">Link</string>
+    <string name="copy_label_email">Email</string>
+    <string name="about_copyright_format">© %1$d %2$s</string>
+
+    <!-- Section: VPN notifications -->
+    <string name="vpn_channel_name">VPN Status</string>
+    <string name="vpn_channel_description">Status of the VPN connection</string>
+    <string name="vpn_notification_title_connecting">VPN connecting</string>
+    <string name="vpn_notification_title_connected">VPN connected</string>
+    <string name="vpn_notification_title_disconnecting">VPN disconnecting</string>
+    <string name="vpn_notification_title_disconnected">VPN disconnected</string>
+    <string name="vpn_notification_text_connecting">Establishing secure connection...</string>
+    <string name="vpn_notification_text_connected">Your VPN is active</string>
+    <string name="vpn_notification_text_disconnecting">Tearing down connection...</string>
+    <string name="vpn_notification_text_disconnected">VPN stopped</string>
+
+    <!-- Section: Runtime messages / toasts -->
+    <string name="select_server_first">Please select a server first</string>
+    <string name="vpn_permission_not_granted">VPN permission was not granted</string>
+    <string name="notification_permission_required">Notification permission is required for VPN status</string>
+
+    <!-- Section: Speed units (bytes per second) -->
+    <string name="speed_unit_bps">B/s</string>
+    <string name="speed_unit_kbps">KB/s</string>
+    <string name="speed_unit_mbps">MB/s</string>
+    <string name="speed_unit_gbps">GB/s</string>
+
+    <!-- Section: Traffic units (total bytes) -->
+    <string name="traffic_unit_b">B</string>
+    <string name="traffic_unit_kb">kB</string>
+    <string name="traffic_unit_mb">MB</string>
+    <string name="traffic_unit_gb">GB</string>
+
+    <!-- Section: Main screen defaults / status -->
+    <string name="main_duration_default">00:00:00</string>
+    <string name="main_version_default">Version: -</string>
+    <string name="main_status_disconnected">Disconnected</string>
+    <string name="main_status_connecting">Connecting…</string>
+    <string name="main_status_connected">Connected</string>
+    <string name="main_status_disconnecting">Disconnecting…</string>
+
+    <!-- Section: Connection details (landscape) -->
+    <string name="connection_detail_duration_label">DURATION</string>
+    <string name="connection_detail_downloaded_label">DOWNLOADED</string>
+    <string name="connection_detail_city_label">CITY</string>
+    <string name="connection_detail_status_label">STATUS</string>
+    <string name="connection_detail_uploaded_label">UPLOADED</string>
+    <string name="connection_detail_address_label">ADDRESS</string>
+
+    <!-- Section: Countdown suffix for UI button during connecting phases -->
+    <string name="state_countdown_seconds"> (%1$d sec)</string>
+
+    <!-- Section: Settings -->
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_system">Use system language</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_russian">Русский</string>
+    <string name="settings_language_polish">Polski</string>
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_system">Match system theme</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_server_title">Server source</string>
+    <string name="settings_server_subtitle">Choose where to load the server list from.</string>
+    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_vpngate">VPN Gate</string>
+    <string name="settings_server_custom">Custom server (enter URL below)</string>
+    <string name="settings_server_custom_hint">https://your-server.example/api</string>
+    <string name="settings_cache_title">Server list cache</string>
+    <string name="settings_cache_hint">Minutes (must be &gt; 0)</string>
+    <string name="settings_cache_summary_format">%1$d minutes</string>
+</resources>

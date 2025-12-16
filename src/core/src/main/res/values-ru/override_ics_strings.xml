@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notifcation_title">%1$s</string>
+    <string name="notifcation_title_notconnect">VPN отключен</string>
+    <item type="string" name="channel_name_background">@string/app_name</item>
+    <string name="channel_description_background">Фоновый статус VPN</string>
+    <string name="channel_name_status">Статус VPN</string>
+    <string name="channel_description_status">Обновления статуса соединения</string>
+    <string name="channel_name_userreq">Запросы VPN</string>
+    <string name="channel_description_userreq">Запросы действий пользователя</string>
+
+    <!-- Section: Actions and prompts used by the OpenVPN engine notifications -->
+    <string name="cancel_connection">Остановить</string>
+    <string name="cancel_connection_long">Остановить</string>
+    <string name="cancel_connection_query">Остановить VPN или отменить попытку подключения?</string>
+    <string name="pauseVPN">Пауза</string>
+    <string name="resumevpn">Возобновить</string>
+
+    <!-- Section: Permission-related notifications from engine -->
+    <string name="permission_requested">Требуется разрешение на запуск VPN‑подключения</string>
+    <string name="missing_notification_permission">Отсутствует разрешение на уведомления. Оно используется для отображения статуса VPN и уведомлений о действиях, требующих участия пользователя, например многофакторной аутентификации.
+
+Нажмите это сообщение, чтобы выдать приложению разрешение на уведомления</string>
+
+    <!-- Section: User interaction titles -->
+    <string name="openurl_requested">Откройте URL для продолжения аутентификации VPN</string>
+    <string name="crtext_requested">Ответьте на запрос для продолжения аутентификации VPN</string>
+
+    <!-- Section: Connection state labels used in notification body -->
+    <string name="state_connecting">Подключение</string>
+    <string name="state_wait">Ожидание ответа сервера</string>
+    <string name="state_auth">Аутентификация</string>
+    <string name="state_get_config">Получение настроек клиента</string>
+    <string name="state_assign_ip">Назначение адресов IP</string>
+    <string name="state_add_routes">Добавление маршрутов</string>
+    <string name="state_connected">Подключено</string>
+    <string name="state_disconnected">Отключено</string>
+    <string name="state_reconnecting">Повторное подключение</string>
+    <string name="state_exiting">Выход</string>
+    <string name="state_noprocess">Не запущено</string>
+    <string name="state_resolve">Разрешение имён хостов</string>
+    <string name="state_tcp_connect">Подключение (TCP)</string>
+    <string name="state_auth_pending">Ожидание аутентификации</string>
+    <string name="state_auth_failed">Ошибка аутентификации</string>
+    <string name="state_nonetwork">Ожидание сети</string>
+    <string name="state_waitorbot">Ожидание запуска Orbot</string>
+    <string name="state_userpause">Пауза VPN по запросу пользователя</string>
+    <string name="state_screenoff">VPN приостановлен — экран выключен</string>
+
+    <!-- Section: Byte counters and units used for live traffic line -->
+    <string name="statusline_bytecount">↑%2$s %1$s - ↓%4$s %3$s</string>
+    <string name="bits_per_second">%.0f бит/с</string>
+    <string name="kbits_per_second">%.1f кбит/с</string>
+    <string name="mbits_per_second">%.1f Мбит/с</string>
+    <string name="gbits_per_second">%.1f Гбит/с</string>
+    <string name="volume_byte">%.0f Б</string>
+    <string name="volume_kbyte">%.1f кБ</string>
+    <string name="volume_mbyte">%.1f МБ</string>
+    <string name="volume_gbyte">%.1f ГБ</string>
+    <string name="session_ipv4string">%1$s - %2$s</string>
+    <string name="session_ipv6string">%1$s - %3$s, %2$s</string>
+
+    <!-- Section: Misc process messages -->
+    <string name="building_configration">Сборка конфигурации…</string>
+    <string name="building_configuration">@string/building_configration</string>
+</resources>

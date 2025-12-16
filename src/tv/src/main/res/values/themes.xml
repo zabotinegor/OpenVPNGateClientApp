@@ -1,0 +1,23 @@
+<resources>
+    <style name="Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+        <!-- Section: TV-specific overrides -->
+        <item name="android:theme">@style/Theme.Leanback</item>
+        <item name="android:buttonStyle">@style/Widget.OpenVPNClient.Button</item>
+    </style>
+
+    <!-- Improve contrast for link-like rows on TV -->
+    <style name="Widget.OpenVPNClient.ClickableRow" parent="WidgetOpenVPNClientFocusableSurface">
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClient.Body</item>
+        <item name="android:textColor">@color/text_color_primary</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+        <item name="drawableTint">@color/text_color_primary</item>
+        <item name="android:drawableTint">@color/text_color_primary</item>
+    </style>
+</resources>

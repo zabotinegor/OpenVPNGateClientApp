@@ -1,0 +1,180 @@
+name: Release from Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    env:
+      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Install swig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig
+          swig -version
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Generate Version
+        id: versioning
+        shell: bash
+        run: |
+          set -e
+          STABLE_TAG=$(git tag --list 'v1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
+          if [[ -z "$STABLE_TAG" ]]; then
+            MAJOR=1
+            MINOR=0
+            PATCH=0
+            VERSION="1.0.0"
+            echo "==> No stable tag found, starting with ${VERSION}."
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "==> Base on latest stable tag ${STABLE_TAG}; next version ${VERSION}."
+          fi
+          VERSION_CODE=${GITHUB_RUN_NUMBER:-1}
+          TAG="v${VERSION}-auto"
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "==> App version: $VERSION"
+          echo "==> Git tag: $TAG"
+          echo "==> App versionCode: $VERSION_CODE"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          {
+            echo 'last_commit<<EOF'
+            echo "$LAST_COMMIT_MSG"
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
+
+      - name: Decode Keystore
+        run: |
+          echo "Decoding signing key..."
+          echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > keystore.jks
+          
+          echo "Creating keystore.properties file..."
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" > keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> keystore.properties
+          echo "storeFile=keystore.jks" >> keystore.properties
+        working-directory: ./src
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
+
+      - name: Build Mobile APK
+        run: |
+          ./gradlew :mobile:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build Mobile App Bundle (AAB)
+        run: |
+          ./gradlew :mobile:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build TV APK
+        run: |
+          ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build TV App Bundle (AAB)
+        run: |
+          ./gradlew :tv:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=${{ steps.versioning.outputs.version }}
+          mkdir -p output
+          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+
+      - name: Create Git Tag
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const tag = '${{ steps.versioning.outputs.tag }}';
+            const sha = context.sha;
+            console.log(`Attempting to create tag: ${tag} at SHA: ${sha}`);
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tag}`,
+                sha: sha
+              });
+              console.log(`Successfully created tag ${tag}`);
+            } catch (error) {
+              if (error.status === 422) {
+                console.log(`Tag ${tag} already exists. Skipping.`);
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Publish Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: |
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
+          token: ${{ secrets.GH_PAT }}
+          tag: ${{ steps.versioning.outputs.tag }}
+          name: "Release ${{ steps.versioning.outputs.tag }}"
+          body: |
+            Automated build from branch `${{ github.ref_name }}`
+            App version: `${{ steps.versioning.outputs.version }}`
+            
+            What's new:
+            ```
+            ${{ steps.versioning.outputs.last_commit }}
+            ```
+          allowUpdates: true
+          replacesArtifacts: true
+          prerelease: false

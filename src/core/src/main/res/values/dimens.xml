@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="server_item_margin">8dp</dimen>
+    <dimen name="list_item_min_height">72dp</dimen>
+    <dimen name="item_corner_radius">8dp</dimen>
+    <dimen name="speedometer_margin">32dp</dimen>
+</resources>

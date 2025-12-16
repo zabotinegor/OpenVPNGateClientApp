@@ -1,0 +1,210 @@
+name: Beta Release From Dev
+
+on:
+  push:
+    branches:
+      - 'dev'
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    env:
+      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Install swig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig
+          swig -version
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Generate Beta Version
+        id: versioning
+        shell: bash
+        run: |
+          set -e
+
+          STABLE_TAG=$(git tag --list 'v1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
+          if [[ -z "$STABLE_TAG" ]]; then
+            echo "==> No stable tag found, starting with 1.0.0."
+            VERSION="1.0.0"
+            PATCH=0
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${STABLE_TAG#v}"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "==> Base version: $VERSION"
+
+          BETA_TAG=$(git tag --list "v${VERSION}-beta.*" | sort -Vr | head -n 1) || true
+          if [[ -n "$BETA_TAG" ]]; then
+            BETA_NUM_MATCH=$(echo "$BETA_TAG" | grep -oE 'beta\.[0-9]+')
+            if [[ -n "$BETA_NUM_MATCH" ]]; then
+                BETA_NUM=$(echo "$BETA_NUM_MATCH" | cut -d. -f2)
+                BETA_NUM=$((BETA_NUM + 1))
+            else
+                BETA_NUM=1
+            fi
+          else
+            BETA_NUM=1
+          fi
+          echo "==> Next beta number: $BETA_NUM"
+
+          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto"
+          APP_VERSION="${VERSION}-beta.${BETA_NUM}"
+
+          # Capture last commit message (subject + body)
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          # Compute compare URL to previous beta tag if exists
+          if [[ -n "$BETA_TAG" ]]; then
+            COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/${BETA_TAG}...${FINAL_TAG}"
+          else
+            COMPARE_URL=""
+          fi
+
+          echo "==> Final tag: $FINAL_TAG"
+          echo "==> App version: $APP_VERSION"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+          echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
+          echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "previous_tag=${BETA_TAG}" >> $GITHUB_OUTPUT
+          echo "compare_url=${COMPARE_URL}" >> $GITHUB_OUTPUT
+          {
+            echo 'last_commit<<EOF'
+            echo "$LAST_COMMIT_MSG"
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
+
+      - name: Decode Keystore
+        run: |
+          echo "Decoding signing key..."
+          echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > keystore.jks
+          
+          echo "Creating keystore.properties file..."
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" > keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> keystore.properties
+          echo "storeFile=keystore.jks" >> keystore.properties
+        working-directory: ./src
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
+
+      - name: Build Mobile APK
+        run: |
+          ./gradlew :mobile:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
+      - name: Build Mobile App Bundle (AAB)
+        run: |
+          ./gradlew :mobile:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
+      - name: Build TV APK
+        run: |
+          ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
+      - name: Build TV App Bundle (AAB)
+        run: |
+          ./gradlew :tv:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
+            -PappVersionCode="${{ github.run_number }}"
+        working-directory: ./src
+
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=${{ steps.versioning.outputs.app_version }}
+          mkdir -p output
+          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+
+      - name: Create Git Tag
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const tag = '${{ steps.versioning.outputs.tag }}';
+            const sha = context.sha;
+            console.log(`Attempting to create tag: ${tag} at SHA: ${sha}`);
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tag}`,
+                sha: sha
+              });
+              console.log(`Successfully created tag ${tag}`);
+            } catch (error) {
+              if (error.status === 422) {
+                console.log(`Tag ${tag} already exists. Skipping tag creation.`);
+              } else {
+                console.error(`Failed to create tag ${tag}:`, error);
+                throw error;
+              }
+            }
+
+      - name: Publish Beta Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GH_PAT }}
+          tag:   ${{ steps.versioning.outputs.tag }}
+          name:  "Beta Release ${{ steps.versioning.outputs.tag }}"
+          body: |
+            Automated build from branch `${{ github.ref_name }}`
+            App version: `${{ steps.versioning.outputs.app_version }}`
+            
+            What's new:
+            ```
+            ${{ steps.versioning.outputs.last_commit }}
+            ```
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: |
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.aab
+          generateReleaseNotes: true

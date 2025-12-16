@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Section: MainActivity -->
+    <dimen name="nav_bar_padding">20dp</dimen>
+    <dimen name="nav_bar_logo_margin_bottom">30dp</dimen>
+    <dimen name="nav_bar_logo_text_size">24sp</dimen>
+    <dimen name="nav_bar_button_drawable_padding">10dp</dimen>
+
+    <!-- Section: Speedometer -->
+    <dimen name="speedometer_width">400dp</dimen>
+    <dimen name="speedometer_height">400dp</dimen>
+    <dimen name="speedometer_arc_width">30dp</dimen>
+    <dimen name="speedometer_speed_text_size">60sp</dimen>
+    <dimen name="speedometer_subtitle_text_size">30sp</dimen>
+</resources>

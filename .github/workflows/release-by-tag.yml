@@ -1,0 +1,139 @@
+name: Release from Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    env:
+      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+
+    if: "!contains(github.ref_name, '-auto')" # Ignore tags created by other workflows
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Install swig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig
+          swig -version
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Extract Version from Tag
+        id: versioning
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION_CODE=${GITHUB_RUN_NUMBER:-1}
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+          {
+            echo 'last_commit<<EOF'
+            echo "$LAST_COMMIT_MSG"
+            echo EOF
+          } >> $GITHUB_OUTPUT
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
+
+      - name: Decode Keystore
+        run: |
+          echo "Decoding signing key..."
+          echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > keystore.jks
+          
+          echo "Creating keystore.properties file..."
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" > keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> keystore.properties
+          echo "storeFile=keystore.jks" >> keystore.properties
+        working-directory: ./src
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: ./src
+
+      - name: Build Mobile APK
+        run: |
+          ./gradlew :mobile:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build Mobile App Bundle (AAB)
+        run: |
+          ./gradlew :mobile:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build TV APK
+        run: |
+          ./gradlew :tv:assembleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Build TV App Bundle (AAB)
+        run: |
+          ./gradlew :tv:bundleRelease \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+        working-directory: ./src
+
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=${{ steps.versioning.outputs.version }}
+          mkdir -p output
+          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+
+      - name: Publish Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: |
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
+          token: ${{ secrets.GH_PAT }}
+          tag: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: |
+            Automated release build for tag `${{ github.ref_name }}`
+            App version: `${{ steps.versioning.outputs.version }}`
+            
+            What's new:
+            ```
+            ${{ steps.versioning.outputs.last_commit }}
+            ```
+          allowUpdates: true
+          replacesArtifacts: true
+          prerelease: false
