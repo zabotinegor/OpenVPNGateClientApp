@@ -105,7 +105,6 @@ class FilterListAdapter(
             binding.root.isFocusable = true
             binding.root.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
-                    val pkg = binding.root.tag?.toString() ?: "unknown"
                     val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
                     onItemFocus(pos)
                 }
