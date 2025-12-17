@@ -27,6 +27,7 @@ import de.blinkt.openvpn.core.IServiceStatus
 import de.blinkt.openvpn.core.IStatusCallbacks
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.TrafficHistory
+import com.yahorzabotsin.openvpnclient.core.filter.AppFilterStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
@@ -196,6 +197,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 mName = displayName?.ifBlank { null } ?: (try { getString(R.string.app_name) } catch (_: Exception) { applicationInfo.loadLabel(packageManager)?.toString() ?: "VPN" })
                 if (mCompatMode == 0) mCompatMode = DEFAULT_COMPAT_MODE
             }
+            applyAppFilter(profile)
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
             Log.i(TAG, "Requested engine start")
@@ -203,6 +205,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             Log.e(TAG, "OVPN parse error", e); stopSelf()
         } catch (e: Exception) {
             Log.e(TAG, "Start error", e); stopSelf()
+        }
+    }
+
+    private fun applyAppFilter(profile: VpnProfile) {
+        try {
+            val excluded = AppFilterStore.loadExcludedPackages(applicationContext)
+            profile.mAllowedAppsVpn.clear()
+            profile.mAllowedAppsVpnAreDisallowed = true
+            if (excluded.isNotEmpty()) {
+                profile.mAllowedAppsVpn.addAll(excluded)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to apply app filter", t)
         }
     }
 

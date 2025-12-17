@@ -32,6 +32,15 @@
     <string name="current_city">Not selected</string>
     <string name="feature_in_development">Feature in Development</string>
 
+    <!-- Section: App filter -->
+    <string name="filter_tab_user">User</string>
+    <string name="filter_tab_system">System</string>
+    <string name="filter_info_title">Filtering for apps</string>
+    <string name="filter_info_subtitle">Disable an app to let it work outside the VPN.</string>
+    <string name="filter_select_all">Select all</string>
+    <string name="filter_empty_state">No applications found</string>
+    <string name="filter_switch_content_description">Toggle tunneling for %1$s</string>
+
     <!-- Section: About -->
     <string name="about_section_app">Application</string>
     <string name="about_section_links">Links</string>

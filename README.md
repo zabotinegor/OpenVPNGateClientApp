@@ -24,7 +24,9 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - OpenVPN-based client with the `ics-openvpn` engine (bundled as the `openVpnEngine` submodule)
 - Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed
 - Manual country selection with basic connection stats (speed, duration, IP, status)
-- Separate mobile and TV launchers sharing the same core UI and networking code
+  - Separate mobile and TV launchers sharing the same core UI and networking code
+  - Per-app filtering (user/system), “Select all” toggles, pinned info card, and TV-friendly focus/scroll restoration
+  - Server list refresh now a compact button with localized label + icon and enhanced focus bounce feedback
 
 ## Stack and Modules
 - Kotlin, Android SDK 24+, ViewBinding, Retrofit/OkHttp

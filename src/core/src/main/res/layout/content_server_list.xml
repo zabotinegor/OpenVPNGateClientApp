@@ -46,20 +46,30 @@
 
     </LinearLayout>
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/refresh_fab"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="16dp"
         android:layout_marginTop="4dp"
         android:contentDescription="@string/action_refresh"
-        app:fabSize="mini"
-        app:srcCompat="@drawable/ic_baseline_refresh_24"
-        app:tint="?attr/colorOnPrimary"
+        android:text="@string/action_refresh"
+        android:textAllCaps="false"
+        android:minHeight="40dp"
+        android:minWidth="40dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:stateListAnimator="@animator/focus_bounce_refresh"
+        android:textColor="?attr/colorOnPrimary"
         app:backgroundTint="?attr/colorPrimary"
+        app:icon="@drawable/ic_baseline_refresh_24"
+        app:iconGravity="textStart"
+        app:iconPadding="8dp"
+        app:iconTint="?attr/colorOnPrimary"
         app:layout_constraintTop_toTopOf="@id/server_selection_container"
         app:layout_constraintBottom_toBottomOf="@id/server_selection_container"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:rippleColor="@android:color/transparent" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/servers_recycler_view"

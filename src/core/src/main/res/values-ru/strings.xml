@@ -32,6 +32,15 @@
     <string name="current_city">Не выбрано</string>
     <string name="feature_in_development">Функция в разработке</string>
 
+    <!-- Section: App filter -->
+    <string name="filter_tab_user">Пользовательские</string>
+    <string name="filter_tab_system">Системные</string>
+    <string name="filter_info_title">Фильтрация для приложений</string>
+    <string name="filter_info_subtitle">Отключите приложение, если ему нужно работать без VPN.</string>
+    <string name="filter_select_all">Выбрать все</string>
+    <string name="filter_empty_state">Приложения не найдены</string>
+    <string name="filter_switch_content_description">Переключить туннелирование для %1$s</string>
+
     <!-- Section: About -->
     <string name="about_section_app">Приложение</string>
     <string name="about_section_links">Ссылки</string>
