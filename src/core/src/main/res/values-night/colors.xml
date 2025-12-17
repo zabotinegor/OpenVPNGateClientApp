@@ -42,7 +42,6 @@
     <color name="server_selection_border_pressed">#6E6E6E</color>
 
     <!-- Loading indicator tint (night) -->
-    <!-- Loading indicator tint (night) -->
     <color name="loading_spinner_color">#5A5A5A</color>
 
     <!-- Switch Colors -->
