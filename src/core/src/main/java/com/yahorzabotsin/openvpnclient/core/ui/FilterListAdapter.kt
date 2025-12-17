@@ -13,7 +13,8 @@ import com.yahorzabotsin.openvpnclient.core.filter.AppFilterEntry
 
 class FilterListAdapter(
     private val onSelectAllToggle: (Boolean) -> Unit,
-    private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit
+    private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit,
+    private val onItemFocus: (Int) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     sealed class Item {
@@ -67,6 +68,11 @@ class FilterListAdapter(
     private class InfoViewHolder(
         private val binding: ItemFilterInfoBinding
     ) : RecyclerView.ViewHolder(binding.root) {
+        init {
+            binding.root.isFocusable = false
+            binding.root.isFocusableInTouchMode = false
+        }
+        
         fun bind() {
             // Static text from resources; nothing dynamic needed.
         }
@@ -76,7 +82,19 @@ class FilterListAdapter(
         private val binding: ItemFilterSelectAllBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
+        init {
+            binding.root.isFocusable = true
+            binding.root.nextFocusUpId = com.yahorzabotsin.openvpnclient.core.R.id.back_button
+            binding.root.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
+                    onItemFocus(pos)
+                }
+            }
+        }
+
         fun bind(item: Item.SelectAll) {
+            binding.root.tag = "select_all"
             binding.selectAllSwitch.setOnCheckedChangeListener(null)
             binding.selectAllSwitch.isChecked = item.isChecked
             binding.selectAllSwitch.isEnabled = item.isEnabled
@@ -99,7 +117,19 @@ class FilterListAdapter(
         private val binding: ItemAppFilterBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
+        init {
+            binding.root.isFocusable = true
+            binding.root.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    val pkg = binding.root.tag?.toString() ?: "unknown"
+                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
+                    onItemFocus(pos)
+                }
+            }
+        }
+
         fun bind(item: Item.App) {
+            binding.root.tag = "app:${item.entry.packageName}"
             binding.appName.text = item.entry.label
             binding.appSwitch.setOnCheckedChangeListener(null)
             binding.appSwitch.isChecked = item.isEnabled

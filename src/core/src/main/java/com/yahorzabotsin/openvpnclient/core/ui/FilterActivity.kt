@@ -4,13 +4,14 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
-import androidx.core.view.isVisible
+import android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -33,7 +34,9 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
     private var excludedPackages: Set<String> = emptySet()
     private var currentCategory: AppCategory = AppCategory.USER
     private val pages = mutableSetOf<FilterPageFragment>()
+    private val lastFocusedPositions: MutableMap<AppCategory, Int> = mutableMapOf()
     private var isLoading = false
+    private var isTvMode: Boolean = false
 
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         binding = ContentFilterBinding.inflate(inflater, container, true)
@@ -41,12 +44,22 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        isTvMode = TvUtils.isTvDevice(this)
         setupPager()
         loadApps()
     }
 
     private fun setupPager() {
         binding.pager.adapter = FilterPagerAdapter(this)
+        
+        if (isTvMode) {
+            binding.pager.isUserInputEnabled = false
+        }
+        binding.categoryTabs.isFocusable = false
+        binding.categoryTabs.isFocusableInTouchMode = false
+        binding.categoryTabs.descendantFocusability = FOCUS_BLOCK_DESCENDANTS
+        binding.categoryTabs.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+
         TabLayoutMediator(binding.categoryTabs, binding.pager) { tab, position ->
             val category = if (position == 0) AppCategory.USER else AppCategory.SYSTEM
             tab.text = getString(if (category == AppCategory.USER) R.string.filter_tab_user else R.string.filter_tab_system)
@@ -55,10 +68,12 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         binding.categoryTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 currentCategory = tab.tag as? AppCategory ?: AppCategory.USER
+                notifyPages()
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
             override fun onTabReselected(tab: TabLayout.Tab) {
                 currentCategory = tab.tag as? AppCategory ?: AppCategory.USER
+                notifyPages()
             }
         })
     }
@@ -90,7 +105,6 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         }
         val allEnabled = appItems.isNotEmpty() && appItems.all { it.isEnabled }
         return buildList {
-            add(FilterListAdapter.Item.Info)
             add(FilterListAdapter.Item.SelectAll(allEnabled, appItems.isNotEmpty()))
             addAll(appItems)
         }
@@ -177,12 +191,36 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
                 (flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isTvMode) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    // Switch to previous tab (USER)
+                    if (binding.pager.currentItem > 0) {
+                        binding.pager.currentItem = binding.pager.currentItem - 1
+                        return true
+                    }
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    // Switch to next tab (SYSTEM)
+                    val adapter = binding.pager.adapter
+                    if (adapter != null && binding.pager.currentItem < adapter.itemCount - 1) {
+                        binding.pager.currentItem = binding.pager.currentItem + 1
+                        return true
+                    }
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
 
     internal fun registerPage(page: FilterPageFragment) {
         pages.add(page)
-        page.render(itemsFor(page.category), isLoading)
+        val isCurrent = currentCategory == page.category
+        page.render(itemsFor(page.category), isLoading, isCurrent, lastFocusedPositions[page.category])
     }
 
     internal fun unregisterPage(page: FilterPageFragment) {
@@ -200,9 +238,15 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
 
     private fun notifyPages() {
         val loading = isLoading
+        val current = currentCategory
         pages.forEach { page ->
-            page.render(itemsFor(page.category), loading)
+            val isCurrent = current == page.category
+            page.render(itemsFor(page.category), loading, isCurrent, lastFocusedPositions[page.category])
         }
+    }
+
+    internal fun onItemFocusFromPage(category: AppCategory, position: Int) {
+        if (position >= 0) lastFocusedPositions[category] = position
     }
 
     private class FilterPagerAdapter(activity: FragmentActivity) : FragmentStateAdapter(activity) {
@@ -210,4 +254,5 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         override fun createFragment(position: Int): Fragment =
             FilterPageFragment.newInstance(if (position == 0) AppCategory.USER else AppCategory.SYSTEM)
     }
+
 }

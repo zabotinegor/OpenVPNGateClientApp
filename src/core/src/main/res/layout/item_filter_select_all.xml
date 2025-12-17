@@ -7,6 +7,7 @@
     android:clickable="true"
     android:focusable="true"
     android:foreground="?attr/selectableItemBackground"
+    android:stateListAnimator="?attr/ovpnFocusableStateListAnimator"
     app:cardBackgroundColor="@color/nav_bar_background"
     app:cardCornerRadius="12dp"
     app:cardElevation="0dp"

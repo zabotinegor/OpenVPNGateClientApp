@@ -6,6 +6,7 @@
     android:layout_marginBottom="8dp"
     android:clickable="true"
     android:focusable="true"
+    android:stateListAnimator="?attr/ovpnFocusableStateListAnimator"
     android:foreground="?attr/selectableItemBackground"
     app:cardBackgroundColor="@color/nav_bar_background"
     app:cardCornerRadius="12dp"
