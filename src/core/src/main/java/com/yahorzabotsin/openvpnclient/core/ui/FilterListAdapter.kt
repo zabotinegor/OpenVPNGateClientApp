@@ -4,6 +4,8 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ItemAppFilterBinding
@@ -15,7 +17,7 @@ class FilterListAdapter(
     private val onSelectAllToggle: (Boolean) -> Unit,
     private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit,
     private val onItemFocus: (Int) -> Unit = {}
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+) : ListAdapter<FilterListAdapter.Item, RecyclerView.ViewHolder>(DiffCallback()) {
 
     sealed class Item {
         data object Info : Item()
@@ -23,14 +25,7 @@ class FilterListAdapter(
         data class App(val entry: AppFilterEntry, val isEnabled: Boolean) : Item()
     }
 
-    private var items: List<Item> = emptyList()
-
-    fun submitList(newItems: List<Item>) {
-        items = newItems
-        notifyDataSetChanged()
-    }
-
-    override fun getItemViewType(position: Int): Int = when (items[position]) {
+    override fun getItemViewType(position: Int): Int = when (getItem(position)) {
         is Item.Info -> VIEW_INFO
         is Item.SelectAll -> VIEW_SELECT_ALL
         is Item.App -> VIEW_APP
@@ -45,17 +40,15 @@ class FilterListAdapter(
         }
     }
 
-    override fun getItemCount(): Int = items.size
-
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (val item = items[position]) {
+        when (val item = getItem(position)) {
             is Item.Info -> (holder as InfoViewHolder).bind()
             is Item.SelectAll -> (holder as SelectAllViewHolder).bind(item)
             is Item.App -> (holder as AppViewHolder).bind(item)
         }
     }
 
-    override fun getItemId(position: Int): Long = when (val item = items[position]) {
+    override fun getItemId(position: Int): Long = when (val item = getItem(position)) {
         Item.Info -> "info".hashCode().toLong()
         is Item.SelectAll -> "select_all".hashCode().toLong()
         is Item.App -> item.entry.packageName.hashCode().toLong()
@@ -63,6 +56,17 @@ class FilterListAdapter(
 
     init {
         setHasStableIds(true)
+    }
+
+    private class DiffCallback : DiffUtil.ItemCallback<Item>() {
+        override fun areItemsTheSame(oldItem: Item, newItem: Item): Boolean = when {
+            oldItem is Item.Info && newItem is Item.Info -> true
+            oldItem is Item.SelectAll && newItem is Item.SelectAll -> true
+            oldItem is Item.App && newItem is Item.App -> oldItem.entry.packageName == newItem.entry.packageName
+            else -> false
+        }
+
+        override fun areContentsTheSame(oldItem: Item, newItem: Item): Boolean = oldItem == newItem
     }
 
     private class InfoViewHolder(
