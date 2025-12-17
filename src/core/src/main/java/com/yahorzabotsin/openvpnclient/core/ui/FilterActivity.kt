@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
@@ -175,9 +176,7 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
                     pm.getApplicationIcon(appInfo)
                 } catch (_: Exception) {
                     null
-                }
-
-                if (icon == null) return@mapNotNull null
+                } ?: ContextCompat.getDrawable(this, R.drawable.ic_icon_system)
 
                 AppFilterEntry(
                     packageName = appInfo.packageName,
