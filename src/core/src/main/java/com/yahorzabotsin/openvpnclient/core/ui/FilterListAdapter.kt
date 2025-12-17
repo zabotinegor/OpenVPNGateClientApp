@@ -9,7 +9,6 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ItemAppFilterBinding
-import com.yahorzabotsin.openvpnclient.core.databinding.ItemFilterInfoBinding
 import com.yahorzabotsin.openvpnclient.core.databinding.ItemFilterSelectAllBinding
 import com.yahorzabotsin.openvpnclient.core.filter.AppFilterEntry
 
@@ -20,13 +19,11 @@ class FilterListAdapter(
 ) : ListAdapter<FilterListAdapter.Item, RecyclerView.ViewHolder>(DiffCallback()) {
 
     sealed class Item {
-        data object Info : Item()
         data class SelectAll(val isChecked: Boolean, val isEnabled: Boolean) : Item()
         data class App(val entry: AppFilterEntry, val isEnabled: Boolean) : Item()
     }
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
-        is Item.Info -> VIEW_INFO
         is Item.SelectAll -> VIEW_SELECT_ALL
         is Item.App -> VIEW_APP
     }
@@ -34,7 +31,6 @@ class FilterListAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
-            VIEW_INFO -> InfoViewHolder(ItemFilterInfoBinding.inflate(inflater, parent, false))
             VIEW_SELECT_ALL -> SelectAllViewHolder(ItemFilterSelectAllBinding.inflate(inflater, parent, false))
             else -> AppViewHolder(ItemAppFilterBinding.inflate(inflater, parent, false))
         }
@@ -42,14 +38,12 @@ class FilterListAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = getItem(position)) {
-            is Item.Info -> (holder as InfoViewHolder).bind()
             is Item.SelectAll -> (holder as SelectAllViewHolder).bind(item)
             is Item.App -> (holder as AppViewHolder).bind(item)
         }
     }
 
     override fun getItemId(position: Int): Long = when (val item = getItem(position)) {
-        Item.Info -> "info".hashCode().toLong()
         is Item.SelectAll -> "select_all".hashCode().toLong()
         is Item.App -> item.entry.packageName.hashCode().toLong()
     }
@@ -60,26 +54,12 @@ class FilterListAdapter(
 
     private class DiffCallback : DiffUtil.ItemCallback<Item>() {
         override fun areItemsTheSame(oldItem: Item, newItem: Item): Boolean = when {
-            oldItem is Item.Info && newItem is Item.Info -> true
             oldItem is Item.SelectAll && newItem is Item.SelectAll -> true
             oldItem is Item.App && newItem is Item.App -> oldItem.entry.packageName == newItem.entry.packageName
             else -> false
         }
 
         override fun areContentsTheSame(oldItem: Item, newItem: Item): Boolean = oldItem == newItem
-    }
-
-    private class InfoViewHolder(
-        private val binding: ItemFilterInfoBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
-        init {
-            binding.root.isFocusable = false
-            binding.root.isFocusableInTouchMode = false
-        }
-        
-        fun bind() {
-            // Static text from resources; nothing dynamic needed.
-        }
     }
 
     private inner class SelectAllViewHolder(
@@ -155,8 +135,7 @@ class FilterListAdapter(
     }
 
     private companion object {
-        const val VIEW_INFO = 0
-        const val VIEW_SELECT_ALL = 1
-        const val VIEW_APP = 2
+        const val VIEW_SELECT_ALL = 0
+        const val VIEW_APP = 1
     }
 }
