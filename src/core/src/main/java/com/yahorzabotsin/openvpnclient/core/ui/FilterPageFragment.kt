@@ -77,8 +77,7 @@ class FilterPageFragment : Fragment() {
         super.onDestroyView()
     }
 
-    private fun dpToPx(dp: Int): Int =
-        (dp * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    private fun dpToPx(dp: Int): Int = UiUtils.dpToPx(dp, resources)
 
     companion object {
         private const val ARG_CATEGORY = "category"

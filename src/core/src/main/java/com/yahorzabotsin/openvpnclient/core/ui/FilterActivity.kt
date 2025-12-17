@@ -217,8 +217,7 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun dpToPx(dp: Int): Int =
-        (dp * resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
+    private fun dpToPx(dp: Int): Int = UiUtils.dpToPx(dp, resources)
 
     internal fun registerPage(page: FilterPageFragment) {
         pages.add(page)
