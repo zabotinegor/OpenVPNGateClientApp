@@ -60,6 +60,11 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         binding.categoryTabs.descendantFocusability = FOCUS_BLOCK_DESCENDANTS
         binding.categoryTabs.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
 
+        fun handleTabSelection(tab: TabLayout.Tab) {
+            currentCategory = tab.tag as? AppCategory ?: AppCategory.USER
+            notifyPages()
+        }
+
         TabLayoutMediator(binding.categoryTabs, binding.pager) { tab, position ->
             val category = if (position == 0) AppCategory.USER else AppCategory.SYSTEM
             tab.text = getString(if (category == AppCategory.USER) R.string.filter_tab_user else R.string.filter_tab_system)
@@ -67,13 +72,11 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
         }.attach()
         binding.categoryTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                currentCategory = tab.tag as? AppCategory ?: AppCategory.USER
-                notifyPages()
+                handleTabSelection(tab)
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
             override fun onTabReselected(tab: TabLayout.Tab) {
-                currentCategory = tab.tag as? AppCategory ?: AppCategory.USER
-                notifyPages()
+                handleTabSelection(tab)
             }
         })
     }
