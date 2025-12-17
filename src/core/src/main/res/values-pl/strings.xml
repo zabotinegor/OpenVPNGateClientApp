@@ -33,7 +33,7 @@
     <string name="feature_in_development">Funkcja w przygotowaniu</string>
 
     <!-- Section: App filter -->
-    <string name="filter_tab_user">Uzytkownika</string>
+    <string name="filter_tab_user">Użytkownika</string>
     <string name="filter_tab_system">Systemowe</string>
     <string name="filter_info_title">Filtrowanie aplikacji</string>
     <string name="filter_info_subtitle">Wylacz aplikacje, jesli ma dzialac bez VPN.</string>
