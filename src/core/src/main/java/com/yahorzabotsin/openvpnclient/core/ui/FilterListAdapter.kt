@@ -71,8 +71,10 @@ class FilterListAdapter(
             binding.root.nextFocusUpId = com.yahorzabotsin.openvpnclient.core.R.id.back_button
             binding.root.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
-                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
-                    onItemFocus(pos)
+                    val pos = bindingAdapterPosition
+                    if (pos != RecyclerView.NO_POSITION) {
+                        onItemFocus(pos)
+                    }
                 }
             }
         }
@@ -105,8 +107,10 @@ class FilterListAdapter(
             binding.root.isFocusable = true
             binding.root.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
-                    val pos = bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION } ?: adapterPosition
-                    onItemFocus(pos)
+                    val pos = bindingAdapterPosition
+                    if (pos != RecyclerView.NO_POSITION) {
+                        onItemFocus(pos)
+                    }
                 }
             }
         }
