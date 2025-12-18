@@ -74,13 +74,19 @@ class ServerRepository(
 
     private fun writeCache(context: Context, key: String, body: ResponseBody) {
         val file = cacheFile(context, key)
+        val tmp = File(file.parentFile, "${file.name}.tmp")
         runCatching {
             body.use { response ->
-                file.outputStream().use { out ->
+                tmp.outputStream().use { out ->
                     response.byteStream().use { input ->
                         input.copyTo(out)
                     }
                 }
+            }
+            if (file.exists()) file.delete()
+            if (!tmp.renameTo(file)) {
+                tmp.delete()
+                throw IOException("Failed to move temp cache to final file")
             }
         }.onSuccess {
             context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
