@@ -284,6 +284,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         level: ConnectionStatus,
         intent: Intent?
     ) {
+        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
@@ -355,6 +357,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ) {
             if (level == null) return
             try {
+                try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (_: Exception) { }
                 ConnectionStateManager.updateFromEngine(level, state)
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
                     tryRestoreTrafficSnapshot()
