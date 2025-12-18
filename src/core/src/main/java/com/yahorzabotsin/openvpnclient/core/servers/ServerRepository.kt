@@ -263,7 +263,7 @@ class ServerRepository(
                 }
                 !inQuotes && c == ',' -> {
                     if (result.size == limitIndex) {
-                        current.append(line.substring(i + 1))
+                        current.append(line.substring(i))
                         break
                     }
                     result.add(current.toString())
