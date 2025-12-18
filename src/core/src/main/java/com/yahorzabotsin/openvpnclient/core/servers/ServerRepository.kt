@@ -81,11 +81,12 @@ class ServerRepository(
                     }
                 }
             }
+        }.onSuccess {
+            context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                .edit()
+                .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
+                .apply()
         }.onFailure { Log.w(TAG, "Failed to write cache file", it) }
-        context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-            .edit()
-            .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
-            .apply()
     }
 
     suspend fun getServers(context: Context, forceRefresh: Boolean = false): List<Server> =
