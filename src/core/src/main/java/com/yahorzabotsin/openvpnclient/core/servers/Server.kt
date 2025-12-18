@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
 data class Server(
+    val lineIndex: Int,
     val name: String,
     val city: String,
     val country: Country,

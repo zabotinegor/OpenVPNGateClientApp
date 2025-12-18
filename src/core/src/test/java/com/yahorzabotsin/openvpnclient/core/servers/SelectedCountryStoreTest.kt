@@ -10,48 +10,41 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class SelectedCountryStoreTest {
 
+    private fun server(
+        name: String,
+        city: String,
+        country: Country = Country("CountryA"),
+        config: String,
+        lineIndex: Int = 1,
+        signalStrength: SignalStrength = SignalStrength.STRONG
+    ) = Server(
+        lineIndex = lineIndex,
+        name = name,
+        city = city,
+        country = country,
+        ping = 10,
+        signalStrength = signalStrength,
+        ip = "1.1.1.1",
+        score = 100,
+        speed = 1000,
+        numVpnSessions = 1,
+        uptime = 100,
+        totalUsers = 10,
+        totalTraffic = 1000,
+        logType = "",
+        operator = "",
+        message = "",
+        configData = config
+    )
+
     @Test
     fun save_and_iterate_servers() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
 
         val servers = listOf(
-            Server(
-                name = "srv-1",
-                city = "City1",
-                country = Country("CountryA"),
-                ping = 10,
-                signalStrength = SignalStrength.STRONG,
-                ip = "1.1.1.1",
-                score = 100,
-                speed = 1000,
-                numVpnSessions = 1,
-                uptime = 100,
-                totalUsers = 10,
-                totalTraffic = 1000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "config1"
-            ),
-            Server(
-                name = "srv-2",
-                city = "City2",
-                country = Country("CountryA"),
-                ping = 20,
-                signalStrength = SignalStrength.MEDIUM,
-                ip = "2.2.2.2",
-                score = 90,
-                speed = 900,
-                numVpnSessions = 2,
-                uptime = 200,
-                totalUsers = 20,
-                totalTraffic = 2000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "config2"
-            )
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1),
+            server(name = "srv-2", city = "City2", config = "config2", lineIndex = 2, signalStrength = SignalStrength.MEDIUM)
         )
 
         SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
@@ -83,26 +76,7 @@ class SelectedCountryStoreTest {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
 
-        val serversA = listOf(
-            Server(
-                name = "srv-1",
-                city = "City1",
-                country = Country("CountryA"),
-                ping = 10,
-                signalStrength = SignalStrength.STRONG,
-                ip = "1.1.1.1",
-                score = 100,
-                speed = 1000,
-                numVpnSessions = 1,
-                uptime = 100,
-                totalUsers = 10,
-                totalTraffic = 1000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "configA1"
-            )
-        )
+        val serversA = listOf(server(name = "srv-1", city = "City1", country = Country("CountryA"), config = "configA1", lineIndex = 1))
 
         SelectedCountryStore.saveSelection(ctx, "CountryA", serversA)
         SelectedCountryStore.resetIndex(ctx)
@@ -111,26 +85,7 @@ class SelectedCountryStoreTest {
         val forA = SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx)
         assertEquals("configA1", forA)
 
-        val serversB = listOf(
-            Server(
-                name = "srv-2",
-                city = "City2",
-                country = Country("CountryB"),
-                ping = 20,
-                signalStrength = SignalStrength.MEDIUM,
-                ip = "2.2.2.2",
-                score = 90,
-                speed = 900,
-                numVpnSessions = 2,
-                uptime = 200,
-                totalUsers = 20,
-                totalTraffic = 2000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "configB1"
-            )
-        )
+        val serversB = listOf(server(name = "srv-2", city = "City2", country = Country("CountryB"), config = "configB1", lineIndex = 1, signalStrength = SignalStrength.MEDIUM))
 
         SelectedCountryStore.saveSelection(ctx, "CountryB", serversB)
         SelectedCountryStore.resetIndex(ctx)
@@ -164,42 +119,8 @@ class SelectedCountryStoreTest {
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
 
         val servers = listOf(
-            Server(
-                name = "srv-1",
-                city = "City1",
-                country = Country("CountryA"),
-                ping = 10,
-                signalStrength = SignalStrength.STRONG,
-                ip = "1.1.1.1",
-                score = 100,
-                speed = 1000,
-                numVpnSessions = 1,
-                uptime = 100,
-                totalUsers = 10,
-                totalTraffic = 1000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "config1"
-            ),
-            Server(
-                name = "srv-2",
-                city = "City2",
-                country = Country("CountryA"),
-                ping = 20,
-                signalStrength = SignalStrength.MEDIUM,
-                ip = "2.2.2.2",
-                score = 90,
-                speed = 900,
-                numVpnSessions = 2,
-                uptime = 200,
-                totalUsers = 20,
-                totalTraffic = 2000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "config2"
-            )
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1),
+            server(name = "srv-2", city = "City2", config = "config2", lineIndex = 2, signalStrength = SignalStrength.MEDIUM)
         )
 
         SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
@@ -220,26 +141,7 @@ class SelectedCountryStoreTest {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
 
-        val servers = listOf(
-            Server(
-                name = "srv-1",
-                city = "City1",
-                country = Country("CountryA", "AA"),
-                ping = 10,
-                signalStrength = SignalStrength.STRONG,
-                ip = "1.1.1.1",
-                score = 100,
-                speed = 1000,
-                numVpnSessions = 1,
-                uptime = 100,
-                totalUsers = 10,
-                totalTraffic = 1000,
-                logType = "",
-                operator = "",
-                message = "",
-                configData = "config1"
-            )
-        )
+        val servers = listOf(server(name = "srv-1", city = "City1", country = Country("CountryA", "AA"), config = "config1", lineIndex = 1))
 
         SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
 
