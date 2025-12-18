@@ -77,26 +77,32 @@ open class ServerListActivity : AppCompatActivity() {
                     .distinctBy { it.name }
                     .sortedBy { it.name }
                 contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { selected ->
-                    val countryName = selected.name
-                    val countryCode = selected.code
-                    Log.d(TAG, "Country selected: $countryName")
-                    val countryServers = servers.filter { it.country.name == countryName }
-                    if (countryServers.isNotEmpty()) {
-                        SelectedCountryStore.saveSelection(this@ServerListActivity, countryName, countryServers)
-                        val first = countryServers.first()
-                        val resultIntent = Intent().apply {
-                            putExtra(EXTRA_SELECTED_SERVER_COUNTRY, countryName)
-                            putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
-                            putExtra(EXTRA_SELECTED_SERVER_CITY, first.city)
-                            putExtra(EXTRA_SELECTED_SERVER_CONFIG, first.configData)
+                    lifecycleScope.launch {
+                        val countryName = selected.name
+                        val countryCode = selected.code
+                        Log.d(TAG, "Country selected: $countryName")
+                        val countryServers = servers.filter { it.country.name == countryName }
+                        if (countryServers.isNotEmpty()) {
+                            val configs = serverRepository.loadConfigs(this@ServerListActivity, countryServers)
+                            val resolvedServers = countryServers.map { srv ->
+                                srv.copy(configData = configs[srv.lineIndex].orEmpty())
+                            }
+                            SelectedCountryStore.saveSelection(this@ServerListActivity, countryName, resolvedServers)
+                            val first = resolvedServers.first()
+                            val resultIntent = Intent().apply {
+                                putExtra(EXTRA_SELECTED_SERVER_COUNTRY, countryName)
+                                putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
+                                putExtra(EXTRA_SELECTED_SERVER_CITY, first.city)
+                                putExtra(EXTRA_SELECTED_SERVER_CONFIG, first.configData)
+                            }
+                            setResult(Activity.RESULT_OK, resultIntent)
+                        } else {
+                            Log.w(TAG, "No servers found for selected country: $countryName")
+                            Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
+                            setResult(Activity.RESULT_CANCELED)
                         }
-                        setResult(Activity.RESULT_OK, resultIntent)
-                    } else {
-                        Log.w(TAG, "No servers found for selected country: $countryName")
-                        Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
-                        setResult(Activity.RESULT_CANCELED)
+                        finish()
                     }
-                    finish()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
