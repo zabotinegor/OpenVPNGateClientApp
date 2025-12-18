@@ -15,7 +15,6 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentServerListBinding
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
-import com.yahorzabotsin.openvpnclient.core.servers.Country
 import kotlinx.coroutines.launch
 import android.widget.Toast
 
@@ -27,7 +26,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentServerListBinding
     private val TAG = ServerListActivity::class.simpleName
 
-    private var countries: List<Country> = emptyList()
+    private var countries: List<CountryWithServers> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,9 +72,11 @@ open class ServerListActivity : AppCompatActivity() {
                 servers = serverRepository.getServers(this@ServerListActivity, forceRefresh)
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
                 countries = servers
-                    .map { it.country }
-                    .distinctBy { it.name }
-                    .sortedBy { it.name }
+                    .groupBy { it.country }
+                    .map { (country, serversByCountry) ->
+                        CountryWithServers(country, serversByCountry.size)
+                    }
+                    .sortedBy { it.country.name }
                 contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { selected ->
                     lifecycleScope.launch {
                         val countryName = selected.name

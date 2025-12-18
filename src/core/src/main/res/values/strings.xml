@@ -19,6 +19,10 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Server list</string>
     <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d server</item>
+        <item quantity="other">%d servers</item>
+    </plurals>
     <string name="action_refresh">Refresh</string>
 
     <!-- Section: Error screen -->

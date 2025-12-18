@@ -19,6 +19,12 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Lista serwerów</string>
     <string name="server_list_subtitle">Jeśli występują problemy z połączeniem, wybierz inny serwer.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d serwer</item>
+        <item quantity="few">%d serwery</item>
+        <item quantity="many">%d serwerów</item>
+        <item quantity="other">%d serwera</item>
+    </plurals>
     <string name="action_refresh">Odśwież</string>
 
     <!-- Section: Error screen -->

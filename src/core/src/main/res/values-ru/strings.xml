@@ -19,6 +19,12 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>
     <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d сервер</item>
+        <item quantity="few">%d сервера</item>
+        <item quantity="many">%d серверов</item>
+        <item quantity="other">%d сервера</item>
+    </plurals>
     <string name="action_refresh">Обновить</string>
 
     <!-- Section: Error screen -->
