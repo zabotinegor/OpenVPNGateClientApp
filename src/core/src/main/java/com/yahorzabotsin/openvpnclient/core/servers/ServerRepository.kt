@@ -11,6 +11,7 @@ import java.io.File
 import java.io.FileReader
 import java.io.IOException
 import java.security.MessageDigest
+import java.io.Reader
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -172,11 +173,15 @@ class ServerRepository(
             val result = ArrayList<Server>()
             var lineIndex = 0
             while (true) {
-                val line = r.readLine() ?: break
-                if (line.isBlank()) continue
+                val values = readCsvRow(r, 14) ?: break
+                
+                if (values.isEmpty() || (values.size == 1 && values[0].isBlank())) {
+                     continue
+                }
+                
                 lineIndex++
 
-                val values = parseCsvLine(line, 15) ?: continue
+                if (values.size < 14) continue
 
                 val pingValue = values[3].toIntOrNull() ?: 0
                 val signalStrength = when (pingValue) {
@@ -203,7 +208,7 @@ class ServerRepository(
                         logType = values[11],
                         operator = values[12],
                         message = values[13],
-                        configData = ""
+                        configData = "" // Loaded lazily
                     )
                 )
             }
@@ -238,49 +243,105 @@ class ServerRepository(
                 repeat(2) { reader.readLine() } // skip header
                 var idx = 0
                 while (true) {
-                    val line = reader.readLine() ?: break
-                    if (line.isBlank()) continue
                     idx++
-                    if (idx !in targetIndexes) continue
-                    val values = parseCsvLine(line, 15) ?: continue
-                    result[idx] = values[14]
+                    if (idx !in targetIndexes) {
+                        skipRestOfLine(reader)
+                        reader.mark(1)
+                        if (reader.read() == -1) break
+                        reader.reset()
+                        continue
+                    }
+
+                    val values = readCsvRow(reader, 15) ?: break
+                    if (values.size < 15) continue
+                    
+                    if (idx in targetIndexes) {
+                       result[idx] = values[14]
+                    }
+                    
                     if (result.size == targetIndexes.size) break
                 }
             }
             result
         }
 
-    private fun parseCsvLine(line: String, expectedColumns: Int): List<String>? {
-        val result = ArrayList<String>(expectedColumns)
+    private fun skipRestOfLine(reader: Reader) {
+        loop@ while (true) {
+            val c = reader.read()
+            if (c == -1) break
+            when (c.toChar()) {
+                '\n' -> break@loop
+                '\r' -> {
+                    reader.mark(1)
+                    val next = reader.read()
+                    if (next != -1 && next.toChar() != '\n') reader.reset()
+                    break@loop
+                }
+            }
+        }
+    }
+
+    private fun readCsvRow(reader: Reader, maxColumns: Int): List<String>? {
+        val result = ArrayList<String>(maxColumns)
         val current = StringBuilder()
         var inQuotes = false
-        var i = 0
-        val limitIndex = expectedColumns - 1
-        while (i < line.length) {
-            val c = line[i]
-            when {
-                inQuotes && c == '"' -> {
-                    if (i + 1 < line.length && line[i + 1] == '"') {
+
+        // Check for EOF immediately
+        reader.mark(1)
+        if (reader.read() == -1) return null
+        reader.reset()
+
+        loop@ while (true) {
+            val cInt = reader.read()
+            if (cInt == -1) {
+                if (result.isNotEmpty() || current.isNotEmpty()) {
+                    result.add(current.toString())
+                }
+                break
+            }
+            val c = cInt.toChar()
+
+            if (inQuotes) {
+                if (c == '"') {
+                    reader.mark(1)
+                    val next = reader.read()
+                    if (next != -1 && next.toChar() == '"') {
                         current.append('"')
-                        i++
                     } else {
                         inQuotes = false
+                        if (next != -1) reader.reset()
                     }
+                } else {
+                    current.append(c)
                 }
-                !inQuotes && c == ',' -> {
-                    if (result.size == limitIndex) {
-                        current.append(line.substring(i))
-                        break
+            } else {
+                when (c) {
+                    ',' -> {
+                        result.add(current.toString())
+                        current.clear()
+                        if (result.size == maxColumns) {
+                            skipRestOfLine(reader)
+                            return result
+                        }
                     }
-                    result.add(current.toString())
-                    current.clear()
+                    '\r', '\n' -> {
+                        if (c == '\r') {
+                            reader.mark(1)
+                            val next = reader.read()
+                            if (next != -1 && next.toChar() != '\n') reader.reset()
+                        }
+                        result.add(current.toString())
+                        // Line finished.
+                        return result
+                    }
+                    '"' -> {
+                        if (current.isEmpty()) inQuotes = true else current.append(c)
+                    }
+                    else -> current.append(c)
                 }
-                !inQuotes && c == '"' && current.isEmpty() -> inQuotes = true
-                else -> current.append(c)
             }
-            i++
         }
-        result.add(current.toString())
-        return if (result.size < expectedColumns) null else result
+        // End of file
+        return if (result.isEmpty()) null else result
     }
 }
