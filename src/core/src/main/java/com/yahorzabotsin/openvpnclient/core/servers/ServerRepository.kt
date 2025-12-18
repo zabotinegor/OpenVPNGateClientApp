@@ -245,19 +245,14 @@ class ServerRepository(
                 while (true) {
                     idx++
                     if (idx !in targetIndexes) {
-                        skipRestOfLine(reader)
-                        reader.mark(1)
-                        if (reader.read() == -1) break
-                        reader.reset()
+                        if (!skipRestOfLine(reader)) break
                         continue
                     }
 
                     val values = readCsvRow(reader, 15) ?: break
                     if (values.size < 15) continue
                     
-                    if (idx in targetIndexes) {
-                       result[idx] = values[14]
-                    }
+                    result[idx] = values[14]
                     
                     if (result.size == targetIndexes.size) break
                 }
@@ -265,10 +260,10 @@ class ServerRepository(
             result
         }
 
-    private fun skipRestOfLine(reader: Reader) {
+    private fun skipRestOfLine(reader: Reader): Boolean {
         loop@ while (true) {
             val c = reader.read()
-            if (c == -1) break
+            if (c == -1) return false
             when (c.toChar()) {
                 '\n' -> break@loop
                 '\r' -> {
@@ -279,6 +274,7 @@ class ServerRepository(
                 }
             }
         }
+        return true
     }
 
     private fun readCsvRow(reader: Reader, maxColumns: Int): List<String>? {
