@@ -54,6 +54,11 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
             chevron = binding.serverChevron
         )
         setupCollapsibleSection(
+            header = binding.autoSwitchHeader,
+            content = binding.autoSwitchRadioGroup,
+            chevron = binding.autoSwitchChevron
+        )
+        setupCollapsibleSection(
             header = binding.cacheHeader,
             content = binding.cacheInputLayout,
             chevron = binding.cacheChevron
@@ -96,7 +101,12 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
             })
             updateSummaries()
         }
-
+        binding.autoSwitchRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (isUpdatingUi) return@setOnCheckedChangeListener
+            val enabled = checkedId == binding.autoSwitchOn.id
+            UserSettingsStore.saveAutoSwitchWithinCountry(this, enabled)
+            updateSummaries()
+        }
     }
 
     private fun setupCustomInputWatcher() {
@@ -131,6 +141,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         } else {
             selectedRadioText(binding.serverRadioGroup)
         }
+        binding.autoSwitchSummary.text = selectedRadioText(binding.autoSwitchRadioGroup)
         binding.cacheSummary.text = formatMinutesSummary(currentCacheTtlMs)
     }
 
@@ -181,6 +192,9 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         currentCacheTtlMs = settings.cacheTtlMs
         val cacheMinutes = (settings.cacheTtlMs / 60000).coerceAtLeast(1)
         binding.cacheInput.setText(cacheMinutes.toString())
+        binding.autoSwitchRadioGroup.check(
+            if (settings.autoSwitchWithinCountry) binding.autoSwitchOn.id else binding.autoSwitchOff.id
+        )
 
         isUpdatingUi = false
     }

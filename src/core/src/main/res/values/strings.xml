@@ -138,4 +138,8 @@
     <string name="settings_cache_title">Server list cache</string>
     <string name="settings_cache_hint">Minutes (must be &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d minutes</string>
+    <string name="settings_auto_switch_title">Auto switch within country</string>
+    <string name="settings_auto_switch_subtitle">Automatically retry another server in the selected country.</string>
+    <string name="settings_auto_switch_on">On</string>
+    <string name="settings_auto_switch_off">Off</string>
 </resources>

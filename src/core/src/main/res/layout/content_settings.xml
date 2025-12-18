@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -319,6 +320,97 @@
                         android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
                 </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- Auto switch within country -->
+        <LinearLayout
+            android:id="@+id/auto_switch_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/auto_switch_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/auto_switch_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_switch_title"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+
+                    <TextView
+                        android:id="@+id/auto_switch_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_switch_subtitle"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+
+                    <TextView
+                        android:id="@+id/auto_switch_summary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                        android:ellipsize="end"
+                        android:maxLines="1" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/auto_switch_chevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:padding="4dp"
+                    android:rotation="90"
+                    android:src="@drawable/ic_baseline_chevron_right_24"
+                    android:tint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <RadioGroup
+                android:id="@+id/auto_switch_radio_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/auto_switch_on"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:text="@string/settings_auto_switch_on"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+
+                <RadioButton
+                    android:id="@+id/auto_switch_off"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="?attr/colorPrimary"
+                    android:text="@string/settings_auto_switch_off"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+            </RadioGroup>
         </LinearLayout>
 
         <!-- Cache TTL -->

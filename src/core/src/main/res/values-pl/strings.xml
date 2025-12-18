@@ -136,7 +136,11 @@
     <string name="settings_server_vpngate">VPN Gate</string>
     <string name="settings_server_custom">Własny serwer (wpisz url niżej)</string>
     <string name="settings_server_custom_hint">https://twoj-serwer.example/api</string>
-    <string name="settings_cache_title">Cache listy serwerów</string>
-    <string name="settings_cache_hint">Minuty (większe niż 0)</string>
+    <string name="settings_cache_title">Pamięć podręczna listy serwerów</string>
+    <string name="settings_cache_hint">Minuty (musi być &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d minut</string>
+    <string name="settings_auto_switch_title">Automatyczne przełączanie w kraju</string>
+    <string name="settings_auto_switch_subtitle">Automatycznie próbuje inny serwer w wybranym kraju.</string>
+    <string name="settings_auto_switch_on">Włączone</string>
+    <string name="settings_auto_switch_off">Wyłączone</string>
 </resources>

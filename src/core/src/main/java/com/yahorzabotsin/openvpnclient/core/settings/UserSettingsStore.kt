@@ -12,7 +12,8 @@ data class UserSettings(
     val theme: ThemeOption = ThemeOption.SYSTEM,
     val serverSource: ServerSource = ServerSource.DEFAULT,
     val customServerUrl: String = "",
-    val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
+    val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
+    val autoSwitchWithinCountry: Boolean = true
 )
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
@@ -26,6 +27,7 @@ object UserSettingsStore {
     private const val KEY_SERVER_SOURCE = "server_source"
     private const val KEY_CUSTOM_SERVER_URL = "custom_server_url"
     private const val KEY_CACHE_TTL_MS = "cache_ttl_ms"
+    private const val KEY_AUTO_SWITCH_WITHIN_COUNTRY = "auto_switch_within_country"
     private const val MIN_CACHE_TTL_MS = 60_000L
     const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1000L
 
@@ -42,7 +44,8 @@ object UserSettingsStore {
             .firstOrNull { it.name == p.getString(KEY_SERVER_SOURCE, null) } ?: ServerSource.DEFAULT
         val customUrl = p.getString(KEY_CUSTOM_SERVER_URL, "") ?: ""
         val cacheTtl = p.getLong(KEY_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS).coerceAtLeast(MIN_CACHE_TTL_MS)
-        return UserSettings(language, theme, serverSource, customUrl, cacheTtl)
+        val autoSwitch = p.getBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, true)
+        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch)
     }
 
     fun save(ctx: Context, settings: UserSettings) {
@@ -52,6 +55,7 @@ object UserSettingsStore {
             .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
             .putString(KEY_CUSTOM_SERVER_URL, settings.customServerUrl)
             .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
+            .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
             .apply()
     }
 
@@ -69,6 +73,9 @@ object UserSettingsStore {
 
     fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =
         prefs(ctx).edit().putLong(KEY_CACHE_TTL_MS, ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)).apply()
+
+    fun saveAutoSwitchWithinCountry(ctx: Context, enabled: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, enabled).apply()
 
     fun applyThemeAndLocale(ctx: Context) {
         val settings = load(ctx)
