@@ -35,8 +35,8 @@ class ServerAutoSwitcherTest {
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1 }
         val servers = listOf(
-            Server("n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
-            Server("n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
@@ -107,7 +107,7 @@ class ServerAutoSwitcherTest {
     @Test
     fun noAlternativeServersDoesNotSwitch() {
         val single = listOf(
-            Server("n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1")
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1")
         )
         SelectedCountryStore.saveSelection(appContext, "RU", single)
         SelectedCountryStore.resetIndex(appContext)

@@ -5,6 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclient.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -24,12 +27,13 @@ class ServerRepositoryTest {
             private set
         val calledUrls: MutableList<String> = mutableListOf()
 
-        override suspend fun getServers(url: String): String {
+        override suspend fun getServers(url: String): ResponseBody {
             calledUrls += url
             val idx = callCount
             callCount += 1
             val block = responses.getOrElse(idx) { { throw IOException("No more responses") } }
-            return block()
+            val body = block()
+            return body.toResponseBody("text/plain".toMediaTypeOrNull())
         }
     }
 
@@ -38,6 +42,7 @@ class ServerRepositoryTest {
         // Reset user settings and cache between tests
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
+        context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
@@ -66,7 +71,8 @@ class ServerRepositoryTest {
         return header + body
     }
 
-    private fun makeServer(name: String) = Server(
+    private fun makeServer(name: String, lineIndex: Int = 1) = Server(
+        lineIndex = lineIndex,
         name = name,
         city = "City",
         country = Country("Country"),
@@ -99,6 +105,7 @@ class ServerRepositoryTest {
         assertEquals(1, result.size)
         assertEquals(expected.name, result[0].name)
         assertTrue("Primary URL should be called first", api.calledUrls.isNotEmpty())
+        assertEquals("", result[0].configData) // config is lazy
     }
 
     @Test
@@ -116,6 +123,7 @@ class ServerRepositoryTest {
         assertEquals(expected.name, result[0].name)
         // After fallback, source should persist as VPN Gate
         assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+        assertEquals("", result[0].configData)
     }
 
     @Test
@@ -132,6 +140,23 @@ class ServerRepositoryTest {
         assertEquals("cached", second.single().name)
         // callCount stays 1 because cache served the second call
         assertEquals(1, api.callCount)
+    }
+
+    @Test
+    fun loadConfigs_returns_configs_for_requested_servers() = runBlocking {
+        val srv1 = makeServer("s1", lineIndex = 1).copy(configData = "cfg1")
+        val srv2 = makeServer("s2", lineIndex = 2).copy(configData = "cfg2")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(srv1, srv2)) }))
+        val repo = ServerRepository(api)
+
+        val parsed = repo.getServers(context, forceRefresh = true)
+        assertEquals(2, parsed.size)
+        assertEquals("", parsed[0].configData)
+
+        val configs = repo.loadConfigs(context, parsed)
+        assertEquals(2, configs.size)
+        assertEquals("cfg1", configs[1])
+        assertEquals("cfg2", configs[2])
     }
 
     @Test
@@ -158,6 +183,68 @@ class ServerRepositoryTest {
         val third = repo.getServers(context, forceRefresh = false)
         assertEquals("new", third.single().name)
         assertEquals(2, api.callCount)
+    }
+
+    @Test
+    fun returns_stale_cache_when_force_refresh_fails() = runBlocking {
+        val initial = makeServer("stale")
+        val api = SequenceApi(
+            listOf(
+                { sampleCsv(listOf(initial)) },
+                { throw IOException("network down") }
+            )
+        )
+        val repo = ServerRepository(api)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("stale", first.single().name)
+        assertEquals(1, api.callCount)
+
+        val second = repo.getServers(context, forceRefresh = true)
+        // should serve stale cache despite force because network failed
+        assertEquals("stale", second.single().name)
+        // primary + secondary attempted on failure
+        assertEquals(3, api.callCount)
+    }
+
+    @Test
+    fun refreshes_when_ttl_expired() = runBlocking {
+        val initial = makeServer("initial")
+        val updated = makeServer("updated")
+        val api = SequenceApi(
+            listOf(
+                { sampleCsv(listOf(initial)) },
+                { sampleCsv(listOf(updated)) }
+            )
+        )
+        val repo = ServerRepository(api)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("initial", first.single().name)
+        assertEquals(1, api.callCount)
+
+        // Mark cache as expired
+        val prefs = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
+        val key = prefs.all.keys.firstOrNull { it.startsWith("ts_") } ?: error("ts key missing")
+        prefs.edit().putLong(key, System.currentTimeMillis() - UserSettingsStore.DEFAULT_CACHE_TTL_MS - 1).apply()
+
+        val second = repo.getServers(context, forceRefresh = false)
+        assertEquals("updated", second.single().name)
+        assertEquals(2, api.callCount)
+    }
+
+    @Test
+    fun loadConfigs_returns_empty_when_cache_missing() = runBlocking {
+        val srv = makeServer("one")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(srv)) }))
+        val repo = ServerRepository(api)
+
+        val parsed = repo.getServers(context, forceRefresh = true)
+        // Remove cache file to simulate missing
+        context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
+
+        val configs = repo.loadConfigs(context, parsed)
+        assertTrue(configs.isEmpty())
     }
 
     @Test

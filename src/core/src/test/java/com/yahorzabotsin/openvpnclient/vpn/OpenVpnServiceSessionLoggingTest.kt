@@ -37,6 +37,7 @@ class OpenVpnServiceSessionLoggingTest {
     private fun saveServers(count: Int) {
         val list = (1..count).map { idx ->
             Server(
+                lineIndex = idx,
                 name = "n$idx",
                 city = "c$idx",
                 country = Country("RU"),

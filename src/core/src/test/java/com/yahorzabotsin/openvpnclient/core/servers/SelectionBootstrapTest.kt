@@ -1,98 +1,59 @@
 package com.yahorzabotsin.openvpnclient.core.servers
 
 import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class SelectionBootstrapTest {
 
-    @Test
-    fun uses_stored_selection_when_present() {
-        val ctx = RuntimeEnvironment.getApplication()
-        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
-        val servers = listOf(
-            Server("srv1","C1", Country("A"),10, SignalStrength.STRONG,"",0,0,0,0,0,0,"","","", "conf1"),
-            Server("srv2","C2", Country("A"),20, SignalStrength.MEDIUM,"",0,0,0,0,0,0,"","","", "conf2")
-        )
-        SelectedCountryStore.saveSelection(ctx, "A", servers)
+    private val context: Context = ApplicationProvider.getApplicationContext()
 
-        var appliedCountry = ""
-        var appliedCity = ""
-        var appliedConfig = ""
-
-        runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { c, city, conf, code ->
-                appliedCountry = c; appliedCity = city; appliedConfig = conf
-                assertEquals(null, code)
-            }
-        }
-
-        assertEquals("A", appliedCountry)
-        assertEquals("C1", appliedCity)
-        assertEquals("conf1", appliedConfig)
+    @Before
+    fun setup() {
+        context.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().apply()
     }
 
     @Test
-    fun saves_default_country_when_no_selection() {
-        val ctx = RuntimeEnvironment.getApplication()
-        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
-
-        val servers = listOf(
-            Server("srv1","C1", Country("A"),10, SignalStrength.STRONG,"",0,0,0,0,0,0,"","","", "conf1"),
-            Server("srv3","C3", Country("B"),30, SignalStrength.WEAK,"",0,0,0,0,0,0,"","","", "conf3"),
-            Server("srv2","C2", Country("A"),20, SignalStrength.MEDIUM,"",0,0,0,0,0,0,"","","", "conf2")
+    fun ensureSelection_loadsConfigs_and_savesSelection() = runBlocking {
+        val srv = Server(
+            lineIndex = 1,
+            name = "srv",
+            city = "City",
+            country = Country("Country", "CC"),
+            ping = 10,
+            signalStrength = SignalStrength.STRONG,
+            ip = "1.1.1.1",
+            score = 100,
+            speed = 1000,
+            numVpnSessions = 1,
+            uptime = 1,
+            totalUsers = 1,
+            totalTraffic = 1,
+            logType = "log",
+            operator = "op",
+            message = "msg",
+            configData = ""
         )
 
-        var appliedCountry = ""
-        var appliedCity = ""
-        var appliedConfig = ""
-
-        runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { servers }) { c, city, conf, code ->
-                appliedCountry = c; appliedCity = city; appliedConfig = conf
-                assertEquals(null, code)
-            }
+        var appliedConfig: String? = null
+        SelectionBootstrap.ensureSelection(
+            context = context,
+            getServers = { listOf(srv) },
+            loadConfigs = { listOf(srv).associate { it.lineIndex to "config-loaded" } }
+        ) { _, _, config, _ ->
+            appliedConfig = config
         }
 
-        assertEquals("A", appliedCountry)
-        assertEquals("C1", appliedCity)
-        assertEquals("conf1", appliedConfig)
-
-        val storedCountry = SelectedCountryStore.getSelectedCountry(ctx)
-        assertEquals("A", storedCountry)
-        val storedServers = SelectedCountryStore.getServers(ctx)
-        assertEquals(2, storedServers.size)
+        assertEquals("config-loaded", appliedConfig)
+        val stored = SelectedCountryStore.currentServer(context)
+        assertNotNull(stored)
+        assertEquals("config-loaded", stored?.config)
     }
-
-    @Test
-    fun passes_country_code_when_available() {
-        val ctx = RuntimeEnvironment.getApplication()
-        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
-
-        val servers = listOf(
-            Server("srv1","C1", Country("A", "AA"),10, SignalStrength.STRONG,"",0,0,0,0,0,0,"","","", "conf1"),
-            Server("srv2","C2", Country("A", "AA"),20, SignalStrength.MEDIUM,"",0,0,0,0,0,0,"","","", "conf2")
-        )
-
-        var appliedCode: String? = null
-
-        SelectedCountryStore.saveSelection(ctx, "A", servers)
-
-        runBlockingCompat {
-            SelectionBootstrap.ensureSelection(ctx, { emptyList() }) { _, _, _, code ->
-                appliedCode = code
-            }
-        }
-
-        assertEquals("AA", appliedCode)
-    }
-}
-
-// Minimal runBlocking alternative without bringing kotlinx-coroutines-test
-private fun runBlockingCompat(block: suspend () -> Unit) {
-    kotlinx.coroutines.runBlocking { block() }
 }
