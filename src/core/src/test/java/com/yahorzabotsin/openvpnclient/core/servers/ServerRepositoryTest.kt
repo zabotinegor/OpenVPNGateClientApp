@@ -248,6 +248,24 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun parses_quoted_fields_with_commas() = runBlocking {
+        val csv = """
+            TITLE, SAMPLE
+            HEADER, IGNORE
+            "srv-1","1.1.1.1","10","50","1000","Country","CC","1","2","3","4","log","op","message,with,comma","cfg,with,comma"
+        """.trimIndent()
+        val api = SequenceApi(listOf({ csv }))
+        val repo = ServerRepository(api)
+
+        val servers = repo.getServers(context, forceRefresh = true)
+        assertEquals(1, servers.size)
+        assertEquals("message,with,comma", servers.first().message)
+
+        val configs = repo.loadConfigs(context, servers)
+        assertEquals("cfg,with,comma", configs[servers.first().lineIndex])
+    }
+
+    @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
         val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
         val repo = ServerRepository(api)

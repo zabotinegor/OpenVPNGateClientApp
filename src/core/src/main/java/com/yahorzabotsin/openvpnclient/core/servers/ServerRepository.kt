@@ -159,8 +159,7 @@ class ServerRepository(
                 if (line.isBlank()) continue
                 lineIndex++
 
-                val values = line.split(",", limit = 15)
-                if (values.size < 15) continue
+                val values = parseCsvLine(line, 15) ?: continue
 
                 val pingValue = values[3].toIntOrNull() ?: 0
                 val signalStrength = when (pingValue) {
@@ -218,12 +217,45 @@ class ServerRepository(
                     if (line.isBlank()) continue
                     idx++
                     if (idx !in targetIndexes) continue
-                    val values = line.split(",", limit = 15)
-                    if (values.size < 15) continue
+                    val values = parseCsvLine(line, 15) ?: continue
                     result[idx] = values[14]
                     if (result.size == targetIndexes.size) break
                 }
             }
             result
         }
+
+    private fun parseCsvLine(line: String, expectedColumns: Int): List<String>? {
+        val result = ArrayList<String>(expectedColumns)
+        val current = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        val limitIndex = expectedColumns - 1
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                inQuotes && c == '"' -> {
+                    if (i + 1 < line.length && line[i + 1] == '"') {
+                        current.append('"')
+                        i++
+                    } else {
+                        inQuotes = false
+                    }
+                }
+                !inQuotes && c == ',' -> {
+                    if (result.size == limitIndex) {
+                        current.append(line.substring(i + 1))
+                        break
+                    }
+                    result.add(current.toString())
+                    current.clear()
+                }
+                !inQuotes && c == '"' && current.isEmpty() -> inQuotes = true
+                else -> current.append(c)
+            }
+            i++
+        }
+        result.add(current.toString())
+        return if (result.size < expectedColumns) null else result
+    }
 }
