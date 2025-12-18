@@ -56,4 +56,49 @@ class SelectionBootstrapTest {
         assertNotNull(stored)
         assertEquals("config-loaded", stored?.config)
     }
+
+    @Test
+    fun ensureSelection_prefersStoredSelection() = runBlocking {
+        val storedServer = Server(
+            lineIndex = 1,
+            name = "srv-stored",
+            city = "CityStored",
+            country = Country("CountryStored", "CS"),
+            ping = 10,
+            signalStrength = SignalStrength.STRONG,
+            ip = "1.1.1.1",
+            score = 100,
+            speed = 1000,
+            numVpnSessions = 1,
+            uptime = 1,
+            totalUsers = 1,
+            totalTraffic = 1,
+            logType = "log",
+            operator = "op",
+            message = "msg",
+            configData = "stored-config"
+        )
+        SelectedCountryStore.saveSelection(context, "CountryStored", listOf(storedServer))
+
+        var appliedCountry: String? = null
+        var appliedCity: String? = null
+        var appliedConfig: String? = null
+        var appliedCode: String? = null
+
+        SelectionBootstrap.ensureSelection(
+            context = context,
+            getServers = { error("should not fetch when stored selection exists") },
+            loadConfigs = { emptyMap() }
+        ) { country, city, config, code ->
+            appliedCountry = country
+            appliedCity = city
+            appliedConfig = config
+            appliedCode = code
+        }
+
+        assertEquals("CountryStored", appliedCountry)
+        assertEquals("CityStored", appliedCity)
+        assertEquals("stored-config", appliedConfig)
+        assertEquals("CS", appliedCode)
+    }
 }
