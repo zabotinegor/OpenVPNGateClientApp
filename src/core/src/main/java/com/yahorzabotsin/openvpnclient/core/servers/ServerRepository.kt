@@ -36,6 +36,7 @@ class ServerRepository(
         private const val TAG = "ServerRepository"
         private const val CACHE_PREFS = "server_cache"
         private const val KEY_PREFIX_TS = "ts_"
+        private const val KEY_LAST_CACHE = "last_cache_key"
         private const val CACHE_FILE_PREFIX = "servers_"
         private const val CACHE_FILE_SUFFIX = ".csv"
         private fun createDefaultApi(): VpnServersApi {
@@ -85,8 +86,16 @@ class ServerRepository(
             context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
                 .edit()
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
+                .putString(KEY_LAST_CACHE, key)
                 .apply()
         }.onFailure { Log.w(TAG, "Failed to write cache file", it) }
+    }
+
+    private fun saveLastCacheKey(context: Context, key: String) {
+        context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_CACHE, key)
+            .apply()
     }
 
     suspend fun getServers(context: Context, forceRefresh: Boolean = false): List<Server> =
@@ -105,6 +114,7 @@ class ServerRepository(
                 val age = cached?.let { now - it.second } ?: -1
                 val servers = parseServers(cachedFresh)
                 Log.i(TAG, "Using cached servers (fresh). age=$age ms, items=${servers.size}")
+                saveLastCacheKey(context, cacheKey)
                 return@withContext servers
             }
 
@@ -137,6 +147,7 @@ class ServerRepository(
             if (response == null && cached != null) {
                 Log.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
             }
+            saveLastCacheKey(context, cacheKey)
 
             if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
                 settingsStore.saveServerSource(context, ServerSource.VPNGATE)
@@ -203,8 +214,16 @@ class ServerRepository(
 
             val settings = settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
-            val file = cacheFile(context, cacheKey(urls))
-            if (!file.exists()) return@withContext emptyMap()
+            val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+            val primaryKey = cacheKey(urls)
+            val primaryFile = cacheFile(context, primaryKey)
+            val lastKey = prefs.getString(KEY_LAST_CACHE, null)
+            val lastFile = lastKey?.let { cacheFile(context, it) }
+            val file = when {
+                primaryFile.exists() -> primaryFile
+                lastFile?.exists() == true -> lastFile
+                else -> return@withContext emptyMap()
+            }
 
             val targetIndexes = servers.map { it.lineIndex }.toSet()
             val result = HashMap<Int, String>(targetIndexes.size)

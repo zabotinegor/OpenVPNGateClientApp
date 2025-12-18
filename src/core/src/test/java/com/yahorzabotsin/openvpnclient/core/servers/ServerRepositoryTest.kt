@@ -266,6 +266,25 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun loadConfigs_uses_last_cache_key_after_fallback_switch() = runBlocking {
+        val srv = makeServer("fallback", lineIndex = 1).copy(configData = "cfg-fallback")
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("primary down") },
+                { sampleCsv(listOf(srv)) }
+            )
+        )
+        val repo = ServerRepository(api)
+
+        val servers = repo.getServers(context, forceRefresh = true)
+        assertEquals("fallback", servers.single().name)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+
+        val configs = repo.loadConfigs(context, servers)
+        assertEquals("cfg-fallback", configs[1])
+    }
+
+    @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
         val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
         val repo = ServerRepository(api)
