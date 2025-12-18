@@ -28,6 +28,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
@@ -124,6 +125,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
                 return
             }
+            val autoSwitchEnabled = try { UserSettingsStore.load(context).autoSwitchWithinCountry } catch (_: Exception) { true }
             val configToUse = run {
                 val lastSuccessfulConfig = try {
                     SelectedCountryStore.getLastSuccessfulConfigForSelected(context)
@@ -132,17 +134,21 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     null
                 }
                 if (lastSuccessfulConfig != null) {
-                    try {
-                        SelectedCountryStore.prepareAutoSwitchFromStart(context)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to prepare index for auto-switch from start", e)
+                    if (autoSwitchEnabled) {
+                        try {
+                            SelectedCountryStore.prepareAutoSwitchFromStart(context)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to prepare index for auto-switch from start", e)
+                        }
                     }
                     lastSuccessfulConfig
                 } else {
-                    try {
-                        SelectedCountryStore.resetIndex(context)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to reset server index", e)
+                    if (autoSwitchEnabled) {
+                        try {
+                            SelectedCountryStore.resetIndex(context)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to reset server index", e)
+                        }
                     }
                     currentConfig
                 }
@@ -206,6 +212,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     .collect {
                         val current = ConnectionStateManager.state.value
                         updateButtonState(current)
+                        syncSelectedServerIpFromStore()
                     }
             }
         }
@@ -256,6 +263,22 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 }
             }
         }
+
+    private fun syncSelectedServerIpFromStore() {
+        val country = selectedCountry ?: return
+        try {
+            val storedCountry = SelectedCountryStore.getSelectedCountry(context)
+            if (storedCountry != country) return
+            val current = SelectedCountryStore.currentServer(context)
+            val ip = current?.ip
+            if (ip != null && ip != selectedServerIp) {
+                selectedServerIp = ip
+                applyServerSelectionLabel(country, ip)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to sync selected server IP from store", e)
+        }
+    }
 
     private fun updateServerButtonIcons() {
         val defaultTint = ContextCompat.getColor(context, R.color.text_color_primary)

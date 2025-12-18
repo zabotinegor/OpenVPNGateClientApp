@@ -287,11 +287,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
-            val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
-            if (candidates >= 0) Log.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
-            val next = SelectedCountryStore.nextServer(applicationContext)
-            val title = SelectedCountryStore.getSelectedCountry(applicationContext)
-            if (next != null) {
+            val autoSwitchEnabled = try { com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore.load(applicationContext).autoSwitchWithinCountry } catch (_: Exception) { true }
+            if (!autoSwitchEnabled) {
+                Log.d(TAG, "Auto-switch disabled; skipping engine auto-switch path")
+            } else {
+                val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+                if (candidates >= 0) Log.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
+                val next = SelectedCountryStore.nextServer(applicationContext)
+                val title = SelectedCountryStore.getSelectedCountry(applicationContext)
+                if (next != null) {
                 Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city}")
                 try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
                 try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
@@ -302,6 +306,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                   try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
                 Log.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")
               }
+            }
         }
         when (level) {
               ConnectionStatus.LEVEL_CONNECTED -> {

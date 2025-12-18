@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,9 @@ object ServerAutoSwitcher {
         ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET -> noReplyThresholdSeconds
         else -> noReplyThresholdSeconds
     }
+
+    private fun isEnabled(ctx: Context): Boolean =
+        try { UserSettingsStore.load(ctx).autoSwitchWithinCountry } catch (_: Exception) { true }
 
     fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
         if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
@@ -67,6 +71,10 @@ object ServerAutoSwitcher {
     }
 
     fun beginChainedSwitch(appContext: Context, config: String, title: String?) {
+        if (!isEnabled(appContext)) {
+            Log.d(TAG, "Auto-switch disabled; skipping chained switch")
+            return
+        }
         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         pendingConfig = config
         pendingTitle = title
@@ -96,6 +104,16 @@ object ServerAutoSwitcher {
                 _remainingSeconds.value = (threshold - seconds).coerceAtLeast(0)
                 Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
                 if (seconds >= threshold) {
+                    if (!isEnabled(appContext)) {
+                        Log.d(TAG, "Auto-switch disabled; stopping timer and engine to avoid hang")
+                        cancel()
+                        try {
+                            ConnectionStateManager.setReconnectingHint(false)
+                            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                        } catch (e: Exception) { Log.w(TAG, "Failed to reset state when auto-switch disabled", e) }
+                        try { stopper(appContext) } catch (e: Exception) { Log.w(TAG, "Failed to stop engine when auto-switch disabled", e) }
+                        return
+                    }
                     val next = SelectedCountryStore.nextServer(appContext)
                     val title = SelectedCountryStore.getSelectedCountry(appContext)
                     val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
