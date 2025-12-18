@@ -44,6 +44,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private var selectedCountry: String? = null
     private var selectedCountryCode: String? = null
     private var openServerList: (() -> Unit)? = null
+    private var selectedServerIp: String? = null
 
     private companion object {
         const val TAG = "ConnectionControlsView"
@@ -166,11 +167,12 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         this.openServerList = handler
     }
 
-    fun setServer(country: String, countryCode: String? = null) {
-        Log.d(TAG, "Server set: $country")
+    fun setServer(country: String, countryCode: String? = null, ip: String? = null) {
+        Log.d(TAG, "Server set: $country, ip=$ip")
         selectedCountry = country
         selectedCountryCode = countryCode
-        applyServerSelectionLabel(country)
+        selectedServerIp = ip
+        applyServerSelectionLabel(country, ip)
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
             updateLocationPlaceholders()
         }
@@ -228,12 +230,12 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         }
     }
 
-    private fun applyServerSelectionLabel(country: String) {
+    private fun applyServerSelectionLabel(country: String, ip: String? = selectedServerIp) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
         val flag = countryFlagEmoji(selectedCountryCode)
         val primaryWithFlag = if (!flag.isNullOrEmpty()) "$flag $primary" else primary
-        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag)
-        val description = listOf(primaryWithFlag)
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag, ip)
+        val description = listOf(primaryWithFlag, ip.orEmpty())
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -242,10 +244,16 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         updateServerButtonIcons()
     }
 
-    private fun buildServerSelectionLabel(country: String): CharSequence =
+    private fun buildServerSelectionLabel(country: String, ip: String?): CharSequence =
         buildSpannedString {
             inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
                 append(country.trim())
+            }
+            if (!ip.isNullOrBlank()) {
+                append("\n")
+                inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
+                    append(ip.trim())
+                }
             }
         }
 

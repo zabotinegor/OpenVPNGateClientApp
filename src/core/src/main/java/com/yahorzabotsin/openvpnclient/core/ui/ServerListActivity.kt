@@ -27,6 +27,7 @@ open class ServerListActivity : AppCompatActivity() {
     private val TAG = ServerListActivity::class.simpleName
 
     private var countries: List<CountryWithServers> = emptyList()
+    private val REQUEST_PICK_SERVER = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,32 +79,7 @@ open class ServerListActivity : AppCompatActivity() {
                     }
                     .sortedBy { it.country.name }
                 contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { selected ->
-                    lifecycleScope.launch {
-                        val countryName = selected.name
-                        val countryCode = selected.code
-                        Log.d(TAG, "Country selected: $countryName")
-                        val countryServers = servers.filter { it.country.name == countryName }
-                        if (countryServers.isNotEmpty()) {
-                            val configs = serverRepository.loadConfigs(this@ServerListActivity, countryServers)
-                            val resolvedServers = countryServers.map { srv ->
-                                srv.copy(configData = configs[srv.lineIndex].orEmpty())
-                            }
-                            SelectedCountryStore.saveSelection(this@ServerListActivity, countryName, resolvedServers)
-                            val first = resolvedServers.first()
-                            val resultIntent = Intent().apply {
-                                putExtra(EXTRA_SELECTED_SERVER_COUNTRY, countryName)
-                                putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
-                                putExtra(EXTRA_SELECTED_SERVER_CITY, first.city)
-                                putExtra(EXTRA_SELECTED_SERVER_CONFIG, first.configData)
-                            }
-                            setResult(Activity.RESULT_OK, resultIntent)
-                        } else {
-                            Log.w(TAG, "No servers found for selected country: $countryName")
-                            Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
-                            setResult(Activity.RESULT_CANCELED)
-                        }
-                        finish()
-                    }
+                    handleCountrySelection(selected)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
@@ -114,10 +90,75 @@ open class ServerListActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleCountrySelection(selected: com.yahorzabotsin.openvpnclient.core.servers.Country) {
+        val countryName = selected.name
+        val countryCode = selected.code
+        val countryServers = servers.filter { it.country.name == countryName }
+        if (countryServers.isEmpty()) {
+            Log.w(TAG, "No servers found for selected country: $countryName")
+            Toast.makeText(this@ServerListActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
+            setResult(Activity.RESULT_CANCELED)
+            finish()
+            return
+        }
+
+        if (countryServers.size == 1) {
+            lifecycleScope.launch {
+                selectSingleServer(countryName, countryCode, countryServers.first(), countryServers)
+            }
+        } else {
+            val intent = Intent(this, CountryServersActivity::class.java).apply {
+                putExtra(CountryServersActivity.EXTRA_COUNTRY_NAME, countryName)
+                putExtra(CountryServersActivity.EXTRA_COUNTRY_CODE, countryCode)
+            }
+            startActivityForResult(intent, REQUEST_PICK_SERVER)
+        }
+    }
+
+    private suspend fun selectSingleServer(
+        countryName: String,
+        countryCode: String?,
+        server: Server,
+        countryServers: List<Server>
+    ) {
+        setLoadingState(true)
+        try {
+            val configs = serverRepository.loadConfigs(this@ServerListActivity, countryServers)
+            val resolvedServers = countryServers.map { srv ->
+                srv.copy(configData = configs[srv.lineIndex].orEmpty())
+            }
+            SelectedCountryStore.saveSelection(this@ServerListActivity, countryName, resolvedServers)
+            val resolved = resolvedServers.firstOrNull { it.lineIndex == server.lineIndex } ?: resolvedServers.first()
+            val resultIntent = Intent().apply {
+                putExtra(EXTRA_SELECTED_SERVER_COUNTRY, countryName)
+                putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
+                putExtra(EXTRA_SELECTED_SERVER_CITY, resolved.city)
+                putExtra(EXTRA_SELECTED_SERVER_CONFIG, resolved.configData)
+                putExtra(EXTRA_SELECTED_SERVER_IP, resolved.ip)
+            }
+            setResult(Activity.RESULT_OK, resultIntent)
+            finish()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading configs for $countryName", e)
+            Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
+            setResult(Activity.RESULT_CANCELED)
+            setLoadingState(false)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_PICK_SERVER && resultCode == Activity.RESULT_OK) {
+            setResult(Activity.RESULT_OK, data)
+            finish()
+        }
+    }
+
     companion object {
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
         const val EXTRA_SELECTED_SERVER_COUNTRY_CODE = "EXTRA_SELECTED_SERVER_COUNTRY_CODE"
         const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"
         const val EXTRA_SELECTED_SERVER_CONFIG = "EXTRA_SELECTED_SERVER_CONFIG"
+        const val EXTRA_SELECTED_SERVER_IP = "EXTRA_SELECTED_SERVER_IP"
     }
 }

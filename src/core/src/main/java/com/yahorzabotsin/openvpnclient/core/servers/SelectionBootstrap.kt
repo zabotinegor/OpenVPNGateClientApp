@@ -7,12 +7,12 @@ object SelectionBootstrap {
         context: Context,
         getServers: suspend () -> List<Server>,
         loadConfigs: suspend (List<Server>) -> Map<Int, String>,
-        apply: (country: String, city: String, config: String, countryCode: String?) -> Unit
+        apply: (country: String, city: String, config: String, countryCode: String?, ip: String?) -> Unit
     ) {
         val stored = SelectedCountryStore.currentServer(context)
         if (stored != null) {
             val country = SelectedCountryStore.getSelectedCountry(context) ?: return
-            apply(country, stored.city, stored.config, stored.countryCode)
+            apply(country, stored.city, stored.config, stored.countryCode, stored.ip)
             return
         }
 
@@ -39,6 +39,6 @@ object SelectionBootstrap {
         val resolved = countryServers.map { it.copy(configData = configs[it.lineIndex].orEmpty()) }
         SelectedCountryStore.saveSelection(context, country, resolved)
         val firstResolved = resolved.firstOrNull() ?: return
-        apply(country, firstResolved.city, firstResolved.configData, firstResolved.country.code)
+        apply(country, firstResolved.city, firstResolved.configData, firstResolved.country.code, firstResolved.ip)
     }
 }

@@ -54,15 +54,16 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             val countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE)
             val city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY)
             val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
+            val ip = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_IP)
 
             if (country != null && city != null && config != null) {
                 val total = try { SelectedCountryStore.getServers(this).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
                 if (total >= 0) {
-                    Log.i(TAG, "Server selected: $country, $city, servers - $total")
+                    Log.i(TAG, "Server selected: $country, $city, servers - $total, ip=${ip ?: "<none>"}")
                 } else {
-                    Log.i(TAG, "Server selected: $country, $city")
+                    Log.i(TAG, "Server selected: $country, $city, ip=${ip ?: "<none>"}")
                 }
-                connectionControlsView.setServer(country, countryCode)
+                connectionControlsView.setServer(country, countryCode, ip)
                 connectionControlsView.setVpnConfig(config)
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
@@ -234,8 +235,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                     this@MainActivityCore,
                     { serverRepository.getServers(this@MainActivityCore) },
                     { srv -> serverRepository.loadConfigs(this@MainActivityCore, srv) }
-                ) { country, city, config, countryCode ->
-                    connectionControlsView.setServer(country, countryCode)
+                ) { country, city, config, countryCode, ip ->
+                    connectionControlsView.setServer(country, countryCode, ip)
                     connectionControlsView.setVpnConfig(config)
                 }
             } catch (e: Exception) {

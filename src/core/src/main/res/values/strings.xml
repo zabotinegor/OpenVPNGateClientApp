@@ -142,4 +142,5 @@
     <string name="settings_auto_switch_subtitle">Automatically retry another server in the selected country.</string>
     <string name="settings_auto_switch_on">On</string>
     <string name="settings_auto_switch_off">Off</string>
+    <string name="ping_ms_format">%1$d ms</string>
 </resources>
