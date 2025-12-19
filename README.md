@@ -23,19 +23,21 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 ## Features
 - OpenVPN-based client with the `ics-openvpn` engine (bundled as the `openVpnEngine` submodule)
 - Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed; cached on disk with TTL
-- Manual country selection with basic connection stats (speed, duration, IP, status)
-  - Separate mobile and TV launchers sharing the same core UI and networking code
-  - Per-app filtering (user/system), “Select all” toggles, pinned info card, and TV-friendly focus/scroll restoration
-  - Server list refresh now a compact button with localized label + icon and enhanced focus bounce feedback
-  - Server list parsing/caching is streaming; configs are loaded lazily per selection to reduce memory/GC pressure
+- Manual country selection with per-country server picker and core connection stats (speed, duration, IP, status)
+- Auto-switch within a country with full-cycle retry and configurable stall timer
+- Server position indicator (current/total) and IP synchronization across selection/connect states
+- Separate mobile and TV launchers sharing the same core UI and networking code
+- Per-app filtering (user/system), Select all toggles, pinned info card, and TV-friendly focus/scroll restoration
+- Server list refresh button with localized label + icon and focus bounce feedback
+- Server list parsing/caching is streaming; configs are loaded lazily per selection to reduce memory/GC pressure
 
 ## Stack and Modules
 - Kotlin, Android SDK 24+, ViewBinding, Retrofit/OkHttp
 - Modules:
-  - `mobile` – phone/tablet app
-  - `tv` – TV flavor
-  - `core` – shared UI, networking, and VPN orchestration
-  - `external/OpenVPNEngine` – fork of `ics-openvpn` (GPLv2)
+  - `mobile` - phone/tablet app
+  - `tv` - TV flavor
+  - `core` - shared UI, networking, and VPN orchestration
+  - `external/OpenVPNEngine` - fork of `ics-openvpn` (GPLv2)
 - Build system: Gradle (Kotlin DSL), Android Gradle Plugin
 
 ## Configuration
@@ -99,3 +101,4 @@ GitHub Actions workflows are located in `.github/workflows` and build signed rel
 
 ## Licensing
 This project, including the bundled `ics-openvpn` fork, is distributed under GPL-2.0-only. Review `LICENSE` and upstream notices in `src/external/OpenVPNEngine/doc/LICENSE.txt` before distributing on app stores. Contributions are accepted under the same license.
+

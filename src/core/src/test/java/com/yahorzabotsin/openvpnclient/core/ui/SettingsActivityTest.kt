@@ -72,4 +72,45 @@ class SettingsActivityTest {
         val saved = UserSettingsStore.load(context).cacheTtlMs
         assertEquals(UserSettingsStore.DEFAULT_CACHE_TTL_MS, saved)
     }
+
+    @Test
+    fun loadsSavedStatusTimerIntoInput() {
+        UserSettingsStore.saveStatusStallTimeoutSeconds(context, 12)
+
+        ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
+                val statusInput = root.findViewById<TextInputEditText>(R.id.status_timer_input)
+                assertEquals("12", statusInput.text.toString())
+            }
+        }
+    }
+
+    @Test
+    fun savesStatusTimerOnInputChange() {
+        ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
+                val statusInput = root.findViewById<TextInputEditText>(R.id.status_timer_input)
+                statusInput.setText("9")
+                statusInput.clearFocus()
+            }
+        }
+        val saved = UserSettingsStore.load(context).statusStallTimeoutSeconds
+        assertEquals(9, saved)
+    }
+
+    @Test
+    fun ignoresNonPositiveStatusTimerInput() {
+        ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
+                val statusInput = root.findViewById<TextInputEditText>(R.id.status_timer_input)
+                statusInput.setText("0")
+                statusInput.clearFocus()
+            }
+        }
+        val saved = UserSettingsStore.load(context).statusStallTimeoutSeconds
+        assertEquals(UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS, saved)
+    }
 }
