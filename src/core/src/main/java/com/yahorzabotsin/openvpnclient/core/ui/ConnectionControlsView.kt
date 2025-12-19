@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
 import android.net.VpnService
-import android.text.style.TextAppearanceSpan
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
@@ -18,48 +17,51 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import java.util.Locale
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
-import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
-import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
-import de.blinkt.openvpn.core.ConnectionStatus
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.combine
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
+import com.yahorzabotsin.openvpnclient.vpn.VpnManager
+import de.blinkt.openvpn.core.ConnectionStatus
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+import java.util.Locale
 
-  class ConnectionControlsView @JvmOverloads constructor(
-      context: Context,
-      attrs: AttributeSet? = null,
-      defStyleAttr: Int = 0
-  ) : ConstraintLayout(context, attrs, defStyleAttr) {
+class ConnectionControlsView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : ConstraintLayout(context, attrs, defStyleAttr) {
 
-    private val binding: ViewConnectionControlsBinding
+    private val binding: ViewConnectionControlsBinding =
+        ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
+
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
     private var selectedCountryCode: String? = null
-    private var openServerList: (() -> Unit)? = null
     private var selectedServerIp: String? = null
-
-    private companion object {
-        const val TAG = "ConnectionControlsView"
-    }
-
+    private var openServerList: (() -> Unit)? = null
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
 
+    private companion object {
+        const val TAG = "ConnectionControlsView"
+        private const val DURATION_PLACEHOLDER = "00:00:00"
+    }
+
     init {
-        binding = ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
-
         applyServerSelectionLabel(context.getString(R.string.current_country))
+        setupClicks()
+    }
 
+    private fun setupClicks() {
         binding.startConnectionButton.setOnClickListener {
             when (ConnectionStateManager.state.value) {
                 ConnectionState.DISCONNECTED -> {
@@ -88,15 +90,15 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
         }
     }
 
-      fun performConnectionClick() {
-          binding.startConnectionButton.performClick()
-      }
+    fun performConnectionClick() {
+        binding.startConnectionButton.performClick()
+    }
 
-      fun requestPrimaryFocus() {
-          binding.startConnectionButton.isFocusable = true
-          binding.startConnectionButton.isFocusableInTouchMode = true
-          binding.startConnectionButton.requestFocus()
-      }
+    fun requestPrimaryFocus() {
+        binding.startConnectionButton.isFocusable = true
+        binding.startConnectionButton.isFocusableInTouchMode = true
+        binding.startConnectionButton.requestFocus()
+    }
 
     fun setConnectionDetailsListener(listener: ConnectionDetailsListener?) {
         connectionDetailsListener = listener
@@ -105,7 +107,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
     private fun prepareAndStartVpn() {
         val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
         val hasNotificationPermission = if (needNotificationPermission) {
-            androidx.core.content.ContextCompat.checkSelfPermission(
+            ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -117,68 +119,80 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             return
         }
 
-        if (VpnService.prepare(context) == null) {
-            Log.d(TAG, "VPN permission granted; starting VPN")
-            val currentConfig = vpnConfig
-            if (currentConfig.isNullOrBlank()) {
-                Log.w(TAG, "No VPN config available to start")
-                Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
-                return
-            }
-            val autoSwitchEnabled = try { UserSettingsStore.load(context).autoSwitchWithinCountry } catch (_: Exception) { true }
-            val configToUse = run {
-                val lastSuccessfulConfig = try {
-                    SelectedCountryStore.getLastSuccessfulConfigForSelected(context)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to resolve last successful config; falling back to current selection", e)
-                    null
-                }
-                if (lastSuccessfulConfig != null) {
-                    if (autoSwitchEnabled) {
-                        try {
-                            SelectedCountryStore.prepareAutoSwitchFromStart(context)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to prepare index for auto-switch from start", e)
-                        }
-                    }
-                    lastSuccessfulConfig
-                } else {
-                    if (autoSwitchEnabled) {
-                        try {
-                            SelectedCountryStore.resetIndex(context)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to reset server index", e)
-                        }
-                    }
-                    currentConfig
-                }
-            }
-            Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"}")
-            VpnManager.startVpn(context, configToUse, selectedCountry)
-        } else {
+        if (VpnService.prepare(context) != null) {
             Log.d(TAG, "VPN permission not granted; requesting")
             requestVpnPermission?.invoke()
+            return
         }
+
+        val currentConfig = vpnConfig
+        if (currentConfig.isNullOrBlank()) {
+            Log.w(TAG, "No VPN config available to start")
+            Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val autoSwitchEnabled = try {
+            UserSettingsStore.load(context).autoSwitchWithinCountry
+        } catch (_: Exception) {
+            true
+        }
+
+        val selectedConfig = runCatching { SelectedCountryStore.currentServer(context)?.config }.getOrNull()
+        val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
+        val shouldUseLastSuccessful = lastSuccessfulConfig != null &&
+            (selectedConfig == null || selectedConfig == lastSuccessfulConfig)
+
+        val configToUse = if (shouldUseLastSuccessful) {
+            if (autoSwitchEnabled) {
+                runCatching {
+                    SelectedCountryStore.prepareAutoSwitchFromStart(context)
+                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig)
+                }.onFailure { e -> Log.e(TAG, "Failed to prepare index for auto-switch from start", e) }
+            }
+            lastSuccessfulConfig!!
+        } else {
+            if (autoSwitchEnabled) {
+                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig) }
+                    .onFailure { e -> Log.e(TAG, "Failed to align server index with current selection", e) }
+            }
+            currentConfig
+        }
+
+        val ipForConfig = resolveIpForConfig(configToUse)
+        persistLastStarted(configToUse, ipForConfig)
+        updateAddress(ipForConfig)
+
+        Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"} (ip=${ipForConfig ?: "<none>"})")
+        VpnManager.startVpn(context, configToUse, selectedCountry)
+    }
+
+    private fun persistLastStarted(config: String, ip: String?) {
+        runCatching {
+            SelectedCountryStore.saveLastStartedConfig(context, selectedCountry, config, ip)
+        }.onFailure { e -> Log.w(TAG, "Failed to persist last started config", e) }
     }
 
     fun setVpnPermissionRequestHandler(handler: () -> Unit) {
-        this.requestVpnPermission = handler
+        requestVpnPermission = handler
     }
 
     fun setNotificationPermissionRequestHandler(handler: () -> Unit) {
-        this.requestNotificationPermission = handler
+        requestNotificationPermission = handler
     }
 
     fun setOpenServerListHandler(handler: () -> Unit) {
-        this.openServerList = handler
+        openServerList = handler
     }
 
     fun setServer(country: String, countryCode: String? = null, ip: String? = null) {
         Log.d(TAG, "Server set: $country, ip=$ip")
         selectedCountry = country
         selectedCountryCode = countryCode
-        selectedServerIp = ip
+        updateAddress(ip)
         applyServerSelectionLabel(country, ip)
+        updateServerPosition()
+
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
             updateLocationPlaceholders()
         }
@@ -186,7 +200,15 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
 
     fun setVpnConfig(config: String) {
         Log.d(TAG, "VPN config set")
-        this.vpnConfig = config
+        vpnConfig = config
+        runCatching { SelectedCountryStore.ensureIndexForConfig(context, config) }
+            .onFailure { e -> Log.w(TAG, "Failed to align server index on config set", e) }
+        val resolvedIp = resolveIpForConfig(config)
+        if (!resolvedIp.isNullOrBlank()) {
+            updateAddress(resolvedIp)
+            applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
+        }
+        updateServerPosition()
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
@@ -195,9 +217,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                 ConnectionStateManager.state.collect { state ->
                     updateStatusLabel(state)
                     updateButtonState(state)
-                    if (state == ConnectionState.DISCONNECTED) {
-                        updateLocationPlaceholders()
-                    }
+                    syncSelectedServerIpFromStore()
                 }
             }
         }
@@ -248,101 +268,45 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             .distinct()
             .joinToString(separator = ", ")
         binding.serverSelectionContainer.contentDescription = description
-        updateServerButtonIcons()
+        updateServerButtonIcons(showGlobe = flag.isNullOrEmpty())
     }
 
     private fun buildServerSelectionLabel(country: String, ip: String?): CharSequence =
         buildSpannedString {
-            inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
+            inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Body)) {
                 append(country.trim())
-            }
-            if (!ip.isNullOrBlank()) {
-                append("\n")
-                inSpans(TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClient_Subtitle)) {
-                    append(ip.trim())
-                }
             }
         }
 
     private fun syncSelectedServerIpFromStore() {
-        val country = selectedCountry ?: return
-        try {
-            val storedCountry = SelectedCountryStore.getSelectedCountry(context)
-            if (storedCountry != country) return
-            val current = SelectedCountryStore.currentServer(context)
-            val ip = current?.ip
-            if (ip != null && ip != selectedServerIp) {
-                selectedServerIp = ip
-                applyServerSelectionLabel(country, ip)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to sync selected server IP from store", e)
+        val resolvedCountry = selectedCountry ?: runCatching { SelectedCountryStore.getSelectedCountry(context) }.getOrNull()
+        if (resolvedCountry.isNullOrBlank()) return
+        selectedCountry = resolvedCountry
+        val current = runCatching { SelectedCountryStore.currentServer(context) }.getOrNull()
+        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(context) }.getOrNull()
+        val lastSuccessfulIp = runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
+
+        val ipFromCurrentConfig = current?.takeIf { it.config == vpnConfig }?.ip
+        val ipFromLastStartedConfig = lastStarted
+            ?.takeIf { it.country == resolvedCountry && it.config == vpnConfig }
+            ?.ip
+
+        val ip = when {
+            !ipFromCurrentConfig.isNullOrBlank() -> ipFromCurrentConfig
+            !ipFromLastStartedConfig.isNullOrBlank() -> ipFromLastStartedConfig
+            !current?.ip.isNullOrBlank() -> current?.ip
+            !lastStarted?.takeIf { it.country == resolvedCountry }?.ip.isNullOrBlank() -> lastStarted?.ip
+            !lastSuccessfulIp.isNullOrBlank() -> lastSuccessfulIp
+            else -> null
         }
-    }
 
-    private fun updateServerButtonIcons() {
-        val defaultTint = ContextCompat.getColor(context, R.color.text_color_primary)
-        val tint = MaterialColors.getColor(
-            binding.serverSelectionContainer,
-            com.google.android.material.R.attr.colorOnSurface,
-            defaultTint
-        )
-        val globe = ContextCompat.getDrawable(context, R.drawable.ic_baseline_public_24)?.mutate()
-        val chevron = ContextCompat.getDrawable(context, R.drawable.ic_baseline_chevron_right_24)?.mutate()
-        globe?.let { DrawableCompat.setTint(it, tint) }
-        chevron?.let { DrawableCompat.setTint(it, tint) }
-        val hasFlag = !countryFlagEmoji(selectedCountryCode).isNullOrEmpty()
-        binding.serverSelectionContainer.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            if (hasFlag) null else globe,
-            null,
-            chevron,
-            null
-        )
-    }
-
-    private fun updateDurationTimer() {
-        val start = ConnectionStateManager.connectionStartTimeMs.value
-        val text = if (start == null) {
-            context.getString(R.string.main_duration_default)
-        } else {
-            val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0)
-            val hours = elapsedSec / 3600
-            val minutes = (elapsedSec % 3600) / 60
-            val seconds = elapsedSec % 60
-            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        if (!ip.isNullOrBlank() && ip != selectedServerIp) {
+            updateAddress(ip)
+            applyServerSelectionLabel(resolvedCountry, ip)
+        } else if (!selectedServerIp.isNullOrBlank()) {
+            updateAddress(selectedServerIp)
         }
-        connectionDetailsListener?.updateDuration(text)
-    }
-
-    private fun updateTraffic(downloaded: Long, uploaded: Long) {
-        val downloadedText = formatBytes(downloaded)
-        val uploadedText = formatBytes(uploaded)
-        connectionDetailsListener?.updateTraffic(downloadedText, uploadedText)
-    }
-
-    private fun formatBytes(value: Long): String {
-        val abs = value.coerceAtLeast(0L).toDouble()
-        val kb = 1000.0
-        val mb = kb * 1000.0
-        val gb = mb * 1000.0
-        val (amount, unitResId) = when {
-            abs >= gb -> abs / gb to R.string.traffic_unit_gb
-            abs >= mb -> abs / mb to R.string.traffic_unit_mb
-            abs >= kb -> abs / kb to R.string.traffic_unit_kb
-            else -> abs to R.string.traffic_unit_b
-        }
-        val unit = context.getString(unitResId)
-        val number = when {
-            amount >= 100 -> String.format(Locale.US, "%.0f", amount)
-            amount >= 10 -> String.format(Locale.US, "%.1f", amount)
-            else -> String.format(Locale.US, "%.2f", amount)
-        }
-        return "$number $unit"
-    }
-
-    private fun updateLocationPlaceholders() {
-        connectionDetailsListener?.updateCity("")
-        connectionDetailsListener?.updateAddress("")
+        updateServerPosition()
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
@@ -374,23 +338,19 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             }
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                        detail in setOf("NOPROCESS", "EXITING"))
+                    detail in setOf("NOPROCESS", "EXITING"))
                 val t = if (ConnectionStateManager.reconnectingHint.value && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                            detail in setOf(null, "NOPROCESS", "EXITING"))
+                        detail in setOf(null, "NOPROCESS", "EXITING"))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
                 val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
-                        level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+                    level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
                 val suffix = if (remaining != null && showCountdown) {
-                    try {
-                        context.getString(R.string.state_countdown_seconds, remaining)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to format countdown string", e)
-                        ""
-                    }
+                    runCatching { context.getString(R.string.state_countdown_seconds, remaining) }
+                        .getOrDefault("")
                 } else ""
                 val textWithTimer = "$t$suffix"
                 connectButton.text = textWithTimer
@@ -405,7 +365,7 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
                     connectButton.backgroundTintList = ColorStateList.valueOf(color)
                 } else {
                     connectButton.setText(R.string.start_connection)
-                    val color = com.google.android.material.color.MaterialColors.getColor(
+                    val color = MaterialColors.getColor(
                         this,
                         androidx.appcompat.R.attr.colorPrimary,
                         ContextCompat.getColor(context, R.color.connection_button_disconnected)
@@ -435,7 +395,104 @@ import com.yahorzabotsin.openvpnclient.vpn.ServerAutoSwitcher
             "AUTH_PENDING" -> R.string.state_auth_pending
             else -> null
         }
-        return if (resId != null) context.getString(resId) else (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+        return resId?.let { context.getString(it) } ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    private fun updateDurationTimer() {
+        val start = ConnectionStateManager.connectionStartTimeMs.value
+        val state = ConnectionStateManager.state.value
+        val duration = if (state == ConnectionState.CONNECTED && start != null) {
+            val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0L)
+            val hours = elapsedSec / 3600
+            val minutes = (elapsedSec % 3600) / 60
+            val seconds = elapsedSec % 60
+            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            DURATION_PLACEHOLDER
+        }
+        connectionDetailsListener?.updateDuration(duration)
+    }
+
+    private fun updateTraffic(downloaded: Long, uploaded: Long) {
+        connectionDetailsListener?.updateTraffic(
+            formatBytes(downloaded),
+            formatBytes(uploaded)
+        )
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        val kb = 1024.0
+        val mb = kb * 1024
+        val gb = mb * 1024
+        val value = bytes.toDouble()
+        return when {
+            value >= gb -> String.format(Locale.US, "%.2f GB", value / gb)
+            value >= mb -> String.format(Locale.US, "%.2f MB", value / mb)
+            value >= kb -> String.format(Locale.US, "%.2f KB", value / kb)
+            else -> String.format(Locale.US, "%.0f B", value)
+        }
+    }
+
+    private fun updateLocationPlaceholders() {
+        updateServerPosition()
+        connectionDetailsListener?.updateAddress(selectedServerIp.orEmpty())
+    }
+
+    private fun updateAddress(ip: String?) {
+        selectedServerIp = ip
+        connectionDetailsListener?.updateAddress(ip.orEmpty())
+    }
+
+    private fun resolveIpForConfig(config: String?): String? {
+        if (config.isNullOrBlank()) return selectedServerIp
+        val current = runCatching { SelectedCountryStore.currentServer(context) }.getOrNull()
+        if (current?.config == config && !current.ip.isNullOrBlank()) return current.ip
+        val lastSuccessfulIp = runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
+        val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
+        if (!lastSuccessfulIp.isNullOrBlank() && lastSuccessfulConfig == config) return lastSuccessfulIp
+        return runCatching { SelectedCountryStore.getIpForConfig(context, config) }.getOrNull()
+            ?: selectedServerIp
+    }
+
+    private fun updateServerButtonIcons(showGlobe: Boolean) {
+        val tint = MaterialColors.getColor(
+            binding.serverSelectionContainer,
+            com.google.android.material.R.attr.colorOnPrimary,
+            ContextCompat.getColor(context, android.R.color.white)
+        )
+        val globe = if (showGlobe) {
+            ContextCompat.getDrawable(context, R.drawable.ic_baseline_public_24)
+        } else {
+            null
+        }
+        val globeWrapped = globe?.let { DrawableCompat.wrap(it) }
+        if (globeWrapped != null) {
+            DrawableCompat.setTint(globeWrapped, tint)
+        }
+
+        val chevron = ContextCompat.getDrawable(context, R.drawable.ic_baseline_chevron_right_24)
+        val chevronWrapped = chevron?.let { DrawableCompat.wrap(it) }
+        if (chevronWrapped != null) {
+            DrawableCompat.setTint(chevronWrapped, tint)
+        }
+
+        binding.serverSelectionContainer.icon = null
+        binding.serverSelectionContainer.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            globeWrapped,
+            null,
+            chevronWrapped,
+            null
+        )
+        binding.serverSelectionContainer.compoundDrawablePadding =
+            resources.getDimensionPixelSize(R.dimen.server_item_margin)
+    }
+
+    private fun updateServerPosition() {
+        val pos = runCatching { SelectedCountryStore.getCurrentPosition(context) }.getOrNull()
+        val text = pos?.let { (index, total) ->
+            context.getString(R.string.connection_detail_server_position, index, total)
+        } ?: ""
+        connectionDetailsListener?.updateCity(text)
     }
 
     interface ConnectionDetailsListener {

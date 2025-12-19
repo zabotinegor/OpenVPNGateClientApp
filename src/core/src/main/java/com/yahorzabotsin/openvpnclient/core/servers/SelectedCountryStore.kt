@@ -14,6 +14,12 @@ data class StoredServer(
     val ip: String? = null
 )
 
+data class LastConfig(
+    val country: String?,
+    val config: String?,
+    val ip: String?
+)
+
 object SelectedCountryStore {
     private const val PREFS_NAME = "vpn_selection_prefs"
     private const val KEY_COUNTRY = "selected_country"
@@ -23,6 +29,8 @@ object SelectedCountryStore {
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
+    private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
+    private const val KEY_LAST_STARTED_IP = "last_started_ip"
     private const val TAG = "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
@@ -78,6 +86,19 @@ object SelectedCountryStore {
 
     private fun setIndex(ctx: Context, index: Int) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
 
+    fun getCurrentPosition(ctx: Context): Pair<Int, Int>? {
+        val list = getServers(ctx)
+        if (list.isEmpty()) return null
+        val idx = getIndex(ctx)
+        return if (idx in list.indices) (idx + 1) to list.size else null
+    }
+
+    fun getCurrentIndex(ctx: Context): Int? {
+        val list = getServers(ctx)
+        val idx = getIndex(ctx)
+        return if (idx in list.indices) idx else null
+    }
+
     fun currentServer(ctx: Context): StoredServer? {
         val list = getServers(ctx)
         val idx = getIndex(ctx)
@@ -93,11 +114,31 @@ object SelectedCountryStore {
         } else null
     }
 
-    fun saveLastSuccessfulConfig(ctx: Context, country: String?, config: String) {
+    fun nextServerCircular(ctx: Context, startIndex: Int?): StoredServer? {
+        val list = getServers(ctx)
+        if (list.isEmpty()) return null
+        val current = getIndex(ctx).let { if (it in list.indices) it else 0 }
+        val start = startIndex?.takeIf { it in list.indices } ?: current
+        val next = (current + 1) % list.size
+        if (next == start) return null
+        setIndex(ctx, next)
+        return list[next]
+    }
+
+    private fun resolveIpForConfig(ctx: Context, config: String?): String? {
+        if (config.isNullOrBlank()) return null
+        return getServers(ctx).firstOrNull { it.config == config }?.ip
+    }
+
+    fun getIpForConfig(ctx: Context, config: String?): String? = resolveIpForConfig(ctx, config)
+
+    fun saveLastSuccessfulConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
         if (config.isBlank()) return
+        val ipToStore = ip ?: resolveIpForConfig(ctx, config)
         prefs(ctx).edit()
             .putString(KEY_LAST_SUCCESS_CONFIG, config)
             .putString(KEY_LAST_SUCCESS_COUNTRY, country)
+            .putString(KEY_LAST_SUCCESS_IP, ipToStore)
             .apply()
     }
 
@@ -111,20 +152,32 @@ object SelectedCountryStore {
         return if (selected == country) config else null
     }
 
-    fun saveLastStartedConfig(ctx: Context, country: String?, config: String) {
+    fun getLastSuccessfulIpForSelected(ctx: Context): String? {
+        val prefs = prefs(ctx)
+        val selected = getSelectedCountry(ctx)
+        val country = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        val ip = prefs.getString(KEY_LAST_SUCCESS_IP, null)
+        if (ip.isNullOrBlank() || selected.isNullOrBlank()) return null
+        return if (selected == country) ip else null
+    }
+
+    fun saveLastStartedConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
         if (config.isBlank()) return
+        val ipToStore = ip ?: resolveIpForConfig(ctx, config)
         prefs(ctx).edit()
             .putString(KEY_LAST_STARTED_CONFIG, config)
             .putString(KEY_LAST_STARTED_COUNTRY, country)
+            .putString(KEY_LAST_STARTED_IP, ipToStore)
             .apply()
     }
 
-    fun getLastStartedConfig(ctx: Context): Pair<String?, String?>? {
+    fun getLastStartedConfig(ctx: Context): LastConfig? {
         val prefs = prefs(ctx)
         val cfg = prefs.getString(KEY_LAST_STARTED_CONFIG, null)
         val country = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        val ip = prefs.getString(KEY_LAST_STARTED_IP, null)
         Log.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
-        return if (cfg.isNullOrBlank()) null else (country to cfg)
+        return if (cfg.isNullOrBlank()) null else LastConfig(country, cfg, ip)
     }
 
     fun ensureIndexForConfig(ctx: Context, config: String?) {
@@ -134,7 +187,6 @@ object SelectedCountryStore {
         val current = getIndex(ctx)
         if (current in list.indices && list[current].config == config) return
         val found = list.indexOfFirst { it.config == config }
-        val newIndex = if (found >= 0) found else 0
-        setIndex(ctx, newIndex)
+        if (found >= 0) setIndex(ctx, found)
     }
 }

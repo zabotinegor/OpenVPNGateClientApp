@@ -27,6 +27,7 @@ object ServerAutoSwitcher {
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
+    @Volatile private var cycleStartIndex: Int? = null
     private val _remainingSeconds = MutableStateFlow<Int?>(null)
     val remainingSeconds = _remainingSeconds.asStateFlow()
 
@@ -75,6 +76,9 @@ object ServerAutoSwitcher {
             Log.d(TAG, "Auto-switch disabled; skipping chained switch")
             return
         }
+        if (cycleStartIndex == null) {
+            cycleStartIndex = runCatching { SelectedCountryStore.getCurrentIndex(appContext) }.getOrNull()
+        }
         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         pendingConfig = config
         pendingTitle = title
@@ -114,9 +118,16 @@ object ServerAutoSwitcher {
                         try { stopper(appContext) } catch (e: Exception) { Log.w(TAG, "Failed to stop engine when auto-switch disabled", e) }
                         return
                     }
-                    val next = SelectedCountryStore.nextServer(appContext)
                     val title = SelectedCountryStore.getSelectedCountry(appContext)
                     val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
+                    val next = try {
+                        if (cycleStartIndex == null) {
+                            cycleStartIndex = SelectedCountryStore.getCurrentIndex(appContext)
+                        }
+                        SelectedCountryStore.nextServerCircular(appContext, cycleStartIndex)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve next server circularly", e); null
+                    }
                     if (next != null) {
                         Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
@@ -130,7 +141,7 @@ object ServerAutoSwitcher {
                         } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
                         return
                     } else {
-                        Log.i(TAG, "Timed switch: no alternative servers available in selected country (serversInCountry=${if (total>=0) total else "unknown"})")
+                        Log.i(TAG, "Timed switch: completed full server cycle for ${title ?: "<unknown>"} (serversInCountry=${if (total>=0) total else "unknown"})")
                         cancel()
                         try {
                             ConnectionStateManager.setReconnectingHint(false)
@@ -163,6 +174,7 @@ object ServerAutoSwitcher {
         pendingConfig = null
         pendingTitle = null
         _remainingSeconds.value = null
+        cycleStartIndex = null
     }
 
     @JvmStatic

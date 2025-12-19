@@ -21,10 +21,11 @@ class EngineStatusReceiver : BroadcastReceiver() {
             if (level == ConnectionStatus.LEVEL_CONNECTED) {
                 try {
                     val last = SelectedCountryStore.getLastStartedConfig(context)
-                    val cfg = last?.second
-                    val country = last?.first
+                    val cfg = last?.config
+                    val country = last?.country
+                    val ip = last?.ip
                     if (!cfg.isNullOrBlank()) {
-                        SelectedCountryStore.saveLastSuccessfulConfig(context, country, cfg)
+                        SelectedCountryStore.saveLastSuccessfulConfig(context, country, cfg, ip)
                         try {
                             SelectedCountryStore.ensureIndexForConfig(context, cfg)
                         } catch (e: Exception) {

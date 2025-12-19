@@ -156,8 +156,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                       Log.i(TAG, "Session attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})${titleStr}")
                   }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
+                    ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
-                    SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config)
+                    SelectedCountryStore.ensureIndexForConfig(applicationContext, config)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to align server index with config being started", e)
+                }
+                try {
+                    SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config, targetIp)
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to persist last started config", e)
                 }

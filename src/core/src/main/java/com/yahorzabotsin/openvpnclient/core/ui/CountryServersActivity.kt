@@ -101,6 +101,11 @@ class CountryServersActivity : AppCompatActivity() {
                 SelectedCountryStore.saveSelection(this@CountryServersActivity, selected.country.name, resolvedServers)
                 val chosenResolved = resolvedServers.firstOrNull { it.lineIndex == selected.lineIndex }
                     ?: resolvedServers.first()
+                try {
+                    SelectedCountryStore.ensureIndexForConfig(this@CountryServersActivity, chosenResolved.configData)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to align index with chosen server", e)
+                }
                 val resultIntent = Intent().apply {
                     putExtra(EXTRA_SELECTED_SERVER_COUNTRY, selected.country.name)
                     putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
