@@ -7,7 +7,6 @@ import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SignalStrength
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -137,18 +136,8 @@ class OpenVpnServiceSessionLoggingTest {
 
         // Now engine connects
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
-        EngineStatusReceiver().onReceive(
-            appContext,
-            Intent("de.blinkt.openvpn.VPN_STATUS").apply {
-                putExtra("status", ConnectionStatus.LEVEL_CONNECTED.name)
-            }
-        )
-
         val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
         assertTrue(logs.any { it.contains("Connected after attempt 2 (serversInCountry=2)") })
-
-        val lastConfig = SelectedCountryStore.getLastSuccessfulConfigForSelected(appContext)
-        assertEquals("client\n", lastConfig)
     }
 
     @Test

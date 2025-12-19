@@ -74,10 +74,15 @@ object ConnectionStateManager {
 
     @MainThread
     fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
-        _engineLevel.value = level
+        val normalizedLevel = if (detail == "CONNECTED" && level != ConnectionStatus.LEVEL_CONNECTED) {
+            ConnectionStatus.LEVEL_CONNECTED
+        } else {
+            level
+        }
+        _engineLevel.value = normalizedLevel
         _engineDetail.value = detail
 
-        val mapped = when (level) {
+        val mapped = when (normalizedLevel) {
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
@@ -90,7 +95,7 @@ object ConnectionStateManager {
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
 
-        if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
+        if (normalizedLevel == ConnectionStatus.LEVEL_AUTH_FAILED) {
             _error.value = VpnError.AUTH
         } else if (mapped != ConnectionState.DISCONNECTED) {
             _error.value = VpnError.NONE
