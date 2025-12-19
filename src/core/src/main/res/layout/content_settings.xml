@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -31,7 +32,8 @@
                 android:paddingEnd="4dp"
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
-                android:focusable="true">
+                android:focusable="true"
+                android:nextFocusDown="@id/theme_header">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -129,7 +131,9 @@
                 android:paddingEnd="4dp"
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
-                android:focusable="true">
+                android:focusable="true"
+                android:nextFocusUp="@id/language_header"
+                android:nextFocusDown="@id/server_header">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -220,7 +224,9 @@
                 android:paddingEnd="4dp"
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
-                android:focusable="true">
+                android:focusable="true"
+                android:nextFocusUp="@id/theme_header"
+                android:nextFocusDown="@id/auto_switch_header">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -321,6 +327,192 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Auto switch within country -->
+        <LinearLayout
+            android:id="@+id/auto_switch_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/auto_switch_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:nextFocusUp="@id/server_header"
+                android:nextFocusDown="@id/status_timer_header">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/auto_switch_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_switch_title"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+
+                    <TextView
+                        android:id="@+id/auto_switch_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_auto_switch_subtitle"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+
+                    <TextView
+                        android:id="@+id/auto_switch_summary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                        android:ellipsize="end"
+                        android:maxLines="1" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/auto_switch_chevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:padding="4dp"
+                    android:rotation="90"
+                    android:src="@drawable/ic_baseline_chevron_right_24"
+                    android:tint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/auto_switch_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <RadioGroup
+                    android:id="@+id/auto_switch_radio_group"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/auto_switch_on"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:text="@string/settings_auto_switch_on"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+
+                    <RadioButton
+                        android:id="@+id/auto_switch_off"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="?attr/colorPrimary"
+                        android:text="@string/settings_auto_switch_off"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+                </RadioGroup>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Status stall timer -->
+        <LinearLayout
+            android:id="@+id/status_timer_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/status_timer_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:nextFocusUp="@id/auto_switch_header"
+                android:nextFocusDown="@id/cache_header">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/status_timer_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_status_timer_title"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+
+                    <TextView
+                        android:id="@+id/status_timer_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_status_timer_subtitle"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+
+                    <TextView
+                        android:id="@+id/status_timer_summary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                        android:ellipsize="end"
+                        android:maxLines="1" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/status_timer_chevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:padding="4dp"
+                    android:rotation="90"
+                    android:src="@drawable/ic_baseline_chevron_right_24"
+                    android:tint="?attr/colorOnSurface" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/status_timer_input_layout"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/status_timer_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:hint="@string/settings_status_timer_hint"
+                    android:nextFocusUp="@id/status_timer_header"
+                    android:nextFocusDown="@id/cache_header"
+                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
         <!-- Cache TTL -->
         <LinearLayout
             android:id="@+id/cache_section"
@@ -343,7 +535,9 @@
                 android:paddingEnd="4dp"
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
-                android:focusable="true">
+                android:focusable="true"
+                android:nextFocusUp="@id/status_timer_header"
+                android:nextFocusDown="@id/cache_input">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -391,6 +585,7 @@
                     android:layout_height="wrap_content"
                     android:inputType="number"
                     android:hint="@string/settings_cache_hint"
+                    android:nextFocusUp="@id/cache_header"
                     android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>

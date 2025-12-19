@@ -19,6 +19,10 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Server list</string>
     <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d server</item>
+        <item quantity="other">%d servers</item>
+    </plurals>
     <string name="action_refresh">Refresh</string>
 
     <!-- Section: Error screen -->
@@ -107,7 +111,8 @@
     <!-- Section: Connection details (landscape) -->
     <string name="connection_detail_duration_label">DURATION</string>
     <string name="connection_detail_downloaded_label">DOWNLOADED</string>
-    <string name="connection_detail_city_label">CITY</string>
+    <string name="connection_detail_city_label">SERVER</string>
+    <string name="connection_detail_server_position">%1$d/%2$d</string>
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">UPLOADED</string>
     <string name="connection_detail_address_label">ADDRESS</string>
@@ -134,4 +139,13 @@
     <string name="settings_cache_title">Server list cache</string>
     <string name="settings_cache_hint">Minutes (must be &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d minutes</string>
+    <string name="settings_auto_switch_title">Auto switch within country</string>
+    <string name="settings_auto_switch_subtitle">Automatically retry another server in the selected country.</string>
+    <string name="settings_auto_switch_on">On</string>
+    <string name="settings_auto_switch_off">Off</string>
+    <string name="settings_status_timer_title">Status stall timer</string>
+    <string name="settings_status_timer_subtitle">Disconnects if connection status stalls.</string>
+    <string name="settings_status_timer_hint">Timeout (seconds, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d s</string>
+    <string name="ping_ms_format">%1$d ms</string>
 </resources>

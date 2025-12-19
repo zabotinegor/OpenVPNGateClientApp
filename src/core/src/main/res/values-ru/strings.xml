@@ -19,6 +19,12 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>
     <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d сервер</item>
+        <item quantity="few">%d сервера</item>
+        <item quantity="many">%d серверов</item>
+        <item quantity="other">%d сервера</item>
+    </plurals>
     <string name="action_refresh">Обновить</string>
 
     <!-- Section: Error screen -->
@@ -103,7 +109,8 @@
     <!-- Section: Connection details -->
     <string name="connection_detail_duration_label">ДЛИТЕЛЬНОСТЬ</string>
     <string name="connection_detail_downloaded_label">СКАЧАНО</string>
-    <string name="connection_detail_city_label">ГОРОД</string>
+    <string name="connection_detail_city_label">СЕРВЕР</string>
+    <string name="connection_detail_server_position">%1$d/%2$d</string>
     <string name="connection_detail_status_label">СТАТУС</string>
     <string name="connection_detail_uploaded_label">ОТПРАВЛЕНО</string>
     <string name="connection_detail_address_label">АДРЕС</string>
@@ -129,6 +136,15 @@
     <string name="settings_server_custom">Свой сервер (введите url)</string>
     <string name="settings_server_custom_hint">https://ваш-сервер.example/api</string>
     <string name="settings_cache_title">Кэш списка серверов</string>
-    <string name="settings_cache_hint">Минуты (больше 0)</string>
+    <string name="settings_cache_hint">Минуты (должно быть &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d минут</string>
+    <string name="settings_auto_switch_title">Автопереключение внутри страны</string>
+    <string name="settings_auto_switch_subtitle">Автоматически пробует другой сервер в выбранной стране.</string>
+    <string name="settings_auto_switch_on">Вкл</string>
+    <string name="settings_auto_switch_off">Выкл</string>
+    <string name="settings_status_timer_title">Таймер зависания статуса</string>
+    <string name="settings_status_timer_subtitle">Отключает соединение при зависшем статусе.</string>
+    <string name="settings_status_timer_hint">Таймаут (секунды, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d с</string>
+    <string name="ping_ms_format">%1$d мс</string>
 </resources>

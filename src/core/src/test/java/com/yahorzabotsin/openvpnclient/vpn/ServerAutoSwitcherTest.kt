@@ -5,6 +5,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.Country
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -30,6 +31,7 @@ class ServerAutoSwitcherTest {
     fun setUp() {
         ServerAutoSwitcher.setNoReplyThresholdForTest(2)
         ServerAutoSwitcher.setRepliedThresholdForTest(2)
+        UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
         originalStarter = ServerAutoSwitcher.starter
         ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
         originalStopper = ServerAutoSwitcher.stopper
@@ -105,6 +107,13 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun startsTimerOnAuthFailed() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_AUTH_FAILED)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, ServerAutoSwitcher.remainingSeconds.value)
+    }
+
+    @Test
     fun noAlternativeServersDoesNotSwitch() {
         val single = listOf(
             Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1")
@@ -120,8 +129,46 @@ class ServerAutoSwitcherTest {
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf1", current?.config)
 
-        val hadNoAltLog = ShadowLog.getLogs().any { it.tag == "ServerAutoSwitcher" && it.msg.contains("no alternative servers available") }
-        assertEquals(true, hadNoAltLog)
+        val hadFullCycleLog = ShadowLog.getLogs().any { it.tag == "ServerAutoSwitcher" && it.msg.contains("completed full server cycle") }
+        assertEquals(true, hadFullCycleLog)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun fullCycleRestoresStartIndex() {
+        UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 1)
+        ServerAutoSwitcher.setNoReplyThresholdForTest(1)
+        ServerAutoSwitcher.setRepliedThresholdForTest(1)
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2"),
+            Server(3, "n3", "c3", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf3")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+        calls.clear()
+        stopCalls = 0
+        ShadowLog.clear()
+
+        // 1) Switch to conf3
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        // 2) Switch to conf1
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        // 3) Full cycle completes -> stop and restore start index
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+        val current = SelectedCountryStore.currentServer(appContext)
+        assertEquals("conf2", current?.config)
+        assertEquals(2, calls.size)
         assertEquals(1, stopCalls)
     }
 }
