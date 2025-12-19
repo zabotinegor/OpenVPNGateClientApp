@@ -102,15 +102,38 @@ class SelectedCountryStoreTest {
         SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "conf-start-A")
         val last = SelectedCountryStore.getLastStartedConfig(ctx)
         assertNotNull(last)
-        assertEquals("CountryA", last!!.first)
-        assertEquals("conf-start-A", last.second)
+        assertEquals("CountryA", last!!.country)
+        assertEquals("conf-start-A", last.config)
+        assertNull(last.ip)
 
         // Blank configs should be ignored
         SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "")
         val stillLast = SelectedCountryStore.getLastStartedConfig(ctx)
         assertNotNull(stillLast)
-        assertEquals("CountryA", stillLast!!.first)
-        assertEquals("conf-start-A", stillLast.second)
+        assertEquals("CountryA", stillLast!!.country)
+        assertEquals("conf-start-A", stillLast.config)
+    }
+
+    @Test
+    fun next_server_circular_stops_after_full_cycle() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1),
+            server(name = "srv-2", city = "City2", config = "config2", lineIndex = 2),
+            server(name = "srv-3", city = "City3", config = "config3", lineIndex = 3)
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        val first = SelectedCountryStore.nextServerCircular(ctx, 1)
+        assertEquals("City3", first?.city)
+        val second = SelectedCountryStore.nextServerCircular(ctx, 1)
+        assertEquals("City1", second?.city)
+        val third = SelectedCountryStore.nextServerCircular(ctx, 1)
+        assertNull(third)
     }
 
     @Test

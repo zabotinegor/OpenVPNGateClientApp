@@ -47,7 +47,7 @@ class SelectionBootstrapTest {
             context = context,
             getServers = { listOf(srv) },
             loadConfigs = { listOf(srv).associate { it.lineIndex to "config-loaded" } }
-        ) { _, _, config, _ ->
+        ) { _, _, config, _, _ ->
             appliedConfig = config
         }
 
@@ -89,7 +89,7 @@ class SelectionBootstrapTest {
             context = context,
             getServers = { error("should not fetch when stored selection exists") },
             loadConfigs = { emptyMap() }
-        ) { country, city, config, code ->
+        ) { country, city, config, code, _ ->
             appliedCountry = country
             appliedCity = city
             appliedConfig = config
