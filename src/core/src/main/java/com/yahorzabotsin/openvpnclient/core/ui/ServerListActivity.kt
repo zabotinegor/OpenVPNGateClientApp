@@ -81,6 +81,11 @@ open class ServerListActivity : AppCompatActivity() {
                 contentBinding.serversRecyclerView.adapter = CountryListAdapter(countries) { selected ->
                     handleCountrySelection(selected)
                 }
+                contentBinding.serversRecyclerView.post {
+                    contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
+                        ?.itemView
+                        ?.requestFocus()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting servers", e)
                 Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()

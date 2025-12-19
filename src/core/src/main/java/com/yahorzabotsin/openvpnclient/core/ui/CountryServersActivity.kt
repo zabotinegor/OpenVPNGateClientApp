@@ -80,6 +80,11 @@ class CountryServersActivity : AppCompatActivity() {
                     selectServer(selected)
                 }
                 contentBinding.serversRecyclerView.adapter = adapter
+                contentBinding.serversRecyclerView.post {
+                    contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
+                        ?.itemView
+                        ?.requestFocus()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading servers for $name", e)
                 Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()

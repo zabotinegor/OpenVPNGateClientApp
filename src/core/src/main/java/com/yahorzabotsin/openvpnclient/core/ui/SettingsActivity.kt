@@ -284,6 +284,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
 
         updateServerContentFocus()
         isUpdatingUi = false
+        binding.languageHeader.requestFocus()
     }
 
     private fun formatMinutesSummary(ttlMs: Long): String {
