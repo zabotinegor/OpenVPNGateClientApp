@@ -13,7 +13,7 @@ import de.blinkt.openvpn.core.GlobalPreferences
 class CoreApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        GlobalPreferences.setInstance(false, false)
+        GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
             if (!isTelevision()) {

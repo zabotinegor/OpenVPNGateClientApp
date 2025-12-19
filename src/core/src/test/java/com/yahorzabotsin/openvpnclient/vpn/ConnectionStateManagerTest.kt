@@ -76,6 +76,28 @@ class ConnectionStateManagerTest {
     }
 
     @Test
+    fun treatsConnectedDetailAsConnected() {
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, "CONNECTED")
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertEquals(ConnectionStatus.LEVEL_CONNECTED, ConnectionStateManager.engineLevel.value)
+    }
+
+    @Test
+    fun clearsReconnectHintOnConnectedDetail() {
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "CONNECTED")
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertEquals(false, ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
     fun setsAuthErrorOnAuthFailed() {
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_AUTH_FAILED, null)
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
