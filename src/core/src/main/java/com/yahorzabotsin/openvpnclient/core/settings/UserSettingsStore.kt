@@ -13,7 +13,8 @@ data class UserSettings(
     val serverSource: ServerSource = ServerSource.DEFAULT,
     val customServerUrl: String = "",
     val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
-    val autoSwitchWithinCountry: Boolean = true
+    val autoSwitchWithinCountry: Boolean = true,
+    val statusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS
 )
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
@@ -28,8 +29,12 @@ object UserSettingsStore {
     private const val KEY_CUSTOM_SERVER_URL = "custom_server_url"
     private const val KEY_CACHE_TTL_MS = "cache_ttl_ms"
     private const val KEY_AUTO_SWITCH_WITHIN_COUNTRY = "auto_switch_within_country"
+    private const val KEY_STATUS_STALL_TIMEOUT_SECONDS = "status_stall_timeout_seconds"
+    private const val KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY = "auto_switch_timeout_seconds"
     private const val MIN_CACHE_TTL_MS = 60_000L
     const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1000L
+    const val DEFAULT_STATUS_STALL_TIMEOUT_SECONDS = 5
+    private const val MIN_STATUS_STALL_TIMEOUT_SECONDS = 1
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,7 +50,13 @@ object UserSettingsStore {
         val customUrl = p.getString(KEY_CUSTOM_SERVER_URL, "") ?: ""
         val cacheTtl = p.getLong(KEY_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS).coerceAtLeast(MIN_CACHE_TTL_MS)
         val autoSwitch = p.getBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, true)
-        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch)
+        val storedTimeout = if (p.contains(KEY_STATUS_STALL_TIMEOUT_SECONDS)) {
+            p.getInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, DEFAULT_STATUS_STALL_TIMEOUT_SECONDS)
+        } else {
+            p.getInt(KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY, DEFAULT_STATUS_STALL_TIMEOUT_SECONDS)
+        }
+        val statusStallTimeoutSeconds = storedTimeout.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS)
+        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch, statusStallTimeoutSeconds)
     }
 
     fun save(ctx: Context, settings: UserSettings) {
@@ -56,6 +67,7 @@ object UserSettingsStore {
             .putString(KEY_CUSTOM_SERVER_URL, settings.customServerUrl)
             .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
             .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
+            .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, settings.statusStallTimeoutSeconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
             .apply()
     }
 
@@ -76,6 +88,11 @@ object UserSettingsStore {
 
     fun saveAutoSwitchWithinCountry(ctx: Context, enabled: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, enabled).apply()
+
+    fun saveStatusStallTimeoutSeconds(ctx: Context, seconds: Int) =
+        prefs(ctx).edit()
+            .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, seconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
+            .apply()
 
     fun applyThemeAndLocale(ctx: Context) {
         val settings = load(ctx)

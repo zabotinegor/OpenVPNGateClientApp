@@ -231,6 +231,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                 ) { _, _, _, _ -> }
                     .collect {
                         val current = ConnectionStateManager.state.value
+                        updateStatusLabel(current)
                         updateButtonState(current)
                         syncSelectedServerIpFromStore()
                     }
@@ -316,7 +317,19 @@ class ConnectionControlsView @JvmOverloads constructor(
             ConnectionState.CONNECTED -> R.string.main_status_connected
             ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
         }
-        connectionDetailsListener?.updateStatus(context.getString(statusRes))
+        val baseStatus = context.getString(statusRes)
+        val level = ConnectionStateManager.engineLevel.value
+        val remaining = ServerAutoSwitcher.remainingSeconds.value
+        val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
+            level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+        val statusText = if (state == ConnectionState.CONNECTING && remaining != null && showCountdown) {
+            val suffix = runCatching { context.getString(R.string.state_countdown_seconds, remaining) }
+                .getOrDefault("")
+            "${trimEllipsis(baseStatus)}$suffix"
+        } else {
+            baseStatus
+        }
+        connectionDetailsListener?.updateStatus(statusText)
     }
 
     private fun updateButtonState(state: ConnectionState) {
@@ -346,14 +359,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                         detail in setOf(null, "NOPROCESS", "EXITING"))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
-                val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
-                    level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
-                val suffix = if (remaining != null && showCountdown) {
-                    runCatching { context.getString(R.string.state_countdown_seconds, remaining) }
-                        .getOrDefault("")
-                } else ""
-                val textWithTimer = "$t$suffix"
-                connectButton.text = textWithTimer
+                connectButton.text = t
                 val color = ContextCompat.getColor(context, R.color.connection_button_connecting)
                 connectButton.backgroundTintList = ColorStateList.valueOf(color)
             }
@@ -396,6 +402,15 @@ class ConnectionControlsView @JvmOverloads constructor(
             else -> null
         }
         return resId?.let { context.getString(it) } ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    private fun trimEllipsis(text: String): String {
+        val trimmed = text.trimEnd()
+        return when {
+            trimmed.endsWith("...") -> trimmed.removeSuffix("...").trimEnd()
+            trimmed.endsWith("…") -> trimmed.removeSuffix("…").trimEnd()
+            else -> trimmed
+        }
     }
 
     private fun updateDurationTimer() {

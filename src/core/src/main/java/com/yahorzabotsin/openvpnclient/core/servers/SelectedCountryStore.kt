@@ -86,6 +86,13 @@ object SelectedCountryStore {
 
     private fun setIndex(ctx: Context, index: Int) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
 
+    fun setCurrentIndex(ctx: Context, index: Int) {
+        val list = getServers(ctx)
+        if (index in list.indices) {
+            setIndex(ctx, index)
+        }
+    }
+
     fun getCurrentPosition(ctx: Context): Pair<Int, Int>? {
         val list = getServers(ctx)
         if (list.isEmpty()) return null

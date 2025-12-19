@@ -149,5 +149,9 @@
     <string name="settings_auto_switch_subtitle">Автоматически пробует другой сервер в выбранной стране.</string>
     <string name="settings_auto_switch_on">Вкл</string>
     <string name="settings_auto_switch_off">Выкл</string>
+    <string name="settings_status_timer_title">Таймер зависания статуса</string>
+    <string name="settings_status_timer_subtitle">Отключает соединение при зависшем статусе.</string>
+    <string name="settings_status_timer_hint">Таймаут (секунды, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d с</string>
     <string name="ping_ms_format">%1$d мс</string>
 </resources>

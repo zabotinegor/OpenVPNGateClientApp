@@ -144,5 +144,9 @@
     <string name="settings_auto_switch_subtitle">Automatycznie próbuje inny serwer w wybranym kraju.</string>
     <string name="settings_auto_switch_on">Włączone</string>
     <string name="settings_auto_switch_off">Wyłączone</string>
+    <string name="settings_status_timer_title">Limit zawieszenia statusu</string>
+    <string name="settings_status_timer_subtitle">Rozłącza przy zawieszonym statusie połączenia.</string>
+    <string name="settings_status_timer_hint">Limit czasu (sekundy, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d s</string>
     <string name="ping_ms_format">%1$d ms</string>
 </resources>

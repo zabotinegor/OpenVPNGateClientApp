@@ -22,6 +22,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private lateinit var binding: ContentSettingsBinding
     private var isUpdatingUi = false
     private var currentCacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
+    private var currentStatusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS
 
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         binding = ContentSettingsBinding.inflate(inflater, container, true)
@@ -34,6 +35,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         setupRadioGroups()
         setupCustomInputWatcher()
         setupCacheInputWatcher()
+        setupStatusTimerWatcher()
         updateSummaries()
     }
 
@@ -41,28 +43,46 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         setupCollapsibleSection(
             header = binding.languageHeader,
             content = binding.languageRadioGroup,
-            chevron = binding.languageChevron
+            chevron = binding.languageChevron,
+            collapsedNextId = binding.themeHeader.id,
+            expandedFirstId = binding.languageSystem.id
         )
         setupCollapsibleSection(
             header = binding.themeHeader,
             content = binding.themeRadioGroup,
-            chevron = binding.themeChevron
+            chevron = binding.themeChevron,
+            collapsedNextId = binding.serverHeader.id,
+            expandedFirstId = binding.themeSystem.id
         )
         setupCollapsibleSection(
             header = binding.serverHeader,
             content = binding.serverContent,
-            chevron = binding.serverChevron
+            chevron = binding.serverChevron,
+            collapsedNextId = binding.autoSwitchHeader.id,
+            expandedFirstId = binding.serverDefault.id
         )
         setupCollapsibleSection(
             header = binding.autoSwitchHeader,
-            content = binding.autoSwitchRadioGroup,
-            chevron = binding.autoSwitchChevron
+            content = binding.autoSwitchContent,
+            chevron = binding.autoSwitchChevron,
+            collapsedNextId = binding.statusTimerHeader.id,
+            expandedFirstId = binding.autoSwitchOn.id
+        )
+        setupCollapsibleSection(
+            header = binding.statusTimerHeader,
+            content = binding.statusTimerInputLayout,
+            chevron = binding.statusTimerChevron,
+            collapsedNextId = binding.cacheHeader.id,
+            expandedFirstId = binding.statusTimerInput.id
         )
         setupCollapsibleSection(
             header = binding.cacheHeader,
             content = binding.cacheInputLayout,
-            chevron = binding.cacheChevron
+            chevron = binding.cacheChevron,
+            collapsedNextId = View.NO_ID,
+            expandedFirstId = binding.cacheInput.id
         )
+        setupContentFocus()
     }
 
     private fun setupRadioGroups() {
@@ -99,6 +119,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
                 binding.serverCustom.id -> ServerSource.CUSTOM
                 else -> ServerSource.DEFAULT
             })
+            updateServerContentFocus()
             updateSummaries()
         }
         binding.autoSwitchRadioGroup.setOnCheckedChangeListener { _, checkedId ->
@@ -132,6 +153,17 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         }
     }
 
+    private fun setupStatusTimerWatcher() {
+        binding.statusTimerInput.addTextChangedListener { text ->
+            if (isUpdatingUi) return@addTextChangedListener
+            val seconds = text?.toString()?.toIntOrNull() ?: return@addTextChangedListener
+            if (seconds <= 0) return@addTextChangedListener
+            currentStatusStallTimeoutSeconds = seconds
+            UserSettingsStore.saveStatusStallTimeoutSeconds(this, seconds)
+            updateSummaries()
+        }
+    }
+
     private fun updateSummaries() {
         binding.languageSummary.text = selectedRadioText(binding.languageRadioGroup)
         binding.themeSummary.text = selectedRadioText(binding.themeRadioGroup)
@@ -142,6 +174,10 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
             selectedRadioText(binding.serverRadioGroup)
         }
         binding.autoSwitchSummary.text = selectedRadioText(binding.autoSwitchRadioGroup)
+        binding.statusTimerSummary.text = getString(
+            R.string.settings_status_timer_summary_format,
+            currentStatusStallTimeoutSeconds
+        )
         binding.cacheSummary.text = formatMinutesSummary(currentCacheTtlMs)
     }
 
@@ -153,9 +189,57 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         }
     }
 
+    private fun setupCollapsibleSection(
+        header: View,
+        content: View,
+        chevron: ImageView,
+        collapsedNextId: Int,
+        expandedFirstId: Int
+    ) {
+        setExpanded(content, chevron, false)
+        updateHeaderNextFocus(header, expanded = false, collapsedNextId, expandedFirstId)
+        header.setOnClickListener {
+            val expanded = !content.isVisible
+            setExpanded(content, chevron, expanded)
+            updateHeaderNextFocus(header, expanded, collapsedNextId, expandedFirstId)
+        }
+    }
+
+    private fun updateHeaderNextFocus(
+        header: View,
+        expanded: Boolean,
+        collapsedNextId: Int,
+        expandedFirstId: Int
+    ) {
+        header.nextFocusDownId = if (expanded) expandedFirstId else collapsedNextId
+    }
+
     private fun setExpanded(content: View, chevron: ImageView, expanded: Boolean) {
         content.isVisible = expanded
         chevron.animate().rotation(if (expanded) 90f else 0f).setDuration(150).start()
+    }
+
+    private fun setupContentFocus() {
+        binding.languageSystem.nextFocusUpId = binding.languageHeader.id
+        binding.languagePl.nextFocusDownId = binding.themeHeader.id
+        binding.themeSystem.nextFocusUpId = binding.themeHeader.id
+        binding.themeDark.nextFocusDownId = binding.serverHeader.id
+        binding.serverDefault.nextFocusUpId = binding.serverHeader.id
+        binding.autoSwitchOn.nextFocusUpId = binding.autoSwitchHeader.id
+        binding.autoSwitchOff.nextFocusDownId = binding.statusTimerHeader.id
+        binding.statusTimerInput.nextFocusUpId = binding.statusTimerHeader.id
+        binding.statusTimerInput.nextFocusDownId = binding.cacheHeader.id
+        binding.cacheInput.nextFocusUpId = binding.cacheHeader.id
+    }
+
+    private fun updateServerContentFocus() {
+        val nextHeaderId = binding.autoSwitchHeader.id
+        if (binding.serverCustom.isChecked) {
+            binding.serverCustom.nextFocusDownId = binding.customServerInput.id
+            binding.customServerInput.nextFocusDownId = nextHeaderId
+        } else {
+            binding.serverCustom.nextFocusDownId = nextHeaderId
+        }
     }
 
     private fun selectedRadioText(group: RadioGroup): String {
@@ -195,7 +279,10 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         binding.autoSwitchRadioGroup.check(
             if (settings.autoSwitchWithinCountry) binding.autoSwitchOn.id else binding.autoSwitchOff.id
         )
+        currentStatusStallTimeoutSeconds = settings.statusStallTimeoutSeconds
+        binding.statusTimerInput.setText(settings.statusStallTimeoutSeconds.toString())
 
+        updateServerContentFocus()
         isUpdatingUi = false
     }
 

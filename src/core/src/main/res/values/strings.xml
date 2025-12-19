@@ -143,5 +143,9 @@
     <string name="settings_auto_switch_subtitle">Automatically retry another server in the selected country.</string>
     <string name="settings_auto_switch_on">On</string>
     <string name="settings_auto_switch_off">Off</string>
+    <string name="settings_status_timer_title">Status stall timer</string>
+    <string name="settings_status_timer_subtitle">Disconnects if connection status stalls.</string>
+    <string name="settings_status_timer_hint">Timeout (seconds, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d s</string>
     <string name="ping_ms_format">%1$d ms</string>
 </resources>
