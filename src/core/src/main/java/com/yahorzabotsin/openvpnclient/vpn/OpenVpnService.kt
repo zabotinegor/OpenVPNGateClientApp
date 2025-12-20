@@ -72,6 +72,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
     private var statusRebindDelayMs = 500L
+    private var lastStatusSnapshotMs: Long = 0L
     private val statusHandler = Handler(Looper.getMainLooper())
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
@@ -115,6 +116,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
             Log.d(TAG, "Binding status service: $boundToStatus")
+            if (!boundToStatus) {
+                scheduleStatusRebind()
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to bind status service", t)
             scheduleStatusRebind()
@@ -395,6 +399,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             intent: Intent?
         ) {
             if (level == null) return
+            lastStatusSnapshotMs = System.currentTimeMillis()
             try {
                 syncEngineState(level, state)
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
@@ -485,6 +490,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficPollRunnable = object : Runnable {
         override fun run() {
             try {
+                val binder = statusBinder
+                if (binder != null) {
+                    val now = System.currentTimeMillis()
+                    if (lastStatusSnapshotMs == 0L || now - lastStatusSnapshotMs > 5_000L) {
+                        trySyncStatusSnapshot()
+                    }
+                }
+
                 val currentState = ConnectionStateManager.state.value
                 if (currentState != lastPolledState) {
                     if (currentState != ConnectionState.CONNECTED) {
@@ -494,7 +507,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
 
                 if (currentState == ConnectionState.CONNECTED) {
-                    val binder = statusBinder
                     if (binder != null) {
                         val history = try {
                             binder.trafficHistory
@@ -559,6 +571,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             binder.lastStatusSnapshot
         } catch (e: RemoteException) {
             Log.w(TAG, "Failed to read status snapshot", e)
+            statusBinder = null
+            boundToStatus = false
+            scheduleStatusRebind()
             null
         } ?: return
         applyStatusSnapshot(snapshot)
@@ -566,6 +581,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
         val level = snapshot.level ?: return
+        lastStatusSnapshotMs = System.currentTimeMillis()
         syncEngineState(level, snapshot.state)
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {
