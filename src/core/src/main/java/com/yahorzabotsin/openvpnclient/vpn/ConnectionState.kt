@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
 import androidx.annotation.MainThread
+import kotlin.math.abs
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -139,7 +140,7 @@ object ConnectionStateManager {
     fun syncConnectionStartTime(startTimeMs: Long, toleranceMs: Long = 5_000L) {
         if (startTimeMs <= 0L) return
         val current = _connectionStartTimeMs.value
-        if (current == null || kotlin.math.abs(current - startTimeMs) > toleranceMs) {
+        if (current == null || abs(current - startTimeMs) > toleranceMs) {
             _connectionStartTimeMs.value = startTimeMs
         }
     }
