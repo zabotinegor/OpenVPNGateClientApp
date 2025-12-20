@@ -30,6 +30,8 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - Per-app filtering (user/system), Select all toggles, pinned info card, and TV-friendly focus/scroll restoration
 - Server list refresh button with localized label + icon and focus bounce feedback
 - Server list parsing/caching is streaming; configs are loaded lazily per selection to reduce memory/GC pressure
+- Status snapshots persisted in the engine with AIDL sync for reliable relaunch/idle recovery
+- Refresh is locked to cache while VPN is connected to avoid blocked network access
 
 ## Stack and Modules
 - Kotlin, Android SDK 24+, ViewBinding, Retrofit/OkHttp
@@ -89,6 +91,7 @@ cd src
 - Server CSV responses are streamed directly to a cache file (`cacheDir/servers_<hash>.csv`); no intermediate base64/strings.
 - Cache freshness is controlled by `cacheTtlMs` in user settings (`DEFAULT_CACHE_TTL_MS` fallback).
 - On cache miss/stale, we try primary, then fallback; on failure we return stale cache if present and log the fallback.
+- When VPN is connected, server list is served from cache only (ignores TTL) and manual refresh is disabled.
 - Server list stores only summaries; configs are loaded lazily via `loadConfigs()` when a country is picked.
 
 ## CI/CD

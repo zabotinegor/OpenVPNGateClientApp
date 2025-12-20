@@ -26,6 +26,7 @@
         <item quantity="other">%d serwera</item>
     </plurals>
     <string name="action_refresh">Odśwież</string>
+    <string name="server_list_refresh_locked_hint">Odświeżanie niedostępne przy aktywnym VPN.</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Wystąpił błąd</string>

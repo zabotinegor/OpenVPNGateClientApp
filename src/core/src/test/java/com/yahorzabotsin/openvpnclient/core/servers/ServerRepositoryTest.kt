@@ -234,6 +234,46 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun cache_only_ignores_ttl_and_force_refresh() = runBlocking {
+        val initial = makeServer("cached")
+        val updated = makeServer("new")
+        val api = SequenceApi(
+            listOf(
+                { sampleCsv(listOf(initial)) },
+                { sampleCsv(listOf(updated)) }
+            )
+        )
+        val repo = ServerRepository(api)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached", first.single().name)
+        assertEquals(1, api.callCount)
+
+        val prefs = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
+        val key = prefs.all.keys.firstOrNull { it.startsWith("ts_") } ?: error("ts key missing")
+        prefs.edit().putLong(key, System.currentTimeMillis() - UserSettingsStore.DEFAULT_CACHE_TTL_MS - 1).apply()
+
+        val second = repo.getServers(context, forceRefresh = true, cacheOnly = true)
+        assertEquals("cached", second.single().name)
+        assertEquals(1, api.callCount)
+    }
+
+    @Test
+    fun cache_only_throws_when_cache_missing() = runBlocking {
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("unused"))) }))
+        val repo = ServerRepository(api)
+
+        try {
+            repo.getServers(context, cacheOnly = true)
+            fail("Expected IOException when cache-only and cache is missing")
+        } catch (e: IOException) {
+            // expected
+        }
+
+        assertEquals(0, api.callCount)
+    }
+
+    @Test
     fun loadConfigs_returns_empty_when_cache_missing() = runBlocking {
         val srv = makeServer("one")
         val api = SequenceApi(listOf({ sampleCsv(listOf(srv)) }))

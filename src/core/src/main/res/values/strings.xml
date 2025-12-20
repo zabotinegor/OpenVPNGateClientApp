@@ -24,6 +24,7 @@
         <item quantity="other">%d servers</item>
     </plurals>
     <string name="action_refresh">Refresh</string>
+    <string name="server_list_refresh_locked_hint">Refresh disabled while VPN is connected.</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">An error occurred</string>

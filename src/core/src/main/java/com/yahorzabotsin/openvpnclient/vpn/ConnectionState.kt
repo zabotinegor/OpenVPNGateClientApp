@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
 import androidx.annotation.MainThread
+import kotlin.math.abs
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,10 +75,15 @@ object ConnectionStateManager {
 
     @MainThread
     fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
-        _engineLevel.value = level
+        val normalizedLevel = if (detail == "CONNECTED" && level != ConnectionStatus.LEVEL_CONNECTED) {
+            ConnectionStatus.LEVEL_CONNECTED
+        } else {
+            level
+        }
+        _engineLevel.value = normalizedLevel
         _engineDetail.value = detail
 
-        val mapped = when (level) {
+        val mapped = when (normalizedLevel) {
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
@@ -90,7 +96,7 @@ object ConnectionStateManager {
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
 
-        if (level == ConnectionStatus.LEVEL_AUTH_FAILED) {
+        if (normalizedLevel == ConnectionStatus.LEVEL_AUTH_FAILED) {
             _error.value = VpnError.AUTH
         } else if (mapped != ConnectionState.DISCONNECTED) {
             _error.value = VpnError.NONE
@@ -126,6 +132,15 @@ object ConnectionStateManager {
     @MainThread
     fun restoreConnectionStartIfEmpty(startTimeMs: Long) {
         if (_connectionStartTimeMs.value == null && startTimeMs > 0L) {
+            _connectionStartTimeMs.value = startTimeMs
+        }
+    }
+
+    @MainThread
+    fun syncConnectionStartTime(startTimeMs: Long, toleranceMs: Long = 5_000L) {
+        if (startTimeMs <= 0L) return
+        val current = _connectionStartTimeMs.value
+        if (current == null || abs(current - startTimeMs) > toleranceMs) {
             _connectionStartTimeMs.value = startTimeMs
         }
     }

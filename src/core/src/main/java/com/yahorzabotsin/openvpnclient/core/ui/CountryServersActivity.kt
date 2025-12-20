@@ -17,6 +17,8 @@ import com.yahorzabotsin.openvpnclient.core.servers.Country
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import kotlinx.coroutines.launch
 
 class CountryServersActivity : AppCompatActivity() {
@@ -69,7 +71,8 @@ class CountryServersActivity : AppCompatActivity() {
         lifecycleScope.launch {
             setLoadingState(true)
             try {
-                val allServers = serverRepository.getServers(this@CountryServersActivity, forceRefresh = false)
+                val cacheOnly = ConnectionStateManager.state.value == ConnectionState.CONNECTED
+                val allServers = serverRepository.getServers(this@CountryServersActivity, forceRefresh = false, cacheOnly = cacheOnly)
                 servers = allServers.filter { it.country.name == name }
                 if (servers.isEmpty()) {
                     Toast.makeText(this@CountryServersActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
