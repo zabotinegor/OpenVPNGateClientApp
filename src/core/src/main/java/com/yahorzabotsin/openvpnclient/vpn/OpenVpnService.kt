@@ -73,6 +73,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var boundToStatus = false
     private var statusRebindDelayMs = 500L
     private var lastStatusSnapshotMs: Long = 0L
+    private val staleSnapshotTimeoutLevels = setOf(
+        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+        ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+        ConnectionStatus.LEVEL_AUTH_FAILED,
+        ConnectionStatus.UNKNOWN_LEVEL
+    )
     private val statusHandler = Handler(Looper.getMainLooper())
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
@@ -401,7 +407,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (level == null) return
             lastStatusSnapshotMs = System.currentTimeMillis()
             try {
-                syncEngineState(level, state)
+                syncEngineState(level, state, allowAutoSwitch = true)
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
@@ -581,8 +587,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
         val level = snapshot.level ?: return
-        lastStatusSnapshotMs = System.currentTimeMillis()
-        syncEngineState(level, snapshot.state)
+        val now = System.currentTimeMillis()
+        val ts = snapshot.timestampMs
+        if (ts > 0L && level in staleSnapshotTimeoutLevels) {
+            val ageMs = now - ts
+            if (ageMs > 5_000L) {
+                Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms")
+                return
+            }
+        }
+        lastStatusSnapshotMs = if (ts > 0L) ts else now
+        syncEngineState(level, snapshot.state, allowAutoSwitch = false)
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {
                 ConnectionStateManager.syncConnectionStartTime(snapshot.connectedSinceMs)
@@ -592,8 +607,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun syncEngineState(level: ConnectionStatus, detail: String?) {
-        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (_: Exception) { }
+    private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
+        if (allowAutoSwitch) {
+            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (_: Exception) { }
+        }
         ConnectionStateManager.updateFromEngine(level, detail)
     }
 
