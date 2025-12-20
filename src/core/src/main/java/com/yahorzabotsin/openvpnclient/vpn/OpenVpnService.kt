@@ -568,6 +568,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val level = snapshot.level ?: return
         syncEngineState(level, snapshot.state)
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
+            if (snapshot.connectedSinceMs > 0L) {
+                ConnectionStateManager.syncConnectionStartTime(snapshot.connectedSinceMs)
+            }
             persistLastSuccessfulConfig()
             tryRestoreTrafficSnapshot()
         }

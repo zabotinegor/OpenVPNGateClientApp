@@ -103,4 +103,25 @@ class ConnectionStateManagerTest {
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
         assertEquals(ConnectionStateManager.VpnError.AUTH, ConnectionStateManager.error.value)
     }
+
+    @Test
+    fun syncConnectionStartTimeOverridesWhenDifferent() {
+        val initial = 1_000L
+        val updated = 20_000L
+        ConnectionStateManager.syncConnectionStartTime(initial)
+
+        ConnectionStateManager.syncConnectionStartTime(updated)
+
+        assertEquals(updated, ConnectionStateManager.connectionStartTimeMs.value)
+    }
+
+    @Test
+    fun syncConnectionStartTimeIgnoresSmallDelta() {
+        val base = 1_000L
+        ConnectionStateManager.syncConnectionStartTime(base)
+
+        ConnectionStateManager.syncConnectionStartTime(base + 2_000L)
+
+        assertEquals(base, ConnectionStateManager.connectionStartTimeMs.value)
+    }
 }

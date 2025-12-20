@@ -134,4 +134,13 @@ object ConnectionStateManager {
             _connectionStartTimeMs.value = startTimeMs
         }
     }
+
+    @MainThread
+    fun syncConnectionStartTime(startTimeMs: Long, toleranceMs: Long = 5_000L) {
+        if (startTimeMs <= 0L) return
+        val current = _connectionStartTimeMs.value
+        if (current == null || kotlin.math.abs(current - startTimeMs) > toleranceMs) {
+            _connectionStartTimeMs.value = startTimeMs
+        }
+    }
 }
