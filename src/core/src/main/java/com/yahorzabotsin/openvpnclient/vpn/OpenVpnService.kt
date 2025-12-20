@@ -496,8 +496,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficPollRunnable = object : Runnable {
         override fun run() {
             try {
-                val binder = statusBinder
-                if (binder != null) {
+                val snapshotBinder = statusBinder
+                if (snapshotBinder != null) {
                     val now = System.currentTimeMillis()
                     if (lastStatusSnapshotMs == 0L || now - lastStatusSnapshotMs > 5_000L) {
                         trySyncStatusSnapshot()
@@ -513,9 +513,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
 
                 if (currentState == ConnectionState.CONNECTED) {
-                    if (binder != null) {
+                    val trafficBinder = statusBinder
+                    if (trafficBinder != null) {
                         val history = try {
-                            binder.trafficHistory
+                            trafficBinder.trafficHistory
                         } catch (_: Exception) {
                             null
                         }
