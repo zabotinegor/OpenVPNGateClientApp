@@ -15,6 +15,8 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentServerListBinding
 import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import kotlinx.coroutines.launch
 import android.widget.Toast
 
@@ -25,6 +27,8 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentServerListBinding
     private val TAG = ServerListActivity::class.simpleName
+    private var isLoading = false
+    private var vpnConnected = false
 
     private var countries: List<CountryWithServers> = emptyList()
     private val REQUEST_PICK_SERVER = 1001
@@ -42,13 +46,28 @@ open class ServerListActivity : AppCompatActivity() {
         setupRecyclerView()
         contentBinding.refreshFab.setOnClickListener { loadServers(forceRefresh = true) }
 
+        vpnConnected = isVpnConnected()
+        updateRefreshUi()
+        lifecycleScope.launch {
+            ConnectionStateManager.state.collect { state ->
+                vpnConnected = state == ConnectionState.CONNECTED
+                updateRefreshUi()
+            }
+        }
+
         loadServers(forceRefresh = false)
     }
 
     private fun setLoadingState(isLoading: Boolean) {
+        this.isLoading = isLoading
         contentBinding.progressBar.isVisible = isLoading
         contentBinding.serversRecyclerView.isVisible = !isLoading
-        contentBinding.refreshFab.isEnabled = !isLoading
+        updateRefreshUi()
+    }
+
+    private fun updateRefreshUi() {
+        contentBinding.refreshFab.isEnabled = !isLoading && !vpnConnected
+        contentBinding.refreshHint.isVisible = vpnConnected
     }
 
     private fun setupRecyclerView() {
@@ -70,7 +89,8 @@ open class ServerListActivity : AppCompatActivity() {
         lifecycleScope.launch {
             setLoadingState(true)
             try {
-                servers = serverRepository.getServers(this@ServerListActivity, forceRefresh)
+                val cacheOnly = vpnConnected
+                servers = serverRepository.getServers(this@ServerListActivity, forceRefresh, cacheOnly)
                 Log.i(TAG, "Successfully loaded ${servers.size} servers.")
                 countries = servers
                     .groupBy { it.country }
@@ -166,4 +186,7 @@ open class ServerListActivity : AppCompatActivity() {
         const val EXTRA_SELECTED_SERVER_CONFIG = "EXTRA_SELECTED_SERVER_CONFIG"
         const val EXTRA_SELECTED_SERVER_IP = "EXTRA_SELECTED_SERVER_IP"
     }
+
+    private fun isVpnConnected(): Boolean =
+        ConnectionStateManager.state.value == ConnectionState.CONNECTED
 }

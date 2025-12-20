@@ -105,7 +105,7 @@ class ServerRepository(
             .apply()
     }
 
-    suspend fun getServers(context: Context, forceRefresh: Boolean = false): List<Server> =
+    suspend fun getServers(context: Context, forceRefresh: Boolean = false, cacheOnly: Boolean = false): List<Server> =
         withContext(Dispatchers.IO) {
             val settings = settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
@@ -116,6 +116,15 @@ class ServerRepository(
             val now = System.currentTimeMillis()
             val ttlMs = settings.cacheTtlMs.takeIf { it > 0 } ?: DEFAULT_CACHE_TTL_MS
             val cachedFresh = if (forceRefresh) null else cached?.let { (file, ts) -> if (now - ts <= ttlMs) file else null }
+
+            if (cacheOnly) {
+                val (file, ts) = cached ?: throw IOException("Server cache is empty while VPN is connected")
+                val age = now - ts
+                val servers = parseServers(file)
+                Log.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}")
+                saveLastCacheKey(context, cacheKey)
+                return@withContext servers
+            }
 
             if (cachedFresh != null) {
                 val age = cached?.let { now - it.second } ?: -1

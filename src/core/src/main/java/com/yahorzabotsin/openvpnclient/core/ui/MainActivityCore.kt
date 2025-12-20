@@ -22,6 +22,8 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ActivityMainBinding
 import com.yahorzabotsin.openvpnclient.core.servers.SelectionBootstrap
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 import kotlinx.coroutines.launch
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
@@ -233,7 +235,10 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             try {
                 SelectionBootstrap.ensureSelection(
                     this@MainActivityCore,
-                    { serverRepository.getServers(this@MainActivityCore) },
+                    {
+                        val cacheOnly = ConnectionStateManager.state.value == ConnectionState.CONNECTED
+                        serverRepository.getServers(this@MainActivityCore, cacheOnly = cacheOnly)
+                    },
                     { srv -> serverRepository.loadConfigs(this@MainActivityCore, srv) }
                 ) { country, city, config, countryCode, ip ->
                     connectionControlsView.setServer(country, countryCode, ip)

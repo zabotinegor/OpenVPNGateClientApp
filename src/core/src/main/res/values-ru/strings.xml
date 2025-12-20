@@ -26,6 +26,7 @@
         <item quantity="other">%d сервера</item>
     </plurals>
     <string name="action_refresh">Обновить</string>
+    <string name="server_list_refresh_locked_hint">Обновление недоступно при активном VPN.</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>
