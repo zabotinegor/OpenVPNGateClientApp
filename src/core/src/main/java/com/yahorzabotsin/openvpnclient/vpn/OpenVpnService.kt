@@ -471,6 +471,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private val statusConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            if (service == null) {
+                Log.w(TAG, "Status service connected with null binder; scheduling rebind")
+                statusBinder = null
+                boundToStatus = false
+                scheduleStatusRebind()
+                return
+            }
             statusBinder = IServiceStatus.Stub.asInterface(service)
             boundToStatus = true
             statusRebindDelayMs = 500L
