@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 
 object ServerAutoSwitcher {
-    private const val TAG = "ServerAutoSwitcher"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
     private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 5
     private const val START_AFTER_STOP_DELAY_MS = 350
@@ -220,3 +220,4 @@ object ServerAutoSwitcher {
         repliedThresholdSeconds = REPLIED_SWITCH_THRESHOLD_SECONDS
     }
 }
+

@@ -31,7 +31,7 @@ object SelectedCountryStore {
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
-    private const val TAG = "SelectedCountryStore"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
     private const val KEY_JSON_CODE = "code"
@@ -206,3 +206,4 @@ object SelectedCountryStore {
         }
     }
 }
+

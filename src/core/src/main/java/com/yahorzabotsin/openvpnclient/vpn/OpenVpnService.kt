@@ -35,7 +35,7 @@ import java.io.InputStreamReader
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
     private companion object {
-        const val TAG = "OpenVpnService"
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
         const val KEY_OVPN3 = "ovpn3"
         const val KEY_DISABLE_CONFIRMATION = "disableconfirmation"
@@ -574,11 +574,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         try {
             val msg = logItem.getString(this)
             when (logItem.logLevel) {
-                VpnStatus.LogLevel.ERROR -> Log.e("OpenVPN", msg)
-                VpnStatus.LogLevel.WARNING -> Log.w("OpenVPN", msg)
-                VpnStatus.LogLevel.INFO -> Log.i("OpenVPN", msg)
-                VpnStatus.LogLevel.VERBOSE -> Log.d("OpenVPN", msg)
-                else -> Log.d("OpenVPN", msg)
+                VpnStatus.LogLevel.ERROR -> Log.e(TAG, msg)
+                VpnStatus.LogLevel.WARNING -> Log.w(TAG, msg)
+                VpnStatus.LogLevel.INFO -> Log.i(TAG, msg)
+                VpnStatus.LogLevel.VERBOSE -> Log.d(TAG, msg)
+                else -> Log.d(TAG, msg)
             }
         } catch (e: Exception) { Log.w(TAG, "Failed to format OpenVPN log item", e) }
     }

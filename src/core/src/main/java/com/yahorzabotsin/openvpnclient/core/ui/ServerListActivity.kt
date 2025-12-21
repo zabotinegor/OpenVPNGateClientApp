@@ -26,7 +26,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var servers: List<Server>
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentServerListBinding
-    private val TAG = ServerListActivity::class.simpleName
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerListActivity"
     private var isLoading = false
     private var vpnConnected = false
 
@@ -190,3 +190,4 @@ open class ServerListActivity : AppCompatActivity() {
     private fun isVpnConnected(): Boolean =
         ConnectionStateManager.state.value == ConnectionState.CONNECTED
 }
+

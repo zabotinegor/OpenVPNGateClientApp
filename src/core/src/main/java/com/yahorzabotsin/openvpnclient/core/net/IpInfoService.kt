@@ -12,8 +12,7 @@ data class IpInfo(
 )
 
 object IpInfoService {
-
-    private const val TAG = "IpInfoService"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "IpInfoService"
     private const val ENDPOINT_URL = "https://ipinfo.io/json"
 
     private val client: OkHttpClient by lazy { OkHttpClient() }
@@ -54,3 +53,4 @@ object IpInfoService {
         }
     }
 }
+

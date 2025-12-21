@@ -52,7 +52,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var connectionDetailsListener: ConnectionDetailsListener? = null
 
     private companion object {
-        const val TAG = "ConnectionControlsView"
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
         private const val DURATION_PLACEHOLDER = "00:00:00"
     }
 
@@ -518,3 +518,4 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+
