@@ -209,6 +209,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun setVpnConfigInternal(config: String, fromUserSelection: Boolean) {
+        val previousConfig = vpnConfig
         userSelectedConfigOverride = fromUserSelection
         Log.d(TAG, "VPN config set")
         vpnConfig = config
@@ -220,6 +221,16 @@ class ConnectionControlsView @JvmOverloads constructor(
             applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
         }
         updateServerPosition()
+        if (fromUserSelection && previousConfig != null && previousConfig != config) {
+            stopForUserSelection()
+        }
+    }
+
+    private fun stopForUserSelection() {
+        val state = ConnectionStateManager.state.value
+        if (state == ConnectionState.DISCONNECTED || state == ConnectionState.DISCONNECTING) return
+        Log.i(TAG, "User selection while $state; stopping VPN")
+        VpnManager.stopVpn(context)
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {

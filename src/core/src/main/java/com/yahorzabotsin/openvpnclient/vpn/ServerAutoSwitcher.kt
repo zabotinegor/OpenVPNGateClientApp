@@ -16,6 +16,7 @@ object ServerAutoSwitcher {
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
     private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 5
     private const val START_AFTER_STOP_DELAY_MS = 350
+    private const val STOP_RETRY_TIMEOUT_MS = 5_000L
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     @Volatile private var repliedThresholdSeconds: Int = REPLIED_SWITCH_THRESHOLD_SECONDS
     private val handler = Handler(Looper.getMainLooper())
@@ -29,6 +30,7 @@ object ServerAutoSwitcher {
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
+    private var stopRetryTimeoutRunnable: Runnable? = null
     private val _remainingSeconds = MutableStateFlow<Int?>(null)
     val remainingSeconds = _remainingSeconds.asStateFlow()
 
@@ -56,6 +58,8 @@ object ServerAutoSwitcher {
             pendingConfig = null
             pendingTitle = null
             waitingStopForRetry = false
+            stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+            stopRetryTimeoutRunnable = null
             if (cfg != null) {
                 Log.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
                 handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
@@ -97,6 +101,7 @@ object ServerAutoSwitcher {
         pendingConfig = config
         pendingTitle = title
         waitingStopForRetry = true
+        scheduleStopRetryTimeout(appContext)
         try { VpnManager.stopVpn(appContext, preserveReconnectHint = true) } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop for chained switch", e) }
     }
 
@@ -154,6 +159,7 @@ object ServerAutoSwitcher {
                             pendingConfig = next.config
                             pendingTitle = title
                             waitingStopForRetry = true
+                            scheduleStopRetryTimeout(appContext)
                             VpnManager.stopVpn(appContext, preserveReconnectHint = true)
                         } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
                         return
@@ -196,10 +202,32 @@ object ServerAutoSwitcher {
         waitingStopForRetry = false
         pendingConfig = null
         pendingTitle = null
+        stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        stopRetryTimeoutRunnable = null
         _remainingSeconds.value = null
         if (resetCycle) {
             cycleStartIndex = null
         }
+    }
+
+    private fun scheduleStopRetryTimeout(appContext: Context) {
+        stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        val r = Runnable {
+            if (!waitingStopForRetry) return@Runnable
+            val cfg = pendingConfig
+            val title = pendingTitle
+            pendingConfig = null
+            pendingTitle = null
+            waitingStopForRetry = false
+            Log.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
+            if (cfg != null) {
+                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+            } else {
+                Log.w(TAG, "Stop retry timeout; missing pending config")
+            }
+        }
+        stopRetryTimeoutRunnable = r
+        handler.postDelayed(r, STOP_RETRY_TIMEOUT_MS)
     }
 
     @JvmStatic

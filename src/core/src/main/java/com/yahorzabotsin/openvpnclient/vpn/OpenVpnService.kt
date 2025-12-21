@@ -314,9 +314,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun tryStopVpn() {
+        val userStop = userInitiatedStop
         try {
             val stopped = engineBinder?.stopVPN(false) ?: false
             Log.i(TAG, "stopVPN invoked, result=$stopped")
+            if (!stopped && userStop) {
+                Log.w(TAG, "stopVPN returned false on user stop; launching DisconnectVPN")
+                try {
+                    startActivity(Intent().apply {
+                        setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } catch (e: Exception) { Log.w(TAG, "Failed to start DisconnectVPN activity", e) }
+            }
         } catch (e: RemoteException) {
             Log.e(TAG, "Binder stop error", e)
         } finally {
