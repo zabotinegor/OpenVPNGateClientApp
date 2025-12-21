@@ -85,6 +85,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ConnectionStatus.LEVEL_AUTH_FAILED,
         ConnectionStatus.UNKNOWN_LEVEL
     )
+    private val staleSnapshotMaxAgeMs = 10_000L
+    private val liveStatusGraceMs = 5_000L
     private val statusHandler = Handler(Looper.getMainLooper())
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
@@ -646,10 +648,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val ts = snapshot.timestampMs
         if (ts > 0L && level in staleSnapshotTimeoutLevels) {
             val ageMs = now - ts
-            if (ageMs > 5_000L) {
+            if (ageMs > staleSnapshotMaxAgeMs) {
+                if (now - lastLiveStatusMs <= liveStatusGraceMs) {
+                    Log.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
+                    return
+                }
                 Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms")
                 staleSnapshotCount += 1
-                if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > 5_000L) {
+                if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
                 }
                 return
