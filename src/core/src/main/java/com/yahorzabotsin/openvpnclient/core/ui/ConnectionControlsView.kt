@@ -147,13 +147,13 @@ class ConnectionControlsView @JvmOverloads constructor(
             if (autoSwitchEnabled) {
                 runCatching {
                     SelectedCountryStore.prepareAutoSwitchFromStart(context)
-                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig)
+                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig, resolveIpForConfig(lastSuccessfulConfig))
                 }.onFailure { e -> Log.e(TAG, "Failed to prepare index for auto-switch from start", e) }
             }
             lastSuccessfulConfig!!
         } else {
             if (autoSwitchEnabled) {
-                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig) }
+                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig, resolveIpForConfig(currentConfig)) }
                     .onFailure { e -> Log.e(TAG, "Failed to align server index with current selection", e) }
             }
             currentConfig

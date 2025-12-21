@@ -202,7 +202,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
-                    SelectedCountryStore.ensureIndexForConfig(applicationContext, config)
+                    SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to align server index with config being started", e)
                 }
