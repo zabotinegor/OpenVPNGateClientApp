@@ -73,6 +73,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var boundToStatus = false
     private var statusRebindDelayMs = 500L
     private var lastStatusSnapshotMs: Long = 0L
+    private var lastLiveStatusMs: Long = 0L
+    private var staleSnapshotCount: Int = 0
     private val staleSnapshotTimeoutLevels = setOf(
         ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
         ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
@@ -406,6 +408,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ) {
             if (level == null) return
             lastStatusSnapshotMs = System.currentTimeMillis()
+            lastLiveStatusMs = lastStatusSnapshotMs
+            staleSnapshotCount = 0
             try {
                 syncEngineState(level, state, allowAutoSwitch = true)
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
@@ -601,9 +605,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val ageMs = now - ts
             if (ageMs > 5_000L) {
                 Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms")
+                staleSnapshotCount += 1
+                if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > 5_000L) {
+                    forceRebindStatusService("stale snapshots age=${ageMs}ms")
+                }
                 return
             }
         }
+        staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         syncEngineState(level, snapshot.state, allowAutoSwitch = false)
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
@@ -613,6 +622,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             persistLastSuccessfulConfig()
             tryRestoreTrafficSnapshot()
         }
+    }
+
+    private fun forceRebindStatusService(reason: String) {
+        Log.w(TAG, "Forcing status rebind: $reason")
+        statusHandler.removeCallbacks(statusRebindRunnable)
+        if (boundToStatus) {
+            try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
+            try { unbindService(statusConnection) } catch (_: Exception) {}
+        }
+        boundToStatus = false
+        statusBinder = null
+        scheduleStatusRebind()
     }
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
