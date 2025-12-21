@@ -369,13 +369,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         level: ConnectionStatus,
         intent: Intent?
     ) {
-        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
-
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
+        Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
+        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
