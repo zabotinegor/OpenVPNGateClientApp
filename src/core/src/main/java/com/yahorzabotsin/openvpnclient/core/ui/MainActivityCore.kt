@@ -66,7 +66,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                     Log.i(TAG, "Server selected: $country, $city, ip=${ip ?: "<none>"}")
                 }
                 connectionControlsView.setServer(country, countryCode, ip)
-                connectionControlsView.setVpnConfig(config)
+                connectionControlsView.setVpnConfigFromUser(config)
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }

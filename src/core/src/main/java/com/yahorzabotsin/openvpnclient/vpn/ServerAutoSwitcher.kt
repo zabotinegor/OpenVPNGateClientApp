@@ -144,7 +144,9 @@ object ServerAutoSwitcher {
                         Log.w(TAG, "Failed to resolve next server circularly", e); null
                     }
                     if (next != null) {
-                        Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
+                        val position = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
+                        val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
+                        Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
                         cancel(resetCycle = false)
                         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for timed switch", e) }
                         try {

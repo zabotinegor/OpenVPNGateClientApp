@@ -50,6 +50,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
+    private var userSelectedConfigOverride = false
 
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
@@ -141,7 +142,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         val selectedConfig = runCatching { SelectedCountryStore.currentServer(context)?.config }.getOrNull()
         val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
         val shouldUseLastSuccessful = lastSuccessfulConfig != null &&
-            (selectedConfig == null || selectedConfig == lastSuccessfulConfig)
+            (!userSelectedConfigOverride || selectedConfig == lastSuccessfulConfig)
 
         val configToUse = if (shouldUseLastSuccessful) {
             if (autoSwitchEnabled) {
@@ -165,6 +166,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
         Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"} (ip=${ipForConfig ?: "<none>"})")
         VpnManager.startVpn(context, configToUse, selectedCountry)
+        userSelectedConfigOverride = false
     }
 
     private fun persistLastStarted(config: String, ip: String?) {
@@ -199,6 +201,15 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setVpnConfig(config: String) {
+        setVpnConfigInternal(config, fromUserSelection = false)
+    }
+
+    fun setVpnConfigFromUser(config: String) {
+        setVpnConfigInternal(config, fromUserSelection = true)
+    }
+
+    private fun setVpnConfigInternal(config: String, fromUserSelection: Boolean) {
+        userSelectedConfigOverride = fromUserSelection
         Log.d(TAG, "VPN config set")
         vpnConfig = config
         runCatching { SelectedCountryStore.ensureIndexForConfig(context, config) }
