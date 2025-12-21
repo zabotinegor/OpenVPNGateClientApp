@@ -34,6 +34,8 @@ object ServerAutoSwitcher {
     private var stopRetryTimeoutRunnable: Runnable? = null
     private var idleToleranceRunnable: Runnable? = null
     private var idleToleranceLevel: ConnectionStatus? = null
+    private var lastEngineLevel: ConnectionStatus? = null
+    private var lastEngineSource: String? = null
     private val _remainingSeconds = MutableStateFlow<Int?>(null)
     val remainingSeconds = _remainingSeconds.asStateFlow()
 
@@ -54,7 +56,8 @@ object ServerAutoSwitcher {
         }
     }
 
-    fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
+    fun onEngineLevel(appContext: Context, level: ConnectionStatus, source: String) {
+        logEngineLevel(level, source)
         if (level == ConnectionStatus.UNKNOWN_LEVEL || level == ConnectionStatus.LEVEL_VPNPAUSED) {
             scheduleIdleTolerance(appContext, level)
             return
@@ -87,6 +90,7 @@ object ServerAutoSwitcher {
                 start(appContext, level)
             } else if (timerLevel != level) {
                 // Restart timer when CONNECTING sub-level changes, giving full timeout per level
+                Log.d(TAG, "Auto-switch timer level change: ${timerLevel} -> ${level}")
                 cancel(resetCycle = false)
                 start(appContext, level)
             }
@@ -107,6 +111,7 @@ object ServerAutoSwitcher {
             cycleStartIndex = runCatching { SelectedCountryStore.getCurrentIndex(appContext) }.getOrNull()
         }
         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
+        Log.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
         pendingConfig = config
         pendingTitle = title
         waitingStopForRetry = true
@@ -135,7 +140,9 @@ object ServerAutoSwitcher {
                 seconds += 1
                 val threshold = thresholdFor(timerLevel ?: level)
                 _remainingSeconds.value = (threshold - seconds).coerceAtLeast(0)
-                Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
+                if (seconds % 5 == 0 || seconds >= threshold) {
+                    Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
+                }
                 if (seconds >= threshold) {
                     if (!isEnabled(appContext)) {
                         Log.d(TAG, "Auto-switch disabled; stopping timer and engine to avoid hang")
@@ -240,8 +247,16 @@ object ServerAutoSwitcher {
         idleToleranceLevel = null
     }
 
+    private fun logEngineLevel(level: ConnectionStatus, source: String) {
+        if (level == lastEngineLevel && source == lastEngineSource) return
+        lastEngineLevel = level
+        lastEngineSource = source
+        Log.d(TAG, "Engine level received: level=$level source=$source")
+    }
+
     private fun scheduleStopRetryTimeout(appContext: Context) {
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        Log.d(TAG, "Stop retry timeout scheduled (${STOP_RETRY_TIMEOUT_MS}ms)")
         val r = Runnable {
             if (!waitingStopForRetry) return@Runnable
             val cfg = pendingConfig

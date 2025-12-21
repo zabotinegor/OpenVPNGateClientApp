@@ -91,6 +91,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
     private var lastPolledState: ConnectionState? = null
+    private var lastAidlLevel: ConnectionStatus? = null
+    private var lastAidlState: String? = null
+    private var lastVpnStatusLevel: ConnectionStatus? = null
+    private var lastVpnStatusState: String? = null
+    private var lastEngineLevel: ConnectionStatus? = null
+    private var lastEngineDetail: String? = null
+    private var lastEngineLevelLogMs: Long = 0L
 
     private fun totalServersStr(): String =
         if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
@@ -110,6 +117,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
         VpnStatus.addStateListener(this)
@@ -125,6 +133,36 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusSource = source
             lastStatusSourceSwitchMs = System.currentTimeMillis()
             Log.i(TAG, "Status source -> ${source.name} (${reason})")
+        }
+    }
+
+    private fun logEngineStateChange(
+        source: String,
+        level: ConnectionStatus,
+        state: String?
+    ) {
+        val previousLevel: ConnectionStatus?
+        val previousState: String?
+        when (source) {
+            "AIDL" -> {
+                previousLevel = lastAidlLevel
+                previousState = lastAidlState
+                lastAidlLevel = level
+                lastAidlState = state
+            }
+            "VPN_STATUS" -> {
+                previousLevel = lastVpnStatusLevel
+                previousState = lastVpnStatusState
+                lastVpnStatusLevel = level
+                lastVpnStatusState = state
+            }
+            else -> {
+                previousLevel = null
+                previousState = null
+            }
+        }
+        if (previousLevel != level || previousState != state) {
+            Log.d(TAG, "Engine state (${source}): level=${level} state=${state ?: "<null>"}")
         }
     }
 
@@ -164,6 +202,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleStatusRebind() {
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.postDelayed(statusRebindRunnable, statusRebindDelayMs)
+        Log.d(TAG, "Scheduled status rebind in ${statusRebindDelayMs}ms")
         statusRebindDelayMs = (statusRebindDelayMs * 2).coerceAtMost(8_000L)
     }
 
@@ -274,7 +313,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             applyAppFilter(profile)
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
-            Log.i(TAG, "Requested engine start")
+            Log.i(TAG, "Requested engine start (profile=${profile.mName})")
         } catch (e: ConfigParseError) {
             Log.e(TAG, "OVPN parse error", e); stopSelf()
         } catch (e: Exception) {
@@ -371,11 +410,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     ) {
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
+            logEngineStateChange("VPN_STATUS", level, state)
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
+        logEngineStateChange("VPN_STATUS", level, state)
         Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
@@ -452,6 +493,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             lastLiveStatusMs = lastStatusSnapshotMs
             staleSnapshotCount = 0
             updateStatusSource(StatusSource.AIDL, "AIDL update")
+            logEngineStateChange("AIDL", level, state)
             try {
                 syncEngineState(level, state, allowAutoSwitch = true)
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
@@ -528,6 +570,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             boundToStatus = true
             statusRebindDelayMs = 500L
             updateStatusSource(StatusSource.AIDL, "status service connected")
+            Log.i(TAG, "Status service connected")
             try {
                 service?.linkToDeath(statusDeathRecipient, 0)
             } catch (e: RemoteException) {
@@ -544,6 +587,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusBinder = null
             boundToStatus = false
             updateStatusSource(StatusSource.VPN_STATUS, "status service disconnected")
+            Log.w(TAG, "Status service disconnected")
             scheduleStatusRebind()
         }
     }
@@ -663,6 +707,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
+        logEngineStateChange("AIDL", level, snapshot.state)
         syncEngineState(level, snapshot.state, allowAutoSwitch = false)
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {
@@ -685,9 +730,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         updateStatusSource(StatusSource.VPN_STATUS, "force rebind ($reason)")
         scheduleStatusRebind()
     }
+
+    private fun logEngineLevel(level: ConnectionStatus, detail: String?) {
+        val now = System.currentTimeMillis()
+        val detailChanged = detail != lastEngineDetail
+        val levelChanged = level != lastEngineLevel
+        if (levelChanged || detailChanged || now - lastEngineLevelLogMs > 5_000L) {
+            Log.i(TAG, "Engine level=${level} detail=${detail ?: "<none>"} source=${statusSource ?: StatusSource.VPN_STATUS}")
+            lastEngineLevel = level
+            lastEngineDetail = detail
+            lastEngineLevelLogMs = now
+        }
+    }
+
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
+        logEngineLevel(level, detail)
         if (allowAutoSwitch) {
-            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (_: Exception) { }
+            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL") } catch (_: Exception) { }
         }
         ConnectionStateManager.updateFromEngine(level, detail)
     }

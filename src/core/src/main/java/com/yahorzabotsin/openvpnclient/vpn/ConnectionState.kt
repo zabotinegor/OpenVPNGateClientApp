@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
+import android.util.Log
 import androidx.annotation.MainThread
 import kotlin.math.abs
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -14,6 +15,7 @@ enum class ConnectionState {
 }
 
 object ConnectionStateManager {
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ConnectionState"
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
@@ -55,6 +57,7 @@ object ConnectionStateManager {
 
         if (newState in allowed) {
             _state.value = newState
+            Log.i(TAG, "App state: ${current} -> ${newState}")
             when (newState) {
                 ConnectionState.DISCONNECTED -> {
                     _speedMbps.value = 0.0
