@@ -14,9 +14,10 @@ import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 object ServerAutoSwitcher {
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
-    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 5
+    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 8
     private const val START_AFTER_STOP_DELAY_MS = 350
     private const val STOP_RETRY_TIMEOUT_MS = 5_000L
+    private const val UNKNOWN_PAUSED_GRACE_MS = 3_000L
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     @Volatile private var repliedThresholdSeconds: Int = REPLIED_SWITCH_THRESHOLD_SECONDS
     private val handler = Handler(Looper.getMainLooper())
@@ -31,6 +32,8 @@ object ServerAutoSwitcher {
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
+    private var idleToleranceRunnable: Runnable? = null
+    private var idleToleranceLevel: ConnectionStatus? = null
     private val _remainingSeconds = MutableStateFlow<Int?>(null)
     val remainingSeconds = _remainingSeconds.asStateFlow()
 
@@ -47,11 +50,18 @@ object ServerAutoSwitcher {
         val seconds = try { UserSettingsStore.load(ctx).statusStallTimeoutSeconds } catch (_: Exception) { null }
         if (seconds != null) {
             noReplyThresholdSeconds = seconds
-            repliedThresholdSeconds = seconds
+            repliedThresholdSeconds = (seconds + 3).coerceAtLeast(seconds)
         }
     }
 
     fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
+        if (level == ConnectionStatus.UNKNOWN_LEVEL || level == ConnectionStatus.LEVEL_VPNPAUSED) {
+            scheduleIdleTolerance(appContext, level)
+            return
+        } else {
+            cancelIdleTolerance()
+        }
+
         if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
             val cfg = pendingConfig
             val title = pendingTitle
@@ -70,8 +80,7 @@ object ServerAutoSwitcher {
         val timeoutLevels = setOf(
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-            ConnectionStatus.LEVEL_AUTH_FAILED,
-            ConnectionStatus.UNKNOWN_LEVEL
+            ConnectionStatus.LEVEL_AUTH_FAILED
         )
         if (level in timeoutLevels) {
             if (!timerActive) {
@@ -204,10 +213,31 @@ object ServerAutoSwitcher {
         pendingTitle = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
+        cancelIdleTolerance()
         _remainingSeconds.value = null
         if (resetCycle) {
             cycleStartIndex = null
         }
+    }
+
+    private fun scheduleIdleTolerance(appContext: Context, level: ConnectionStatus) {
+        if (idleToleranceLevel == level && idleToleranceRunnable != null) return
+        cancelIdleTolerance()
+        idleToleranceLevel = level
+        Log.d(TAG, "Idle tolerance started for level=${level}")
+        val r = Runnable {
+            if (idleToleranceLevel != level) return@Runnable
+            Log.d(TAG, "Idle tolerance elapsed for level=${level}")
+            start(appContext, level)
+        }
+        idleToleranceRunnable = r
+        handler.postDelayed(r, UNKNOWN_PAUSED_GRACE_MS)
+    }
+
+    private fun cancelIdleTolerance() {
+        idleToleranceRunnable?.let { handler.removeCallbacks(it) }
+        idleToleranceRunnable = null
+        idleToleranceLevel = null
     }
 
     private fun scheduleStopRetryTimeout(appContext: Context) {
