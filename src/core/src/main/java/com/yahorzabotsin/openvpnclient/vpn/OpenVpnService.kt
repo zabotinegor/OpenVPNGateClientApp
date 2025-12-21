@@ -132,7 +132,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun shouldUseVpnStatus(): Boolean = !isAidlFresh()
-
     private fun bindStatusService() {
         try {
             val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
@@ -670,7 +669,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         updateStatusSource(StatusSource.VPN_STATUS, "force rebind ($reason)")
         scheduleStatusRebind()
     }
-
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         if (allowAutoSwitch) {
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level) } catch (_: Exception) { }
