@@ -697,7 +697,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     Log.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
                 }
-                Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms")
+                Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=${staleSnapshotCount + 1}")
                 staleSnapshotCount += 1
                 if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
