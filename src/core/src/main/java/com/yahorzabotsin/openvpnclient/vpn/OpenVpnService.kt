@@ -417,6 +417,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         logEngineStateChange("VPN_STATUS", level, state)
         Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
         try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        ConnectionStateManager.updateFromEngine(level, state)
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
