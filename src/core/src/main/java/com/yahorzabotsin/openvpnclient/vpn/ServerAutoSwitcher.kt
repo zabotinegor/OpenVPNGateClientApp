@@ -59,7 +59,7 @@ object ServerAutoSwitcher {
 
     fun onEngineLevel(appContext: Context, level: ConnectionStatus, source: String) {
         logEngineLevel(level, source)
-        if (level == ConnectionStatus.UNKNOWN_LEVEL || level == ConnectionStatus.LEVEL_VPNPAUSED) {
+        if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
             return
         } else {

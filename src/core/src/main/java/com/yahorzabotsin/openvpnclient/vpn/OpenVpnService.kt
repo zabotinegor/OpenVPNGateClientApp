@@ -42,7 +42,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private val AUTO_SWITCH_LEVELS = setOf(
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED
         )
     }
