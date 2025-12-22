@@ -15,6 +15,7 @@ object ServerAutoSwitcher {
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
     private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 8
+    private const val REPLIED_TIMEOUT_EXTRA_SECONDS = 3
     private const val START_AFTER_STOP_DELAY_MS = 350
     private const val STOP_RETRY_TIMEOUT_MS = 5_000L
     private const val UNKNOWN_PAUSED_GRACE_MS = 3_000L
@@ -52,7 +53,7 @@ object ServerAutoSwitcher {
         val seconds = try { UserSettingsStore.load(ctx).statusStallTimeoutSeconds } catch (_: Exception) { null }
         if (seconds != null) {
             noReplyThresholdSeconds = seconds
-            repliedThresholdSeconds = (seconds + 3).coerceAtLeast(seconds)
+            repliedThresholdSeconds = (seconds + REPLIED_TIMEOUT_EXTRA_SECONDS).coerceAtLeast(seconds)
         }
     }
 
