@@ -52,9 +52,17 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var connectionDetailsListener: ConnectionDetailsListener? = null
     private var userSelectedConfigOverride = false
 
-    private companion object {
+    companion object {
         private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
         private const val DURATION_PLACEHOLDER = "00:00:00"
+        internal fun shouldStopForUserSelection(
+            state: ConnectionState,
+            previousConfig: String?,
+            newConfig: String?
+        ): Boolean {
+            if (previousConfig.isNullOrBlank() || newConfig.isNullOrBlank() || previousConfig == newConfig) return false
+            return state != ConnectionState.DISCONNECTED && state != ConnectionState.DISCONNECTING
+        }
     }
 
     init {
@@ -221,7 +229,7 @@ class ConnectionControlsView @JvmOverloads constructor(
             applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
         }
         updateServerPosition()
-        if (fromUserSelection && previousConfig != null && previousConfig != config) {
+        if (fromUserSelection && shouldStopForUserSelection(ConnectionStateManager.state.value, previousConfig, config)) {
             stopForUserSelection()
         }
     }

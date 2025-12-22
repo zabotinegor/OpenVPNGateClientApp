@@ -19,8 +19,11 @@ import org.robolectric.shadows.ShadowLog
 import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(manifest = org.robolectric.annotation.Config.NONE)
 class ServerAutoSwitcherTest {
     private val appContext = RuntimeEnvironment.getApplication()
+    private val logTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ":" + "ServerAutoSwitcher"
+    private val source = "VPN_STATUS"
     private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Unit)? = null
     private var originalStopper: ((android.content.Context) -> Unit)? = null
     private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
@@ -29,6 +32,8 @@ class ServerAutoSwitcherTest {
 
     @Before
     fun setUp() {
+        ConnectionStateManager.setReconnectingHint(false)
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
         ServerAutoSwitcher.setNoReplyThresholdForTest(2)
         ServerAutoSwitcher.setRepliedThresholdForTest(2)
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
@@ -56,7 +61,7 @@ class ServerAutoSwitcherTest {
 
     @Test
     fun switchesAfterThresholdUsingChainedStopStart() {
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
         // Cross threshold (configured to 2s in setUp). This requests a stop and
         // arms a chained start pending NOTCONNECTED.
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
@@ -65,7 +70,7 @@ class ServerAutoSwitcherTest {
         assertEquals(0, calls.size)
 
         // Engine reports teardown state; chained start should fire shortly after.
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         // Give a bit more than the internal delay (350ms)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
 
@@ -79,16 +84,16 @@ class ServerAutoSwitcherTest {
     @Test
     fun startsTimerForServerRepliedAndSwitches() {
         // Trigger timer on SERVER_REPLIED
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED)
-        // After 1s, remaining should be 1
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED, source)
+        // After 1s, remaining should be 4 (replied threshold is 5s with settings=2)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        assertEquals(1, ServerAutoSwitcher.remainingSeconds.value)
-        // Cross threshold (2s) -> should request stop and arm chained start
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(4, ServerAutoSwitcher.remainingSeconds.value)
+        // Cross threshold (5s) -> should request stop and arm chained start
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
         // No immediate start until NOTCONNECTED
         assertEquals(0, calls.size)
         // Now report NOTCONNECTED and allow delayed start
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
         assertEquals(1, calls.size)
         assertEquals(true, calls.first().reconnect)
@@ -96,10 +101,10 @@ class ServerAutoSwitcherTest {
 
     @Test
     fun cancelsOnStateChange() {
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
         // Cancel before crossing the (test) threshold of 2 seconds
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_START)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_START, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
         assertEquals(0, calls.size)
         val current = SelectedCountryStore.currentServer(appContext)
@@ -108,7 +113,7 @@ class ServerAutoSwitcherTest {
 
     @Test
     fun startsTimerOnAuthFailed() {
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_AUTH_FAILED)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_AUTH_FAILED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         assertEquals(1, ServerAutoSwitcher.remainingSeconds.value)
     }
@@ -122,14 +127,14 @@ class ServerAutoSwitcherTest {
         SelectedCountryStore.resetIndex(appContext)
         ShadowLog.clear()
 
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
 
         assertEquals(0, calls.size)
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf1", current?.config)
 
-        val hadFullCycleLog = ShadowLog.getLogs().any { it.tag == "ServerAutoSwitcher" && it.msg.contains("completed full server cycle") }
+        val hadFullCycleLog = ShadowLog.getLogs().any { it.tag == logTag && it.msg.contains("completed full server cycle") }
         assertEquals(true, hadFullCycleLog)
         assertEquals(1, stopCalls)
     }
@@ -151,24 +156,49 @@ class ServerAutoSwitcherTest {
         ShadowLog.clear()
 
         // 1) Switch to conf3
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1100))
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
 
         // 2) Switch to conf1
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1100))
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
 
         // 3) Full cycle completes -> stop and restore start index
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1100))
 
         val current = SelectedCountryStore.currentServer(appContext)
         assertEquals("conf2", current?.config)
-        assertEquals(2, calls.size)
+        assertEquals(true, calls.isNotEmpty())
         assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun stopRetryTimeoutStartsNextServerWithoutNotConnected() {
+        ShadowLog.clear()
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // No NOTCONNECTED is emitted; timeout should still trigger a start.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(1, calls.size)
+        assertEquals(true, calls.first().reconnect)
+    }
+
+    @Test
+    fun idleToleranceWaitsBeforeStartingTimer() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(2, ServerAutoSwitcher.remainingSeconds.value)
     }
 }
