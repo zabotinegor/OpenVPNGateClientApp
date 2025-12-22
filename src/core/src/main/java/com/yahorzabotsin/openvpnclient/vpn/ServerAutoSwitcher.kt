@@ -256,7 +256,8 @@ object ServerAutoSwitcher {
 
     private fun scheduleStopRetryTimeout(appContext: Context) {
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
-        Log.d(TAG, "Stop retry timeout scheduled (${STOP_RETRY_TIMEOUT_MS}ms)")
+        val hasPending = pendingConfig != null
+        Log.d(TAG, "Stop retry timeout scheduled (${STOP_RETRY_TIMEOUT_MS}ms, pending=$hasPending)")
         val r = Runnable {
             if (!waitingStopForRetry) return@Runnable
             val cfg = pendingConfig
