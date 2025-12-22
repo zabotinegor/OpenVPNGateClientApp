@@ -22,6 +22,7 @@ import org.robolectric.shadows.ShadowLog
 class OpenVpnServiceSessionLoggingTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
+    private val logTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ":" + "OpenVpnService"
 
     @Before
     fun setUp() {
@@ -86,9 +87,9 @@ class OpenVpnServiceSessionLoggingTest {
             service.onStartCommand(intent, 0, 2)
         }
 
-        val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
-        assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=3)") })
-        assertTrue(logs.any { it.contains("Session attempt 2 (serversInCountry=3)") })
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=3") })
+        assertTrue(logs.any { it.contains("Session attempt 2 (serversInCountry=3") })
     }
 
     @Test
@@ -107,7 +108,7 @@ class OpenVpnServiceSessionLoggingTest {
         // Engine reports a failure level; since only 1 server, nextServer() is null
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
 
-        val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("Exhausted server list without success") && it.contains("1 attempts (serversInCountry=1)") })
     }
 
@@ -136,7 +137,7 @@ class OpenVpnServiceSessionLoggingTest {
 
         // Now engine connects
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
-        val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("Connected after attempt 2 (serversInCountry=2)") })
     }
 
@@ -173,7 +174,7 @@ class OpenVpnServiceSessionLoggingTest {
 
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
 
-        val logs = ShadowLog.getLogs().filter { it.tag == "OpenVpnService" }.map { it.msg }
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(
             logs.any {
                 it.contains("Exhausted server list without success") &&

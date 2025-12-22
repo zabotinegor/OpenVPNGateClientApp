@@ -31,7 +31,7 @@ object SelectedCountryStore {
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
-    private const val TAG = "SelectedCountryStore"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
     private const val KEY_JSON_CODE = "code"
@@ -147,6 +147,7 @@ object SelectedCountryStore {
             .putString(KEY_LAST_SUCCESS_COUNTRY, country)
             .putString(KEY_LAST_SUCCESS_IP, ipToStore)
             .apply()
+        ensureIndexForConfig(ctx, config, ipToStore)
     }
 
     fun getLastSuccessfulConfigForSelected(ctx: Context): String? {
@@ -176,6 +177,7 @@ object SelectedCountryStore {
             .putString(KEY_LAST_STARTED_COUNTRY, country)
             .putString(KEY_LAST_STARTED_IP, ipToStore)
             .apply()
+        ensureIndexForConfig(ctx, config, ipToStore)
     }
 
     fun getLastStartedConfig(ctx: Context): LastConfig? {
@@ -187,13 +189,21 @@ object SelectedCountryStore {
         return if (cfg.isNullOrBlank()) null else LastConfig(country, cfg, ip)
     }
 
-    fun ensureIndexForConfig(ctx: Context, config: String?) {
-        if (config.isNullOrBlank()) return
+    fun ensureIndexForConfig(ctx: Context, config: String?, ip: String? = null) {
+        if (config.isNullOrBlank() && ip.isNullOrBlank()) return
         val list = getServers(ctx)
         if (list.isEmpty()) return
         val current = getIndex(ctx)
         if (current in list.indices && list[current].config == config) return
-        val found = list.indexOfFirst { it.config == config }
-        if (found >= 0) setIndex(ctx, found)
+        val foundByConfig = config?.let { cfg -> list.indexOfFirst { it.config == cfg } } ?: -1
+        if (foundByConfig >= 0) {
+            setIndex(ctx, foundByConfig)
+            return
+        }
+        if (!ip.isNullOrBlank()) {
+            val foundByIp = list.indexOfFirst { it.ip == ip }
+            if (foundByIp >= 0) setIndex(ctx, foundByIp)
+        }
     }
 }
+

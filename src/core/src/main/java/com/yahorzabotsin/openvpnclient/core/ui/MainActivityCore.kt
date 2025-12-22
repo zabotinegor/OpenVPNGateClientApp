@@ -32,7 +32,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     protected lateinit var toolbarView: Toolbar
     protected lateinit var connectionControlsView: ConnectionControlsView
     private val serverRepository = ServerRepository()
-    private val TAG = MainActivityCore::class.simpleName
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private var reopenDrawerAfterReturn = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
@@ -66,7 +66,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                     Log.i(TAG, "Server selected: $country, $city, ip=${ip ?: "<none>"}")
                 }
                 connectionControlsView.setServer(country, countryCode, ip)
-                connectionControlsView.setVpnConfig(config)
+                connectionControlsView.setVpnConfigFromUser(config)
             } else {
                 Log.w(TAG, "Server selection returned with incomplete data.")
             }
@@ -275,3 +275,4 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.statusValue.text = text
     }
 }
+

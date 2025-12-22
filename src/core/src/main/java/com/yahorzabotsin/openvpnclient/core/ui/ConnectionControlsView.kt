@@ -50,10 +50,19 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var requestVpnPermission: (() -> Unit)? = null
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
+    private var userSelectedConfigOverride = false
 
-    private companion object {
-        const val TAG = "ConnectionControlsView"
+    companion object {
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
         private const val DURATION_PLACEHOLDER = "00:00:00"
+        internal fun shouldStopForUserSelection(
+            state: ConnectionState,
+            previousConfig: String?,
+            newConfig: String?
+        ): Boolean {
+            if (previousConfig.isNullOrBlank() || newConfig.isNullOrBlank() || previousConfig == newConfig) return false
+            return state != ConnectionState.DISCONNECTED && state != ConnectionState.DISCONNECTING
+        }
     }
 
     init {
@@ -141,19 +150,19 @@ class ConnectionControlsView @JvmOverloads constructor(
         val selectedConfig = runCatching { SelectedCountryStore.currentServer(context)?.config }.getOrNull()
         val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
         val shouldUseLastSuccessful = lastSuccessfulConfig != null &&
-            (selectedConfig == null || selectedConfig == lastSuccessfulConfig)
+            (!userSelectedConfigOverride || selectedConfig == lastSuccessfulConfig)
 
         val configToUse = if (shouldUseLastSuccessful) {
             if (autoSwitchEnabled) {
                 runCatching {
                     SelectedCountryStore.prepareAutoSwitchFromStart(context)
-                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig)
+                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig, resolveIpForConfig(lastSuccessfulConfig))
                 }.onFailure { e -> Log.e(TAG, "Failed to prepare index for auto-switch from start", e) }
             }
             lastSuccessfulConfig!!
         } else {
             if (autoSwitchEnabled) {
-                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig) }
+                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig, resolveIpForConfig(currentConfig)) }
                     .onFailure { e -> Log.e(TAG, "Failed to align server index with current selection", e) }
             }
             currentConfig
@@ -165,6 +174,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
         Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"} (ip=${ipForConfig ?: "<none>"})")
         VpnManager.startVpn(context, configToUse, selectedCountry)
+        userSelectedConfigOverride = false
     }
 
     private fun persistLastStarted(config: String, ip: String?) {
@@ -199,6 +209,16 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setVpnConfig(config: String) {
+        setVpnConfigInternal(config, fromUserSelection = false)
+    }
+
+    fun setVpnConfigFromUser(config: String) {
+        setVpnConfigInternal(config, fromUserSelection = true)
+    }
+
+    private fun setVpnConfigInternal(config: String, fromUserSelection: Boolean) {
+        val previousConfig = vpnConfig
+        userSelectedConfigOverride = fromUserSelection
         Log.d(TAG, "VPN config set")
         vpnConfig = config
         runCatching { SelectedCountryStore.ensureIndexForConfig(context, config) }
@@ -209,6 +229,16 @@ class ConnectionControlsView @JvmOverloads constructor(
             applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
         }
         updateServerPosition()
+        if (fromUserSelection && shouldStopForUserSelection(ConnectionStateManager.state.value, previousConfig, config)) {
+            stopForUserSelection()
+        }
+    }
+
+    private fun stopForUserSelection() {
+        val state = ConnectionStateManager.state.value
+        if (state == ConnectionState.DISCONNECTED || state == ConnectionState.DISCONNECTING) return
+        Log.i(TAG, "User selection while $state; stopping VPN")
+        VpnManager.stopVpn(context)
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
@@ -518,3 +548,4 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+

@@ -29,7 +29,7 @@ class CountryServersActivity : AppCompatActivity() {
     private var countryName: String? = null
     private var countryCode: String? = null
     private var servers: List<Server> = emptyList()
-    private val TAG = CountryServersActivity::class.simpleName
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "CountryServersActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,3 +148,4 @@ class CountryServersActivity : AppCompatActivity() {
         const val EXTRA_COUNTRY_CODE = "EXTRA_COUNTRY_CODE"
     }
 }
+

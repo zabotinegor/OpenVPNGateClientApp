@@ -34,7 +34,7 @@ class ServerRepository(
 ) {
 
     private companion object {
-        private const val TAG = "ServerRepository"
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerRepository"
         private const val CACHE_PREFS = "server_cache"
         private const val KEY_PREFIX_TS = "ts_"
         private const val KEY_LAST_CACHE = "last_cache_key"
@@ -350,3 +350,4 @@ class ServerRepository(
         return if (result.isEmpty()) null else result
     }
 }
+

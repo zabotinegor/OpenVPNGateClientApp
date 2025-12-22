@@ -9,7 +9,7 @@ object VpnManager {
 
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
-    private const val TAG = "VpnManager"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "VpnManager"
 
     fun extraConfigKey(context: Context) = "${context.packageName}.vpn.CONFIG"
     fun extraTitleKey(context: Context) = "${context.packageName}.vpn.TITLE"

@@ -12,10 +12,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
 
 object ServerAutoSwitcher {
-    private const val TAG = "ServerAutoSwitcher"
+    private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerAutoSwitcher"
     private const val NO_REPLY_SWITCH_THRESHOLD_SECONDS = 5
-    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 5
+    private const val REPLIED_SWITCH_THRESHOLD_SECONDS = 8
+    private const val REPLIED_TIMEOUT_EXTRA_SECONDS = 3
     private const val START_AFTER_STOP_DELAY_MS = 350
+    private const val STOP_RETRY_TIMEOUT_MS = 5_000L
+    private const val UNKNOWN_PAUSED_GRACE_MS = 3_000L
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     @Volatile private var repliedThresholdSeconds: Int = REPLIED_SWITCH_THRESHOLD_SECONDS
     private val handler = Handler(Looper.getMainLooper())
@@ -29,6 +32,11 @@ object ServerAutoSwitcher {
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
+    private var stopRetryTimeoutRunnable: Runnable? = null
+    private var idleToleranceRunnable: Runnable? = null
+    private var idleToleranceLevel: ConnectionStatus? = null
+    private var lastEngineLevel: ConnectionStatus? = null
+    private var lastEngineSource: String? = null
     private val _remainingSeconds = MutableStateFlow<Int?>(null)
     val remainingSeconds = _remainingSeconds.asStateFlow()
 
@@ -45,17 +53,27 @@ object ServerAutoSwitcher {
         val seconds = try { UserSettingsStore.load(ctx).statusStallTimeoutSeconds } catch (_: Exception) { null }
         if (seconds != null) {
             noReplyThresholdSeconds = seconds
-            repliedThresholdSeconds = seconds
+            repliedThresholdSeconds = (seconds + REPLIED_TIMEOUT_EXTRA_SECONDS).coerceAtLeast(seconds)
         }
     }
 
-    fun onEngineLevel(appContext: Context, level: ConnectionStatus) {
+    fun onEngineLevel(appContext: Context, level: ConnectionStatus, source: String) {
+        logEngineLevel(level, source)
+        if (level == ConnectionStatus.UNKNOWN_LEVEL) {
+            scheduleIdleTolerance(appContext, level)
+            return
+        } else {
+            cancelIdleTolerance()
+        }
+
         if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
             val cfg = pendingConfig
             val title = pendingTitle
             pendingConfig = null
             pendingTitle = null
             waitingStopForRetry = false
+            stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+            stopRetryTimeoutRunnable = null
             if (cfg != null) {
                 Log.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
                 handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
@@ -66,14 +84,14 @@ object ServerAutoSwitcher {
         val timeoutLevels = setOf(
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-            ConnectionStatus.LEVEL_AUTH_FAILED,
-            ConnectionStatus.UNKNOWN_LEVEL
+            ConnectionStatus.LEVEL_AUTH_FAILED
         )
         if (level in timeoutLevels) {
             if (!timerActive) {
                 start(appContext, level)
             } else if (timerLevel != level) {
                 // Restart timer when CONNECTING sub-level changes, giving full timeout per level
+                Log.d(TAG, "Auto-switch timer level change: ${timerLevel} -> ${level}")
                 cancel(resetCycle = false)
                 start(appContext, level)
             }
@@ -94,9 +112,11 @@ object ServerAutoSwitcher {
             cycleStartIndex = runCatching { SelectedCountryStore.getCurrentIndex(appContext) }.getOrNull()
         }
         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
+        Log.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
         pendingConfig = config
         pendingTitle = title
         waitingStopForRetry = true
+        scheduleStopRetryTimeout(appContext)
         try { VpnManager.stopVpn(appContext, preserveReconnectHint = true) } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop for chained switch", e) }
     }
 
@@ -121,7 +141,9 @@ object ServerAutoSwitcher {
                 seconds += 1
                 val threshold = thresholdFor(timerLevel ?: level)
                 _remainingSeconds.value = (threshold - seconds).coerceAtLeast(0)
-                Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
+                if (seconds % 5 == 0 || seconds >= threshold) {
+                    Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
+                }
                 if (seconds >= threshold) {
                     if (!isEnabled(appContext)) {
                         Log.d(TAG, "Auto-switch disabled; stopping timer and engine to avoid hang")
@@ -144,7 +166,9 @@ object ServerAutoSwitcher {
                         Log.w(TAG, "Failed to resolve next server circularly", e); null
                     }
                     if (next != null) {
-                        Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"})")
+                        val position = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
+                        val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
+                        Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
                         cancel(resetCycle = false)
                         try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for timed switch", e) }
                         try {
@@ -152,6 +176,7 @@ object ServerAutoSwitcher {
                             pendingConfig = next.config
                             pendingTitle = title
                             waitingStopForRetry = true
+                            scheduleStopRetryTimeout(appContext)
                             VpnManager.stopVpn(appContext, preserveReconnectHint = true)
                         } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
                         return
@@ -194,10 +219,62 @@ object ServerAutoSwitcher {
         waitingStopForRetry = false
         pendingConfig = null
         pendingTitle = null
+        stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        stopRetryTimeoutRunnable = null
+        cancelIdleTolerance()
         _remainingSeconds.value = null
         if (resetCycle) {
             cycleStartIndex = null
         }
+    }
+
+    private fun scheduleIdleTolerance(appContext: Context, level: ConnectionStatus) {
+        if (idleToleranceLevel == level && idleToleranceRunnable != null) return
+        cancelIdleTolerance()
+        idleToleranceLevel = level
+        Log.d(TAG, "Idle tolerance started for level=${level}")
+        val r = Runnable {
+            if (idleToleranceLevel != level) return@Runnable
+            Log.d(TAG, "Idle tolerance elapsed for level=${level}")
+            start(appContext, level)
+        }
+        idleToleranceRunnable = r
+        handler.postDelayed(r, UNKNOWN_PAUSED_GRACE_MS)
+    }
+
+    private fun cancelIdleTolerance() {
+        idleToleranceRunnable?.let { handler.removeCallbacks(it) }
+        idleToleranceRunnable = null
+        idleToleranceLevel = null
+    }
+
+    private fun logEngineLevel(level: ConnectionStatus, source: String) {
+        if (level == lastEngineLevel && source == lastEngineSource) return
+        lastEngineLevel = level
+        lastEngineSource = source
+        Log.d(TAG, "Engine level received: level=$level source=$source")
+    }
+
+    private fun scheduleStopRetryTimeout(appContext: Context) {
+        stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        val hasPending = pendingConfig != null
+        Log.d(TAG, "Stop retry timeout scheduled (${STOP_RETRY_TIMEOUT_MS}ms, pending=$hasPending)")
+        val r = Runnable {
+            if (!waitingStopForRetry) return@Runnable
+            val cfg = pendingConfig
+            val title = pendingTitle
+            pendingConfig = null
+            pendingTitle = null
+            waitingStopForRetry = false
+            Log.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
+            if (cfg != null) {
+                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+            } else {
+                Log.w(TAG, "Stop retry timeout; missing pending config")
+            }
+        }
+        stopRetryTimeoutRunnable = r
+        handler.postDelayed(r, STOP_RETRY_TIMEOUT_MS)
     }
 
     @JvmStatic
@@ -220,3 +297,4 @@ object ServerAutoSwitcher {
         repliedThresholdSeconds = REPLIED_SWITCH_THRESHOLD_SECONDS
     }
 }
+
