@@ -25,12 +25,14 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed; cached on disk with TTL
 - Manual country selection with per-country server picker and core connection stats (speed, duration, IP, status)
 - Auto-switch within a country with full-cycle retry and configurable stall timer
+- Status source gating (AIDL vs VpnStatus) with stale snapshot protection and rebind logic
 - Server position indicator (current/total) and IP synchronization across selection/connect states
 - Separate mobile and TV launchers sharing the same core UI and networking code
 - Per-app filtering (user/system), Select all toggles, pinned info card, and TV-friendly focus/scroll restoration
 - Server list refresh button with localized label + icon and focus bounce feedback
 - Server list parsing/caching is streaming; configs are loaded lazily per selection to reduce memory/GC pressure
 - Status snapshots persisted in the engine with AIDL sync for reliable relaunch/idle recovery
+- User server selection while connected/connecting stops the current VPN session
 - Refresh is locked to cache while VPN is connected to avoid blocked network access
 
 ## Stack and Modules
@@ -93,6 +95,8 @@ cd src
 - On cache miss/stale, we try primary, then fallback; on failure we return stale cache if present and log the fallback.
 - When VPN is connected, server list is served from cache only (ignores TTL) and manual refresh is disabled.
 - Server list stores only summaries; configs are loaded lazily via `loadConfigs()` when a country is picked.
+- Auto-switch timeouts use different thresholds for CONNECTING_NO_REPLY vs CONNECTING_REPLIED, plus idle tolerance for UNKNOWN/PAUSED.
+- Status snapshots ignore stale data when live AIDL updates are recent; repeated stale snapshots trigger a status rebind.
 
 ## CI/CD
 GitHub Actions workflows are located in `.github/workflows` and build signed release artifacts from `dev`, `main`, and tags (requires secrets for signing and server URLs). Dev builds now also produce `.aab` bundles for Play internal testing.
