@@ -24,6 +24,7 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - OpenVPN-based client with the `ics-openvpn` engine (bundled as the `openVpnEngine` submodule)
 - Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed; cached on disk with TTL
 - Manual country selection with per-country server picker and core connection stats (speed, duration, IP, status)
+- DNS selection screen with provider presets applied on next connection
 - Auto-switch within a country with full-cycle retry and configurable stall timer
 - Status source gating (AIDL vs VpnStatus) with stale snapshot protection and rebind logic
 - Server position indicator (current/total) and IP synchronization across selection/connect states
@@ -34,6 +35,10 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - Status snapshots persisted in the engine with AIDL sync for reliable relaunch/idle recovery
 - User server selection while connected/connecting stops the current VPN session
 - Refresh is locked to cache while VPN is connected to avoid blocked network access
+
+## Runtime logging
+- Minimal screen flow logs are emitted on enter/exit for key screens.
+- DNS selection is logged when changed and when applied at VPN start.
 
 ## Stack and Modules
 - Kotlin, Android SDK 24+, ViewBinding, Retrofit/OkHttp
@@ -104,6 +109,7 @@ GitHub Actions workflows are located in `.github/workflows` and build signed rel
 ## Data and Privacy
 - Server list: fetched from the configured primary endpoint with fallback to VPN Gate.
 - Local storage: selected servers and last connection metadata are kept in shared preferences on the device.
+- The app does not call `ipinfo.io` or similar IP geolocation services.
 - No analytics or advertising SDKs are included. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for details.
 
 ## Licensing

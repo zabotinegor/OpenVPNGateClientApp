@@ -7,7 +7,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import androidx.lifecycle.lifecycleScope
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclient.core.R
@@ -19,7 +19,6 @@ import com.yahorzabotsin.openvpnclient.core.servers.Server
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import kotlinx.coroutines.launch
 
 class CountryServersActivity : AppCompatActivity() {
 
@@ -30,6 +29,7 @@ class CountryServersActivity : AppCompatActivity() {
     private var countryCode: String? = null
     private var servers: List<Server> = emptyList()
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "CountryServersActivity"
+    private val screenLogTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ScreenFlow"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +57,16 @@ class CountryServersActivity : AppCompatActivity() {
         loadServers()
     }
 
+    override fun onStart() {
+        super.onStart()
+        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+    }
+
+    override fun onStop() {
+        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        super.onStop()
+    }
+
     private fun setLoadingState(isLoading: Boolean) {
         contentBinding.progressBar.isVisible = isLoading
         contentBinding.serversRecyclerView.isVisible = !isLoading
@@ -68,7 +78,7 @@ class CountryServersActivity : AppCompatActivity() {
             finishWithCancel()
             return
         }
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             setLoadingState(true)
             try {
                 val cacheOnly = ConnectionStateManager.state.value == ConnectionState.CONNECTED
@@ -77,7 +87,7 @@ class CountryServersActivity : AppCompatActivity() {
                 if (servers.isEmpty()) {
                     Toast.makeText(this@CountryServersActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
                     finishWithCancel()
-                    return@launch
+                    return@launchLogged
                 }
                 val adapter = ServerPickerAdapter(servers) { selected ->
                     selectServer(selected)
@@ -99,7 +109,7 @@ class CountryServersActivity : AppCompatActivity() {
     }
 
     private fun selectServer(selected: Server) {
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             setLoadingState(true)
             try {
                 val configs = serverRepository.loadConfigs(this@CountryServersActivity, servers)

@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclient.vpn
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -12,9 +13,14 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
+import android.app.PendingIntent
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclient.core.BuildConfig
 import com.yahorzabotsin.openvpnclient.core.R
+import com.yahorzabotsin.openvpnclient.core.settings.DnsOption
+import com.yahorzabotsin.openvpnclient.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.ConfigParser.ConfigParseError
@@ -39,6 +45,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         const val DEFAULT_COMPAT_MODE = 20400
         const val KEY_OVPN3 = "ovpn3"
         const val KEY_DISABLE_CONFIRMATION = "disableconfirmation"
+        const val FOREGROUND_NOTIFICATION_ID = 1101
+        const val FOREGROUND_CHANNEL_ID = "openvpn_controller"
         private val AUTO_SWITCH_LEVELS = setOf(
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -60,6 +68,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
+    private var foregroundStarted = false
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -117,6 +126,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service created")
+        ensureServiceNotificationChannel()
+        startForegroundIfNeeded()
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
         VpnStatus.addStateListener(this)
@@ -232,6 +243,86 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         createIfMissing(de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_USERREQ_ID, "OpenVPN Requests", NotificationManager.IMPORTANCE_HIGH, "User requests")
     }
 
+    private fun ensureServiceNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.notificationChannels.any { it.id == FOREGROUND_CHANNEL_ID }) return
+        nm.createNotificationChannel(
+            NotificationChannel(
+                FOREGROUND_CHANNEL_ID,
+                "VPN Service",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "VPN controller running in background" }
+        )
+    }
+
+    private fun buildForegroundNotification(titleRes: Int, textRes: Int): Notification {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val contentIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this,
+                0,
+                it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+        val title = safeString(titleRes, "VPN")
+        val text = safeString(textRes, "VPN running")
+        return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_icon_system)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(contentIntent)
+            .build()
+    }
+
+    private fun safeString(resId: Int, fallback: String): String =
+        try {
+            getString(resId)
+        } catch (_: Exception) {
+            fallback
+        }
+
+    private fun startForegroundIfNeeded() {
+        if (foregroundStarted) return
+        if (isRobolectric()) {
+            foregroundStarted = true
+            return
+        }
+        val notification = buildForegroundNotification(
+            R.string.vpn_notification_title_connecting,
+            R.string.vpn_notification_text_connecting
+        )
+        try {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            foregroundStarted = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start foreground", e)
+        }
+    }
+
+    private fun updateForegroundNotification(titleRes: Int, textRes: Int) {
+        if (isRobolectric()) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(
+            FOREGROUND_NOTIFICATION_ID,
+            buildForegroundNotification(titleRes, textRes)
+        )
+    }
+
+    private fun isRobolectric(): Boolean =
+        try {
+            Class.forName("org.robolectric.RuntimeEnvironment")
+            true
+        } catch (_: Throwable) {
+            false
+        }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
@@ -310,6 +401,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (mCompatMode == 0) mCompatMode = DEFAULT_COMPAT_MODE
             }
             applyAppFilter(profile)
+            applyDnsSettings(profile)
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
             Log.i(TAG, "Requested engine start (profile=${profile.mName})")
@@ -331,6 +423,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to apply app filter", t)
         }
+    }
+
+    private fun applyDnsSettings(profile: VpnProfile) {
+        val option = try {
+            UserSettingsStore.load(applicationContext).dnsOption
+        } catch (_: Exception) {
+            DnsOption.SERVER
+        }
+        val config = DnsOptions.resolve(option)
+        if (!config.overrideDns) {
+            profile.mOverrideDNS = false
+            Log.i(TAG, "DNS apply: option=${option.name}, override=false (use server DNS)")
+            return
+        }
+        profile.mOverrideDNS = true
+        profile.mDNS1 = config.primary ?: ""
+        profile.mDNS2 = config.secondary ?: ""
+        Log.i(TAG, "DNS apply: option=${option.name}, dns1=${profile.mDNS1}, dns2=${profile.mDNS2}")
     }
 
     private fun requestStopIcsOpenVpn() {
@@ -448,8 +558,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                   userInitiatedStart = false
                   userInitiatedStop = false
                 Log.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
-                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service after connect", e) }
-                stopSelfSafely()
+                updateForegroundNotification(
+                    R.string.vpn_notification_title_connected,
+                    R.string.vpn_notification_text_connected
+                )
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,

@@ -14,12 +14,21 @@ data class UserSettings(
     val customServerUrl: String = "",
     val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
     val autoSwitchWithinCountry: Boolean = true,
-    val statusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS
+    val statusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS,
+    val dnsOption: DnsOption = DnsOption.SERVER
 )
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
 enum class ThemeOption { SYSTEM, LIGHT, DARK }
 enum class ServerSource { DEFAULT, VPNGATE, CUSTOM }
+enum class DnsOption {
+    SERVER, GOOGLE, CLOUDFLARE, QUAD9, OPENDNS, ADGUARD, CLEANBROWSING, DNSWATCH;
+
+    companion object {
+        private val NAME_MAP by lazy { values().associateBy(DnsOption::name) }
+        fun fromString(name: String?): DnsOption = NAME_MAP[name] ?: SERVER
+    }
+}
 
 object UserSettingsStore {
     private const val PREFS_NAME = "user_settings"
@@ -30,6 +39,7 @@ object UserSettingsStore {
     private const val KEY_CACHE_TTL_MS = "cache_ttl_ms"
     private const val KEY_AUTO_SWITCH_WITHIN_COUNTRY = "auto_switch_within_country"
     private const val KEY_STATUS_STALL_TIMEOUT_SECONDS = "status_stall_timeout_seconds"
+    private const val KEY_DNS_OPTION = "dns_option"
     private const val KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY = "auto_switch_timeout_seconds"
     private const val MIN_CACHE_TTL_MS = 60_000L
     const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1000L
@@ -56,7 +66,8 @@ object UserSettingsStore {
             p.getInt(KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY, DEFAULT_STATUS_STALL_TIMEOUT_SECONDS)
         }
         val statusStallTimeoutSeconds = storedTimeout.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS)
-        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch, statusStallTimeoutSeconds)
+        val dnsOption = DnsOption.fromString(p.getString(KEY_DNS_OPTION, null))
+        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch, statusStallTimeoutSeconds, dnsOption)
     }
 
     fun save(ctx: Context, settings: UserSettings) {
@@ -68,6 +79,7 @@ object UserSettingsStore {
             .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
             .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
             .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, settings.statusStallTimeoutSeconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
+            .putString(KEY_DNS_OPTION, settings.dnsOption.name)
             .apply()
     }
 
@@ -93,6 +105,9 @@ object UserSettingsStore {
         prefs(ctx).edit()
             .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, seconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
             .apply()
+
+    fun saveDnsOption(ctx: Context, option: DnsOption) =
+        prefs(ctx).edit().putString(KEY_DNS_OPTION, option.name).apply()
 
     fun applyThemeAndLocale(ctx: Context) {
         val settings = load(ctx)

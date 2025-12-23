@@ -46,4 +46,18 @@ class UserSettingsStoreTest {
         val settings = UserSettingsStore.load(context)
         assertEquals(1, settings.statusStallTimeoutSeconds)
     }
+
+    @Test
+    fun load_defaults_dns_option_to_server() {
+        val settings = UserSettingsStore.load(context)
+        assertEquals(DnsOption.SERVER, settings.dnsOption)
+    }
+
+    @Test
+    fun save_dns_option_persists() {
+        UserSettingsStore.saveDnsOption(context, DnsOption.QUAD9)
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(DnsOption.QUAD9, settings.dnsOption)
+    }
 }

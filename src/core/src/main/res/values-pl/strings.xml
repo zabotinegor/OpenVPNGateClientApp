@@ -39,6 +39,11 @@
     <string name="current_city">Nie wybrano</string>
     <string name="feature_in_development">Funkcja w przygotowaniu</string>
 
+    <!-- Section: DNS -->
+    <string name="dns_select_title">Wybór DNS</string>
+    <string name="dns_select_subtitle">Wybierz dostawcę DNS do użycia podczas połączenia.</string>
+    <string name="dns_option_default">Użyj DNS serwera VPN</string>
+
     <!-- Section: App filter -->
     <string name="filter_tab_user">Użytkownika</string>
     <string name="filter_tab_system">Systemowe</string>

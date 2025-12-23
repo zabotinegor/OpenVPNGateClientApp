@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.ContextCompat
 
 object VpnManager {
 
@@ -31,7 +32,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_START)
             putExtra(extraAutoSwitchKey(context), isReconnect)
         }
-        context.startService(intent)
+        ContextCompat.startForegroundService(context, intent)
     }
 
     fun stopVpn(context: Context, preserveReconnectHint: Boolean = false) {
@@ -40,7 +41,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
-        context.startService(intent)
+        ContextCompat.startForegroundService(context, intent)
     }
 }
 

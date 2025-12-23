@@ -13,9 +13,10 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
-import androidx.lifecycle.lifecycleScope
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ActivityMainBinding
@@ -24,7 +25,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import kotlinx.coroutines.launch
+import com.yahorzabotsin.openvpnclient.vpn.OpenVpnService
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
@@ -33,6 +34,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     protected lateinit var connectionControlsView: ConnectionControlsView
     private val serverRepository = ServerRepository()
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "MainActivityCore"
+    private val screenLogTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private var reopenDrawerAfterReturn = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
@@ -152,6 +154,21 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, OpenVpnService::class.java))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start OpenVpnService from UI", e)
+        }
+    }
+
+    override fun onStop() {
+        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        super.onStop()
+    }
+
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
         super.onMultiWindowModeChanged(isInMultiWindowMode)
@@ -231,7 +248,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun loadSelectedCountryOrDefault() {
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             try {
                 SelectionBootstrap.ensureSelection(
                     this@MainActivityCore,
