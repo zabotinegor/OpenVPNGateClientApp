@@ -15,10 +15,10 @@ import androidx.core.text.buildSpannedString
 import androidx.core.text.inSpans
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclient.core.R
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclient.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.countryFlagEmoji
@@ -30,7 +30,6 @@ import com.yahorzabotsin.openvpnclient.vpn.VpnManager
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 class ConnectionControlsView @JvmOverloads constructor(
@@ -242,7 +241,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
-        lifecycleOwner.lifecycleScope.launch {
+        lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.state.collect { state ->
                     updateStatusLabel(state)
@@ -251,7 +250,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                 }
             }
         }
-        lifecycleOwner.lifecycleScope.launch {
+        lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(
                     ConnectionStateManager.engineLevel,
@@ -267,7 +266,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                     }
             }
         }
-        lifecycleOwner.lifecycleScope.launch {
+        lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
                     updateDurationTimer()
@@ -275,7 +274,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                 }
             }
         }
-        lifecycleOwner.lifecycleScope.launch {
+        lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(
                     ConnectionStateManager.downloadedBytes,

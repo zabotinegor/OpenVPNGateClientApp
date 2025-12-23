@@ -12,7 +12,7 @@ import android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.lifecycleScope
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -21,13 +21,15 @@ import com.yahorzabotsin.openvpnclient.core.databinding.ContentFilterBinding
 import com.yahorzabotsin.openvpnclient.core.filter.AppFilterEntry
 import com.yahorzabotsin.openvpnclient.core.filter.AppFilterStore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 enum class AppCategory { USER, SYSTEM }
 
 class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
+    private companion object {
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "FilterActivity"
+    }
 
     private lateinit var binding: ContentFilterBinding
 
@@ -83,7 +85,7 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
     }
 
     private fun loadApps() {
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             setLoading(true)
             val installedApps = withContext(Dispatchers.Default) { queryInstalledApps() }
             val installedPackageNames = installedApps.map { it.packageName }.toSet()

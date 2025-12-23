@@ -6,7 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import androidx.lifecycle.lifecycleScope
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclient.core.R
@@ -17,7 +17,6 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import kotlinx.coroutines.launch
 import android.widget.Toast
 
 open class ServerListActivity : AppCompatActivity() {
@@ -48,7 +47,7 @@ open class ServerListActivity : AppCompatActivity() {
 
         vpnConnected = isVpnConnected()
         updateRefreshUi()
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             ConnectionStateManager.state.collect { state ->
                 vpnConnected = state == ConnectionState.CONNECTED
                 updateRefreshUi()
@@ -86,7 +85,7 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun loadServers(forceRefresh: Boolean) {
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             setLoadingState(true)
             try {
                 val cacheOnly = vpnConnected
@@ -128,7 +127,7 @@ open class ServerListActivity : AppCompatActivity() {
         }
 
         if (countryServers.size == 1) {
-            lifecycleScope.launch {
+            launchLogged(TAG) {
                 selectSingleServer(countryName, countryCode, countryServers.first(), countryServers)
             }
         } else {

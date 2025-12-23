@@ -9,16 +9,18 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import kotlin.math.cos
 import kotlin.math.sin
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import kotlinx.coroutines.launch
 import java.util.Locale
 import com.yahorzabotsin.openvpnclient.core.R
 
 class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
+    private companion object {
+        private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "SpeedometerView"
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val arcRect = RectF()
@@ -169,7 +171,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     fun bindTo(lifecycleOwner: LifecycleOwner) {
-        lifecycleOwner.lifecycleScope.launch {
+        lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ConnectionStateManager.speedMbps.collect { setSpeedMbps(it) }
             }

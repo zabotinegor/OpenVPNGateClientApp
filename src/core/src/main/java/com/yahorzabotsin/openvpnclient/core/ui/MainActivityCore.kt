@@ -15,7 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
-import androidx.lifecycle.lifecycleScope
+import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
 import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclient.core.R
 import com.yahorzabotsin.openvpnclient.core.databinding.ActivityMainBinding
@@ -24,7 +24,6 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
-import kotlinx.coroutines.launch
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
@@ -231,7 +230,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun loadSelectedCountryOrDefault() {
-        lifecycleScope.launch {
+        launchLogged(TAG) {
             try {
                 SelectionBootstrap.ensureSelection(
                     this@MainActivityCore,
