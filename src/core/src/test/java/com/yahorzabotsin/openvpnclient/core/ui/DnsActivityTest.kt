@@ -55,6 +55,17 @@ class DnsActivityTest {
     }
 
     @Test
+    fun defaultsToServerDnsWhenNotSaved() {
+        ActivityScenario.launch(DnsActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val recycler = activity.findViewById<RecyclerView>(R.id.dns_recycler_view)
+                val adapter = recycler.adapter as DnsOptionAdapter
+                assertEquals(com.yahorzabotsin.openvpnclient.core.settings.DnsOption.SERVER, adapter.selectedOption)
+            }
+        }
+    }
+
+    @Test
     fun selectionUpdatesSettingsAndLogs() {
         val providers = DnsOptions.providers
         assumeTrue(providers.size >= 2)
