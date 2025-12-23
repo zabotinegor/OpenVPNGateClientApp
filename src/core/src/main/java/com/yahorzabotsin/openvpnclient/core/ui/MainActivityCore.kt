@@ -13,6 +13,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.yahorzabotsin.openvpnclient.core.logging.launchLogged
@@ -157,7 +158,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         super.onStart()
         Log.i(screenLogTag, "enter ${javaClass.simpleName}")
         try {
-            startService(Intent(this, OpenVpnService::class.java))
+            ContextCompat.startForegroundService(this, Intent(this, OpenVpnService::class.java))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to start OpenVpnService from UI", e)
         }
