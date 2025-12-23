@@ -22,9 +22,7 @@ class CoreApp : Application() {
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
-            if (!isTelevision()) {
-                startService(Intent(this, OpenVpnService::class.java))
-            }
+            startService(Intent(this, OpenVpnService::class.java))
         }
     }
 

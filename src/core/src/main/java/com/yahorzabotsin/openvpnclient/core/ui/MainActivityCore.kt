@@ -24,6 +24,7 @@ import com.yahorzabotsin.openvpnclient.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclient.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclient.vpn.ConnectionStateManager
+import com.yahorzabotsin.openvpnclient.vpn.OpenVpnService
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
@@ -155,6 +156,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun onStart() {
         super.onStart()
         Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+        try {
+            startService(Intent(this, OpenVpnService::class.java))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start OpenVpnService from UI", e)
+        }
     }
 
     override fun onStop() {
