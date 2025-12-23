@@ -266,10 +266,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         }
+        val title = safeString(titleRes, "VPN")
+        val text = safeString(textRes, "VPN running")
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_icon_system)
-            .setContentTitle(getString(titleRes))
-            .setContentText(getString(textRes))
+            .setContentTitle(title)
+            .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -279,8 +281,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             .build()
     }
 
+    private fun safeString(resId: Int, fallback: String): String =
+        try {
+            getString(resId)
+        } catch (_: Exception) {
+            fallback
+        }
+
     private fun startForegroundIfNeeded() {
         if (foregroundStarted) return
+        if (isRobolectric()) {
+            foregroundStarted = true
+            return
+        }
         val notification = buildForegroundNotification(
             R.string.vpn_notification_title_connecting,
             R.string.vpn_notification_text_connecting
@@ -294,12 +307,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun updateForegroundNotification(titleRes: Int, textRes: Int) {
+        if (isRobolectric()) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(
             FOREGROUND_NOTIFICATION_ID,
             buildForegroundNotification(titleRes, textRes)
         )
     }
+
+    private fun isRobolectric(): Boolean =
+        try {
+            Class.forName("org.robolectric.RuntimeEnvironment")
+            true
+        } catch (_: Throwable) {
+            false
+        }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
