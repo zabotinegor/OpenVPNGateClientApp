@@ -76,7 +76,7 @@ class CountryServersActivity : AppCompatActivity() {
                 if (servers.isEmpty()) {
                     Toast.makeText(this@CountryServersActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
                     finishWithCancel()
-                    return@launch
+                    return@launchLogged
                 }
                 val adapter = ServerPickerAdapter(servers) { selected ->
                     selectServer(selected)
