@@ -21,7 +21,14 @@ data class UserSettings(
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
 enum class ThemeOption { SYSTEM, LIGHT, DARK }
 enum class ServerSource { DEFAULT, VPNGATE, CUSTOM }
-enum class DnsOption { SERVER, GOOGLE, CLOUDFLARE, QUAD9, OPENDNS, ADGUARD, CLEANBROWSING, DNSWATCH }
+enum class DnsOption {
+    SERVER, GOOGLE, CLOUDFLARE, QUAD9, OPENDNS, ADGUARD, CLEANBROWSING, DNSWATCH;
+
+    companion object {
+        private val NAME_MAP by lazy { values().associateBy(DnsOption::name) }
+        fun fromString(name: String?): DnsOption = NAME_MAP[name] ?: SERVER
+    }
+}
 
 object UserSettingsStore {
     private const val PREFS_NAME = "user_settings"
@@ -59,8 +66,7 @@ object UserSettingsStore {
             p.getInt(KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY, DEFAULT_STATUS_STALL_TIMEOUT_SECONDS)
         }
         val statusStallTimeoutSeconds = storedTimeout.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS)
-        val dnsOption = DnsOption.values()
-            .firstOrNull { it.name == p.getString(KEY_DNS_OPTION, null) } ?: DnsOption.SERVER
+        val dnsOption = DnsOption.fromString(p.getString(KEY_DNS_OPTION, null))
         return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch, statusStallTimeoutSeconds, dnsOption)
     }
 
