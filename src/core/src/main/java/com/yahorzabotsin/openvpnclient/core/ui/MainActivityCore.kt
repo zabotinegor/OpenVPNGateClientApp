@@ -32,6 +32,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     protected lateinit var connectionControlsView: ConnectionControlsView
     private val serverRepository = ServerRepository()
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "MainActivityCore"
+    private val screenLogTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private var reopenDrawerAfterReturn = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
@@ -149,6 +150,16 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
             updateDetailsVisibility()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+    }
+
+    override fun onStop() {
+        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        super.onStop()
     }
 
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)

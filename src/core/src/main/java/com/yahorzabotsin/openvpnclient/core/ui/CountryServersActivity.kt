@@ -29,6 +29,7 @@ class CountryServersActivity : AppCompatActivity() {
     private var countryCode: String? = null
     private var servers: List<Server> = emptyList()
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "CountryServersActivity"
+    private val screenLogTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ScreenFlow"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +55,16 @@ class CountryServersActivity : AppCompatActivity() {
         )
 
         loadServers()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+    }
+
+    override fun onStop() {
+        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        super.onStop()
     }
 
     private fun setLoadingState(isLoading: Boolean) {

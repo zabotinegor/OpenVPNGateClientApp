@@ -26,6 +26,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentServerListBinding
     private val TAG = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ServerListActivity"
+    private val screenLogTag = com.yahorzabotsin.openvpnclient.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private var isLoading = false
     private var vpnConnected = false
 
@@ -55,6 +56,16 @@ open class ServerListActivity : AppCompatActivity() {
         }
 
         loadServers(forceRefresh = false)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+    }
+
+    override fun onStop() {
+        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        super.onStop()
     }
 
     private fun setLoadingState(isLoading: Boolean) {
