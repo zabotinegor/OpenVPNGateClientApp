@@ -43,7 +43,6 @@
     <string name="dns_select_title">Wybór DNS</string>
     <string name="dns_select_subtitle">Wybierz dostawcę DNS do użycia podczas połączenia.</string>
     <string name="dns_option_default">Użyj DNS serwera VPN</string>
-    <string name="dns_apply_hint">Zmiany DNS zostaną zastosowane przy następnym połączeniu.</string>
 
     <!-- Section: App filter -->
     <string name="filter_tab_user">Użytkownika</string>
