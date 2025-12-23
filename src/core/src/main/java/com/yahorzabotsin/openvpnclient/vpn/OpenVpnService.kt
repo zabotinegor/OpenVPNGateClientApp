@@ -15,6 +15,9 @@ import android.os.Handler
 import android.util.Log
 import com.yahorzabotsin.openvpnclient.core.BuildConfig
 import com.yahorzabotsin.openvpnclient.core.R
+import com.yahorzabotsin.openvpnclient.core.settings.DnsOption
+import com.yahorzabotsin.openvpnclient.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclient.core.settings.UserSettingsStore
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.ConfigParser.ConfigParseError
@@ -310,6 +313,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (mCompatMode == 0) mCompatMode = DEFAULT_COMPAT_MODE
             }
             applyAppFilter(profile)
+            applyDnsSettings(profile)
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
             Log.i(TAG, "Requested engine start (profile=${profile.mName})")
@@ -331,6 +335,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to apply app filter", t)
         }
+    }
+
+    private fun applyDnsSettings(profile: VpnProfile) {
+        val option = try {
+            UserSettingsStore.load(applicationContext).dnsOption
+        } catch (_: Exception) {
+            DnsOption.SERVER
+        }
+        val config = DnsOptions.resolve(option)
+        if (!config.overrideDns) {
+            profile.mOverrideDNS = false
+            Log.i(TAG, "DNS apply: option=${option.name}, override=false (use server DNS)")
+            return
+        }
+        profile.mOverrideDNS = true
+        profile.mDNS1 = config.primary ?: ""
+        profile.mDNS2 = config.secondary ?: ""
+        Log.i(TAG, "DNS apply: option=${option.name}, dns1=${profile.mDNS1}, dns2=${profile.mDNS2}")
     }
 
     private fun requestStopIcsOpenVpn() {

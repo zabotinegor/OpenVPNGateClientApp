@@ -37,6 +37,12 @@
     <string name="current_city">Not selected</string>
     <string name="feature_in_development">Feature in Development</string>
 
+    <!-- Section: DNS -->
+    <string name="dns_select_title">Choose DNS</string>
+    <string name="dns_select_subtitle">Select a DNS provider to use while connected.</string>
+    <string name="dns_option_default">Use VPN server DNS</string>
+    <string name="dns_apply_hint">DNS changes apply on the next connection.</string>
+
     <!-- Section: App filter -->
     <string name="filter_tab_user">User</string>
     <string name="filter_tab_system">System</string>
