@@ -49,7 +49,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
             android:paddingBottom="16dp"
-            tools:text="В© 2025 Your Name" />
+            tools:text="© 2025 Your Name" />
 
         <TextView
             android:id="@+id/section_links"
