@@ -149,6 +149,23 @@
             android:text="@string/about_ics_github"
             android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
 
+        <TextView
+            android:id="@+id/section_diagnostics"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/about_section_diagnostics"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title"
+            android:paddingTop="16dp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:id="@+id/row_logs"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_export_logs"
+            android:drawableEnd="@drawable/ic_baseline_chevron_right_24" />
+
     </LinearLayout>
 
 </ScrollView>

@@ -57,6 +57,7 @@
     <string name="about_section_app">Aplikacja</string>
     <string name="about_section_links">Linki</string>
     <string name="about_section_legal">Informacje prawne</string>
+    <string name="about_section_diagnostics">Diagnostyka</string>
     <string name="about_version_format">Wersja: %1$s (%2$d)</string>
     <string name="about_package_format">Pakiet: %1$s</string>
     <string name="about_engine_format">Silnik VPN: %1$s — %2$s</string>
@@ -70,6 +71,12 @@
     <string name="about_terms_of_use">Warunki korzystania</string>
     <string name="about_licenses">Licencja GPLv2</string>
     <string name="about_ics_github">ics-openvpn na GitHubie</string>
+    <string name="about_export_logs">Eksportuj logcat (ostatnie 5 dni)</string>
+    <string name="about_logs_export_started">Przygotowywanie archiwum logów...</string>
+    <string name="about_logs_export_done_format">Archiwum logów zapisane: %1$s</string>
+    <string name="about_logs_export_failed_format">Nie udało się wyeksportować logów: %1$s</string>
+    <string name="about_share_logs">Udostępnij archiwum logów</string>
+    <string name="about_share_not_available">Brak aplikacji do udostępniania logów</string>
     <string name="intent_open_with">Otwórz za pomocą</string>
     <string name="intent_send_email">Wyślij e-mail</string>
     <string name="email_app_not_found">Brak aplikacji e-mail</string>

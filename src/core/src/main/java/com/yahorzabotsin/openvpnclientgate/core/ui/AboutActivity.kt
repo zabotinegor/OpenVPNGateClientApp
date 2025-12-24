@@ -14,13 +14,23 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.about.AboutMeta
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private var lastActionAt: Long = 0
+    private var isExportingLogs = false
     companion object {
         private const val CLICK_DEBOUNCE_MS = 500L
     }
@@ -47,6 +57,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val termsRow = bindingContent.rowTerms
         val licenseRow = bindingContent.rowLicense
         val icsGithubRow = bindingContent.rowIcsGithub
+        val logsRow = bindingContent.rowLogs
 
         val pInfo = packageManager.getPackageInfo(packageName, 0)
         val versionName = pInfo.versionName ?: ""
@@ -79,6 +90,13 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
 
         setupRow(icsGithubRow, AboutMeta.ICS_OPENVPN_GITHUB, copyLabel = getString(R.string.copy_label_link)) {
             openUrl(AboutMeta.ICS_OPENVPN_GITHUB)
+        }
+
+        logsRow.setOnClickListener {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastActionAt < CLICK_DEBOUNCE_MS) return@setOnClickListener
+            lastActionAt = now
+            exportLogcatArchive()
         }
     }
 
@@ -170,6 +188,166 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
             startActivity(marketIntent)
         } catch (_: ActivityNotFoundException) {
             openUrl(webUrl)
+        }
+    }
+
+    private fun exportLogcatArchive() {
+        if (isExportingLogs) return
+        isExportingLogs = true
+        Toast.makeText(this, getString(R.string.about_logs_export_started), Toast.LENGTH_SHORT).show()
+
+        Thread {
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val outputDir = getExternalFilesDir("logs") ?: File(filesDir, "logs")
+            if (!outputDir.exists()) outputDir.mkdirs()
+
+            val logFile = File(outputDir, "logcat_${timestamp}.txt")
+            val zipFile = File(outputDir, "logcat_${timestamp}.zip")
+
+            val uid = applicationInfo.uid
+            val tagPrefix = LogTags.APP
+            val attempts = listOf(
+                LogcatAttempt(withSince = true, useUid = true),
+                LogcatAttempt(withSince = true, useUid = false),
+                LogcatAttempt(withSince = false, useUid = true),
+                LogcatAttempt(withSince = false, useUid = false)
+            )
+            var ok = false
+            var failureReason = "unknown"
+            for (attempt in attempts) {
+                val result = runLogcatToFile(logFile, attempt, uid, tagPrefix)
+                if (result.success) {
+                    ok = true
+                    break
+                }
+                failureReason = result.reason
+            }
+
+            val resultPath = if (ok && logFile.length() > 0) {
+                try {
+                    ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+                        File(logFile.name).name.also { entryName ->
+                            zos.putNextEntry(ZipEntry(entryName))
+                            logFile.inputStream().use { input ->
+                                input.copyTo(zos)
+                            }
+                            zos.closeEntry()
+                        }
+                    }
+                    logFile.delete()
+                    zipFile.absolutePath
+                } catch (_: Exception) {
+                    ""
+                }
+            } else {
+                ""
+            }
+
+            runOnUiThread {
+                isExportingLogs = false
+                if (resultPath.isNotBlank()) {
+                    shareLogArchive(zipFile)
+                    Toast.makeText(
+                        this,
+                        getString(R.string.about_logs_export_done_format, resultPath),
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    val msg = getString(R.string.about_logs_export_failed_format, failureReason)
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private data class LogcatAttempt(
+        val withSince: Boolean,
+        val useUid: Boolean
+    )
+
+    private data class LogcatResult(
+        val success: Boolean,
+        val reason: String
+    )
+
+    private fun runLogcatToFile(target: File, attempt: LogcatAttempt, uid: Int, tagPrefix: String): LogcatResult {
+        val logcatPath = if (File("/system/bin/logcat").canExecute()) "/system/bin/logcat" else "logcat"
+        val args = mutableListOf(logcatPath, "-d", "-v", "time")
+        if (attempt.useUid) {
+            args.addAll(listOf("--uid", uid.toString()))
+        }
+        if (attempt.withSince) {
+            args.addAll(listOf("-T", "5d"))
+        }
+        val rawFile = File(target.parentFile, "${target.nameWithoutExtension}_raw.txt")
+        val process = ProcessBuilder(args)
+            .redirectErrorStream(true)
+            .start()
+        rawFile.outputStream().use { output ->
+            process.inputStream.use { input ->
+                input.copyTo(output)
+            }
+        }
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            rawFile.delete()
+            return LogcatResult(false, "logcat exit $exitCode")
+        }
+        val head = try {
+            rawFile.bufferedReader().use { it.readLine().orEmpty() }
+        } catch (_: Exception) {
+            ""
+        }
+        if (head.startsWith("logcat:") || head.contains("invalid")) {
+            rawFile.delete()
+            return LogcatResult(false, head.ifBlank { "logcat error" })
+        }
+        val tagToken = tagPrefix.take(23)
+        val tagRegex = Regex("\\s[VDIWEF]\\s+${Regex.escape(tagToken)}")
+        var hasLines = false
+        var rawLines = 0
+        rawFile.forEachLine { rawLines++ }
+        if (rawLines == 0) {
+            rawFile.delete()
+            return LogcatResult(false, "empty logcat output")
+        }
+        target.bufferedWriter().use { writer ->
+            rawFile.forEachLine { line ->
+                if (tagRegex.containsMatchIn(line) || line.contains(tagToken)) {
+                    writer.write(line)
+                    writer.newLine()
+                    hasLines = true
+                }
+            }
+        }
+        if (hasLines) {
+            rawFile.delete()
+            return LogcatResult(true, "ok")
+        }
+        if (attempt.useUid) {
+            rawFile.copyTo(target, overwrite = true)
+            rawFile.delete()
+            return LogcatResult(true, "no tag match; used uid-only logs")
+        }
+        rawFile.delete()
+        if (!hasLines) {
+            target.delete()
+        }
+        return LogcatResult(false, "no tag matches")
+    }
+
+    private fun shareLogArchive(file: File) {
+        if (!file.exists()) return
+        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.about_share_logs)))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.about_share_not_available), Toast.LENGTH_SHORT).show()
         }
     }
 }
