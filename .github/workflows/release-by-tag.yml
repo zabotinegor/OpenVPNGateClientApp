@@ -40,11 +40,19 @@ jobs:
         id: versioning
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          VERSION_CODE=${GITHUB_RUN_NUMBER:-1}
+          RAW_TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$RAW_TAG" =~ ^(.+)\(([0-9]+)\)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            BUILD_NUMBER="${BASH_REMATCH[2]}"
+          else
+            VERSION="${RAW_TAG}"
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER:-1}"
+          fi
+          VERSION_CODE=${BUILD_NUMBER}
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"
@@ -73,56 +81,27 @@ jobs:
         run: chmod +x gradlew
         working-directory: ./src
 
-      - name: Build Mobile APK
-        run: |
-          ./gradlew :mobile:assembleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
-        working-directory: ./src
-
-      - name: Build Mobile App Bundle (AAB)
-        run: |
-          ./gradlew :mobile:bundleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
-        working-directory: ./src
-
-      - name: Build TV APK
-        run: |
-          ./gradlew :tv:assembleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
-        working-directory: ./src
-
-      - name: Build TV App Bundle (AAB)
-        run: |
-          ./gradlew :tv:bundleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
-        working-directory: ./src
-
       - name: Stage Artifacts
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.version }}
-          mkdir -p output
-          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
-          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
-          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
-          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+          B=${{ steps.versioning.outputs.build_number }}
+          ./gradlew stageReleaseArtifacts \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+          mkdir -p ../output
+          APK=$(find build/staged -name '*.apk' | head -n1)
+          mv "$APK" "../output/OpenVPNGateClient_${V}(${B}).apk"
+          AAB=$(find build/staged -name '*.aab' | head -n1)
+          mv "$AAB" "../output/OpenVPNGateClient_${V}(${B}).aab"
+        working-directory: ./src
 
       - name: Publish Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"

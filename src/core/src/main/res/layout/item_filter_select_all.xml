@@ -34,7 +34,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/filter_select_all"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title" />
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/select_all_switch"

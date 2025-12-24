@@ -57,6 +57,7 @@
     <string name="about_section_app">Приложение</string>
     <string name="about_section_links">Ссылки</string>
     <string name="about_section_legal">Правовая информация</string>
+    <string name="about_section_diagnostics">Диагностика</string>
     <string name="about_version_format">Версия: %1$s (%2$d)</string>
     <string name="about_package_format">Пакет: %1$s</string>
     <string name="about_engine_format">Движок VPN: %1$s — %2$s</string>
@@ -70,6 +71,12 @@
     <string name="about_terms_of_use">Условия использования</string>
     <string name="about_licenses">Лицензия GPLv2</string>
     <string name="about_ics_github">ics-openvpn на GitHub</string>
+    <string name="about_export_logs">Экспорт logcat (за 5 дней)</string>
+    <string name="about_logs_export_started">Подготовка архива логов...</string>
+    <string name="about_logs_export_done_format">Архив логов сохранен: %1$s</string>
+    <string name="about_logs_export_failed_format">Ошибка экспорта логов: %1$s</string>
+    <string name="about_share_logs">Поделиться архивом логов</string>
+    <string name="about_share_not_available">Нет приложения для отправки логов</string>
     <string name="intent_open_with">Открыть с помощью</string>
     <string name="intent_send_email">Отправить письмо</string>
     <string name="email_app_not_found">Не найдено приложение для почты</string>

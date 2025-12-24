@@ -35,7 +35,7 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="2"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/app_switch"

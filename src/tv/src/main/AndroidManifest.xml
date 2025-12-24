@@ -17,7 +17,7 @@
         android:icon="@drawable/appicon"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.OpenVPNClient"
+        android:theme="@style/Theme.OpenVPNClientGate"
         tools:ignore="DataExtractionRules">
         <activity
             android:name=".MainActivity"

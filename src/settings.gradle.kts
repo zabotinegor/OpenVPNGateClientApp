@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OpenVPNClient"
+rootProject.name = "openvpnclientgate"
 include(":tv")
 include(":mobile")
 include(":core")

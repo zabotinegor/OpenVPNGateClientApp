@@ -65,37 +65,19 @@ jobs:
         run: chmod +x gradlew
         working-directory: ./src
 
-      - name: Run Unit Tests (core+mobile+tv, no engine)
-        run: ./gradlew :core:testDebugUnitTest :mobile:testDebugUnitTest :tv:testDebugUnitTest --stacktrace
+      - name: Run Unit Tests (app)
+        run: ./gradlew testDebugUnitTestApp --stacktrace
         working-directory: ./src
 
-      - name: Upload Unit Test Reports (core)
+      - name: Upload Unit Test Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-test-report
+          name: unit-test-report
           path: |
-            src/core/build/reports/tests/testDebugUnitTest/**
-            src/core/build/test-results/testDebugUnitTest/**
+            src/**/build/reports/tests/testDebugUnitTest/**
+            src/**/build/test-results/testDebugUnitTest/**
 
-      - name: Upload Unit Test Reports (mobile)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mobile-test-report
-          path: |
-            src/mobile/build/reports/tests/testDebugUnitTest/**
-            src/mobile/build/test-results/testDebugUnitTest/**
-
-      - name: Upload Unit Test Reports (tv)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tv-test-report
-          path: |
-            src/tv/build/reports/tests/testDebugUnitTest/**
-            src/tv/build/test-results/testDebugUnitTest/**
-
-      - name: Build Debug APKs (mobile+tv)
-        run: ./gradlew :mobile:assembleDebug :tv:assembleDebug --stacktrace
+      - name: Build Debug APK
+        run: ./gradlew assembleDebugApp --stacktrace
         working-directory: ./src

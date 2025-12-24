@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.android.library) apply false
 }
 
-val basePackageName by extra("com.yahorzabotsin.openvpnclient")
+val basePackageName by extra("com.yahorzabotsin.openvpnclientgate")
 val appName by extra("Client for OpenVPN Gate")
 
 // Show test results in console across all subprojects
@@ -41,4 +41,32 @@ subprojects {
             }
         })
     }
+}
+
+tasks.register("assembleDebugApp") {
+    dependsOn(":mobile:assembleDebug")
+}
+
+tasks.register("assembleReleaseApp") {
+    dependsOn(":mobile:assembleRelease")
+}
+
+tasks.register("bundleReleaseApp") {
+    dependsOn(":mobile:bundleRelease")
+}
+
+tasks.register("testDebugUnitTestApp") {
+    dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest")
+}
+
+tasks.register<Copy>("stageReleaseArtifacts") {
+    dependsOn("assembleReleaseApp", "bundleReleaseApp")
+    val mobileBuildDir = project(":mobile").layout.buildDirectory
+    from(mobileBuildDir.dir("outputs/apk/release")) {
+        include("*.apk")
+    }
+    from(mobileBuildDir.dir("outputs/bundle/release")) {
+        include("*.aab")
+    }
+    into(layout.buildDirectory.dir("staged"))
 }

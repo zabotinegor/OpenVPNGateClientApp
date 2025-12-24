@@ -47,14 +47,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/dns_select_title"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Title" />
+                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/dns_select_subtitle"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle" />
             </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

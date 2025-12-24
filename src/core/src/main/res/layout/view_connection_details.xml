@@ -7,7 +7,7 @@
     android:gravity="top|center_horizontal"
     tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
 
-    <com.yahorzabotsin.openvpnclient.core.ui.SpeedometerView
+    <com.yahorzabotsin.openvpnclientgate.core.ui.SpeedometerView
         android:id="@+id/speedometer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -40,7 +40,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_duration_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold" />
 
             <TextView
@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 tools:text="00:00:00"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
             <View
                 android:layout_width="match_parent"
@@ -62,7 +62,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_downloaded_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold" />
 
             <TextView
@@ -70,7 +70,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 tools:text="0.00 B"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
             <View
                 android:layout_width="match_parent"
@@ -84,14 +84,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_city_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/city_value"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
         </LinearLayout>
 
@@ -109,7 +109,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_status_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
@@ -119,7 +119,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 tools:text="Disconnected"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
 
@@ -135,7 +135,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_uploaded_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
@@ -145,7 +145,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 tools:text="0.00 B"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
 
@@ -161,7 +161,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_detail_address_label"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
                 android:textStyle="bold"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
@@ -171,7 +171,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 tools:text="0.0.0.0"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
                 android:gravity="end"
                 android:textAlignment="viewEnd" />
 

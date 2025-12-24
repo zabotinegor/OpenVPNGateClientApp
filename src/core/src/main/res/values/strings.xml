@@ -55,6 +55,7 @@
     <string name="about_section_app">Application</string>
     <string name="about_section_links">Links</string>
     <string name="about_section_legal">Legal</string>
+    <string name="about_section_diagnostics">Diagnostics</string>
     <string name="about_version_format">Version: %1$s (%2$d)</string>
     <string name="about_package_format">Package: %1$s</string>
     <string name="about_engine_format">VPN Engine: %1$s - %2$s</string>
@@ -68,6 +69,12 @@
     <string name="about_terms_of_use">Terms of Use</string>
     <string name="about_licenses">GPLv2 License</string>
     <string name="about_ics_github">ics-openvpn on GitHub</string>
+    <string name="about_export_logs">Export logcat (last 5 days)</string>
+    <string name="about_logs_export_started">Preparing log archive...</string>
+    <string name="about_logs_export_done_format">Log archive saved: %1$s</string>
+    <string name="about_logs_export_failed_format">Log export failed: %1$s</string>
+    <string name="about_share_logs">Share log archive</string>
+    <string name="about_share_not_available">No app available to share logs</string>
     <string name="intent_open_with">Open with</string>
     <string name="intent_send_email">Send email</string>
     <string name="email_app_not_found">No email app available</string>
