@@ -105,6 +105,11 @@ cd src
 
 ## CI/CD
 GitHub Actions workflows are located in `.github/workflows` and build signed release artifacts from `dev`, `main`, and tags (requires secrets for signing and server URLs). Dev builds now also produce `.aab` bundles for Play internal testing.
+Tag and asset naming includes the build number (GitHub run number) to ensure each run is unique:
+- Stable auto: `v1.2.3-auto(45)`
+- Stable tag: `v1.2.3(45)`
+- Beta auto: `v1.2.3-beta.2-auto(45)`
+- Release assets: `OpenVPNGateClient_Phone_1.2.3(45).apk` (same for `.aab` and TV)
 
 ## Data and Privacy
 - Server list: fetched from the configured primary endpoint with fallback to VPN Gate.

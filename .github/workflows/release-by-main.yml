@@ -53,15 +53,18 @@ jobs:
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
             echo "==> Base on latest stable tag ${STABLE_TAG}; next version ${VERSION}."
           fi
-          VERSION_CODE=${GITHUB_RUN_NUMBER:-1}
-          TAG="v${VERSION}-auto"
+          BUILD_NUMBER=${GITHUB_RUN_NUMBER:-1}
+          VERSION_CODE=${BUILD_NUMBER}
+          TAG="v${VERSION}-auto(${BUILD_NUMBER})"
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "==> App version: $VERSION"
           echo "==> Git tag: $TAG"
           echo "==> App versionCode: $VERSION_CODE"
+          echo "==> Build number: $BUILD_NUMBER"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"
@@ -122,15 +125,16 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.version }}
+          B=${{ steps.versioning.outputs.build_number }}
           mkdir -p output
           APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).apk
           AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).aab
           APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}(${B}).apk
           AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}(${B}).aab
 
       - name: Create Git Tag
         uses: actions/github-script@v7
@@ -160,10 +164,10 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ steps.versioning.outputs.tag }}
           name: "Release ${{ steps.versioning.outputs.tag }}"

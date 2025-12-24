@@ -69,7 +69,8 @@ jobs:
           fi
           echo "==> Next beta number: $BETA_NUM"
 
-          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto"
+          BUILD_NUMBER=${GITHUB_RUN_NUMBER:-1}
+          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto(${BUILD_NUMBER})"
           APP_VERSION="${VERSION}-beta.${BETA_NUM}"
 
           # Capture last commit message (subject + body)
@@ -83,11 +84,13 @@ jobs:
 
           echo "==> Final tag: $FINAL_TAG"
           echo "==> App version: $APP_VERSION"
+          echo "==> Build number: $BUILD_NUMBER"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "patch=$PATCH" >> $GITHUB_OUTPUT
           echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
           echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           echo "previous_tag=${BETA_TAG}" >> $GITHUB_OUTPUT
           echo "compare_url=${COMPARE_URL}" >> $GITHUB_OUTPUT
           {
@@ -150,15 +153,16 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.app_version }}
+          B=${{ steps.versioning.outputs.build_number }}
           mkdir -p output
           APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).apk
           AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).aab
           APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}(${B}).apk
           AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}(${B}).aab
 
       - name: Create Git Tag
         uses: actions/github-script@v7
@@ -203,8 +207,8 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           artifacts: |
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.apk
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}.aab
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.apk
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}.aab
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
           generateReleaseNotes: true

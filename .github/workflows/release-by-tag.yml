@@ -40,11 +40,19 @@ jobs:
         id: versioning
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          VERSION_CODE=${GITHUB_RUN_NUMBER:-1}
+          RAW_TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$RAW_TAG" =~ ^(.+)\\(([0-9]+)\\)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            BUILD_NUMBER="${BASH_REMATCH[2]}"
+          else
+            VERSION="${RAW_TAG}"
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER:-1}"
+          fi
+          VERSION_CODE=${BUILD_NUMBER}
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"
@@ -105,24 +113,25 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.version }}
+          B=${{ steps.versioning.outputs.build_number }}
           mkdir -p output
           APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}.apk
+          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).apk
           AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}.aab
+          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).aab
           APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}.apk
+          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}(${B}).apk
           AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}.aab
+          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}(${B}).aab
 
       - name: Publish Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}.aab
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.apk
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}.aab
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
