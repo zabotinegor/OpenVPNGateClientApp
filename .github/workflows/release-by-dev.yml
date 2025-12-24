@@ -121,30 +121,16 @@ jobs:
         run: chmod +x gradlew
         working-directory: ./src
 
-      - name: Build Mobile APK
+      - name: Build APK
         run: |
           ./gradlew :mobile:assembleRelease \
             -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
             -PappVersionCode="${{ github.run_number }}"
         working-directory: ./src
 
-      - name: Build Mobile App Bundle (AAB)
+      - name: Build App Bundle (AAB)
         run: |
           ./gradlew :mobile:bundleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
-            -PappVersionCode="${{ github.run_number }}"
-        working-directory: ./src
-
-      - name: Build TV APK
-        run: |
-          ./gradlew :tv:assembleRelease \
-            -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
-            -PappVersionCode="${{ github.run_number }}"
-        working-directory: ./src
-
-      - name: Build TV App Bundle (AAB)
-        run: |
-          ./gradlew :tv:bundleRelease \
             -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
             -PappVersionCode="${{ github.run_number }}"
         working-directory: ./src
@@ -155,14 +141,10 @@ jobs:
           V=${{ steps.versioning.outputs.app_version }}
           B=${{ steps.versioning.outputs.build_number }}
           mkdir -p output
-          APK_PHONE=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).apk
-          AAB_PHONE=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_PHONE" output/OpenVPNGateClient_Phone_${V}(${B}).aab
-          APK_TV=$(find src/tv/build/outputs/apk/release -name '*.apk' | head -n1)
-          mv "$APK_TV" output/OpenVPNGateClient_TV_${V}(${B}).apk
-          AAB_TV=$(find src/tv/build/outputs/bundle/release -name '*.aab' | head -n1)
-          mv "$AAB_TV" output/OpenVPNGateClient_TV_${V}(${B}).aab
+          APK=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          mv "$APK" output/OpenVPNGateClient_${V}(${B}).apk
+          AAB=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          mv "$AAB" output/OpenVPNGateClient_${V}(${B}).aab
 
       - name: Create Git Tag
         uses: actions/github-script@v7
@@ -207,8 +189,6 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           artifacts: |
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_Phone_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_TV_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
           generateReleaseNotes: true
