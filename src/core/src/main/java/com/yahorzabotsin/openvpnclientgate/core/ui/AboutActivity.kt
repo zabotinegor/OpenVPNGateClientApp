@@ -16,10 +16,14 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.about.AboutMeta
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -196,7 +200,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         isExportingLogs = true
         Toast.makeText(this, getString(R.string.about_logs_export_started), Toast.LENGTH_SHORT).show()
 
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) {
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val outputDir = getExternalFilesDir("logs") ?: File(filesDir, "logs")
             if (!outputDir.exists()) outputDir.mkdirs()
@@ -243,7 +247,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
                 ""
             }
 
-            runOnUiThread {
+            withContext(Dispatchers.Main) {
                 isExportingLogs = false
                 if (resultPath.isNotBlank()) {
                     shareLogArchive(zipFile)
@@ -257,7 +261,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
                     Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
                 }
             }
-        }.start()
+        }
     }
 
     private data class LogcatAttempt(
