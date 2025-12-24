@@ -309,20 +309,21 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         val tagToken = tagPrefix.take(23)
         val tagRegex = Regex("\\s[VDIWEF]\\s+${Regex.escape(tagToken)}")
         var hasLines = false
-        var rawLines = 0
-        rawFile.forEachLine { rawLines++ }
-        if (rawLines == 0) {
-            rawFile.delete()
-            return LogcatResult(false, "empty logcat output")
-        }
+        var hasAnyLines = false
         target.bufferedWriter().use { writer ->
-            rawFile.forEachLine { line ->
+            rawFile.bufferedReader().forEachLine { line ->
+                hasAnyLines = true
                 if (tagRegex.containsMatchIn(line) || line.contains(tagToken)) {
                     writer.write(line)
                     writer.newLine()
                     hasLines = true
                 }
             }
+        }
+        if (!hasAnyLines) {
+            rawFile.delete()
+            target.delete()
+            return LogcatResult(false, "empty logcat output")
         }
         if (hasLines) {
             rawFile.delete()
