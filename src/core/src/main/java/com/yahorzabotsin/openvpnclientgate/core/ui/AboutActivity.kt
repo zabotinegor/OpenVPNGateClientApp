@@ -9,6 +9,7 @@ import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -37,6 +38,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     private var isExportingLogs = false
     companion object {
         private const val CLICK_DEBOUNCE_MS = 500L
+        private val TAG = LogTags.APP + ':' + "AboutActivity"
     }
     private lateinit var bindingContent: ContentAboutBinding
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
@@ -240,7 +242,8 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
                     }
                     logFile.delete()
                     zipFile.absolutePath
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to archive logs", e)
                     ""
                 }
             } else {
