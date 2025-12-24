@@ -78,6 +78,6 @@ jobs:
             src/**/build/reports/tests/testDebugUnitTest/**
             src/**/build/test-results/testDebugUnitTest/**
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebugApp --stacktrace
+      - name: Build Debug APKs (mobile + tv)
+        run: ./gradlew :mobile:assembleDebug :tv:assembleDebug --stacktrace
         working-directory: ./src
