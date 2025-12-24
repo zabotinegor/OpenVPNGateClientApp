@@ -63,20 +63,12 @@ tasks.register<Copy>("stageReleaseArtifacts") {
     dependsOn("assembleReleaseApp", "bundleReleaseApp")
     val mobileBuildDir = project(":mobile").layout.buildDirectory
     val tvBuildDir = project(":tv").layout.buildDirectory
-    from(mobileBuildDir.dir("outputs/apk/release")) {
-        include("*.apk")
+    from(mobileBuildDir.dir("outputs")) {
+        include("apk/release/*.apk", "bundle/release/*.aab")
         into("mobile")
     }
-    from(mobileBuildDir.dir("outputs/bundle/release")) {
-        include("*.aab")
-        into("mobile")
-    }
-    from(tvBuildDir.dir("outputs/apk/release")) {
-        include("*.apk")
-        into("tv")
-    }
-    from(tvBuildDir.dir("outputs/bundle/release")) {
-        include("*.aab")
+    from(tvBuildDir.dir("outputs")) {
+        include("apk/release/*.apk", "bundle/release/*.aab")
         into("tv")
     }
     into(layout.buildDirectory.dir("staged"))
