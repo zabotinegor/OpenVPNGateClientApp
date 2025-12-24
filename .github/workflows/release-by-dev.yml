@@ -129,10 +129,22 @@ jobs:
             -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
             -PappVersionCode="${{ github.run_number }}"
           mkdir -p ../output
-          APK=$(find build/staged -name '*.apk' | head -n1)
-          mv "$APK" "../output/OpenVPNGateClient_${V}(${B}).apk"
-          AAB=$(find build/staged -name '*.aab' | head -n1)
-          mv "$AAB" "../output/OpenVPNGateClient_${V}(${B}).aab"
+          APK_MOBILE=$(find build/staged/mobile -name '*.apk' | head -n1)
+          APK_TV=$(find build/staged/tv -name '*.apk' | head -n1)
+          AAB_MOBILE=$(find build/staged/mobile -name '*.aab' | head -n1)
+          AAB_TV=$(find build/staged/tv -name '*.aab' | head -n1)
+          if [[ -n "$APK_MOBILE" ]]; then
+            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).apk"
+          fi
+          if [[ -n "$APK_TV" ]]; then
+            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).apk"
+          fi
+          if [[ -n "$AAB_MOBILE" ]]; then
+            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).aab"
+          fi
+          if [[ -n "$AAB_TV" ]]; then
+            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).aab"
+          fi
         working-directory: ./src
 
       - name: Create Git Tag
@@ -178,6 +190,8 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           artifacts: |
-            output/OpenVPNGateClient_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
           generateReleaseNotes: true
