@@ -17,6 +17,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 
 class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private lateinit var binding: ContentSettingsBinding
@@ -96,6 +97,7 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
                 else -> LanguageOption.SYSTEM
             })
             UserSettingsStore.applyThemeAndLocale(this)
+            VpnManager.refreshNotification(this)
             updateSummaries()
         }
         binding.themeRadioGroup.setOnCheckedChangeListener { _, _ ->

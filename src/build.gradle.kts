@@ -44,29 +44,32 @@ subprojects {
 }
 
 tasks.register("assembleDebugApp") {
-    dependsOn(":mobile:assembleDebug")
+    dependsOn(":mobile:assembleDebug", ":tv:assembleDebug")
 }
 
 tasks.register("assembleReleaseApp") {
-    dependsOn(":mobile:assembleRelease")
+    dependsOn(":mobile:assembleRelease", ":tv:assembleRelease")
 }
 
 tasks.register("bundleReleaseApp") {
-    dependsOn(":mobile:bundleRelease")
+    dependsOn(":mobile:bundleRelease", ":tv:bundleRelease")
 }
 
 tasks.register("testDebugUnitTestApp") {
-    dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest")
+    dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest", ":tv:testDebugUnitTest")
 }
 
 tasks.register<Copy>("stageReleaseArtifacts") {
     dependsOn("assembleReleaseApp", "bundleReleaseApp")
     val mobileBuildDir = project(":mobile").layout.buildDirectory
-    from(mobileBuildDir.dir("outputs/apk/release")) {
-        include("*.apk")
+    val tvBuildDir = project(":tv").layout.buildDirectory
+    from(mobileBuildDir.dir("outputs")) {
+        include("apk/release/*.apk", "bundle/release/*.aab")
+        into("mobile")
     }
-    from(mobileBuildDir.dir("outputs/bundle/release")) {
-        include("*.aab")
+    from(tvBuildDir.dir("outputs")) {
+        include("apk/release/*.apk", "bundle/release/*.aab")
+        into("tv")
     }
     into(layout.buildDirectory.dir("staged"))
 }

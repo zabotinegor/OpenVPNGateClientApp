@@ -10,6 +10,7 @@ object VpnManager {
 
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
+    const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "VpnManager"
 
     fun extraConfigKey(context: Context) = "${context.packageName}.vpn.CONFIG"
@@ -40,6 +41,14 @@ object VpnManager {
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
+        }
+        ContextCompat.startForegroundService(context, intent)
+    }
+
+    fun refreshNotification(context: Context) {
+        Log.d(TAG, "refreshNotification")
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
+            putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
         }
         ContextCompat.startForegroundService(context, intent)
     }

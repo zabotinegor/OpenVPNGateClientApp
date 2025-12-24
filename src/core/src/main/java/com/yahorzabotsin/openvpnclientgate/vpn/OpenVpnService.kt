@@ -306,6 +306,26 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    private fun stopForegroundIfStarted() {
+        if (!foregroundStarted) return
+        try {
+            stopForeground(true)
+            foregroundStarted = false
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop foreground notification", e)
+        }
+    }
+
+    private fun refreshForegroundNotification() {
+        if (!foregroundStarted || isRobolectric()) return
+        val (titleRes, textRes) = if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
+            R.string.vpn_notification_title_connected to R.string.vpn_notification_text_connected
+        } else {
+            R.string.vpn_notification_title_connecting to R.string.vpn_notification_text_connecting
+        }
+        updateForegroundNotification(titleRes, textRes)
+    }
+
     private fun updateForegroundNotification(titleRes: Int, textRes: Int) {
         if (isRobolectric()) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -386,6 +406,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 requestStopIcsOpenVpn()
             }
             }
+            VpnManager.ACTION_REFRESH_NOTIFICATION -> {
+                Log.d(TAG, "ACTION_REFRESH_NOTIFICATION")
+                refreshForegroundNotification()
+            }
             else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.actionKey(this))}")
         }
         return START_NOT_STICKY
@@ -405,6 +429,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
             Log.i(TAG, "Requested engine start (profile=${profile.mName})")
+            stopForegroundIfStarted()
         } catch (e: ConfigParseError) {
             Log.e(TAG, "OVPN parse error", e); stopSelf()
         } catch (e: Exception) {
@@ -558,10 +583,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                   userInitiatedStart = false
                   userInitiatedStop = false
                 Log.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
-                updateForegroundNotification(
-                    R.string.vpn_notification_title_connected,
-                    R.string.vpn_notification_text_connected
-                )
+                stopForegroundIfStarted()
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
