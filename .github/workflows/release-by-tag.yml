@@ -83,14 +83,14 @@ jobs:
 
       - name: Build APK
         run: |
-          ./gradlew :mobile:assembleRelease \
+          ./gradlew assembleReleaseApp \
             -PappVersionName="${{ steps.versioning.outputs.version }}" \
             -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
         working-directory: ./src
 
       - name: Build App Bundle (AAB)
         run: |
-          ./gradlew :mobile:bundleRelease \
+          ./gradlew bundleReleaseApp \
             -PappVersionName="${{ steps.versioning.outputs.version }}" \
             -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
         working-directory: ./src
@@ -100,10 +100,13 @@ jobs:
         run: |
           V=${{ steps.versioning.outputs.version }}
           B=${{ steps.versioning.outputs.build_number }}
+          ./src/gradlew stageReleaseArtifacts \
+            -PappVersionName="${{ steps.versioning.outputs.version }}" \
+            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
           mkdir -p output
-          APK=$(find src/mobile/build/outputs/apk/release -name '*.apk' | head -n1)
+          APK=$(find src/build/staged -name '*.apk' | head -n1)
           mv "$APK" output/OpenVPNGateClient_${V}(${B}).apk
-          AAB=$(find src/mobile/build/outputs/bundle/release -name '*.aab' | head -n1)
+          AAB=$(find src/build/staged -name '*.aab' | head -n1)
           mv "$AAB" output/OpenVPNGateClient_${V}(${B}).aab
 
       - name: Publish Release

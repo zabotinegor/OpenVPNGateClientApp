@@ -42,3 +42,31 @@ subprojects {
         })
     }
 }
+
+tasks.register("assembleDebugApp") {
+    dependsOn(":mobile:assembleDebug")
+}
+
+tasks.register("assembleReleaseApp") {
+    dependsOn(":mobile:assembleRelease")
+}
+
+tasks.register("bundleReleaseApp") {
+    dependsOn(":mobile:bundleRelease")
+}
+
+tasks.register("testDebugUnitTestApp") {
+    dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest")
+}
+
+tasks.register<Copy>("stageReleaseArtifacts") {
+    dependsOn("assembleReleaseApp", "bundleReleaseApp")
+    val mobileBuildDir = project(":mobile").layout.buildDirectory
+    from(mobileBuildDir.dir("outputs/apk/release")) {
+        include("*.apk")
+    }
+    from(mobileBuildDir.dir("outputs/bundle/release")) {
+        include("*.aab")
+    }
+    into(layout.buildDirectory.dir("staged"))
+}
