@@ -230,7 +230,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
             val resultPath = if (ok && logFile.length() > 0) {
                 try {
                     ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
-                        File(logFile.name).name.also { entryName ->
+                        logFile.name.also { entryName ->
                             zos.putNextEntry(ZipEntry(entryName))
                             logFile.inputStream().use { input ->
                                 input.copyTo(zos)
