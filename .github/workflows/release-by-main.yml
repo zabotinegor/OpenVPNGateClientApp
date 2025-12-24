@@ -48,7 +48,7 @@ jobs:
             VERSION="1.0.0"
             echo "==> No stable tag found, starting with ${VERSION}."
           else
-            CLEAN_TAG=$(echo "${STABLE_TAG#v}" | sed -E 's/-auto\([0-9]+\)$//')
+            CLEAN_TAG=$(echo "${STABLE_TAG#v}" | sed -E 's/-auto\([0-9]+\)$//' | sed -E 's/\([0-9]+\)$//')
             IFS='.' read -r MAJOR MINOR PATCH <<< "${CLEAN_TAG}"
             PATCH=$((PATCH + 1))
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
