@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    style="@style/WidgetOpenVPNClientFocusableSurface"
+    style="@style/WidgetOpenVPNClientGateFocusableSurface"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginStart="16dp"
@@ -38,14 +38,14 @@
                 android:id="@+id/server_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
             <TextView
                 android:id="@+id/server_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle" />
         </LinearLayout>
 
         <LinearLayout
@@ -66,7 +66,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="12dp"
-                android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle" />
+                android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle" />
 
             <ImageView
                 android:id="@+id/chevron_icon"

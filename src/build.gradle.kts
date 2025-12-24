@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.android.library) apply false
 }
 
-val basePackageName by extra("com.yahorzabotsin.openvpnclient")
+val basePackageName by extra("com.yahorzabotsin.openvpnclientgate")
 val appName by extra("Client for OpenVPN Gate")
 
 // Show test results in console across all subprojects

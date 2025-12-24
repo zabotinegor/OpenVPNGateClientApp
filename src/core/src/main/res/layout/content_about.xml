@@ -16,14 +16,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/about_section_app"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title"
             android:paddingBottom="8dp" />
 
         <TextView
             android:id="@+id/tv_version"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
             android:paddingBottom="4dp"
             tools:text="Version: 1.0 (1)" />
 
@@ -31,7 +31,7 @@
             android:id="@+id/tv_package"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
             android:paddingBottom="12dp"
             tools:text="Package: com.example.app" />
 
@@ -39,7 +39,7 @@
             android:id="@+id/tv_engine"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
             android:paddingBottom="16dp"
             tools:text="VPN Engine: OpenVPN for Android" />
 
@@ -47,22 +47,22 @@
             android:id="@+id/tv_copyright"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Subtitle"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
             android:paddingBottom="16dp"
-            tools:text="© 2025 Your Name" />
+            tools:text="В© 2025 Your Name" />
 
         <TextView
             android:id="@+id/section_links"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/about_section_links"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title"
             android:paddingTop="8dp"
             android:paddingBottom="8dp" />
 
         <TextView
             android:id="@+id/row_website"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_website"
@@ -70,7 +70,7 @@
 
         <TextView
             android:id="@+id/row_email"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_email"
@@ -78,7 +78,7 @@
 
         <TextView
             android:id="@+id/row_telegram"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_telegram"
@@ -86,7 +86,7 @@
 
         <TextView
             android:id="@+id/row_github"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_github"
@@ -94,7 +94,7 @@
 
         <TextView
             android:id="@+id/row_github_engine"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_github_engine"
@@ -102,7 +102,7 @@
 
         <TextView
             android:id="@+id/row_play"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_google_play"
@@ -113,13 +113,13 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/about_section_legal"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title"
             android:paddingTop="16dp"
             android:paddingBottom="8dp" />
 
         <TextView
             android:id="@+id/row_privacy"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_privacy_policy"
@@ -127,7 +127,7 @@
 
         <TextView
             android:id="@+id/row_terms"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_terms_of_use"
@@ -135,7 +135,7 @@
 
         <TextView
             android:id="@+id/row_license"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_licenses"
@@ -143,7 +143,7 @@
 
         <TextView
             android:id="@+id/row_ics_github"
-            style="@style/Widget.OpenVPNClient.ClickableRow"
+            style="@style/Widget.OpenVPNClientGate.ClickableRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/about_ics_github"
