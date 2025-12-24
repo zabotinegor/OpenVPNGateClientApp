@@ -31,7 +31,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "${rootProject.extra.get("basePackageName")}.mobile"
+        applicationId = "${rootProject.extra.get("basePackageName")}"
         minSdk = 24
         targetSdk = 36
         versionCode = (project.findProperty("appVersionCode") as String? ?: "1").toInt()

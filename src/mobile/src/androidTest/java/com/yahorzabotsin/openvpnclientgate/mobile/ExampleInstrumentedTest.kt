@@ -12,7 +12,7 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         // Compare against the expected applicationId to avoid relying on BuildConfig visibility
-        assertEquals("com.yahorzabotsin.openvpnclientgate.mobile", appContext.packageName)
+        assertEquals("com.yahorzabotsin.openvpnclientgate", appContext.packageName)
     }
 }
 
