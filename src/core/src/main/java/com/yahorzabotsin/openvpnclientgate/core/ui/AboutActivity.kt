@@ -252,13 +252,13 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
                 if (resultPath.isNotBlank()) {
                     shareLogArchive(zipFile)
                     Toast.makeText(
-                        this,
+                        this@AboutActivity,
                         getString(R.string.about_logs_export_done_format, resultPath),
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
                     val msg = getString(R.string.about_logs_export_failed_format, failureReason)
-                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@AboutActivity, msg, Toast.LENGTH_LONG).show()
                 }
             }
         }
