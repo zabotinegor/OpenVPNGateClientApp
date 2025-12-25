@@ -42,7 +42,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
-        context.startService(intent)
+        ContextCompat.startForegroundService(context, intent)
     }
 
     fun refreshNotification(context: Context) {

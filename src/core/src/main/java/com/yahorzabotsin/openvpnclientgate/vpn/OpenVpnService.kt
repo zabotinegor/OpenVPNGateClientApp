@@ -461,6 +461,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP -> {
                 Log.i(TAG, "ACTION_STOP")
+                startForegroundIfNeeded()
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
                     // Auto-switch retry: keep hint and state, just stop engine
