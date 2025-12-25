@@ -273,11 +273,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             )
         }
         val title = safeString(localizedCtx, titleRes, "VPN")
-        val text = safeString(localizedCtx, textRes, "VPN running")
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_icon_system)
             .setContentTitle(title)
-            .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -315,7 +313,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         logNotificationStatus("before startForeground")
         val notification = buildForegroundNotification(
-            R.string.vpn_notification_title_connecting,
+            R.string.vpn_notification_title_service_running,
             R.string.vpn_notification_text_connecting
         )
         try {
@@ -391,7 +389,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 startForegroundIfNeeded()
                 updateForegroundNotification(
-                    R.string.vpn_notification_title_connecting,
+                    R.string.vpn_notification_title_service_running,
                     R.string.vpn_notification_text_connecting
                 )
             }
