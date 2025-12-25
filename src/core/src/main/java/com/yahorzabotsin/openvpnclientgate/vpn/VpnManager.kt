@@ -50,7 +50,7 @@ object VpnManager {
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
         }
-        ContextCompat.startForegroundService(context, intent)
+        context.startService(intent)
     }
 }
 

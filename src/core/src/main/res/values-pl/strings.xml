@@ -89,6 +89,7 @@
     <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">Status VPN</string>
     <string name="vpn_channel_description">Status połączenia VPN</string>
+    <string name="vpn_notification_title_service_running">Usługa działa</string>
     <string name="vpn_notification_title_connecting">Łączenie z VPN</string>
     <string name="vpn_notification_title_connected">VPN połączono</string>
     <string name="vpn_notification_title_disconnecting">Rozłączanie z VPN</string>

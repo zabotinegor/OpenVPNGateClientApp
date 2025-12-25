@@ -54,18 +54,21 @@ jobs:
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
             echo "==> Base on latest stable tag ${STABLE_TAG}; next version ${VERSION}."
           fi
-          BUILD_NUMBER=${GITHUB_RUN_NUMBER:-1}
-          VERSION_CODE=${BUILD_NUMBER}
-          TAG="v${VERSION}-auto(${BUILD_NUMBER})"
+          RUN_BASE=${GITHUB_RUN_NUMBER:-1}
+          VERSION_CODE_MOBILE=$((RUN_BASE * 2 - 1))
+          VERSION_CODE_TV=$((RUN_BASE * 2))
+          TAG="v${VERSION}-auto(${RUN_BASE})"
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "==> App version: $VERSION"
           echo "==> Git tag: $TAG"
-          echo "==> App versionCode: $VERSION_CODE"
-          echo "==> Build number: $BUILD_NUMBER"
+          echo "==> App versionCode: mobile=${VERSION_CODE_MOBILE} tv=${VERSION_CODE_TV}"
+          echo "==> Build number: ${RUN_BASE}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "version_code_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
+          echo "version_code_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
+          echo "build_number_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
+          echo "build_number_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"
@@ -98,26 +101,28 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.version }}
-          B=${{ steps.versioning.outputs.build_number }}
+          B_MOBILE=${{ steps.versioning.outputs.build_number_mobile }}
+          B_TV=${{ steps.versioning.outputs.build_number_tv }}
           ./gradlew stageReleaseArtifacts \
             -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCode="${{ steps.versioning.outputs.version_code }}"
+            -PappVersionCodeMobile="${{ steps.versioning.outputs.version_code_mobile }}" \
+            -PappVersionCodeTv="${{ steps.versioning.outputs.version_code_tv }}"
           mkdir -p ../output
           APK_MOBILE=$(find build/staged/mobile -name '*.apk' | head -n1)
           APK_TV=$(find build/staged/tv -name '*.apk' | head -n1)
           AAB_MOBILE=$(find build/staged/mobile -name '*.aab' | head -n1)
           AAB_TV=$(find build/staged/tv -name '*.aab' | head -n1)
           if [[ -n "$APK_MOBILE" ]]; then
-            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).apk"
+            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B_MOBILE}).apk"
           fi
           if [[ -n "$APK_TV" ]]; then
-            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).apk"
+            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}(${B_TV}).apk"
           fi
           if [[ -n "$AAB_MOBILE" ]]; then
-            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).aab"
+            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B_MOBILE}).aab"
           fi
           if [[ -n "$AAB_TV" ]]; then
-            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).aab"
+            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}(${B_TV}).aab"
           fi
         working-directory: ./src
 
@@ -149,10 +154,10 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number_mobile }}).apk
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number_tv }}).apk
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number_mobile }}).aab
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}(${{ steps.versioning.outputs.build_number_tv }}).aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ steps.versioning.outputs.tag }}
           name: "Release ${{ steps.versioning.outputs.tag }}"
