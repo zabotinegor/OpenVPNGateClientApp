@@ -30,7 +30,9 @@ android {
         applicationId = "${rootProject.extra.get("basePackageName")}"
         minSdk = 24
         targetSdk = 36
-        versionCode = (project.findProperty("appVersionCode") as String? ?: "1").toInt()
+        val versionCodeOverride = (project.findProperty("appVersionCodeTv") as String?)
+            ?: (project.findProperty("appVersionCode") as String?)
+        versionCode = (versionCodeOverride ?: "1").toInt()
         versionName = project.findProperty("appVersionName") as String? ?: "1.0"
         missingDimensionStrategy("version", "full")
 

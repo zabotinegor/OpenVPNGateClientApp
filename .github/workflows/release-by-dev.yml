@@ -70,8 +70,10 @@ jobs:
           fi
           echo "==> Next beta number: $BETA_NUM"
 
-          BUILD_NUMBER=${GITHUB_RUN_NUMBER:-1}
-          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto(${BUILD_NUMBER})"
+          RUN_BASE=${GITHUB_RUN_NUMBER:-1}
+          VERSION_CODE_MOBILE=$((RUN_BASE * 2 - 1))
+          VERSION_CODE_TV=$((RUN_BASE * 2))
+          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto(${RUN_BASE})"
           APP_VERSION="${VERSION}-beta.${BETA_NUM}"
 
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
@@ -83,13 +85,16 @@ jobs:
 
           echo "==> Final tag: $FINAL_TAG"
           echo "==> App version: $APP_VERSION"
-          echo "==> Build number: $BUILD_NUMBER"
+          echo "==> Build numbers: mobile=${VERSION_CODE_MOBILE} tv=${VERSION_CODE_TV}"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "patch=$PATCH" >> $GITHUB_OUTPUT
           echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
           echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
-          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "build_number_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
+          echo "build_number_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
+          echo "version_code_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
+          echo "version_code_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
           echo "previous_tag=${BETA_TAG}" >> $GITHUB_OUTPUT
           echo "compare_url=${COMPARE_URL}" >> $GITHUB_OUTPUT
           {
@@ -124,26 +129,28 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.app_version }}
-          B=${{ steps.versioning.outputs.build_number }}
+          B_MOBILE=${{ steps.versioning.outputs.build_number_mobile }}
+          B_TV=${{ steps.versioning.outputs.build_number_tv }}
           ./gradlew stageReleaseArtifacts \
             -PappVersionName="${{ steps.versioning.outputs.app_version }}" \
-            -PappVersionCode="${{ github.run_number }}"
+            -PappVersionCodeMobile="${{ steps.versioning.outputs.version_code_mobile }}" \
+            -PappVersionCodeTv="${{ steps.versioning.outputs.version_code_tv }}"
           mkdir -p ../output
           APK_MOBILE=$(find build/staged/mobile -name '*.apk' | head -n1)
           APK_TV=$(find build/staged/tv -name '*.apk' | head -n1)
           AAB_MOBILE=$(find build/staged/mobile -name '*.aab' | head -n1)
           AAB_TV=$(find build/staged/tv -name '*.aab' | head -n1)
           if [[ -n "$APK_MOBILE" ]]; then
-            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).apk"
+            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${B_MOBILE}.apk"
           fi
           if [[ -n "$APK_TV" ]]; then
-            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).apk"
+            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}_build${B_TV}.apk"
           fi
           if [[ -n "$AAB_MOBILE" ]]; then
-            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}(${B}).aab"
+            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${B_MOBILE}.aab"
           fi
           if [[ -n "$AAB_TV" ]]; then
-            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}(${B}).aab"
+            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}_build${B_TV}.aab"
           fi
         working-directory: ./src
 
@@ -190,8 +197,8 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           artifacts: |
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).apk
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}(${{ steps.versioning.outputs.build_number }}).aab
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_mobile }}.apk
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_tv }}.apk
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_mobile }}.aab
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_tv }}.aab
           generateReleaseNotes: true
