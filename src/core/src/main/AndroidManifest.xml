@@ -8,42 +8,65 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="${applicationId}.permission.VPN_STATUS" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
-        android:name="com.yahorzabotsin.openvpnclient.core.CoreApp">
+        android:name="com.yahorzabotsin.openvpnclientgate.core.CoreApp">
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <service
-            android:name="com.yahorzabotsin.openvpnclient.vpn.OpenVpnService"
-            android:exported="false" />
+            android:name="com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn" />
+        </service>
 
         <activity
             android:name="de.blinkt.openvpn.activities.DisconnectVPN"
             android:exported="false" />
 
         <receiver
-            android:name="com.yahorzabotsin.openvpnclient.vpn.DisconnectReceiver"
+            android:name="com.yahorzabotsin.openvpnclientgate.vpn.DisconnectReceiver"
             android:exported="false" />
 
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.ServerListActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.ServerListActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.DnsActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.DnsActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.FilterActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.FilterActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.SettingsActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.SettingsActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.AboutActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.AboutActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclient.core.ui.WebViewActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.WebViewActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.CountryServersActivity"
             android:exported="false" />
     </application>
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
-

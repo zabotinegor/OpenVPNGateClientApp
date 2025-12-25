@@ -19,7 +19,14 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>
     <string name="server_list_subtitle">При проблемах с подключением выберите другой сервер.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d сервер</item>
+        <item quantity="few">%d сервера</item>
+        <item quantity="many">%d серверов</item>
+        <item quantity="other">%d сервера</item>
+    </plurals>
     <string name="action_refresh">Обновить</string>
+    <string name="server_list_refresh_locked_hint">Обновление недоступно при активном VPN.</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>
@@ -32,10 +39,25 @@
     <string name="current_city">Не выбрано</string>
     <string name="feature_in_development">Функция в разработке</string>
 
+    <!-- Section: DNS -->
+    <string name="dns_select_title">Выбор DNS</string>
+    <string name="dns_select_subtitle">Выберите DNS-провайдера для использования при подключении.</string>
+    <string name="dns_option_default">Использовать DNS сервера VPN</string>
+
+    <!-- Section: App filter -->
+    <string name="filter_tab_user">Пользовательские</string>
+    <string name="filter_tab_system">Системные</string>
+    <string name="filter_info_title">Фильтрация для приложений</string>
+    <string name="filter_info_subtitle">Отключите приложение, если ему нужно работать без VPN.</string>
+    <string name="filter_select_all">Выбрать все</string>
+    <string name="filter_empty_state">Приложения не найдены</string>
+    <string name="filter_switch_content_description">Переключить туннелирование для %1$s</string>
+
     <!-- Section: About -->
     <string name="about_section_app">Приложение</string>
     <string name="about_section_links">Ссылки</string>
     <string name="about_section_legal">Правовая информация</string>
+    <string name="about_section_diagnostics">Диагностика</string>
     <string name="about_version_format">Версия: %1$s (%2$d)</string>
     <string name="about_package_format">Пакет: %1$s</string>
     <string name="about_engine_format">Движок VPN: %1$s — %2$s</string>
@@ -49,6 +71,12 @@
     <string name="about_terms_of_use">Условия использования</string>
     <string name="about_licenses">Лицензия GPLv2</string>
     <string name="about_ics_github">ics-openvpn на GitHub</string>
+    <string name="about_export_logs">Экспорт logcat (за 5 дней)</string>
+    <string name="about_logs_export_started">Подготовка архива логов...</string>
+    <string name="about_logs_export_done_format">Архив логов сохранен: %1$s</string>
+    <string name="about_logs_export_failed_format">Ошибка экспорта логов: %1$s</string>
+    <string name="about_share_logs">Поделиться архивом логов</string>
+    <string name="about_share_not_available">Нет приложения для отправки логов</string>
     <string name="intent_open_with">Открыть с помощью</string>
     <string name="intent_send_email">Отправить письмо</string>
     <string name="email_app_not_found">Не найдено приложение для почты</string>
@@ -61,6 +89,7 @@
     <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">Статус VPN</string>
     <string name="vpn_channel_description">Статус подключения VPN</string>
+    <string name="vpn_notification_title_service_running">Сервис работает</string>
     <string name="vpn_notification_title_connecting">Подключение к VPN</string>
     <string name="vpn_notification_title_connected">VPN подключен</string>
     <string name="vpn_notification_title_disconnecting">Отключение от VPN</string>
@@ -94,7 +123,8 @@
     <!-- Section: Connection details -->
     <string name="connection_detail_duration_label">ДЛИТЕЛЬНОСТЬ</string>
     <string name="connection_detail_downloaded_label">СКАЧАНО</string>
-    <string name="connection_detail_city_label">ГОРОД</string>
+    <string name="connection_detail_city_label">СЕРВЕР</string>
+    <string name="connection_detail_server_position">%1$d/%2$d</string>
     <string name="connection_detail_status_label">СТАТУС</string>
     <string name="connection_detail_uploaded_label">ОТПРАВЛЕНО</string>
     <string name="connection_detail_address_label">АДРЕС</string>
@@ -120,6 +150,15 @@
     <string name="settings_server_custom">Свой сервер (введите url)</string>
     <string name="settings_server_custom_hint">https://ваш-сервер.example/api</string>
     <string name="settings_cache_title">Кэш списка серверов</string>
-    <string name="settings_cache_hint">Минуты (больше 0)</string>
+    <string name="settings_cache_hint">Минуты (должно быть &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d минут</string>
+    <string name="settings_auto_switch_title">Автопереключение внутри страны</string>
+    <string name="settings_auto_switch_subtitle">Автоматически пробует другой сервер в выбранной стране.</string>
+    <string name="settings_auto_switch_on">Вкл</string>
+    <string name="settings_auto_switch_off">Выкл</string>
+    <string name="settings_status_timer_title">Таймер зависания статуса</string>
+    <string name="settings_status_timer_subtitle">Отключает соединение при зависшем статусе.</string>
+    <string name="settings_status_timer_hint">Таймаут (секунды, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d с</string>
+    <string name="ping_ms_format">%1$d мс</string>
 </resources>

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.OpenVPNClient" parent="Theme.OpenVPNClient.Base">
+    <style name="Theme.OpenVPNClientGate" parent="Theme.OpenVPNClientGate.Base">
         <item name="android:statusBarColor">@color/app_background</item>
         <item name="android:navigationBarColor">@color/app_background</item>
     </style>
 
-    <style name="Widget.OpenVPNClient.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
+    <style name="Widget.OpenVPNClientGate.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
         <item name="android:minHeight">48dp</item>
         <item name="android:minWidth">0dp</item>
         <item name="android:paddingStart">16dp</item>
@@ -29,7 +29,7 @@
         <item name="android:clickable">true</item>
     </style>
 
-    <style name="WidgetOpenVPNClientFocusableSurface">
+    <style name="WidgetOpenVPNClientGateFocusableSurface">
         <item name="android:background">?attr/selectableItemBackground</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
@@ -39,8 +39,8 @@
     </style>
 
     <!-- Make About screen chevrons match link color -->
-    <style name="Widget.OpenVPNClient.ClickableRow" parent="WidgetOpenVPNClientFocusableSurface">
-        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClient.Body</item>
+    <style name="Widget.OpenVPNClientGate.ClickableRow" parent="WidgetOpenVPNClientGateFocusableSurface">
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClientGate.Body</item>
         <item name="android:textColor">@color/text_color_primary</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:minHeight">48dp</item>

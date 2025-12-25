@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Section: Base application theme (Day/Night + brand/app attrs) -->
-    <style name="Theme.OpenVPNClient.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.OpenVPNClientGate.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Section: Backgrounds -->
         <item name="android:windowBackground">@color/app_background</item>
 
@@ -10,6 +10,10 @@
         <item name="colorOnPrimary">@color/text_color_primary</item>
         <item name="colorSurface">@color/nav_bar_background</item>
         <item name="colorOnSurface">@color/text_color_primary</item>
+        <item name="colorSecondary">@color/theme_color_secondary</item>
+        <item name="colorOnSecondary">@color/app_background</item>
+        <item name="colorControlActivated">@color/theme_color_secondary</item>
+        <item name="colorControlHighlight">@color/theme_color_secondary</item>
 
         <!-- Section: App-specific attributes -->
         <item name="ovpnNavBarColor">@color/nav_bar_background</item>
@@ -20,15 +24,15 @@
     </style>
 
     <!-- Section: Toolbar overlay (unify icon/text colors) -->
-    <style name="ThemeOverlay.OpenVPNClient.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
+    <style name="ThemeOverlay.OpenVPNClientGate.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
         <item name="colorControlNormal">@color/text_color_primary</item>
         <item name="android:textColorPrimary">@color/text_color_primary</item>
         <item name="android:textColorSecondary">@color/text_color_secondary</item>
         <item name="actionMenuTextColor">@color/text_color_primary</item>
-        <item name="toolbarNavigationButtonStyle">@style/Widget.OpenVPNClient.Toolbar.NavButton</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.OpenVPNClientGate.Toolbar.NavButton</item>
     </style>
 
-    <style name="Widget.OpenVPNClient.Toolbar.NavButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+    <style name="Widget.OpenVPNClientGate.Toolbar.NavButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">
         <item name="android:background">@drawable/toolbar_nav_button_background</item>
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
@@ -38,7 +42,7 @@
         <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
     </style>
 
-    <style name="WidgetOpenVPNClientFocusableSurface">
+    <style name="WidgetOpenVPNClientGateFocusableSurface">
         <item name="android:focusable">true</item>
         <item name="android:focusableInTouchMode">true</item>
         <item name="android:clickable">true</item>
@@ -46,7 +50,7 @@
     </style>
 
     <!-- Section: Widgets -->
-    <style name="Widget.OpenVPNClient.Button" parent="Widget.MaterialComponents.Button">
+    <style name="Widget.OpenVPNClientGate.Button" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">?attr/colorPrimary</item>
         <item name="android:textColor">?attr/colorOnPrimary</item>
         <item name="cornerRadius">12dp</item>
@@ -64,7 +68,7 @@
         <item name="rippleColor">@android:color/transparent</item>
     </style>
 
-    <style name="Widget.OpenVPNClient.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
+    <style name="Widget.OpenVPNClientGate.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">@color/server_selection_background_tint</item>
         <item name="strokeColor">@color/server_selection_stroke_color</item>
         <item name="strokeWidth">1dp</item>
@@ -95,8 +99,8 @@
     </style>
 
     <!-- Section: Clickable rows (About links etc.) -->
-    <style name="Widget.OpenVPNClient.ClickableRow" parent="WidgetOpenVPNClientFocusableSurface">
-        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClient.Body</item>
+    <style name="Widget.OpenVPNClientGate.ClickableRow" parent="WidgetOpenVPNClientGateFocusableSurface">
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClientGate.Body</item>
         <item name="android:textColor">?attr/colorPrimary</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:minHeight">48dp</item>
@@ -109,15 +113,15 @@
     </style>
 
     <!-- Section: Text appearances -->
-    <style name="TextAppearance.OpenVPNClient.Title" parent="TextAppearance.AppCompat.Title">
+    <style name="TextAppearance.OpenVPNClientGate.Title" parent="TextAppearance.AppCompat.Title">
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
-    <style name="TextAppearance.OpenVPNClient.Body" parent="TextAppearance.AppCompat.Body1">
+    <style name="TextAppearance.OpenVPNClientGate.Body" parent="TextAppearance.AppCompat.Body1">
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
-    <style name="TextAppearance.OpenVPNClient.Subtitle" parent="TextAppearance.AppCompat.Caption">
+    <style name="TextAppearance.OpenVPNClientGate.Subtitle" parent="TextAppearance.AppCompat.Caption">
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 

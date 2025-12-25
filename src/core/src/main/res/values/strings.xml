@@ -19,7 +19,12 @@
     <!-- Section: Server screen -->
     <string name="server_list_title">Server list</string>
     <string name="server_list_subtitle">If there is a connection problem, select another server.</string>
+    <plurals name="server_count">
+        <item quantity="one">%d server</item>
+        <item quantity="other">%d servers</item>
+    </plurals>
     <string name="action_refresh">Refresh</string>
+    <string name="server_list_refresh_locked_hint">Refresh disabled while VPN is connected.</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">An error occurred</string>
@@ -32,10 +37,25 @@
     <string name="current_city">Not selected</string>
     <string name="feature_in_development">Feature in Development</string>
 
+    <!-- Section: DNS -->
+    <string name="dns_select_title">Choose DNS</string>
+    <string name="dns_select_subtitle">Select a DNS provider to use while connected.</string>
+    <string name="dns_option_default">Use VPN server DNS</string>
+
+    <!-- Section: App filter -->
+    <string name="filter_tab_user">User</string>
+    <string name="filter_tab_system">System</string>
+    <string name="filter_info_title">Filtering for apps</string>
+    <string name="filter_info_subtitle">Disable an app to let it work outside the VPN.</string>
+    <string name="filter_select_all">Select all</string>
+    <string name="filter_empty_state">No applications found</string>
+    <string name="filter_switch_content_description">Toggle tunneling for %1$s</string>
+
     <!-- Section: About -->
     <string name="about_section_app">Application</string>
     <string name="about_section_links">Links</string>
     <string name="about_section_legal">Legal</string>
+    <string name="about_section_diagnostics">Diagnostics</string>
     <string name="about_version_format">Version: %1$s (%2$d)</string>
     <string name="about_package_format">Package: %1$s</string>
     <string name="about_engine_format">VPN Engine: %1$s - %2$s</string>
@@ -49,6 +69,12 @@
     <string name="about_terms_of_use">Terms of Use</string>
     <string name="about_licenses">GPLv2 License</string>
     <string name="about_ics_github">ics-openvpn on GitHub</string>
+    <string name="about_export_logs">Export logcat (last 5 days)</string>
+    <string name="about_logs_export_started">Preparing log archive...</string>
+    <string name="about_logs_export_done_format">Log archive saved: %1$s</string>
+    <string name="about_logs_export_failed_format">Log export failed: %1$s</string>
+    <string name="about_share_logs">Share log archive</string>
+    <string name="about_share_not_available">No app available to share logs</string>
     <string name="intent_open_with">Open with</string>
     <string name="intent_send_email">Send email</string>
     <string name="email_app_not_found">No email app available</string>
@@ -61,6 +87,7 @@
     <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">VPN Status</string>
     <string name="vpn_channel_description">Status of the VPN connection</string>
+    <string name="vpn_notification_title_service_running">Service is running</string>
     <string name="vpn_notification_title_connecting">VPN connecting</string>
     <string name="vpn_notification_title_connected">VPN connected</string>
     <string name="vpn_notification_title_disconnecting">VPN disconnecting</string>
@@ -98,7 +125,8 @@
     <!-- Section: Connection details (landscape) -->
     <string name="connection_detail_duration_label">DURATION</string>
     <string name="connection_detail_downloaded_label">DOWNLOADED</string>
-    <string name="connection_detail_city_label">CITY</string>
+    <string name="connection_detail_city_label">SERVER</string>
+    <string name="connection_detail_server_position">%1$d/%2$d</string>
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">UPLOADED</string>
     <string name="connection_detail_address_label">ADDRESS</string>
@@ -125,4 +153,13 @@
     <string name="settings_cache_title">Server list cache</string>
     <string name="settings_cache_hint">Minutes (must be &gt; 0)</string>
     <string name="settings_cache_summary_format">%1$d minutes</string>
+    <string name="settings_auto_switch_title">Auto switch within country</string>
+    <string name="settings_auto_switch_subtitle">Automatically retry another server in the selected country.</string>
+    <string name="settings_auto_switch_on">On</string>
+    <string name="settings_auto_switch_off">Off</string>
+    <string name="settings_status_timer_title">Status stall timer</string>
+    <string name="settings_status_timer_subtitle">Disconnects if connection status stalls.</string>
+    <string name="settings_status_timer_hint">Timeout (seconds, &gt; 0)</string>
+    <string name="settings_status_timer_summary_format">%1$d s</string>
+    <string name="ping_ms_format">%1$d ms</string>
 </resources>

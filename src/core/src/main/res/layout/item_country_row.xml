@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    style="@style/WidgetOpenVPNClientFocusableSurface"
+    style="@style/WidgetOpenVPNClientGateFocusableSurface"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginStart="16dp"
@@ -22,22 +22,38 @@
         android:paddingBottom="12dp">
 
         <TextView
-            android:id="@+id/country_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Body" />
-
-        <TextView
             android:id="@+id/country_flag"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
             android:gravity="center"
             android:textSize="18sp"
             android:visibility="gone" />
 
+        <TextView
+            android:id="@+id/country_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+
+        <TextView
+            android:id="@+id/server_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:textAlignment="viewEnd"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+
+        <ImageView
+            android:id="@+id/chevron_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_baseline_chevron_right_24"
+            app:tint="@color/text_color_secondary" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>
-
