@@ -374,24 +374,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun handleForegroundForLevel(level: ConnectionStatus) {
         when (level) {
-            ConnectionStatus.LEVEL_CONNECTED -> {
-                stopForegroundIfStarted()
-            }
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
-                stopForegroundIfStarted()
-            }
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT,
+            ConnectionStatus.LEVEL_CONNECTED -> stopForegroundIfStarted()
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
-                startForegroundIfNeeded()
-                updateForegroundNotification(
-                    R.string.vpn_notification_title_service_running,
-                    R.string.vpn_notification_text_connecting
-                )
+                if (foregroundStarted) {
+                    updateForegroundNotification(
+                        R.string.vpn_notification_title_service_running,
+                        R.string.vpn_notification_text_connecting
+                    )
+                } else {
+                    startForegroundIfNeeded()
+                }
             }
             else -> {}
         }
