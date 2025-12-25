@@ -158,7 +158,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         super.onStart()
         Log.i(screenLogTag, "enter ${javaClass.simpleName}")
         try {
-            ContextCompat.startForegroundService(this, Intent(this, OpenVpnService::class.java))
+            startService(Intent(this, OpenVpnService::class.java))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to start OpenVpnService from UI", e)
         }

@@ -42,7 +42,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
-        ContextCompat.startForegroundService(context, intent)
+        context.startService(intent)
     }
 
     fun refreshNotification(context: Context) {
@@ -50,7 +50,7 @@ object VpnManager {
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
         }
-        ContextCompat.startForegroundService(context, intent)
+        context.startService(intent)
     }
 }
 

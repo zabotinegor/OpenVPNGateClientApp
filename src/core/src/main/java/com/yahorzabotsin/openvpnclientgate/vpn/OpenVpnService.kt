@@ -14,7 +14,10 @@ import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
 import android.app.PendingIntent
+import android.content.res.Configuration
+import android.os.LocaleList
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
@@ -247,6 +250,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.notificationChannels.any { it.id == FOREGROUND_CHANNEL_ID }) return
+        logNotificationStatus("before channel create")
         nm.createNotificationChannel(
             NotificationChannel(
                 FOREGROUND_CHANNEL_ID,
@@ -254,9 +258,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 NotificationManager.IMPORTANCE_LOW
             ).apply { description = "VPN controller running in background" }
         )
+        logNotificationStatus("after channel create")
     }
 
     private fun buildForegroundNotification(titleRes: Int, textRes: Int): Notification {
+        val localizedCtx = localizedContext()
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launchIntent?.let {
             PendingIntent.getActivity(
@@ -266,8 +272,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         }
-        val title = safeString(titleRes, "VPN")
-        val text = safeString(textRes, "VPN running")
+        val title = safeString(localizedCtx, titleRes, "VPN")
+        val text = safeString(localizedCtx, textRes, "VPN running")
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_icon_system)
             .setContentTitle(title)
@@ -281,12 +287,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             .build()
     }
 
-    private fun safeString(resId: Int, fallback: String): String =
+    private fun safeString(ctx: Context, resId: Int, fallback: String): String =
         try {
-            getString(resId)
+            ctx.getString(resId)
         } catch (_: Exception) {
             fallback
         }
+
+    private fun localizedContext(): Context {
+        val locales = AppCompatDelegate.getApplicationLocales()
+        if (locales.isEmpty) return this
+        val config = Configuration(resources.configuration)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            config.setLocales(LocaleList.forLanguageTags(locales.toLanguageTags()))
+        } else {
+            @Suppress("DEPRECATION")
+            config.setLocale(locales[0])
+        }
+        return createConfigurationContext(config)
+    }
 
     private fun startForegroundIfNeeded() {
         if (foregroundStarted) return
@@ -294,6 +313,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             foregroundStarted = true
             return
         }
+        logNotificationStatus("before startForeground")
         val notification = buildForegroundNotification(
             R.string.vpn_notification_title_connecting,
             R.string.vpn_notification_text_connecting
@@ -304,6 +324,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (e: Exception) {
             Log.w(TAG, "Failed to start foreground", e)
         }
+    }
+
+    private fun logNotificationStatus(reason: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.getNotificationChannel(FOREGROUND_CHANNEL_ID)
+        } else {
+            null
+        }
+        val notificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            nm.areNotificationsEnabled()
+        } else {
+            true
+        }
+        val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        val importance = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            channel?.importance?.toString() ?: "null"
+        } else {
+            "n/a"
+        }
+        Log.i(
+            TAG,
+            "Notification status (${reason}): enabled=${notificationsEnabled}, permission=${permissionGranted}, channel=${channel?.id ?: "null"}, importance=${importance}"
+        )
     }
 
     private fun stopForegroundIfStarted() {
@@ -324,6 +372,31 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             R.string.vpn_notification_title_connecting to R.string.vpn_notification_text_connecting
         }
         updateForegroundNotification(titleRes, textRes)
+    }
+
+    private fun handleForegroundForLevel(level: ConnectionStatus) {
+        when (level) {
+            ConnectionStatus.LEVEL_CONNECTED -> {
+                stopForegroundIfStarted()
+            }
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
+                stopForegroundIfStarted()
+            }
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_VPNPAUSED,
+            ConnectionStatus.LEVEL_AUTH_FAILED -> {
+                startForegroundIfNeeded()
+                updateForegroundNotification(
+                    R.string.vpn_notification_title_connecting,
+                    R.string.vpn_notification_text_connecting
+                )
+            }
+            else -> {}
+        }
     }
 
     private fun updateForegroundNotification(titleRes: Int, textRes: Int) {
@@ -347,6 +420,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 Log.i(TAG, "ACTION_START")
+                startForegroundIfNeeded()
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
@@ -410,7 +484,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 Log.d(TAG, "ACTION_REFRESH_NOTIFICATION")
                 refreshForegroundNotification()
             }
-            else -> Log.w(TAG, "Unknown/missing action: ${intent?.getStringExtra(VpnManager.actionKey(this))}")
+            else -> if (intent != null) {
+                Log.w(TAG, "Unknown/missing action: ${intent.getStringExtra(VpnManager.actionKey(this))}")
+            }
         }
         return START_NOT_STICKY
     }
@@ -552,6 +628,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
         try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         ConnectionStateManager.updateFromEngine(level, state)
+        handleForegroundForLevel(level)
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
@@ -583,14 +660,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                   userInitiatedStart = false
                   userInitiatedStop = false
                 Log.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
-                stopForegroundIfStarted()
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
-                stopSelfSafely()
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
                 Log.d(TAG, "Waiting for user input")
@@ -879,6 +954,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
+        statusHandler.post { handleForegroundForLevel(level) }
         if (allowAutoSwitch) {
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL") } catch (_: Exception) { }
         }
