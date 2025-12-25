@@ -47,6 +47,19 @@ class OpenVpnServiceNotificationTest {
         assertFalse(service.isForegroundStarted())
     }
 
+    @Test
+    fun actionStopUsesForegroundWhenNeeded() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP)
+        }
+
+        service.onStartCommand(intent, 0, 1)
+        assertTrue(service.isForegroundStarted())
+    }
+
     private fun OpenVpnService.isForegroundStarted(): Boolean {
         val field = OpenVpnService::class.java.getDeclaredField("foregroundStarted")
         field.isAccessible = true
