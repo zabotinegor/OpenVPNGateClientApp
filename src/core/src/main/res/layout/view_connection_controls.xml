@@ -6,7 +6,7 @@
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/server_selection_container"
-        style="@style/Widget.OpenVPNClient.ServerSelectionButton"
+        style="@style/Widget.OpenVPNClientGate.ServerSelectionButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="24dp"
@@ -20,7 +20,7 @@
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/start_connection_button"
-        style="@style/Widget.OpenVPNClient.Button"
+        style="@style/Widget.OpenVPNClientGate.Button"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="24dp"

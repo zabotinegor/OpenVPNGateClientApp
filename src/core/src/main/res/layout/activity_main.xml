@@ -17,7 +17,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:padding="16dp"
-            android:theme="@style/ThemeOverlay.OpenVPNClient.Toolbar"
+            android:theme="@style/ThemeOverlay.OpenVPNClientGate.Toolbar"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
@@ -27,7 +27,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/app_name"
-            android:textAppearance="@style/TextAppearance.OpenVPNClient.Title"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title"
             app:layout_constraintBottom_toBottomOf="@+id/toolbar"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -43,7 +43,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
-        <com.yahorzabotsin.openvpnclient.core.ui.ConnectionControlsView
+        <com.yahorzabotsin.openvpnclientgate.core.ui.ConnectionControlsView
             android:id="@+id/connection_controls"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

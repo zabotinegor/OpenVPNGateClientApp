@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Focused/hovered: stronger lift -->
+    <item android:state_enabled="true" android:state_focused="true">
+        <set>
+            <objectAnimator
+                android:duration="220"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.55" android:value="1.10" />
+                    <keyframe android:fraction="1.0" android:value="1.05" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="220"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.0" />
+                    <keyframe android:fraction="0.55" android:value="1.10" />
+                    <keyframe android:fraction="1.0" android:value="1.05" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+    <!-- Pressed while focused/hovered: quick dip then bounce -->
+    <item android:state_enabled="true" android:state_pressed="true">
+        <set>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleX"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleX">
+                    <keyframe android:fraction="0.0" android:value="1.05" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.08" />
+                    <keyframe android:fraction="1.0" android:value="1.05" />
+                </propertyValuesHolder>
+            </objectAnimator>
+            <objectAnimator
+                android:duration="180"
+                android:propertyName="scaleY"
+                android:valueType="floatType">
+                <propertyValuesHolder android:propertyName="scaleY">
+                    <keyframe android:fraction="0.0" android:value="1.05" />
+                    <keyframe android:fraction="0.35" android:value="0.95" />
+                    <keyframe android:fraction="0.7" android:value="1.08" />
+                    <keyframe android:fraction="1.0" android:value="1.05" />
+                </propertyValuesHolder>
+            </objectAnimator>
+        </set>
+    </item>
+
+    <!-- Default / focus lost: settle back -->
+    <item>
+        <set>
+            <objectAnimator
+                android:duration="160"
+                android:propertyName="scaleX"
+                android:valueType="floatType"
+                android:valueTo="1.0" />
+            <objectAnimator
+                android:duration="160"
+                android:propertyName="scaleY"
+                android:valueType="floatType"
+                android:valueTo="1.0" />
+        </set>
+    </item>
+
+</selector>

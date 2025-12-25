@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:stateListAnimator="?attr/ovpnFocusableStateListAnimator"
+    app:cardBackgroundColor="@color/nav_bar_background"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="16dp">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="12dp"
+            android:contentDescription="@string/filter_select_all"
+            android:src="@drawable/ic_check_circle_24"
+            app:tint="?attr/colorOnSurface" />
+
+        <TextView
+            android:id="@+id/select_all_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/filter_select_all"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Title" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/select_all_switch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:thumbTint="@color/filter_switch_thumb"
+            app:trackTint="@color/filter_switch_track"
+            android:textOff=""
+            android:textOn=""
+            app:showText="false" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>
