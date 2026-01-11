@@ -138,8 +138,8 @@
     <!-- Section: Settings -->
     <string name="settings_language_title">Język</string>
     <string name="settings_language_system">Język systemu</string>
-    <string name="settings_language_english">Angielski</string>
-    <string name="settings_language_russian">Rosyjski</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
     <string name="settings_theme_title">Motyw</string>
     <string name="settings_theme_system">Motyw systemu</string>

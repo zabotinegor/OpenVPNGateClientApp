@@ -136,9 +136,9 @@
     <!-- Section: Settings -->
     <string name="settings_language_title">Язык</string>
     <string name="settings_language_system">Язык системы</string>
-    <string name="settings_language_english">Английский</string>
+    <string name="settings_language_english">English</string>
     <string name="settings_language_russian">Русский</string>
-    <string name="settings_language_polish">Польский</string>
+    <string name="settings_language_polish">Polski</string>
     <string name="settings_theme_title">Тема</string>
     <string name="settings_theme_system">Системная тема</string>
     <string name="settings_theme_light">Светлая</string>

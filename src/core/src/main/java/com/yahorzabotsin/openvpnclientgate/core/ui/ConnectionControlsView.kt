@@ -303,7 +303,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun buildServerSelectionLabel(country: String, ip: String?): CharSequence =
         buildSpannedString {
-            inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClientGate_Body)) {
+            inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClientGate_BodyAdditional)) {
                 append(country.trim())
             }
         }
@@ -501,7 +501,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private fun updateServerButtonIcons(showGlobe: Boolean) {
         val tint = MaterialColors.getColor(
             binding.serverSelectionContainer,
-            com.google.android.material.R.attr.colorOnPrimary,
+            com.google.android.material.R.attr.colorOnTertiary,
             ContextCompat.getColor(context, android.R.color.white)
         )
         val globe = if (showGlobe) {
