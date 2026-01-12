@@ -3,6 +3,7 @@
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Color
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
@@ -118,6 +119,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         connectionControlsView = binding.connectionControls
 
         binding.connectionDetails.speedometer.bindTo(this)
+
+        binding.drawerLayout.setStatusBarBackground(null)
+        binding.drawerLayout.setStatusBarBackgroundColor(Color.TRANSPARENT)
 
         styleNavigationView(binding.navView)
 
