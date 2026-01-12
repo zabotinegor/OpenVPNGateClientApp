@@ -43,7 +43,7 @@
     <color name="server_selection_bg_default">#00000000</color>
     <color name="server_selection_bg_focus">#1A3B7CFF</color>
     <color name="server_selection_bg_pressed">#333B7CFF</color>
-    <color name="server_selection_border_default">#2F5C75</color>
+    <color name="server_selection_border_default">#092635</color>
     <color name="server_selection_border_focus">#2F5C75</color>
     <color name="server_selection_border_pressed">#2F5C75</color>
 

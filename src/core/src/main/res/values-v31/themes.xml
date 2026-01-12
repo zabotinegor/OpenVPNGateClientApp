@@ -1,27 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.OpenVPNClientGate.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.OpenVPNClientGate.Base" parent="Theme.OpenVPNClientGate.Base.Platform">
         <!-- Section: Backgrounds -->
-        <item name="android:windowBackground">@color/app_background</item>
         <item name="android:windowSplashScreenBackground">@color/splash_background_color</item>
 
-        <!-- Section: Material color roles -->
-        <item name="colorPrimary">@color/speedometer_progress_color</item>
-        <item name="colorOnPrimary">@color/text_color_primary</item>
-        <item name="colorSurface">@color/nav_bar_background</item>
-        <item name="colorOnSurface">@color/text_color_primary</item>
-        <item name="colorSecondary">@color/theme_color_secondary</item>
-        <item name="colorOnSecondary">@color/app_background</item>
-        <item name="colorOnTertiary">@color/text_color_tertiary</item>
-        <item name="colorControlActivated">@color/theme_color_secondary</item>
-        <item name="colorControlHighlight">@color/theme_color_secondary</item>
-
-        <!-- Section: App-specific attributes -->
-        <item name="ovpnNavBarColor">@color/nav_bar_background</item>
-        <item name="ovpnSpeedometerArcColor">@color/speedometer_arc_color</item>
-        <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
-        <item name="ovpnSpeedometerTextColor">@color/speedometer_text_color</item>
-        <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
     </style>
 </resources>

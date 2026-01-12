@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Section: Base application theme (Day/Night + brand/app attrs) -->
-    <style name="Theme.OpenVPNClientGate.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.OpenVPNClientGate.Base.Platform" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Section: Backgrounds -->
         <item name="android:windowBackground">@color/app_background</item>
 
@@ -24,13 +24,17 @@
         <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
     </style>
 
+    <style name="Theme.OpenVPNClientGate.Base" parent="Theme.OpenVPNClientGate.Base.Platform"/>
+
     <!-- Section: Toolbar overlay (unify icon/text colors) -->
     <style name="ThemeOverlay.OpenVPNClientGate.Toolbar" parent="ThemeOverlay.MaterialComponents.ActionBar">
         <item name="colorControlNormal">@color/text_color_primary</item>
         <item name="android:textColorPrimary">@color/text_color_primary</item>
         <item name="android:textColorSecondary">@color/text_color_secondary</item>
         <item name="actionMenuTextColor">@color/text_color_primary</item>
-        <item name="toolbarNavigationButtonStyle">@style/Widget.OpenVPNClientGate.Toolbar.NavButton</item>
+        <item name="toolbarNavigationButtonStyle">
+            @style/Widget.OpenVPNClientGate.Toolbar.NavButton
+        </item>
     </style>
 
     <style name="Widget.OpenVPNClientGate.Toolbar.NavButton" parent="Widget.AppCompat.Toolbar.Button.Navigation">

@@ -82,7 +82,7 @@
                     android:checked="true"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_system"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
 
                 <RadioButton
@@ -91,7 +91,7 @@
                     android:layout_height="wrap_content"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_english"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
 
                 <RadioButton
@@ -100,7 +100,7 @@
                     android:layout_height="wrap_content"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_russian"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
 
                 <RadioButton
@@ -109,7 +109,7 @@
                     android:layout_height="wrap_content"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_polish"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
             </RadioGroup>
         </LinearLayout>
@@ -186,7 +186,7 @@
                     android:checked="true"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_system"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
 
                 <RadioButton
@@ -195,7 +195,7 @@
                     android:layout_height="wrap_content"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_light"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
 
                 <RadioButton
@@ -204,7 +204,7 @@
                     android:layout_height="wrap_content"
                     android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_dark"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
             </RadioGroup>
         </LinearLayout>
@@ -296,7 +296,7 @@
                         android:checked="true"
                         android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_default"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         android:textColor="?attr/colorOnSurface" />
 
                     <RadioButton
@@ -305,7 +305,7 @@
                         android:layout_height="wrap_content"
                         android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_vpngate"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         android:textColor="?attr/colorOnSurface" />
 
                     <RadioButton
@@ -314,7 +314,7 @@
                         android:layout_height="wrap_content"
                         android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_custom"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         android:textColor="?attr/colorOnSurface" />
                 </RadioGroup>
 
@@ -332,7 +332,8 @@
                         android:layout_height="wrap_content"
                         android:hint="@string/settings_server_custom_hint"
                         android:inputType="textUri"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+                        android:textColor="?attr/colorOnSurface" />
                 </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </LinearLayout>
@@ -424,7 +425,7 @@
                         android:checked="true"
                         android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_auto_switch_on"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         android:textColor="?attr/colorOnSurface" />
 
                     <RadioButton
@@ -433,7 +434,7 @@
                         android:layout_height="wrap_content"
                         android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_auto_switch_off"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                         android:textColor="?attr/colorOnSurface" />
                 </RadioGroup>
             </LinearLayout>
@@ -521,7 +522,7 @@
                     android:hint="@string/settings_status_timer_hint"
                     android:nextFocusUp="@id/status_timer_header"
                     android:nextFocusDown="@id/cache_header"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
@@ -599,7 +600,7 @@
                     android:inputType="number"
                     android:hint="@string/settings_cache_hint"
                     android:nextFocusUp="@id/cache_header"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                     android:textColor="?attr/colorOnSurface" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
