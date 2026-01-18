@@ -77,36 +77,24 @@
 
                 <RadioButton
                     android:id="@+id/language_system"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
                     android:checked="true"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_system"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton"/>
 
                 <RadioButton
                     android:id="@+id/language_en"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_english"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton"/>
 
                 <RadioButton
                     android:id="@+id/language_ru"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_russian"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton"/>
 
                 <RadioButton
                     android:id="@+id/language_pl"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_language_polish"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
             </RadioGroup>
         </LinearLayout>
 
@@ -177,28 +165,19 @@
 
                 <RadioButton
                     android:id="@+id/theme_system"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
                     android:checked="true"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_system"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                 <RadioButton
                     android:id="@+id/theme_light"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_light"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                 <RadioButton
                     android:id="@+id/theme_dark"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:buttonTint="?attr/colorPrimary"
                     android:text="@string/settings_theme_dark"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
             </RadioGroup>
         </LinearLayout>
 
@@ -284,28 +263,19 @@
 
                     <RadioButton
                         android:id="@+id/server_default"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
                         android:checked="true"
-                        android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_default"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                     <RadioButton
                         android:id="@+id/server_vpngate"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_vpngate"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                     <RadioButton
                         android:id="@+id/server_custom"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_server_custom"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
                 </RadioGroup>
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -322,7 +292,8 @@
                         android:layout_height="wrap_content"
                         android:hint="@string/settings_server_custom_hint"
                         android:inputType="textUri"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                        android:textColor="@null" />
                 </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </LinearLayout>
@@ -409,20 +380,14 @@
 
                     <RadioButton
                         android:id="@+id/auto_switch_on"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
                         android:checked="true"
-                        android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_auto_switch_on"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                     <RadioButton
                         android:id="@+id/auto_switch_off"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:buttonTint="?attr/colorPrimary"
                         android:text="@string/settings_auto_switch_off"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
                 </RadioGroup>
             </LinearLayout>
         </LinearLayout>
@@ -509,7 +474,8 @@
                     android:hint="@string/settings_status_timer_hint"
                     android:nextFocusUp="@id/status_timer_header"
                     android:nextFocusDown="@id/cache_header"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textColor="@null" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
@@ -556,9 +522,9 @@
                         android:id="@+id/cache_summary"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
-                    android:ellipsize="end"
-                    android:maxLines="1" />
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle" />
                 </LinearLayout>
 
                 <ImageView
@@ -586,7 +552,8 @@
                     android:inputType="number"
                     android:hint="@string/settings_cache_hint"
                     android:nextFocusUp="@id/cache_header"
-                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
+                    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
+                    android:textColor="@null" />
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
     </LinearLayout>

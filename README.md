@@ -35,6 +35,7 @@ Open-source Android client for connecting to the public VPN Gate network. The ap
 - Status snapshots persisted in the engine with AIDL sync for reliable relaunch/idle recovery
 - User server selection while connected/connecting stops the current VPN session
 - Refresh is locked to cache while VPN is connected to avoid blocked network access
+- Theme selection with system, light, and dark modes
 
 ## Runtime logging
 - Minimal screen flow logs are emitted on enter/exit for key screens.
@@ -103,6 +104,7 @@ cd src
 
 ## CI/CD
 GitHub Actions workflows are located in `.github/workflows` and build signed release artifacts from `dev`, `main`, and tags (requires secrets for signing and server URLs). CI publishes a single APK/AAB artifact intended for all supported devices.
+PR checks (build-by-pull-request) run unit tests, build debug APKs for mobile and TV, upload them as artifacts with the commit short SHA, and post a PR comment with links.
 Tag and asset naming includes the build number (GitHub run number) to ensure each run is unique:
 - Stable auto: `v1.2.3-auto(45)`
 - Stable tag: `v1.2.3(45)`

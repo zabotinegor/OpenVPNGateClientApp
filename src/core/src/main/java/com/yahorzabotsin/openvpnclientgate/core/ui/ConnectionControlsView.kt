@@ -303,7 +303,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun buildServerSelectionLabel(country: String, ip: String?): CharSequence =
         buildSpannedString {
-            inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClientGate_Body)) {
+            inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClientGate_BodyAdditional)) {
                 append(country.trim())
             }
         }

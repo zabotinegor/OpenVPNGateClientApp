@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
     <style name="Theme.OpenVPNClientGate" parent="Theme.OpenVPNClientGate.Base">
         <item name="android:statusBarColor">@color/app_background</item>
         <item name="android:navigationBarColor">@color/app_background</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 
     <style name="Widget.OpenVPNClientGate.ServerSelectionButton" parent="Widget.MaterialComponents.Button">
