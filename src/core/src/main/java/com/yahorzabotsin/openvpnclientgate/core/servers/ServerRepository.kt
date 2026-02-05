@@ -12,14 +12,10 @@ import java.io.FileReader
 import java.io.IOException
 import java.security.MessageDigest
 import java.io.Reader
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
-import retrofit2.Retrofit
-import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Url
 
@@ -29,8 +25,8 @@ interface VpnServersApi {
 }
 
 class ServerRepository(
-    private val api: VpnServersApi = createDefaultApi(),
-    private val settingsStore: UserSettingsStore = UserSettingsStore
+    internal val api: VpnServersApi,
+    private val settingsStore: UserSettingsStore
 ) {
 
     private companion object {
@@ -40,21 +36,6 @@ class ServerRepository(
         private const val KEY_LAST_CACHE = "last_cache_key"
         private const val CACHE_FILE_PREFIX = "servers_"
         private const val CACHE_FILE_SUFFIX = ".csv"
-        private fun createDefaultApi(): VpnServersApi {
-            val okHttpClient = OkHttpClient.Builder()
-                .readTimeout(30, TimeUnit.SECONDS)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .build()
-
-            val retrofit = Retrofit.Builder()
-                .baseUrl("https://openvpnclientgate.local/")
-                .client(okHttpClient)
-                .addConverterFactory(ScalarsConverterFactory.create())
-                .build()
-
-            return retrofit.create(VpnServersApi::class.java)
-        }
-
         private fun cacheKey(urls: List<String>): String {
             val joined = urls.joinToString("|")
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())

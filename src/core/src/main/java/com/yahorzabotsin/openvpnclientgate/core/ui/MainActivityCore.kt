@@ -27,13 +27,14 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
+import org.koin.android.ext.android.inject
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
     protected lateinit var connectionControlsView: ConnectionControlsView
-    private val serverRepository = ServerRepository()
+    private val serverRepository: ServerRepository by inject()
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private var reopenDrawerAfterReturn = false

@@ -19,12 +19,13 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
+import org.koin.android.ext.android.inject
 
 class CountryServersActivity : AppCompatActivity() {
 
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentCountryServersBinding
-    private val serverRepository = ServerRepository()
+    private val serverRepository: ServerRepository by inject()
     private var countryName: String? = null
     private var countryCode: String? = null
     private var servers: List<Server> = emptyList()

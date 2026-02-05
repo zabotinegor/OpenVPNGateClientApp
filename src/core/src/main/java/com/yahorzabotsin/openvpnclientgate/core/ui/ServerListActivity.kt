@@ -18,10 +18,11 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import android.widget.Toast
+import org.koin.android.ext.android.inject
 
 open class ServerListActivity : AppCompatActivity() {
 
-    private val serverRepository = ServerRepository()
+    private val serverRepository: ServerRepository by inject()
     private lateinit var servers: List<Server>
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentServerListBinding

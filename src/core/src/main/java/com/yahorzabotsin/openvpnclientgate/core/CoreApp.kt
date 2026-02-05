@@ -3,8 +3,11 @@
 import android.app.ActivityManager
 import android.app.Application
 import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.di.coreModule
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.GlobalPreferences
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.startKoin
 
 class CoreApp : Application() {
     private companion object {
@@ -13,6 +16,10 @@ class CoreApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        startKoin {
+            androidContext(this@CoreApp)
+            modules(coreModule)
+        }
         installGlobalExceptionHandler()
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
