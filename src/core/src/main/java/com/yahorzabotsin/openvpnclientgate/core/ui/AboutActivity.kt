@@ -1,142 +1,158 @@
 ﻿package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.app.UiModeManager
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
-import com.yahorzabotsin.openvpnclientgate.core.about.AboutMeta
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
-import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
-import kotlinx.coroutines.Dispatchers
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutAction
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutEffect
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutRowId
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutUiState
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.ToastDuration
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.UiText
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
-    private var lastActionAt: Long = 0
-    private var isExportingLogs = false
-    companion object {
-        private const val CLICK_DEBOUNCE_MS = 500L
-        private val TAG = LogTags.APP + ':' + "AboutActivity"
-    }
     private lateinit var bindingContent: ContentAboutBinding
+    private val viewModel: AboutViewModel by viewModel()
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
         bindingContent = ContentAboutBinding.inflate(inflater, container, true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        bindEvents()
+        observeViewModel()
+    }
 
-        val versionView = bindingContent.tvVersion
-        val packageView = bindingContent.tvPackage
-        val engineView = bindingContent.tvEngine
-        val copyrightView = bindingContent.tvCopyright
+    private fun bindEvents() {
+        bindingContent.rowWebsite.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.WEBSITE)) }
+        bindingContent.rowEmail.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.EMAIL)) }
+        bindingContent.rowTelegram.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TELEGRAM)) }
+        bindingContent.rowGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB)) }
+        bindingContent.rowGithubEngine.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB_ENGINE)) }
+        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PLAY)) }
+        bindingContent.rowPrivacy.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PRIVACY)) }
+        bindingContent.rowTerms.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TERMS)) }
+        bindingContent.rowLicense.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LICENSE)) }
+        bindingContent.rowIcsGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.ICS_GITHUB)) }
+        bindingContent.rowLogs.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LOGS)) }
 
-        val websiteRow = bindingContent.rowWebsite
-        val emailRow = bindingContent.rowEmail
-        val telegramRow = bindingContent.rowTelegram
-        val githubRow = bindingContent.rowGithub
-        val githubEngineRow = bindingContent.rowGithubEngine
-        val playRow = bindingContent.rowPlay
-        val privacyRow = bindingContent.rowPrivacy
-        val termsRow = bindingContent.rowTerms
-        val licenseRow = bindingContent.rowLicense
-        val icsGithubRow = bindingContent.rowIcsGithub
-        val logsRow = bindingContent.rowLogs
-
-        val pInfo = packageManager.getPackageInfo(packageName, 0)
-        val versionName = pInfo.versionName ?: ""
-        val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) pInfo.longVersionCode else pInfo.versionCode.toLong()
-
-        versionView.text = getString(R.string.about_version_format, versionName, versionCode)
-        packageView.text = getString(R.string.about_package_format, packageName)
-        engineView.text = getString(R.string.about_engine_format, AboutMeta.ENGINE_NAME, AboutMeta.ENGINE_LICENSE)
-
-        val year = java.time.Year.now().value
-        copyrightView.text = getString(R.string.about_copyright_format, year, AboutMeta.COPYRIGHT_OWNER)
-
-        setupRow(websiteRow, AboutMeta.WEBSITE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.WEBSITE) }
-        setupRow(
-            emailRow,
-            AboutMeta.EMAIL,
-            copyLabel = getString(R.string.copy_label_email),
-            onClick = { openEmail(AboutMeta.EMAIL) },
-            setText = { tv, v -> tv.text = getString(R.string.about_email) + ": " + v }
-        )
-        setupRow(telegramRow, AboutMeta.TELEGRAM, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TELEGRAM) }
-        setupRow(githubRow, AboutMeta.GITHUB, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB) }
-        setupRow(githubEngineRow, AboutMeta.GITHUB_ENGINE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.GITHUB_ENGINE) }
-        setupRow(playRow, AboutMeta.GOOGLE_PLAY, copyLabel = getString(R.string.copy_label_link)) { openPlay(AboutMeta.GOOGLE_PLAY) }
-        setupRow(privacyRow, AboutMeta.PRIVACY_POLICY, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.PRIVACY_POLICY) }
-        setupRow(termsRow, AboutMeta.TERMS_OF_USE, copyLabel = getString(R.string.copy_label_link)) { openUrl(AboutMeta.TERMS_OF_USE) }
-        setupRow(licenseRow, AboutMeta.GPLV2_URL, copyLabel = getString(R.string.copy_label_link)) {
-            openUrl(AboutMeta.GPLV2_URL)
+        bindingContent.rowWebsite.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.WEBSITE)); true
         }
-
-        setupRow(icsGithubRow, AboutMeta.ICS_OPENVPN_GITHUB, copyLabel = getString(R.string.copy_label_link)) {
-            openUrl(AboutMeta.ICS_OPENVPN_GITHUB)
+        bindingContent.rowEmail.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.EMAIL)); true
         }
-
-        logsRow.setOnClickListener {
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastActionAt < CLICK_DEBOUNCE_MS) return@setOnClickListener
-            lastActionAt = now
-            exportLogcatArchive()
+        bindingContent.rowTelegram.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.TELEGRAM)); true
+        }
+        bindingContent.rowGithub.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB)); true
+        }
+        bindingContent.rowGithubEngine.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB_ENGINE)); true
+        }
+        bindingContent.rowPlay.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PLAY)); true
+        }
+        bindingContent.rowPrivacy.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PRIVACY)); true
+        }
+        bindingContent.rowTerms.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.TERMS)); true
+        }
+        bindingContent.rowLicense.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.LICENSE)); true
+        }
+        bindingContent.rowIcsGithub.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.ICS_GITHUB)); true
         }
     }
 
-    private fun setupRow(
-        view: View,
-        value: String,
-        copyLabel: String? = null,
-        setText: ((TextView, String) -> Unit)? = null,
-        onClick: () -> Unit
-    ) {
-        val hasValue = value.isNotBlank()
-        view.isVisible = hasValue
-        if (hasValue) {
-            if (view is TextView) {
-                setText?.invoke(view, value)
+    private fun observeViewModel() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.state.collect { render(it) }
+                }
+                launch {
+                    viewModel.effects.collect { handleEffect(it) }
+                }
             }
-            view.setOnClickListener {
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastActionAt < CLICK_DEBOUNCE_MS) return@setOnClickListener
-                lastActionAt = now
-                onClick()
-            }
-            view.setOnLongClickListener {
-                val textToCopy = value
-                copyToClipboard(copyLabel ?: getString(R.string.copy_label_link), textToCopy)
-                Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show()
-                true
-            }
+        }
+    }
+
+    private fun render(state: AboutUiState) {
+        val info = state.info
+        val links = state.links
+
+        bindingContent.tvVersion.text = getString(R.string.about_version_format, info.versionName, info.versionCode)
+        bindingContent.tvPackage.text = getString(R.string.about_package_format, info.packageName)
+        bindingContent.tvEngine.text = getString(R.string.about_engine_format, info.engineName, info.engineLicense)
+        bindingContent.tvCopyright.text =
+            getString(R.string.about_copyright_format, info.year, info.copyrightOwner)
+
+        bindingContent.rowWebsite.isVisible = links.website.isNotBlank()
+        bindingContent.rowEmail.isVisible = links.email.isNotBlank()
+        bindingContent.rowTelegram.isVisible = links.telegram.isNotBlank()
+        bindingContent.rowGithub.isVisible = links.github.isNotBlank()
+        bindingContent.rowGithubEngine.isVisible = links.githubEngine.isNotBlank()
+        bindingContent.rowPlay.isVisible = links.googlePlay.isNotBlank()
+        bindingContent.rowPrivacy.isVisible = links.privacyPolicy.isNotBlank()
+        bindingContent.rowTerms.isVisible = links.termsOfUse.isNotBlank()
+        bindingContent.rowLicense.isVisible = links.gplv2.isNotBlank()
+        bindingContent.rowIcsGithub.isVisible = links.icsGithub.isNotBlank()
+
+        if (links.email.isNotBlank()) {
+            bindingContent.rowEmail.text = getString(R.string.about_email) + ": " + links.email
+        }
+    }
+
+    private fun handleEffect(effect: AboutEffect) {
+        when (effect) {
+            is AboutEffect.OpenUrl -> openUrl(effect.url)
+            is AboutEffect.OpenEmail -> openEmail(effect.email)
+            is AboutEffect.OpenPlay -> openPlay(effect.webUrl)
+            is AboutEffect.CopyToClipboard -> copyToClipboard(getString(effect.labelResId), effect.text)
+            is AboutEffect.ShowToast -> showToast(effect.text, effect.duration)
+            is AboutEffect.ShareLogArchive -> shareLogArchive(File(effect.filePath))
         }
     }
 
     private fun copyToClipboard(label: String, text: String) {
-        val cm = getSystemService(ClipboardManager::class.java)
-        cm?.setPrimaryClip(ClipData.newPlainText(label, text))
+        val cm = getSystemService(android.content.ClipboardManager::class.java)
+        cm?.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+    }
+
+    private fun showToast(text: UiText, duration: ToastDuration) {
+        val resolved = when (text) {
+            is UiText.Plain -> text.value
+            is UiText.Res -> {
+                if (text.args.isEmpty()) getString(text.resId)
+                else getString(text.resId, *text.args.toTypedArray())
+            }
+        }
+        val toastDuration = when (duration) {
+            ToastDuration.SHORT -> Toast.LENGTH_SHORT
+            ToastDuration.LONG -> Toast.LENGTH_LONG
+        }
+        Toast.makeText(this, resolved, toastDuration).show()
     }
 
     private fun openUrl(url: String) {
@@ -195,153 +211,6 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         } catch (_: ActivityNotFoundException) {
             openUrl(webUrl)
         }
-    }
-
-    private fun exportLogcatArchive() {
-        if (isExportingLogs) return
-        isExportingLogs = true
-        Toast.makeText(this, getString(R.string.about_logs_export_started), Toast.LENGTH_SHORT).show()
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val outputDir = getExternalFilesDir("logs") ?: File(filesDir, "logs")
-            if (!outputDir.exists()) outputDir.mkdirs()
-
-            val logFile = File(outputDir, "logcat_${timestamp}.txt")
-            val zipFile = File(outputDir, "logcat_${timestamp}.zip")
-
-            val uid = applicationInfo.uid
-            val tagPrefix = LogTags.APP
-            val attempts = listOf(
-                LogcatAttempt(withSince = true, useUid = true),
-                LogcatAttempt(withSince = true, useUid = false),
-                LogcatAttempt(withSince = false, useUid = true),
-                LogcatAttempt(withSince = false, useUid = false)
-            )
-            var ok = false
-            var failureReason = "unknown"
-            for (attempt in attempts) {
-                val result = runLogcatToFile(logFile, attempt, uid, tagPrefix)
-                if (result.success) {
-                    ok = true
-                    break
-                }
-                failureReason = result.reason
-            }
-
-            val resultPath = if (ok && logFile.length() > 0) {
-                try {
-                    ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
-                        logFile.name.also { entryName ->
-                            zos.putNextEntry(ZipEntry(entryName))
-                            logFile.inputStream().use { input ->
-                                input.copyTo(zos)
-                            }
-                            zos.closeEntry()
-                        }
-                    }
-                    logFile.delete()
-                    zipFile.absolutePath
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to archive logs", e)
-                    ""
-                }
-            } else {
-                ""
-            }
-
-            withContext(Dispatchers.Main) {
-                isExportingLogs = false
-                if (resultPath.isNotBlank()) {
-                    shareLogArchive(zipFile)
-                    Toast.makeText(
-                        this@AboutActivity,
-                        getString(R.string.about_logs_export_done_format, resultPath),
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    val msg = getString(R.string.about_logs_export_failed_format, failureReason)
-                    Toast.makeText(this@AboutActivity, msg, Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
-    private data class LogcatAttempt(
-        val withSince: Boolean,
-        val useUid: Boolean
-    )
-
-    private data class LogcatResult(
-        val success: Boolean,
-        val reason: String
-    )
-
-    private fun runLogcatToFile(target: File, attempt: LogcatAttempt, uid: Int, tagPrefix: String): LogcatResult {
-        val logcatPath = if (File("/system/bin/logcat").canExecute()) "/system/bin/logcat" else "logcat"
-        val args = mutableListOf(logcatPath, "-d", "-v", "time")
-        if (attempt.useUid) {
-            args.addAll(listOf("--uid", uid.toString()))
-        }
-        if (attempt.withSince) {
-            args.addAll(listOf("-T", "5d"))
-        }
-        val rawFile = File(target.parentFile, "${target.nameWithoutExtension}_raw.txt")
-        val process = ProcessBuilder(args)
-            .redirectErrorStream(true)
-            .start()
-        rawFile.outputStream().use { output ->
-            process.inputStream.use { input ->
-                input.copyTo(output)
-            }
-        }
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            rawFile.delete()
-            return LogcatResult(false, "logcat exit $exitCode")
-        }
-        val head = try {
-            rawFile.bufferedReader().use { it.readLine().orEmpty() }
-        } catch (_: Exception) {
-            ""
-        }
-        if (head.startsWith("logcat:") || head.contains("invalid")) {
-            rawFile.delete()
-            return LogcatResult(false, head.ifBlank { "logcat error" })
-        }
-        val tagToken = tagPrefix.take(23)
-        val tagRegex = Regex("\\s[VDIWEF]\\s+${Regex.escape(tagToken)}")
-        var hasLines = false
-        var hasAnyLines = false
-        target.bufferedWriter().use { writer ->
-            rawFile.bufferedReader().forEachLine { line ->
-                hasAnyLines = true
-                if (tagRegex.containsMatchIn(line) || line.contains(tagToken)) {
-                    writer.write(line)
-                    writer.newLine()
-                    hasLines = true
-                }
-            }
-        }
-        if (!hasAnyLines) {
-            rawFile.delete()
-            target.delete()
-            return LogcatResult(false, "empty logcat output")
-        }
-        if (hasLines) {
-            rawFile.delete()
-            return LogcatResult(true, "ok")
-        }
-        if (attempt.useUid) {
-            rawFile.copyTo(target, overwrite = true)
-            rawFile.delete()
-            return LogcatResult(true, "no tag match; used uid-only logs")
-        }
-        rawFile.delete()
-        if (!hasLines) {
-            target.delete()
-        }
-        return LogcatResult(false, "no tag matches")
     }
 
     private fun shareLogArchive(file: File) {
