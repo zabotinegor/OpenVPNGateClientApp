@@ -18,9 +18,7 @@ data class UserSettings(
     val dnsOption: DnsOption = DnsOption.SERVER
 )
 
-enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
-enum class ThemeOption { SYSTEM, LIGHT, DARK }
-enum class ServerSource { DEFAULT, VPNGATE, CUSTOM }
+
 enum class DnsOption {
     SERVER, GOOGLE, CLOUDFLARE, QUAD9, OPENDNS, ADGUARD, CLEANBROWSING, DNSWATCH;
 

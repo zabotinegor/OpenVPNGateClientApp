@@ -14,7 +14,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
-import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
@@ -24,6 +23,7 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityMainBinding
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectionBootstrap
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.features.settings.presentation.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService

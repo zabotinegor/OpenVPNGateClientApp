@@ -4,9 +4,16 @@ import android.app.ActivityManager
 import android.app.Application
 import android.util.Log
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.features.settings.data.SettingsRepositoryImpl
+import com.yahorzabotsin.openvpnclientgate.features.settings.domain.SettingsRepository
 import de.blinkt.openvpn.core.GlobalPreferences
 
 class CoreApp : Application() {
+
+    val settingsRepository: SettingsRepository by lazy {
+        SettingsRepositoryImpl(applicationContext)
+    }
+
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CoreApp"
     }

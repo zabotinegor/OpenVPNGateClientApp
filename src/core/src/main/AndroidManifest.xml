@@ -55,7 +55,7 @@
             android:name="com.yahorzabotsin.openvpnclientgate.core.ui.FilterActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.SettingsActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.features.settings.presentation.SettingsActivity"
             android:exported="false" />
         <activity
             android:name="com.yahorzabotsin.openvpnclientgate.core.ui.AboutActivity"
