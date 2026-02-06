@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -52,6 +53,7 @@ class AboutViewModelTest {
         )
         val effects = mutableListOf<AboutEffect>()
         val job = launch { vm.effects.take(1).toList(effects) }
+        runCurrent()
 
         vm.onAction(AboutAction.RowClick(AboutRowId.WEBSITE))
         advanceUntilIdle()
@@ -70,6 +72,7 @@ class AboutViewModelTest {
         )
         val effects = mutableListOf<AboutEffect>()
         val job = launch { vm.effects.take(2).toList(effects) }
+        runCurrent()
 
         vm.onAction(AboutAction.RowLongClick(AboutRowId.EMAIL))
         advanceUntilIdle()
@@ -91,6 +94,7 @@ class AboutViewModelTest {
         )
         val effects = mutableListOf<AboutEffect>()
         val job = launch { vm.effects.take(3).toList(effects) }
+        runCurrent()
 
         vm.onAction(AboutAction.RowClick(AboutRowId.LOGS))
         advanceUntilIdle()
