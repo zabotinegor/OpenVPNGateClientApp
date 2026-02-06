@@ -5,5 +5,5 @@ interface YearProvider {
 }
 
 class SystemYearProvider : YearProvider {
-    override fun currentYear(): Int = java.time.Year.now().value
+    override fun currentYear(): Int = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
 }
