@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.di
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -24,13 +25,13 @@ class CoreDiTest {
     }
 
     @Test
-    fun `api can be overridden`() {
+    fun `api can be injected from custom module`() {
         val fakeApi = FakeVpnServersApi()
         val koin = koinApplication {
             modules(
-                coreModule,
-                module(override = true) {
+                module {
                     single<VpnServersApi> { fakeApi }
+                    single { ServerRepository(get(), UserSettingsStore) }
                 }
             )
         }.koin
