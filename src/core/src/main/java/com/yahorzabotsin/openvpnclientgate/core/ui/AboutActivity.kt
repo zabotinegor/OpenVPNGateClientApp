@@ -16,7 +16,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutCommand
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutAction
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutEffect
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutRowId
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutUiState
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.ToastDuration
@@ -39,28 +41,48 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
     }
 
     private fun bindEvents() {
-        bindingContent.rowWebsite.setOnClickListener { viewModel.onWebsiteClick() }
-        bindingContent.rowEmail.setOnClickListener { viewModel.onEmailClick() }
-        bindingContent.rowTelegram.setOnClickListener { viewModel.onTelegramClick() }
-        bindingContent.rowGithub.setOnClickListener { viewModel.onGithubClick() }
-        bindingContent.rowGithubEngine.setOnClickListener { viewModel.onGithubEngineClick() }
-        bindingContent.rowPlay.setOnClickListener { viewModel.onPlayClick() }
-        bindingContent.rowPrivacy.setOnClickListener { viewModel.onPrivacyClick() }
-        bindingContent.rowTerms.setOnClickListener { viewModel.onTermsClick() }
-        bindingContent.rowLicense.setOnClickListener { viewModel.onLicenseClick() }
-        bindingContent.rowIcsGithub.setOnClickListener { viewModel.onIcsGithubClick() }
-        bindingContent.rowLogs.setOnClickListener { viewModel.onLogsClick() }
+        bindingContent.rowWebsite.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.WEBSITE)) }
+        bindingContent.rowEmail.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.EMAIL)) }
+        bindingContent.rowTelegram.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TELEGRAM)) }
+        bindingContent.rowGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB)) }
+        bindingContent.rowGithubEngine.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB_ENGINE)) }
+        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PLAY)) }
+        bindingContent.rowPrivacy.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PRIVACY)) }
+        bindingContent.rowTerms.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TERMS)) }
+        bindingContent.rowLicense.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LICENSE)) }
+        bindingContent.rowIcsGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.ICS_GITHUB)) }
+        bindingContent.rowLogs.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LOGS)) }
 
-        bindingContent.rowWebsite.setOnLongClickListener { viewModel.onWebsiteLongClick(); true }
-        bindingContent.rowEmail.setOnLongClickListener { viewModel.onEmailLongClick(); true }
-        bindingContent.rowTelegram.setOnLongClickListener { viewModel.onTelegramLongClick(); true }
-        bindingContent.rowGithub.setOnLongClickListener { viewModel.onGithubLongClick(); true }
-        bindingContent.rowGithubEngine.setOnLongClickListener { viewModel.onGithubEngineLongClick(); true }
-        bindingContent.rowPlay.setOnLongClickListener { viewModel.onPlayLongClick(); true }
-        bindingContent.rowPrivacy.setOnLongClickListener { viewModel.onPrivacyLongClick(); true }
-        bindingContent.rowTerms.setOnLongClickListener { viewModel.onTermsLongClick(); true }
-        bindingContent.rowLicense.setOnLongClickListener { viewModel.onLicenseLongClick(); true }
-        bindingContent.rowIcsGithub.setOnLongClickListener { viewModel.onIcsGithubLongClick(); true }
+        bindingContent.rowWebsite.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.WEBSITE)); true
+        }
+        bindingContent.rowEmail.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.EMAIL)); true
+        }
+        bindingContent.rowTelegram.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.TELEGRAM)); true
+        }
+        bindingContent.rowGithub.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB)); true
+        }
+        bindingContent.rowGithubEngine.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB_ENGINE)); true
+        }
+        bindingContent.rowPlay.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PLAY)); true
+        }
+        bindingContent.rowPrivacy.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PRIVACY)); true
+        }
+        bindingContent.rowTerms.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.TERMS)); true
+        }
+        bindingContent.rowLicense.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.LICENSE)); true
+        }
+        bindingContent.rowIcsGithub.setOnLongClickListener {
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.ICS_GITHUB)); true
+        }
     }
 
     private fun observeViewModel() {
@@ -70,7 +92,7 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
                     viewModel.state.collect { render(it) }
                 }
                 launch {
-                    viewModel.commands.collect { handleCommand(it) }
+                    viewModel.effects.collect { handleEffect(it) }
                 }
             }
         }
@@ -102,14 +124,14 @@ class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
         }
     }
 
-    private fun handleCommand(command: AboutCommand) {
-        when (command) {
-            is AboutCommand.OpenUrl -> openUrl(command.url)
-            is AboutCommand.OpenEmail -> openEmail(command.email)
-            is AboutCommand.OpenPlay -> openPlay(command.webUrl)
-            is AboutCommand.CopyToClipboard -> copyToClipboard(getString(command.labelResId), command.text)
-            is AboutCommand.ShowToast -> showToast(command.text, command.duration)
-            is AboutCommand.ShareLogArchive -> shareLogArchive(File(command.filePath))
+    private fun handleEffect(effect: AboutEffect) {
+        when (effect) {
+            is AboutEffect.OpenUrl -> openUrl(effect.url)
+            is AboutEffect.OpenEmail -> openEmail(effect.email)
+            is AboutEffect.OpenPlay -> openPlay(effect.webUrl)
+            is AboutEffect.CopyToClipboard -> copyToClipboard(getString(effect.labelResId), effect.text)
+            is AboutEffect.ShowToast -> showToast(effect.text, effect.duration)
+            is AboutEffect.ShareLogArchive -> shareLogArchive(File(effect.filePath))
         }
     }
 

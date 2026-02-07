@@ -28,13 +28,32 @@ data class AboutUiState(
     val isExportingLogs: Boolean = false
 )
 
-sealed interface AboutCommand {
-    data class OpenUrl(val url: String) : AboutCommand
-    data class OpenEmail(val email: String) : AboutCommand
-    data class OpenPlay(val webUrl: String) : AboutCommand
-    data class CopyToClipboard(val labelResId: Int, val text: String) : AboutCommand
-    data class ShowToast(val text: UiText, val duration: ToastDuration = ToastDuration.SHORT) : AboutCommand
-    data class ShareLogArchive(val filePath: String) : AboutCommand
+enum class AboutRowId {
+    WEBSITE,
+    EMAIL,
+    TELEGRAM,
+    GITHUB,
+    GITHUB_ENGINE,
+    PLAY,
+    PRIVACY,
+    TERMS,
+    LICENSE,
+    ICS_GITHUB,
+    LOGS
+}
+
+sealed interface AboutAction {
+    data class RowClick(val id: AboutRowId) : AboutAction
+    data class RowLongClick(val id: AboutRowId) : AboutAction
+}
+
+sealed interface AboutEffect {
+    data class OpenUrl(val url: String) : AboutEffect
+    data class OpenEmail(val email: String) : AboutEffect
+    data class OpenPlay(val webUrl: String) : AboutEffect
+    data class CopyToClipboard(val labelResId: Int, val text: String) : AboutEffect
+    data class ShowToast(val text: UiText, val duration: ToastDuration = ToastDuration.SHORT) : AboutEffect
+    data class ShareLogArchive(val filePath: String) : AboutEffect
 }
 
 enum class ToastDuration {

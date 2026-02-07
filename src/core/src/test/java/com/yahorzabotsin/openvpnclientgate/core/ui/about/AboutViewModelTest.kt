@@ -51,14 +51,14 @@ class AboutViewModelTest {
             logExportUseCase = FakeLogExportInteractor(LogExportResult.Failure("fail")),
             elapsedRealtimeProvider = FakeElapsedRealtime()
         )
-        val commands = mutableListOf<AboutCommand>()
-        val job = launch { vm.commands.take(1).toList(commands) }
+        val effects = mutableListOf<AboutEffect>()
+        val job = launch { vm.effects.take(1).toList(effects) }
         runCurrent()
 
-        vm.onWebsiteClick()
+        vm.onAction(AboutAction.RowClick(AboutRowId.WEBSITE))
         advanceUntilIdle()
 
-        assertTrue(commands.first() is AboutCommand.OpenUrl)
+        assertTrue(effects.first() is AboutEffect.OpenUrl)
         job.cancel()
     }
 
@@ -70,16 +70,16 @@ class AboutViewModelTest {
             logExportUseCase = FakeLogExportInteractor(LogExportResult.Failure("fail")),
             elapsedRealtimeProvider = FakeElapsedRealtime()
         )
-        val commands = mutableListOf<AboutCommand>()
-        val job = launch { vm.commands.take(2).toList(commands) }
+        val effects = mutableListOf<AboutEffect>()
+        val job = launch { vm.effects.take(2).toList(effects) }
         runCurrent()
 
-        vm.onEmailLongClick()
+        vm.onAction(AboutAction.RowLongClick(AboutRowId.EMAIL))
         advanceUntilIdle()
 
-        assertTrue(commands[0] is AboutCommand.CopyToClipboard)
-        assertEquals(R.string.copy_label_email, (commands[0] as AboutCommand.CopyToClipboard).labelResId)
-        assertTrue(commands[1] is AboutCommand.ShowToast)
+        assertTrue(effects[0] is AboutEffect.CopyToClipboard)
+        assertEquals(R.string.copy_label_email, (effects[0] as AboutEffect.CopyToClipboard).labelResId)
+        assertTrue(effects[1] is AboutEffect.ShowToast)
         job.cancel()
     }
 
@@ -92,15 +92,15 @@ class AboutViewModelTest {
             logExportUseCase = FakeLogExportInteractor(LogExportResult.Success(file, "/tmp/dummy.zip")),
             elapsedRealtimeProvider = FakeElapsedRealtime()
         )
-        val commands = mutableListOf<AboutCommand>()
-        val job = launch { vm.commands.take(3).toList(commands) }
+        val effects = mutableListOf<AboutEffect>()
+        val job = launch { vm.effects.take(3).toList(effects) }
         runCurrent()
 
-        vm.onLogsClick()
+        vm.onAction(AboutAction.RowClick(AboutRowId.LOGS))
         advanceUntilIdle()
 
-        assertTrue(commands.any { it is AboutCommand.ShareLogArchive })
-        assertTrue(commands.any { it is AboutCommand.ShowToast })
+        assertTrue(effects.any { it is AboutEffect.ShareLogArchive })
+        assertTrue(effects.any { it is AboutEffect.ShowToast })
         job.cancel()
     }
 

@@ -24,8 +24,8 @@ class AboutViewModel(
     private val _state = MutableStateFlow(AboutUiState())
     val state = _state.asStateFlow()
 
-    private val _commands = MutableSharedFlow<AboutCommand>()
-    val commands = _commands.asSharedFlow()
+    private val _effects = MutableSharedFlow<AboutEffect>()
+    val effects = _effects.asSharedFlow()
 
     private var lastActionAt: Long = 0
     private val clickDebounceMs = 500L
@@ -34,28 +34,12 @@ class AboutViewModel(
         loadContent()
     }
 
-    fun onWebsiteClick() = handleUrlClick(state.value.links.website)
-    fun onEmailClick() = handleEmailClick(state.value.links.email)
-    fun onTelegramClick() = handleUrlClick(state.value.links.telegram)
-    fun onGithubClick() = handleUrlClick(state.value.links.github)
-    fun onGithubEngineClick() = handleUrlClick(state.value.links.githubEngine)
-    fun onPlayClick() = handlePlayClick(state.value.links.googlePlay)
-    fun onPrivacyClick() = handleUrlClick(state.value.links.privacyPolicy)
-    fun onTermsClick() = handleUrlClick(state.value.links.termsOfUse)
-    fun onLicenseClick() = handleUrlClick(state.value.links.gplv2)
-    fun onIcsGithubClick() = handleUrlClick(state.value.links.icsGithub)
-    fun onLogsClick() = exportLogs()
-
-    fun onWebsiteLongClick() = handleCopyClick(state.value.links.website, R.string.copy_label_link)
-    fun onEmailLongClick() = handleCopyClick(state.value.links.email, R.string.copy_label_email)
-    fun onTelegramLongClick() = handleCopyClick(state.value.links.telegram, R.string.copy_label_link)
-    fun onGithubLongClick() = handleCopyClick(state.value.links.github, R.string.copy_label_link)
-    fun onGithubEngineLongClick() = handleCopyClick(state.value.links.githubEngine, R.string.copy_label_link)
-    fun onPlayLongClick() = handleCopyClick(state.value.links.googlePlay, R.string.copy_label_link)
-    fun onPrivacyLongClick() = handleCopyClick(state.value.links.privacyPolicy, R.string.copy_label_link)
-    fun onTermsLongClick() = handleCopyClick(state.value.links.termsOfUse, R.string.copy_label_link)
-    fun onLicenseLongClick() = handleCopyClick(state.value.links.gplv2, R.string.copy_label_link)
-    fun onIcsGithubLongClick() = handleCopyClick(state.value.links.icsGithub, R.string.copy_label_link)
+    fun onAction(action: AboutAction) {
+        when (action) {
+            is AboutAction.RowClick -> handleRowClick(action.id)
+            is AboutAction.RowLongClick -> handleRowLongClick(action.id)
+        }
+    }
 
     private fun loadContent() {
         val info = infoProvider.load()
@@ -63,48 +47,64 @@ class AboutViewModel(
         _state.value = _state.value.copy(info = info, links = links)
     }
 
-    private fun handleUrlClick(url: String) {
+    private fun handleRowClick(id: AboutRowId) {
         if (!canProceed()) return
-        openUrl(url)
+        when (id) {
+            AboutRowId.LOGS -> exportLogs()
+            AboutRowId.WEBSITE -> openUrl(state.value.links.website)
+            AboutRowId.EMAIL -> openEmail(state.value.links.email)
+            AboutRowId.TELEGRAM -> openUrl(state.value.links.telegram)
+            AboutRowId.GITHUB -> openUrl(state.value.links.github)
+            AboutRowId.GITHUB_ENGINE -> openUrl(state.value.links.githubEngine)
+            AboutRowId.PLAY -> openPlay(state.value.links.googlePlay)
+            AboutRowId.PRIVACY -> openUrl(state.value.links.privacyPolicy)
+            AboutRowId.TERMS -> openUrl(state.value.links.termsOfUse)
+            AboutRowId.LICENSE -> openUrl(state.value.links.gplv2)
+            AboutRowId.ICS_GITHUB -> openUrl(state.value.links.icsGithub)
+        }
     }
 
-    private fun handleEmailClick(email: String) {
+    private fun handleRowLongClick(id: AboutRowId) {
         if (!canProceed()) return
-        openEmail(email)
-    }
-
-    private fun handlePlayClick(webUrl: String) {
-        if (!canProceed()) return
-        openPlay(webUrl)
-    }
-
-    private fun handleCopyClick(value: String, labelResId: Int) {
-        if (!canProceed()) return
+        val links = state.value.links
+        val (value, labelResId) = when (id) {
+            AboutRowId.EMAIL -> links.email to R.string.copy_label_email
+            AboutRowId.WEBSITE -> links.website to R.string.copy_label_link
+            AboutRowId.TELEGRAM -> links.telegram to R.string.copy_label_link
+            AboutRowId.GITHUB -> links.github to R.string.copy_label_link
+            AboutRowId.GITHUB_ENGINE -> links.githubEngine to R.string.copy_label_link
+            AboutRowId.PLAY -> links.googlePlay to R.string.copy_label_link
+            AboutRowId.PRIVACY -> links.privacyPolicy to R.string.copy_label_link
+            AboutRowId.TERMS -> links.termsOfUse to R.string.copy_label_link
+            AboutRowId.LICENSE -> links.gplv2 to R.string.copy_label_link
+            AboutRowId.ICS_GITHUB -> links.icsGithub to R.string.copy_label_link
+            AboutRowId.LOGS -> "" to R.string.copy_label_link
+        }
         if (value.isBlank()) return
         viewModelScope.launch {
-            _commands.emit(AboutCommand.CopyToClipboard(labelResId, value))
-            _commands.emit(AboutCommand.ShowToast(UiText.Res(R.string.copied_to_clipboard), ToastDuration.SHORT))
+            _effects.emit(AboutEffect.CopyToClipboard(labelResId, value))
+            _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.copied_to_clipboard), ToastDuration.SHORT))
         }
     }
 
     private fun openUrl(url: String) {
         if (url.isBlank()) return
         viewModelScope.launch {
-            _commands.emit(AboutCommand.OpenUrl(url))
+            _effects.emit(AboutEffect.OpenUrl(url))
         }
     }
 
     private fun openEmail(email: String) {
         if (email.isBlank()) return
         viewModelScope.launch {
-            _commands.emit(AboutCommand.OpenEmail(email))
+            _effects.emit(AboutEffect.OpenEmail(email))
         }
     }
 
     private fun openPlay(webUrl: String) {
         if (webUrl.isBlank()) return
         viewModelScope.launch {
-            _commands.emit(AboutCommand.OpenPlay(webUrl))
+            _effects.emit(AboutEffect.OpenPlay(webUrl))
         }
     }
 
@@ -112,20 +112,20 @@ class AboutViewModel(
         if (_state.value.isExportingLogs) return
         _state.value = _state.value.copy(isExportingLogs = true)
         viewModelScope.launch {
-            _commands.emit(AboutCommand.ShowToast(UiText.Res(R.string.about_logs_export_started), ToastDuration.SHORT))
+            _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.about_logs_export_started), ToastDuration.SHORT))
             when (val result = logExportUseCase.export()) {
                 is LogExportResult.Success -> {
-                    _commands.emit(AboutCommand.ShareLogArchive(result.path))
-                    _commands.emit(
-                        AboutCommand.ShowToast(
+                    _effects.emit(AboutEffect.ShareLogArchive(result.path))
+                    _effects.emit(
+                        AboutEffect.ShowToast(
                             UiText.Res(R.string.about_logs_export_done_format, listOf(result.path)),
                             ToastDuration.LONG
                         )
                     )
                 }
                 is LogExportResult.Failure -> {
-                    _commands.emit(
-                        AboutCommand.ShowToast(
+                    _effects.emit(
+                        AboutEffect.ShowToast(
                             UiText.Res(R.string.about_logs_export_failed_format, listOf(result.reason)),
                             ToastDuration.LONG
                         )
