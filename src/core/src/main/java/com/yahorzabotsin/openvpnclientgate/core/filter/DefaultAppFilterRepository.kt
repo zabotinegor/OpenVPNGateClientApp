@@ -13,7 +13,7 @@ class DefaultAppFilterRepository(
     private val appContext = context.applicationContext
     private val packageManager = appContext.packageManager
 
-    override suspend fun loadInstalledApps(): List<AppFilterEntry> = withContext(Dispatchers.Default) {
+    override suspend fun loadInstalledApps(): List<AppFilterEntry> = withContext(Dispatchers.IO) {
         val packages = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
