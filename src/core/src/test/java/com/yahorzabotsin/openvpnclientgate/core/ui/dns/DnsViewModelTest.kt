@@ -9,8 +9,8 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -20,7 +20,7 @@ import org.junit.Test
 class DnsViewModelTest {
 
     @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+    val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
 
     @Test
     fun `init loads items and emits focus effect`() = runTest {
@@ -30,7 +30,6 @@ class DnsViewModelTest {
 
         val effects = mutableListOf<DnsEffect>()
         val job = launch { vm.effects.take(1).toList(effects) }
-        runCurrent()
         advanceUntilIdle()
 
         val state = vm.state.value
@@ -46,7 +45,7 @@ class DnsViewModelTest {
         val repo = FakeDnsSettingsRepository(DnsOption.SERVER)
         val logger = FakeDnsLogger()
         val vm = DnsViewModel(repo, logger)
-        runCurrent()
+        advanceUntilIdle()
 
         val option = DnsOptions.providers.first().option
         vm.onAction(DnsAction.SelectOption(option))
