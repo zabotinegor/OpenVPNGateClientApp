@@ -28,6 +28,16 @@ class DnsOptionAdapter(
     var selectedOption: DnsOption = selectedOption
         private set
 
+    fun items(): List<DnsOptionItem> = items
+
+    fun updateSelectedOption(option: DnsOption) {
+        if (option == selectedOption) return
+        val old = selectedOption
+        selectedOption = option
+        indexByOption[old]?.let { notifyItemChanged(it) }
+        indexByOption[selectedOption]?.let { notifyItemChanged(it) }
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_dns_option, parent, false)
         return ViewHolder(v)

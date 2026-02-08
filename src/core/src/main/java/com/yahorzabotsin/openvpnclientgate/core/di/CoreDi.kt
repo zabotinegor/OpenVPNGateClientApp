@@ -13,7 +13,12 @@ import com.yahorzabotsin.openvpnclientgate.core.about.YearProvider
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.settings.DnsSettingsRepository
+import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultDnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DefaultDnsLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsViewModel
 import okhttp3.OkHttpClient
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -42,6 +47,7 @@ val coreModule = module {
     }
 
     single<UserSettingsStore> { UserSettingsStore }
+    single<DnsSettingsRepository> { DefaultDnsSettingsRepository(get()) }
 
     single { ServerRepository(get(), get()) }
 
@@ -52,4 +58,6 @@ val coreModule = module {
     single<LogExportInteractor> { LogExportUseCase(get()) }
 
     viewModel { AboutViewModel(get(), get(), get(), get()) }
+    single<DnsLogger> { DefaultDnsLogger() }
+    viewModel { DnsViewModel(get(), get()) }
 }
