@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.CountryWithServers
@@ -77,7 +78,7 @@ class ServerListViewModel(
         }
     }
 
-    private fun handleCountrySelection(selected: com.yahorzabotsin.openvpnclientgate.core.servers.Country) {
+    private fun handleCountrySelection(selected: Country) {
         val countryName = selected.name
         val countryCode = selected.code
         val countryServers = servers.filter { it.country.name == countryName }
