@@ -10,7 +10,7 @@ interface ServerListLogger {
 }
 
 class DefaultServerListLogger : ServerListLogger {
-    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListActivity"
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListViewModel"
 
     override fun logLoadSuccess(count: Int) {
         Log.i(tag, "Successfully loaded $count servers.")
