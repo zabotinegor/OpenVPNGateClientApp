@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -6,7 +6,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentDnsBinding
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsAction
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsEffect
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsUiState

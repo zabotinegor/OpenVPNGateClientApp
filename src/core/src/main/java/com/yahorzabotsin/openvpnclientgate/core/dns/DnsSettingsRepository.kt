@@ -1,6 +1,7 @@
-package com.yahorzabotsin.openvpnclientgate.core.settings
+package com.yahorzabotsin.openvpnclientgate.core.dns
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 
 interface DnsSettingsRepository {
     fun loadDnsOption(): DnsOption

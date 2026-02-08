@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.settings
+package com.yahorzabotsin.openvpnclientgate.core.dns
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

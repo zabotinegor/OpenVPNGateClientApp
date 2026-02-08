@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.FragmentFilterPageBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.TvUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiItem
 
 class FilterPageFragment : Fragment() {
 
@@ -49,7 +50,7 @@ class FilterPageFragment : Fragment() {
         (activity as? FilterActivity)?.registerPage(this)
     }
 
-    internal fun render(items: List<FilterListAdapter.Item>, loading: Boolean, isCurrent: Boolean, lastFocusedPosition: Int?) {
+    internal fun render(items: List<FilterUiItem>, loading: Boolean, isCurrent: Boolean, lastFocusedPosition: Int?) {
         if (!isAdded || _binding == null) return
         binding.loadingIndicator.visibility = if (loading) View.VISIBLE else View.GONE
         binding.appsList.visibility = if (loading) View.INVISIBLE else View.VISIBLE

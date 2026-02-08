@@ -10,16 +10,22 @@ import com.yahorzabotsin.openvpnclientgate.core.about.LogExportUseCase
 import com.yahorzabotsin.openvpnclientgate.core.about.SystemElapsedRealtimeProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.SystemYearProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.YearProvider
+import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
+import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsSettingsRepository
-import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultDnsSettingsRepository
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
+import com.yahorzabotsin.openvpnclientgate.core.dns.DefaultDnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DefaultDnsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.filter.DefaultFilterLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterViewModel
 import okhttp3.OkHttpClient
+import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 import retrofit2.Retrofit
@@ -48,6 +54,7 @@ val coreModule = module {
 
     single<UserSettingsStore> { UserSettingsStore }
     single<DnsSettingsRepository> { DefaultDnsSettingsRepository(get()) }
+    single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
     single { ServerRepository(get(), get()) }
 
@@ -60,4 +67,6 @@ val coreModule = module {
     viewModel { AboutViewModel(get(), get(), get(), get()) }
     single<DnsLogger> { DefaultDnsLogger() }
     viewModel { DnsViewModel(get(), get()) }
+    single<FilterLogger> { DefaultFilterLogger() }
+    viewModel { FilterViewModel(get(), get()) }
 }

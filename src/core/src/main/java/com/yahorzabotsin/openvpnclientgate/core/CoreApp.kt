@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core
+package com.yahorzabotsin.openvpnclientgate.core
 
 import android.app.ActivityManager
 import android.app.Application
