@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.graphics.drawable.Drawable
+import android.util.LruCache
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -11,12 +12,20 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemAppFilterBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemFilterSelectAllBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class FilterListAdapter(
     private val onSelectAllToggle: (Boolean) -> Unit,
     private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit,
     private val onItemFocus: (Int) -> Unit = {}
 ) : ListAdapter<FilterUiItem, RecyclerView.ViewHolder>(DiffCallback()) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val iconCache = LruCache<String, Drawable>(60)
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
         is FilterUiItem.SelectAll -> VIEW_SELECT_ALL
@@ -41,6 +50,18 @@ class FilterListAdapter(
     override fun getItemId(position: Int): Long = when (val item = getItem(position)) {
         is FilterUiItem.SelectAll -> "select_all".hashCode().toLong()
         is FilterUiItem.App -> item.packageName.hashCode().toLong()
+    }
+
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        if (holder is AppViewHolder) {
+            holder.cancelIconLoad()
+        }
+        super.onViewRecycled(holder)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        scope.cancel()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     init {
@@ -97,6 +118,7 @@ class FilterListAdapter(
     private inner class AppViewHolder(
         private val binding: ItemAppFilterBinding
     ) : RecyclerView.ViewHolder(binding.root) {
+        private var loadJob: Job? = null
 
         init {
             binding.root.isFocusable = true
@@ -119,8 +141,7 @@ class FilterListAdapter(
                 R.string.filter_switch_content_description,
                 item.label
             )
-            val icon = loadIcon(item.packageName)
-            binding.appIcon.setImageDrawable(icon)
+            loadIconAsync(item.packageName)
 
             binding.appSwitch.setOnCheckedChangeListener { _, isChecked ->
                 onAppToggle(item.packageName, isChecked)
@@ -130,14 +151,33 @@ class FilterListAdapter(
             }
         }
 
-        private fun loadIcon(packageName: String): Drawable? {
-            val context = binding.root.context
-            val icon = try {
-                context.packageManager.getApplicationIcon(packageName)
-            } catch (_: Exception) {
-                null
+        fun cancelIconLoad() {
+            loadJob?.cancel()
+            loadJob = null
+        }
+
+        private fun loadIconAsync(packageName: String) {
+            loadJob?.cancel()
+            val cached = iconCache.get(packageName)
+            if (cached != null) {
+                binding.appIcon.setImageDrawable(cached)
+                return
             }
-            return icon ?: ContextCompat.getDrawable(context, R.drawable.ic_icon_system)
+            val context = binding.root.context
+            val placeholder = ContextCompat.getDrawable(context, R.drawable.ic_icon_system)
+            binding.appIcon.setImageDrawable(placeholder)
+            loadJob = scope.launch {
+                val icon = withContext(Dispatchers.IO) {
+                    try {
+                        context.packageManager.getApplicationIcon(packageName)
+                    } catch (_: Exception) {
+                        null
+                    }
+                } ?: placeholder
+                if (binding.root.tag != "app:$packageName") return@launch
+                iconCache.put(packageName, icon)
+                binding.appIcon.setImageDrawable(icon)
+            }
         }
     }
 
