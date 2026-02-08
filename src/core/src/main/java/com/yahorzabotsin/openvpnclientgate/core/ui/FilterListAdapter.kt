@@ -12,7 +12,6 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemAppFilterBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemFilterSelectAllBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiItem
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -25,7 +24,7 @@ class FilterListAdapter(
     private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit,
     private val onItemFocus: (Int) -> Unit = {}
 ) : ListAdapter<FilterUiItem, RecyclerView.ViewHolder>(DiffCallback()) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var scope: kotlinx.coroutines.CoroutineScope? = null
     private val iconCache = LruCache<String, Drawable>(60)
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
@@ -61,8 +60,14 @@ class FilterListAdapter(
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        scope.cancel()
+        scope?.cancel()
+        scope = null
         super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        scope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }
 
     init {
@@ -167,7 +172,7 @@ class FilterListAdapter(
             val context = binding.root.context
             val placeholder = ContextCompat.getDrawable(context, R.drawable.ic_icon_system)
             binding.appIcon.setImageDrawable(placeholder)
-            loadJob = scope.launch {
+            loadJob = scope?.launch {
                 val icon = withContext(Dispatchers.IO) {
                     try {
                         context.packageManager.getApplicationIcon(packageName)
