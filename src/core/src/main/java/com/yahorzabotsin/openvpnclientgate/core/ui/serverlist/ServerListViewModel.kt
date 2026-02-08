@@ -9,6 +9,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.CountryWithServers
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -26,7 +27,10 @@ class ServerListViewModel(
     )
     val state = _state.asStateFlow()
 
-    private val _effects = MutableSharedFlow<ServerListEffect>()
+    private val _effects = MutableSharedFlow<ServerListEffect>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val effects = _effects.asSharedFlow()
 
     private var servers: List<Server> = emptyList()
