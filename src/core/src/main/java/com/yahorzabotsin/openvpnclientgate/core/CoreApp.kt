@@ -1,18 +1,16 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core
+package com.yahorzabotsin.openvpnclientgate.core
 
 import android.app.ActivityManager
 import android.app.Application
 import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.di.coreModule
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
-import com.yahorzabotsin.openvpnclientgate.features.settings.data.SettingsRepositoryImpl
-import com.yahorzabotsin.openvpnclientgate.features.settings.domain.SettingsRepository
 import de.blinkt.openvpn.core.GlobalPreferences
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.GlobalContext
+import org.koin.core.context.startKoin
 
 class CoreApp : Application() {
-
-    val settingsRepository: SettingsRepository by lazy {
-        SettingsRepositoryImpl(applicationContext)
-    }
 
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CoreApp"
@@ -20,6 +18,12 @@ class CoreApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (GlobalContext.getOrNull() == null) {
+            startKoin {
+                androidContext(this@CoreApp)
+                modules(coreModule)
+            }
+        }
         installGlobalExceptionHandler()
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)

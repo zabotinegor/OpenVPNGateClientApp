@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.logging
+package com.yahorzabotsin.openvpnclientgate.core.logging
 
 import android.util.Log
 import androidx.lifecycle.LifecycleOwner

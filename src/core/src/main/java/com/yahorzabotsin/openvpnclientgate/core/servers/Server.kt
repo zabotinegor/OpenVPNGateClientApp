@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.servers
+package com.yahorzabotsin.openvpnclientgate.core.servers
 
 data class Server(
     val lineIndex: Int,

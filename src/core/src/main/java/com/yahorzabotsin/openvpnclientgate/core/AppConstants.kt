@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core
+package com.yahorzabotsin.openvpnclientgate.core
 
 object ApiConstants {
     val PRIMARY_SERVERS_URL: String = BuildConfig.PRIMARY_SERVERS_URL

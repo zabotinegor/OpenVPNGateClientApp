@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.view.LayoutInflater
 import android.view.View
@@ -8,7 +8,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 
 data class DnsOptionItem(
     val option: DnsOption,
@@ -27,6 +27,16 @@ class DnsOptionAdapter(
 
     var selectedOption: DnsOption = selectedOption
         private set
+
+    fun items(): List<DnsOptionItem> = items
+
+    fun updateSelectedOption(option: DnsOption) {
+        if (option == selectedOption) return
+        val old = selectedOption
+        selectedOption = option
+        indexByOption[old]?.let { notifyItemChanged(it) }
+        indexByOption[selectedOption]?.let { notifyItemChanged(it) }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_dns_option, parent, false)
