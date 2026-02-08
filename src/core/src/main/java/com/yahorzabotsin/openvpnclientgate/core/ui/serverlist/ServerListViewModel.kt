@@ -28,7 +28,7 @@ class ServerListViewModel(
     val state = _state.asStateFlow()
 
     private val _effects = MutableSharedFlow<ServerListEffect>(
-        extraBufferCapacity = 1,
+        extraBufferCapacity = 2,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val effects = _effects.asSharedFlow()
