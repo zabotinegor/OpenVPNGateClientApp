@@ -122,6 +122,30 @@ class ServerListViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun `select single server error emits snackbar and cancel`() = runTest {
+        val selectedCountry = Country("France", "FR")
+        val selectedServer = server("France", "FR", 10)
+        val interactor = FakeInteractor(
+            loaded = listOf(selectedServer),
+            selectionError = IOException("failed")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val vm = ServerListViewModel(interactor, connection, FakeLogger())
+        advanceUntilIdle()
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(2).toList(effects) }
+
+        vm.onAction(ServerListAction.CountrySelected(selectedCountry))
+        advanceUntilIdle()
+
+        assertTrue(effects[0] is ServerListEffect.ShowSnackbar)
+        assertEquals(R.string.error_getting_servers, (effects[0] as ServerListEffect.ShowSnackbar).resId)
+        assertTrue(effects[1] is ServerListEffect.SetResultCanceled)
+        job.cancel()
+    }
+
     private fun server(countryName: String, code: String?, lineIndex: Int): Server =
         Server(
             lineIndex = lineIndex,
