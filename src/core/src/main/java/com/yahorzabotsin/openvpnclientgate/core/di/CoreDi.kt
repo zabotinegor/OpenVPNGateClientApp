@@ -12,6 +12,7 @@ import com.yahorzabotsin.openvpnclientgate.core.about.SystemYearProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.YearProvider
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
@@ -63,7 +64,7 @@ val coreModule = module {
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
     single { ServerRepository(get(), get()) }
-    single { ServerListInteractor(androidContext(), get()) }
+    single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
 
     single<YearProvider> { SystemYearProvider() }
     single<AboutInfoProvider> { DefaultAboutInfoProvider(get(), get()) }

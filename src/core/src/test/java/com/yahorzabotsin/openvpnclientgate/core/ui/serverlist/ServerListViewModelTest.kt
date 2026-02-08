@@ -1,16 +1,11 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
-import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
-import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
-import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
@@ -25,7 +20,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import okhttp3.ResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -154,10 +148,7 @@ class ServerListViewModelTest {
         private val selectionResult: ServerSelectionResult = ServerSelectionResult("", "", null, "", null),
         private val getError: Exception? = null,
         private val selectionError: Exception? = null
-    ) : ServerListInteractor(
-        ApplicationProvider.getApplicationContext<Context>(),
-        ServerRepository(FakeApi(), UserSettingsStore)
-    ) {
+    ) : ServerListInteractor {
         override suspend fun getServers(forceRefresh: Boolean, cacheOnly: Boolean): List<Server> {
             getError?.let { throw it }
             return loaded
@@ -187,8 +178,4 @@ class ServerListViewModelTest {
         override fun logSelectionError(countryName: String, error: Exception) = Unit
     }
 
-    private class FakeApi : VpnServersApi {
-        override suspend fun getServers(url: String): ResponseBody =
-            throw IllegalStateException("Not used in tests")
-    }
 }

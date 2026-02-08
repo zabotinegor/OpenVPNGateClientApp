@@ -2,14 +2,24 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 
-open class ServerListInteractor(
+interface ServerListInteractor {
+    suspend fun getServers(forceRefresh: Boolean, cacheOnly: Boolean): List<Server>
+    suspend fun resolveSelection(
+        countryName: String,
+        countryCode: String?,
+        server: Server,
+        countryServers: List<Server>
+    ): ServerSelectionResult
+}
+
+class DefaultServerListInteractor(
     private val appContext: Context,
     private val serverRepository: ServerRepository
-) {
-    open suspend fun getServers(forceRefresh: Boolean, cacheOnly: Boolean): List<Server> =
+) : ServerListInteractor {
+    override suspend fun getServers(forceRefresh: Boolean, cacheOnly: Boolean): List<Server> =
         serverRepository.getServers(appContext, forceRefresh, cacheOnly)
 
-    open suspend fun resolveSelection(
+    override suspend fun resolveSelection(
         countryName: String,
         countryCode: String?,
         server: Server,
