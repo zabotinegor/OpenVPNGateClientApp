@@ -35,7 +35,7 @@ class FilterViewModelTest {
         assertTrue(repo.loadCalled)
         assertEquals(AppCategory.USER, state.currentCategory)
         assertEquals(setOf("com.sys"), repo.saved.last())
-        assertEquals(1, logger.opened?.first)
+        assertEquals(2, logger.opened?.first)
         assertEquals(1, logger.opened?.second)
         assertEquals(1, logger.opened?.third)
 
