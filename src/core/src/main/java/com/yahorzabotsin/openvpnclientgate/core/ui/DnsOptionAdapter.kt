@@ -28,6 +28,8 @@ class DnsOptionAdapter(
     var selectedOption: DnsOption = selectedOption
         private set
 
+    fun items(): List<DnsOptionItem> = items
+
     fun updateSelectedOption(option: DnsOption) {
         if (option == selectedOption) return
         val old = selectedOption

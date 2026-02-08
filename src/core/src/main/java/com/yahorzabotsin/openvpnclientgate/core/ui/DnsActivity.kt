@@ -20,7 +20,6 @@ class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
     private lateinit var binding: ContentDnsBinding
     private var adapter: DnsOptionAdapter? = null
     private val viewModel: DnsViewModel by viewModel()
-    private var currentItems: List<DnsOptionItem> = emptyList()
     private var pendingFocusOption: DnsOption? = null
 
     override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
@@ -48,7 +47,6 @@ class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
     }
 
     private fun render(state: DnsUiState) {
-        currentItems = state.items
         if (adapter == null) {
             adapter = DnsOptionAdapter(state.items, state.selectedOption) { selected ->
                 viewModel.onAction(DnsAction.SelectOption(selected))
@@ -59,7 +57,7 @@ class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
         }
 
         if (pendingFocusOption != null && adapter != null) {
-            focusSelected(currentItems, pendingFocusOption!!)
+            focusSelected(state.items, pendingFocusOption!!)
             pendingFocusOption = null
         }
     }
@@ -67,7 +65,8 @@ class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
     private fun handleEffect(effect: DnsEffect) {
         when (effect) {
             is DnsEffect.FocusSelected -> {
-                if (currentItems.isEmpty() || adapter == null) {
+                val currentItems = adapter?.items().orEmpty()
+                if (adapter == null || currentItems.isEmpty()) {
                     pendingFocusOption = effect.option
                 } else {
                     focusSelected(currentItems, effect.option)
