@@ -12,6 +12,8 @@ import com.yahorzabotsin.openvpnclientgate.core.about.SystemYearProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.YearProvider
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -24,6 +26,11 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.DefaultFilterLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.DefaultServerListLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewModel
+import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
@@ -57,6 +64,7 @@ val coreModule = module {
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
     single { ServerRepository(get(), get()) }
+    single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
 
     single<YearProvider> { SystemYearProvider() }
     single<AboutInfoProvider> { DefaultAboutInfoProvider(get(), get()) }
@@ -69,4 +77,7 @@ val coreModule = module {
     viewModel { DnsViewModel(get(), get()) }
     single<FilterLogger> { DefaultFilterLogger() }
     viewModel { FilterViewModel(get(), get()) }
+    single<VpnConnectionStateProvider> { DefaultVpnConnectionStateProvider() }
+    single<ServerListLogger> { DefaultServerListLogger() }
+    viewModel { ServerListViewModel(get(), get(), get()) }
 }
