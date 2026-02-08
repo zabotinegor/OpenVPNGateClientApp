@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.util.Log
 import androidx.annotation.MainThread

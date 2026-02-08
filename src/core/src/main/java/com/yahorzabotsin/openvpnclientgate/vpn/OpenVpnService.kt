@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,8 +21,8 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser

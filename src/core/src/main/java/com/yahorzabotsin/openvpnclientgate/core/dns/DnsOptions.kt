@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.settings
+package com.yahorzabotsin.openvpnclientgate.core.dns
 
 data class DnsConfig(
     val overrideDns: Boolean,

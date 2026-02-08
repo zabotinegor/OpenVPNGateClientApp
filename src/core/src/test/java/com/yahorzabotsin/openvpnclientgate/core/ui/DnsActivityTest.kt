@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.content.Context
 import android.os.Looper
@@ -9,7 +9,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -64,7 +64,7 @@ class DnsActivityTest {
                 shadowOf(Looper.getMainLooper()).idle()
                 val recycler = activity.findViewById<RecyclerView>(R.id.dns_recycler_view)
                 val adapter = recycler.adapter as DnsOptionAdapter
-                assertEquals(com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption.SERVER, adapter.selectedOption)
+                assertEquals(com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption.SERVER, adapter.selectedOption)
             }
         }
     }

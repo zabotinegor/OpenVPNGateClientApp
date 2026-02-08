@@ -1,4 +1,4 @@
-ï»¿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.Manifest
 import android.content.Context
@@ -437,7 +437,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         val trimmed = text.trimEnd()
         return when {
             trimmed.endsWith("...") -> trimmed.removeSuffix("...").trimEnd()
-            trimmed.endsWith("â€¦") -> trimmed.removeSuffix("â€¦").trimEnd()
+            trimmed.endsWith("…") -> trimmed.removeSuffix("…").trimEnd()
             else -> trimmed
         }
     }

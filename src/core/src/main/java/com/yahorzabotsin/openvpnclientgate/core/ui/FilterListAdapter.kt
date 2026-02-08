@@ -1,8 +1,8 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
-import androidx.appcompat.widget.SwitchCompat
+import android.graphics.drawable.Drawable
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -10,22 +10,17 @@ import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemAppFilterBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemFilterSelectAllBinding
-import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterEntry
+import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiItem
 
 class FilterListAdapter(
     private val onSelectAllToggle: (Boolean) -> Unit,
     private val onAppToggle: (packageName: String, isEnabled: Boolean) -> Unit,
     private val onItemFocus: (Int) -> Unit = {}
-) : ListAdapter<FilterListAdapter.Item, RecyclerView.ViewHolder>(DiffCallback()) {
-
-    sealed class Item {
-        data class SelectAll(val isChecked: Boolean, val isEnabled: Boolean) : Item()
-        data class App(val entry: AppFilterEntry, val isEnabled: Boolean) : Item()
-    }
+) : ListAdapter<FilterUiItem, RecyclerView.ViewHolder>(DiffCallback()) {
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
-        is Item.SelectAll -> VIEW_SELECT_ALL
-        is Item.App -> VIEW_APP
+        is FilterUiItem.SelectAll -> VIEW_SELECT_ALL
+        is FilterUiItem.App -> VIEW_APP
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -38,28 +33,28 @@ class FilterListAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = getItem(position)) {
-            is Item.SelectAll -> (holder as SelectAllViewHolder).bind(item)
-            is Item.App -> (holder as AppViewHolder).bind(item)
+            is FilterUiItem.SelectAll -> (holder as SelectAllViewHolder).bind(item)
+            is FilterUiItem.App -> (holder as AppViewHolder).bind(item)
         }
     }
 
     override fun getItemId(position: Int): Long = when (val item = getItem(position)) {
-        is Item.SelectAll -> "select_all".hashCode().toLong()
-        is Item.App -> item.entry.packageName.hashCode().toLong()
+        is FilterUiItem.SelectAll -> "select_all".hashCode().toLong()
+        is FilterUiItem.App -> item.packageName.hashCode().toLong()
     }
 
     init {
         setHasStableIds(true)
     }
 
-    private class DiffCallback : DiffUtil.ItemCallback<Item>() {
-        override fun areItemsTheSame(oldItem: Item, newItem: Item): Boolean = when {
-            oldItem is Item.SelectAll && newItem is Item.SelectAll -> true
-            oldItem is Item.App && newItem is Item.App -> oldItem.entry.packageName == newItem.entry.packageName
+    private class DiffCallback : DiffUtil.ItemCallback<FilterUiItem>() {
+        override fun areItemsTheSame(oldItem: FilterUiItem, newItem: FilterUiItem): Boolean = when {
+            oldItem is FilterUiItem.SelectAll && newItem is FilterUiItem.SelectAll -> true
+            oldItem is FilterUiItem.App && newItem is FilterUiItem.App -> oldItem.packageName == newItem.packageName
             else -> false
         }
 
-        override fun areContentsTheSame(oldItem: Item, newItem: Item): Boolean = oldItem == newItem
+        override fun areContentsTheSame(oldItem: FilterUiItem, newItem: FilterUiItem): Boolean = oldItem == newItem
     }
 
     private inner class SelectAllViewHolder(
@@ -79,7 +74,7 @@ class FilterListAdapter(
             }
         }
 
-        fun bind(item: Item.SelectAll) {
+        fun bind(item: FilterUiItem.SelectAll) {
             binding.root.tag = "select_all"
             binding.selectAllSwitch.setOnCheckedChangeListener(null)
             binding.selectAllSwitch.isChecked = item.isChecked
@@ -115,25 +110,34 @@ class FilterListAdapter(
             }
         }
 
-        fun bind(item: Item.App) {
-            binding.root.tag = "app:${item.entry.packageName}"
-            binding.appName.text = item.entry.label
+        fun bind(item: FilterUiItem.App) {
+            binding.root.tag = "app:${item.packageName}"
+            binding.appName.text = item.label
             binding.appSwitch.setOnCheckedChangeListener(null)
             binding.appSwitch.isChecked = item.isEnabled
             binding.appSwitch.contentDescription = binding.root.context.getString(
                 R.string.filter_switch_content_description,
-                item.entry.label
+                item.label
             )
-            val icon = item.entry.icon
-                ?: ContextCompat.getDrawable(binding.root.context, R.drawable.ic_icon_system)
+            val icon = loadIcon(item.packageName)
             binding.appIcon.setImageDrawable(icon)
 
             binding.appSwitch.setOnCheckedChangeListener { _, isChecked ->
-                onAppToggle(item.entry.packageName, isChecked)
+                onAppToggle(item.packageName, isChecked)
             }
             binding.root.setOnClickListener {
                 binding.appSwitch.performClick()
             }
+        }
+
+        private fun loadIcon(packageName: String): Drawable? {
+            val context = binding.root.context
+            val icon = try {
+                context.packageManager.getApplicationIcon(packageName)
+            } catch (_: Exception) {
+                null
+            }
+            return icon ?: ContextCompat.getDrawable(context, R.drawable.ic_icon_system)
         }
     }
 

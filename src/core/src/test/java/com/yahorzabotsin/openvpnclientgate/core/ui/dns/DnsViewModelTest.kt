@@ -1,8 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.dns
 
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsSettingsRepository
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineStart

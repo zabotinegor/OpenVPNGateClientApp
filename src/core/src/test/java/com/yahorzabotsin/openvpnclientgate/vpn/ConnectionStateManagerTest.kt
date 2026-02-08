@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.Assert.assertEquals

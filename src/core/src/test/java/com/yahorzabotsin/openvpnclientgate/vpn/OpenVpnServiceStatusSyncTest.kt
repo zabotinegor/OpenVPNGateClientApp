@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Intent
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags

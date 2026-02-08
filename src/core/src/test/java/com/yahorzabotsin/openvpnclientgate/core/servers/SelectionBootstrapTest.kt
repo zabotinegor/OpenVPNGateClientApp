@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.servers
+package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider

@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.view.View
 import android.widget.Toast

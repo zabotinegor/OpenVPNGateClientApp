@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.about
+package com.yahorzabotsin.openvpnclientgate.core.about
 
 object AboutMeta {
     // Centralized app links and contacts. Update in one place.
