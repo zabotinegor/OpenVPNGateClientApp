@@ -59,11 +59,8 @@ class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
         }
 
         if (pendingFocusOption != null && adapter != null) {
-            val option = pendingFocusOption
+            focusSelected(currentItems, pendingFocusOption!!)
             pendingFocusOption = null
-            if (option != null) {
-                focusSelected(currentItems, option)
-            }
         }
     }
 
