@@ -437,7 +437,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         val trimmed = text.trimEnd()
         return when {
             trimmed.endsWith("...") -> trimmed.removeSuffix("...").trimEnd()
-            trimmed.endsWith("…") -> trimmed.removeSuffix("…").trimEnd()
+            trimmed.endsWith("â€¦") -> trimmed.removeSuffix("â€¦").trimEnd()
             else -> trimmed
         }
     }
