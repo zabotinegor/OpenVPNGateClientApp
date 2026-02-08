@@ -5,6 +5,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.DnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -29,7 +30,7 @@ class DnsViewModelTest {
         val vm = DnsViewModel(repo, logger)
 
         val effects = mutableListOf<DnsEffect>()
-        val job = launch { vm.effects.take(1).toList(effects) }
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
         advanceUntilIdle()
 
         val state = vm.state.value
