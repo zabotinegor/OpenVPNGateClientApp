@@ -23,6 +23,10 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityMainBinding
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsPresenter
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsRuntime
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsSelectionStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity
@@ -34,6 +38,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
@@ -42,6 +47,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     protected lateinit var toolbarView: Toolbar
     protected lateinit var connectionControlsView: ConnectionControlsView
     private val viewModel: MainViewModel by viewModel()
+    private val connectionControlsUseCase: ConnectionControlsUseCase by inject()
+    private val connectionControlsRuntime: ConnectionControlsRuntime by inject()
+    private val connectionControlsSelectionStore: ConnectionControlsSelectionStore by inject()
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
@@ -162,6 +170,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun setupConnectionControls() {
+        connectionControlsView.setDependencies(
+            presenter = ConnectionControlsPresenter(this, connectionControlsUseCase),
+            runtime = connectionControlsRuntime,
+            selectionStore = connectionControlsSelectionStore
+        )
         connectionControlsView.setLifecycleOwner(this)
         connectionControlsView.setConnectionDetailsListener(this)
         connectionControlsView.setConnectionButtonClickHandler {

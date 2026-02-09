@@ -38,8 +38,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var openServerList: (() -> Unit)? = null
     private var onConnectionButtonClick: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
-    private val useCase = ConnectionControlsUseCase()
-    private val presenter = ConnectionControlsPresenter(context, useCase)
+    private var presenter: ConnectionControlsPresenter =
+        ConnectionControlsPresenter(context, ConnectionControlsUseCase())
     private var runtime: ConnectionControlsRuntime = DefaultConnectionControlsRuntime()
     private var selectionStore: ConnectionControlsSelectionStore = DefaultConnectionControlsSelectionStore()
 
@@ -164,6 +164,16 @@ class ConnectionControlsView @JvmOverloads constructor(
         runtime: ConnectionControlsRuntime,
         selectionStore: ConnectionControlsSelectionStore = DefaultConnectionControlsSelectionStore()
     ) {
+        this.runtime = runtime
+        this.selectionStore = selectionStore
+    }
+
+    fun setDependencies(
+        presenter: ConnectionControlsPresenter,
+        runtime: ConnectionControlsRuntime,
+        selectionStore: ConnectionControlsSelectionStore
+    ) {
+        this.presenter = presenter
         this.runtime = runtime
         this.selectionStore = selectionStore
     }
