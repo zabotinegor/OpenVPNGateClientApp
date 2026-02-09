@@ -16,7 +16,7 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentCountryServer
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -98,11 +98,6 @@ class CountryServersActivity : AppCompatActivity() {
                 focusAdapterPositionWhenReady(position, attemptsLeft - 1)
             }
         }
-    }
-
-    private fun resolve(text: UiText): String = when (text) {
-        is UiText.Plain -> text.value
-        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     private fun finishWithSelection(result: ServerSelectionResult) {

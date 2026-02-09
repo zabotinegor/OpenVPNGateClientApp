@@ -30,6 +30,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
@@ -273,11 +274,6 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 hasVpnPermission = hasVpnPermission
             )
         )
-    }
-
-    private fun resolve(text: UiText): String = when (text) {
-        is UiText.Plain -> text.value
-        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     override fun onDestroy() {

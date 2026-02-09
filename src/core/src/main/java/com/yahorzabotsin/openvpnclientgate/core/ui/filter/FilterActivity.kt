@@ -18,7 +18,7 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -145,11 +145,6 @@ class FilterActivity : AppCompatActivity() {
         when (effect) {
             is FilterEffect.ShowToast -> Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun resolve(text: UiText): String = when (text) {
-        is UiText.Plain -> text.value
-        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     internal fun onItemFocusFromPage(category: AppCategory, position: Int) {
