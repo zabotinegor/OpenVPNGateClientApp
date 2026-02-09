@@ -168,13 +168,20 @@ class LogExportUseCase(
     }
 
     private fun cleanupOldExports(outputDir: File) {
-        outputDir.listFiles()
-            ?.filter {
-                it.isFile && (
-                    (it.name.startsWith("logcat_") && (it.name.endsWith(".txt") || it.name.endsWith(".zip"))) ||
-                        it.name.endsWith("_raw.txt")
-                    )
-            }
-            ?.forEach { runCatching { it.delete() } }
+        outputDir.listFiles()?.forEach { file ->
+            if (!file.isFile) return@forEach
+
+            val name = file.name
+            val isLogExport = name.startsWith("logcat_") &&
+                (name.endsWith(".txt") || name.endsWith(".zip"))
+            val isRawLog = name.endsWith("_raw.txt")
+
+            if (!isLogExport && !isRawLog) return@forEach
+
+            runCatching { file.delete() }
+                .onFailure { error ->
+                    Log.w(TAG, "Failed to delete old export file: ${file.absolutePath}", error)
+                }
+        }
     }
 }
