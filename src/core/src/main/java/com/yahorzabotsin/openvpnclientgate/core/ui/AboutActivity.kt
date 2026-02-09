@@ -7,14 +7,14 @@ import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.ViewGroup
+import androidx.appcompat.app.AppCompatActivity
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutAction
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutEffect
@@ -27,15 +27,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class AboutActivity : BaseTemplateActivity(R.string.menu_about) {
+class AboutActivity : AppCompatActivity() {
+    private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var bindingContent: ContentAboutBinding
     private val viewModel: AboutViewModel by viewModel()
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        bindingContent = ContentAboutBinding.inflate(inflater, container, true)
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        templateBinding = TemplatePage.create(this, R.string.menu_about, null)
+        bindingContent = ContentAboutBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         bindEvents()
         observeViewModel()
     }

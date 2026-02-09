@@ -5,29 +5,28 @@ import android.net.Uri
 import android.app.UiModeManager
 import android.content.res.Configuration
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.ViewGroup
+import androidx.appcompat.app.AppCompatActivity
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentWebviewBinding
 
-class WebViewActivity : BaseTemplateActivity(R.string.web_title) {
+class WebViewActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_URL = "extra_url"
     }
 
+    private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var bindingContent: ContentWebviewBinding
-
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        bindingContent = ContentWebviewBinding.inflate(inflater, container, true)
-    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        templateBinding = TemplatePage.create(this, R.string.web_title, null)
+        bindingContent = ContentWebviewBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         val url = intent.getStringExtra(EXTRA_URL) ?: return finish()
 
         val host = try { Uri.parse(url).host } catch (_: Exception) { null }

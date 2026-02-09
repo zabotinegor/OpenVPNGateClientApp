@@ -3,10 +3,12 @@ package com.yahorzabotsin.openvpnclientgate.core.ui
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentServerListBinding
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
@@ -18,11 +20,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListUiState
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewModel
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
-import android.view.LayoutInflater
-import android.view.ViewGroup
 
-open class ServerListActivity : BaseTemplateActivity(R.string.menu_server) {
+open class ServerListActivity : AppCompatActivity() {
 
+    protected lateinit var templateBinding: ActivityTemplateBinding
     private val viewModel: ServerListViewModel by viewModel()
     private lateinit var contentBinding: ContentServerListBinding
     private val REQUEST_PICK_SERVER = 1001
@@ -30,12 +31,10 @@ open class ServerListActivity : BaseTemplateActivity(R.string.menu_server) {
     private var lastRenderedCountries: List<CountryWithServers> = emptyList()
     private var pendingFocusFirst = false
 
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        contentBinding = ContentServerListBinding.inflate(inflater, container, true)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        templateBinding = TemplatePage.create(this, R.string.menu_server, null)
+        contentBinding = ContentServerListBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         setupRecyclerView()
         contentBinding.refreshFab.setOnClickListener {
             viewModel.onAction(ServerListAction.Load(forceRefresh = true))
