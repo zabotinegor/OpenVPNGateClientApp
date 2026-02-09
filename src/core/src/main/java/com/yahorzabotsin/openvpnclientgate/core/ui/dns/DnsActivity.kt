@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.dns
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -7,10 +7,9 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentDnsBinding
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.UiUtils
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch

@@ -2,7 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
 import android.util.Log
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
-import com.yahorzabotsin.openvpnclientgate.core.ui.AppCategory
 
 interface FilterLogger {
     fun logScreenOpened(userCount: Int, systemCount: Int, excludedCount: Int)

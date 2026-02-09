@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import android.app.Activity
 import android.content.Intent
@@ -14,10 +14,8 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
-import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 

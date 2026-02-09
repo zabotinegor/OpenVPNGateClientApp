@@ -2,7 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterEntry
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
-import com.yahorzabotsin.openvpnclientgate.core.ui.AppCategory
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher

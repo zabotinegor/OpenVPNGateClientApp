@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.android.material.textfield.TextInputEditText
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before

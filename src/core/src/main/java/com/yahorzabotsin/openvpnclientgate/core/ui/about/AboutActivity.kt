@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.about
 
 import android.content.ActivityNotFoundException
 import android.app.UiModeManager
@@ -16,13 +16,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutRowId
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.ToastDuration
-import com.yahorzabotsin.openvpnclientgate.core.ui.about.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.WebViewActivity
 import kotlinx.coroutines.launch
 import java.io.File
 import org.koin.androidx.viewmodel.ext.android.viewModel

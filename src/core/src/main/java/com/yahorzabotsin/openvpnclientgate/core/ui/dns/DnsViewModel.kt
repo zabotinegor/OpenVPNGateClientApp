@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
-import com.yahorzabotsin.openvpnclientgate.core.ui.DnsOptionItem
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow

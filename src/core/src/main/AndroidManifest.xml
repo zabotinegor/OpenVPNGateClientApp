@@ -46,25 +46,25 @@
             android:exported="false" />
 
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.ServerListActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.DnsActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.FilterActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.SettingsActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.AboutActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutActivity"
             android:exported="false" />
         <activity
             android:name="com.yahorzabotsin.openvpnclientgate.core.ui.WebViewActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.CountryServersActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryServersActivity"
             android:exported="false" />
     </application>
 

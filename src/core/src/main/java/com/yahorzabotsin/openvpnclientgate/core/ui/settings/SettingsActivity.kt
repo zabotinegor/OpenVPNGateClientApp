@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
 import android.os.Bundle
 import android.view.View
@@ -15,10 +15,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
-import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel

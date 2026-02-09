@@ -1,7 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.dns
 
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.ui.DnsOptionItem
 
 data class DnsUiState(
     val items: List<DnsOptionItem> = emptyList(),

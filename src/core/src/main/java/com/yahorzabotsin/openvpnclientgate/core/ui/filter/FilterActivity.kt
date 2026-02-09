@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
 import android.os.Bundle
 import android.view.KeyEvent
@@ -14,16 +14,12 @@ import com.google.android.material.tabs.TabLayoutMediator
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentFilterBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterViewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
-
-enum class AppCategory { USER, SYSTEM }
 
 class FilterActivity : AppCompatActivity() {
     private lateinit var templateBinding: ActivityTemplateBinding

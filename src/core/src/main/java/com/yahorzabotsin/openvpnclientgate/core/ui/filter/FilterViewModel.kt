@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterEntry
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
-import com.yahorzabotsin.openvpnclientgate.core.ui.AppCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow

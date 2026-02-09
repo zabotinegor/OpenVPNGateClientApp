@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemAppFilterBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ItemFilterSelectAllBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterUiItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob

@@ -1,7 +1,5 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
-import com.yahorzabotsin.openvpnclientgate.core.ui.AppCategory
-
 data class FilterUiState(
     val isLoading: Boolean = false,
     val currentCategory: AppCategory = AppCategory.USER,

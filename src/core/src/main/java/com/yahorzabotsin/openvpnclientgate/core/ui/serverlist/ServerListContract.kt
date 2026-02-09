@@ -2,7 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
-import com.yahorzabotsin.openvpnclientgate.core.ui.CountryWithServers
 
 data class ServerListUiState(
     val isLoading: Boolean = false,
