@@ -8,6 +8,7 @@ import com.yahorzabotsin.openvpnclientgate.core.about.AboutLinksProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.ElapsedRealtimeProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportInteractor
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -27,7 +28,6 @@ class AboutViewModel(
     private val _effects = MutableSharedFlow<AboutEffect>()
     val effects = _effects.asSharedFlow()
 
-    private var lastActionAt: Long = 0
     private val clickDebounceMs = 500L
 
     init {
@@ -138,8 +138,8 @@ class AboutViewModel(
 
     private fun canProceed(): Boolean {
         val now = elapsedRealtimeProvider.elapsedRealtimeMs()
-        if (now - lastActionAt < clickDebounceMs) return false
-        lastActionAt = now
+        if (now - _state.value.lastActionAtMs < clickDebounceMs) return false
+        _state.value = _state.value.copy(lastActionAtMs = now)
         return true
     }
 }

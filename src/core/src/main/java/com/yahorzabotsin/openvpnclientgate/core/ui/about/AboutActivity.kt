@@ -18,6 +18,7 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBind
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.WebViewActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import kotlinx.coroutines.launch
 import java.io.File
 import org.koin.androidx.viewmodel.ext.android.viewModel

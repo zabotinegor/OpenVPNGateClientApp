@@ -17,6 +17,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -78,10 +79,10 @@ open class ServerListActivity : AppCompatActivity() {
     private fun handleEffect(effect: ServerListEffect) {
         when (effect) {
             is ServerListEffect.ShowSnackbar -> {
-                Snackbar.make(templateBinding.root, effect.resId, Snackbar.LENGTH_LONG).show()
+                Snackbar.make(templateBinding.root, resolve(effect.text), Snackbar.LENGTH_LONG).show()
             }
             is ServerListEffect.ShowToast -> {
-                Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
             }
             is ServerListEffect.OpenCountryServers -> {
                 val intent = Intent(this, CountryServersActivity::class.java).apply {
@@ -125,6 +126,11 @@ open class ServerListActivity : AppCompatActivity() {
         }
         setResult(Activity.RESULT_OK, resultIntent)
         finish()
+    }
+
+    private fun resolve(text: UiText): String = when (text) {
+        is UiText.Plain -> text.value
+        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     companion object {

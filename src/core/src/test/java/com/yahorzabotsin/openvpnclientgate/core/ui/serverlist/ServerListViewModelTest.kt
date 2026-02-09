@@ -7,6 +7,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListLogger
@@ -68,7 +69,10 @@ class ServerListViewModelTest {
 
         val effect = effects.first()
         assertTrue(effect is ServerListEffect.ShowSnackbar)
-        assertEquals(R.string.error_getting_servers, (effect as ServerListEffect.ShowSnackbar).resId)
+        assertEquals(
+            UiText.Res(R.string.error_getting_servers),
+            (effect as ServerListEffect.ShowSnackbar).text
+        )
         job.cancel()
     }
 
@@ -86,7 +90,10 @@ class ServerListViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects[0] is ServerListEffect.ShowToast)
-        assertEquals(R.string.no_servers_for_country, (effects[0] as ServerListEffect.ShowToast).resId)
+        assertEquals(
+            UiText.Res(R.string.no_servers_for_country),
+            (effects[0] as ServerListEffect.ShowToast).text
+        )
         assertTrue(effects[1] is ServerListEffect.FinishCanceled)
         job.cancel()
     }
@@ -141,7 +148,10 @@ class ServerListViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects[0] is ServerListEffect.ShowSnackbar)
-        assertEquals(R.string.error_getting_servers, (effects[0] as ServerListEffect.ShowSnackbar).resId)
+        assertEquals(
+            UiText.Res(R.string.error_getting_servers),
+            (effects[0] as ServerListEffect.ShowSnackbar).text
+        )
         assertTrue(effects[1] is ServerListEffect.SetResultCanceled)
         job.cancel()
     }

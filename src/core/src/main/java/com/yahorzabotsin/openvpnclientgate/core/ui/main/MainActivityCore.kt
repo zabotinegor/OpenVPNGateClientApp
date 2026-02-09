@@ -29,6 +29,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
@@ -233,7 +234,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
-            is MainEffect.ShowToast -> Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
+            is MainEffect.ShowToast -> Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -272,6 +273,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 hasVpnPermission = hasVpnPermission
             )
         )
+    }
+
+    private fun resolve(text: UiText): String = when (text) {
+        is UiText.Plain -> text.value
+        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     override fun onDestroy() {

@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.channels.BufferOverflow
@@ -74,7 +75,7 @@ class ServerListViewModel(
                 _effects.emit(ServerListEffect.FocusFirstItem)
             } catch (e: Exception) {
                 logger.logLoadError(e)
-                _effects.emit(ServerListEffect.ShowSnackbar(R.string.error_getting_servers))
+                _effects.emit(ServerListEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
             } finally {
                 updateState { it.copy(isLoading = false) }
             }
@@ -88,7 +89,7 @@ class ServerListViewModel(
         if (countryServers.isEmpty()) {
             logger.logNoServers(countryName)
             viewModelScope.launch {
-                _effects.emit(ServerListEffect.ShowToast(R.string.no_servers_for_country))
+                _effects.emit(ServerListEffect.ShowToast(UiText.Res(R.string.no_servers_for_country)))
                 _effects.emit(ServerListEffect.FinishCanceled)
             }
             return
@@ -107,7 +108,7 @@ class ServerListViewModel(
                     _effects.emit(ServerListEffect.FinishWithSelection(result))
                 } catch (e: Exception) {
                     logger.logSelectionError(countryName, e)
-                    _effects.emit(ServerListEffect.ShowSnackbar(R.string.error_getting_servers))
+                    _effects.emit(ServerListEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
                     _effects.emit(ServerListEffect.SetResultCanceled)
                 } finally {
                     updateState { it.copy(isLoading = false) }

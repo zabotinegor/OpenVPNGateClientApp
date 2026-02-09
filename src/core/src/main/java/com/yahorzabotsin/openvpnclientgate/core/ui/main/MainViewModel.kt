@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -95,7 +96,7 @@ class MainViewModel(
                 R.id.nav_filter -> _effects.emit(MainEffect.OpenDestination(MainDestination.Filter))
                 R.id.nav_settings -> _effects.emit(MainEffect.OpenDestination(MainDestination.Settings))
                 R.id.nav_about -> _effects.emit(MainEffect.OpenDestination(MainDestination.About))
-                else -> _effects.emit(MainEffect.ShowToast(R.string.feature_in_development))
+                else -> _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))
             }
             _effects.emit(MainEffect.CloseDrawer)
         }
@@ -127,7 +128,7 @@ class MainViewModel(
                 ConnectionState.DISCONNECTED -> {
                     val selected = _state.value.selectedServer
                     if (selected?.config.isNullOrBlank()) {
-                        _effects.emit(MainEffect.ShowToast(R.string.select_server_first))
+                        _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
                         return@launch
                     }
                     if (!hasNotificationPermission) {
@@ -144,7 +145,7 @@ class MainViewModel(
                         preferUserSelection = _state.value.pendingUserSelectionOverride
                     )
                     if (prepared == null) {
-                        _effects.emit(MainEffect.ShowToast(R.string.select_server_first))
+                        _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
                         return@launch
                     }
 

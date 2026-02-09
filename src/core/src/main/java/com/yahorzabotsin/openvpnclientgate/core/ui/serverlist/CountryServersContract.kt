@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 
 data class CountryServersUiState(
     val isLoading: Boolean = false,
@@ -21,9 +22,4 @@ sealed interface CountryServersEffect {
     data class FinishWithSelection(val result: ServerSelectionResult) : CountryServersEffect
     data object FinishCanceled : CountryServersEffect
     data object FocusFirstItem : CountryServersEffect
-}
-
-sealed interface UiText {
-    data class Res(val resId: Int, val args: List<Any> = emptyList()) : UiText
-    data class Plain(val value: String) : UiText
 }

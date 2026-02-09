@@ -17,11 +17,8 @@ import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ViewConnectionControlsBinding
-import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
-import com.yahorzabotsin.openvpnclientgate.vpn.ServerAutoSwitcher
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -44,6 +41,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var onConnectionButtonClick: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
     private val useCase = ConnectionControlsUseCase()
+    private var runtime: ConnectionControlsRuntime = DefaultConnectionControlsRuntime()
+    private var selectionStore: ConnectionControlsSelectionStore = DefaultConnectionControlsSelectionStore()
 
     companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
@@ -92,7 +91,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         applyServerSelectionLabel(country, ip)
         updateServerPosition()
 
-        if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+        if (runtime.state.value == ConnectionState.DISCONNECTED) {
             updateLocationPlaceholders()
         }
     }
@@ -119,7 +118,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {
         lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStateManager.state.collect { state ->
+                runtime.state.collect { state ->
                     updateStatusLabel(state)
                     updateButtonState(state)
                     syncSelectedServerIpFromStore()
@@ -129,13 +128,13 @@ class ConnectionControlsView @JvmOverloads constructor(
         lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(
-                    ConnectionStateManager.engineLevel,
-                    ConnectionStateManager.engineDetail,
-                    ConnectionStateManager.reconnectingHint,
-                    ServerAutoSwitcher.remainingSeconds
+                    runtime.engineLevel,
+                    runtime.engineDetail,
+                    runtime.reconnectingHint,
+                    runtime.remainingSeconds
                 ) { _, _, _, _ -> }
                     .collect {
-                        val current = ConnectionStateManager.state.value
+                        val current = runtime.state.value
                         updateStatusLabel(current)
                         updateButtonState(current)
                         syncSelectedServerIpFromStore()
@@ -153,14 +152,22 @@ class ConnectionControlsView @JvmOverloads constructor(
         lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(
-                    ConnectionStateManager.downloadedBytes,
-                    ConnectionStateManager.uploadedBytes
+                    runtime.downloadedBytes,
+                    runtime.uploadedBytes
                 ) { downloaded, uploaded -> downloaded to uploaded }
                     .collect { (downloaded, uploaded) ->
                         updateTraffic(downloaded, uploaded)
                     }
             }
         }
+    }
+
+    fun setRuntime(
+        runtime: ConnectionControlsRuntime,
+        selectionStore: ConnectionControlsSelectionStore = DefaultConnectionControlsSelectionStore()
+    ) {
+        this.runtime = runtime
+        this.selectionStore = selectionStore
     }
 
     private fun applyServerSelectionLabel(country: String, ip: String? = selectedServerIp) {
@@ -185,12 +192,12 @@ class ConnectionControlsView @JvmOverloads constructor(
         }
 
     private fun syncSelectedServerIpFromStore() {
-        val resolvedCountry = selectedCountry ?: runCatching { SelectedCountryStore.getSelectedCountry(context) }.getOrNull()
+        val resolvedCountry = selectedCountry ?: runCatching { selectionStore.getSelectedCountry(context) }.getOrNull()
         if (resolvedCountry.isNullOrBlank()) return
         selectedCountry = resolvedCountry
-        val current = runCatching { SelectedCountryStore.currentServer(context) }.getOrNull()
-        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(context) }.getOrNull()
-        val lastSuccessfulIp = runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
+        val current = runCatching { selectionStore.currentServer(context) }.getOrNull()
+        val lastStarted = runCatching { selectionStore.getLastStartedConfig(context) }.getOrNull()
+        val lastSuccessfulIp = runCatching { selectionStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
 
         val ipFromCurrentConfig = current?.takeIf { it.config == vpnConfig }?.ip
         val ipFromLastStartedConfig = lastStarted
@@ -223,8 +230,8 @@ class ConnectionControlsView @JvmOverloads constructor(
             ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
         }
         val baseStatus = context.getString(statusRes)
-        val level = ConnectionStateManager.engineLevel.value
-        val remaining = ServerAutoSwitcher.remainingSeconds.value
+        val level = runtime.engineLevel.value
+        val remaining = runtime.remainingSeconds.value
         val showCountdown = level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
             level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
         val statusText = if (state == ConnectionState.CONNECTING && remaining != null && showCountdown) {
@@ -238,10 +245,10 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun updateButtonState(state: ConnectionState) {
-        val detail = ConnectionStateManager.engineDetail.value
-        val level = ConnectionStateManager.engineLevel.value
-        val hint = ConnectionStateManager.reconnectingHint.value
-        val remaining = ServerAutoSwitcher.remainingSeconds.value
+        val detail = runtime.engineDetail.value
+        val level = runtime.engineLevel.value
+        val hint = runtime.reconnectingHint.value
+        val remaining = runtime.remainingSeconds.value
         val connectButton = binding.startConnectionButton
         when (state) {
             ConnectionState.CONNECTED -> {
@@ -257,7 +264,7 @@ class ConnectionControlsView @JvmOverloads constructor(
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
                     detail in setOf("NOPROCESS", "EXITING"))
-                val t = if (ConnectionStateManager.reconnectingHint.value && isTeardown) {
+                val t = if (runtime.reconnectingHint.value && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
@@ -294,8 +301,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun updateDurationTimer() {
-        val start = ConnectionStateManager.connectionStartTimeMs.value
-        val state = ConnectionStateManager.state.value
+        val start = runtime.connectionStartTimeMs.value
+        val state = runtime.state.value
         val duration = if (state == ConnectionState.CONNECTED && start != null) {
             val elapsedSec = ((System.currentTimeMillis() - start) / 1000L).coerceAtLeast(0L)
             val hours = elapsedSec / 3600
@@ -327,12 +334,12 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun resolveIpForConfig(config: String?): String? {
         if (config.isNullOrBlank()) return selectedServerIp
-        val current = runCatching { SelectedCountryStore.currentServer(context) }.getOrNull()
+        val current = runCatching { selectionStore.currentServer(context) }.getOrNull()
         if (current?.config == config && !current.ip.isNullOrBlank()) return current.ip
-        val lastSuccessfulIp = runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
-        val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
+        val lastSuccessfulIp = runCatching { selectionStore.getLastSuccessfulIpForSelected(context) }.getOrNull()
+        val lastSuccessfulConfig = runCatching { selectionStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
         if (!lastSuccessfulIp.isNullOrBlank() && lastSuccessfulConfig == config) return lastSuccessfulIp
-        return runCatching { SelectedCountryStore.getIpForConfig(context, config) }.getOrNull()
+        return runCatching { selectionStore.getIpForConfig(context, config) }.getOrNull()
             ?: selectedServerIp
     }
 
@@ -370,7 +377,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun updateServerPosition() {
-        val pos = runCatching { SelectedCountryStore.getCurrentPosition(context) }.getOrNull()
+        val pos = runCatching { selectionStore.getCurrentPosition(context) }.getOrNull()
         val text = pos?.let { (index, total) ->
             context.getString(R.string.connection_detail_server_position, index, total)
         } ?: ""

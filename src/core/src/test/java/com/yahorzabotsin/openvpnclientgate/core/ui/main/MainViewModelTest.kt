@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CoroutineStart
@@ -110,7 +111,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         val effect = effects.first() as MainEffect.ShowToast
-        assertEquals(R.string.select_server_first, effect.resId)
+        assertEquals(UiText.Res(R.string.select_server_first), effect.text)
         job.cancel()
     }
 

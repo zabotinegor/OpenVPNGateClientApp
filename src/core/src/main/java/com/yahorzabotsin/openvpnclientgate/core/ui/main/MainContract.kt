@@ -1,6 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
-import androidx.annotation.StringRes
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 
 data class MainUiState(
     val isDetailsVisible: Boolean = true,
@@ -61,5 +61,5 @@ sealed interface MainEffect {
     data class StartVpn(val config: String, val country: String?) : MainEffect
     data object StopVpn : MainEffect
 
-    data class ShowToast(@StringRes val resId: Int) : MainEffect
+    data class ShowToast(val text: UiText) : MainEffect
 }

@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.about
 
 import com.yahorzabotsin.openvpnclientgate.core.about.AboutInfo
 import com.yahorzabotsin.openvpnclientgate.core.about.AboutLinks
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 
 data class AboutUiState(
     val info: AboutInfo = AboutInfo(
@@ -25,7 +26,8 @@ data class AboutUiState(
         gplv2 = "",
         icsGithub = ""
     ),
-    val isExportingLogs: Boolean = false
+    val isExportingLogs: Boolean = false,
+    val lastActionAtMs: Long = 0L
 )
 
 enum class AboutRowId {
@@ -59,9 +61,4 @@ sealed interface AboutEffect {
 enum class ToastDuration {
     SHORT,
     LONG
-}
-
-sealed interface UiText {
-    data class Res(val resId: Int, val args: List<Any> = emptyList()) : UiText
-    data class Plain(val value: String) : UiText
 }

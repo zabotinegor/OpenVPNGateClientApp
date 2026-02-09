@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CoroutineStart
