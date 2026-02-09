@@ -186,9 +186,7 @@ class MainViewModel(
                     previousConfig = previousConfig,
                     newConfig = selection.config
                 )
-                val ipChanged = !previousIp.isNullOrBlank() &&
-                    !selection.ip.isNullOrBlank() &&
-                    previousIp != selection.ip
+                val ipChanged = previousIp != selection.ip
                 val state = connectionStateProvider.state.value
                 val isVpnActive = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
                 val serverChanged = configChanged || ipChanged

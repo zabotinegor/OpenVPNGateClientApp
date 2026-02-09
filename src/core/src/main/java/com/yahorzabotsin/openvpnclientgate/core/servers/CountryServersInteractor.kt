@@ -41,11 +41,15 @@ class DefaultCountryServersInteractor(
         }
 
         SelectedCountryStore.saveSelection(appContext, countryName, resolvedServers)
-        val chosenResolved = resolvedServers.firstOrNull { it.lineIndex == selectedServer.lineIndex }
-            ?: resolvedServers.first()
-        runCatching {
-            SelectedCountryStore.ensureIndexForConfig(appContext, chosenResolved.configData, chosenResolved.ip)
-        }
+        val chosenIndex = listOf(
+            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex && it.ip == selectedServer.ip },
+            resolvedServers.indexOfFirst { it.ip == selectedServer.ip },
+            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex },
+            resolvedServers.indexOfFirst { it.configData == selectedServer.configData && it.city == selectedServer.city }
+        ).firstOrNull { it >= 0 } ?: 0
+
+        runCatching { SelectedCountryStore.setCurrentIndex(appContext, chosenIndex) }
+        val chosenResolved = resolvedServers[chosenIndex]
 
         return ServerSelectionResult(
             countryName = countryName,

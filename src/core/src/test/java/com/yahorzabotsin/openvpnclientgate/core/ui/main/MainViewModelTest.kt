@@ -256,6 +256,48 @@ class MainViewModelTest {
         assertTrue(firstEffect !is MainEffect.StopVpn)
     }
 
+    @Test
+    fun `selection with same config and null ip emits stop when connected`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "Canada",
+                    city = "A",
+                    config = "shared-config",
+                    countryCode = "CA",
+                    ip = "1.1.1.1"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
+        )
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Canada",
+                    countryCode = "CA",
+                    city = "A",
+                    config = "shared-config",
+                    ip = null
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.StopVpn)
+        job.cancel()
+    }
+
     private class FakeMainSelectionInteractor(
         private val initialSelection: InitialSelection? = null
     ) : MainSelectionInteractor {
