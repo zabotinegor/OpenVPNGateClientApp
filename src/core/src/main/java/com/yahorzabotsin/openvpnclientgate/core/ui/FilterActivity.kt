@@ -2,16 +2,17 @@ package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.os.Bundle
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentFilterBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterAction
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterEffect
@@ -24,7 +25,8 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 
 enum class AppCategory { USER, SYSTEM }
 
-class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
+class FilterActivity : AppCompatActivity() {
+    private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var binding: ContentFilterBinding
 
     private val pages = mutableSetOf<FilterPageFragment>()
@@ -33,12 +35,10 @@ class FilterActivity : BaseTemplateActivity(R.string.menu_filter) {
     private var lastState: FilterUiState? = null
     private val viewModel: FilterViewModel by viewModel()
 
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        binding = ContentFilterBinding.inflate(inflater, container, true)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        templateBinding = TemplatePage.create(this, R.string.menu_filter, null)
+        binding = ContentFilterBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         isTvMode = TvUtils.isTvDevice(this)
         setupPager()
         observeViewModel()

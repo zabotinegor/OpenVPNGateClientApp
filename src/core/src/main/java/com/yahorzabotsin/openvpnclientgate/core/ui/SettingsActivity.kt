@@ -1,43 +1,45 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentSettingsBinding
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
-import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsAction
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsEffect
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsUiState
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
+import kotlinx.coroutines.launch
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
+class SettingsActivity : AppCompatActivity() {
+    private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var binding: ContentSettingsBinding
     private var isUpdatingUi = false
-    private var currentCacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
-    private var currentStatusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS
-
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        binding = ContentSettingsBinding.inflate(inflater, container, true)
-    }
+    private val viewModel: SettingsViewModel by viewModel()
+    private var initialFocusRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        loadSettingsIntoUi(UserSettingsStore.load(this))
+        templateBinding = TemplatePage.create(this, R.string.menu_settings, null)
+        binding = ContentSettingsBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         setupCollapsibles()
         setupRadioGroups()
         setupCustomInputWatcher()
         setupCacheInputWatcher()
         setupStatusTimerWatcher()
-        updateSummaries()
+        observeViewModel()
     }
 
     private fun setupCollapsibles() {
@@ -89,46 +91,39 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private fun setupRadioGroups() {
         binding.languageRadioGroup.setOnCheckedChangeListener { _, _ ->
             if (isUpdatingUi) return@setOnCheckedChangeListener
-            UserSettingsStore.saveLanguage(this, when (binding.languageRadioGroup.checkedRadioButtonId) {
+            val selected = when (binding.languageRadioGroup.checkedRadioButtonId) {
                 binding.languageSystem.id -> LanguageOption.SYSTEM
                 binding.languageEn.id -> LanguageOption.ENGLISH
                 binding.languageRu.id -> LanguageOption.RUSSIAN
                 binding.languagePl.id -> LanguageOption.POLISH
                 else -> LanguageOption.SYSTEM
-            })
-            UserSettingsStore.applyThemeAndLocale(this)
-            VpnManager.refreshNotification(this)
-            updateSummaries()
+            }
+            viewModel.onAction(SettingsAction.SelectLanguage(selected))
         }
         binding.themeRadioGroup.setOnCheckedChangeListener { _, _ ->
             if (isUpdatingUi) return@setOnCheckedChangeListener
-            UserSettingsStore.saveTheme(this, when (binding.themeRadioGroup.checkedRadioButtonId) {
+            val selected = when (binding.themeRadioGroup.checkedRadioButtonId) {
                 binding.themeSystem.id -> ThemeOption.SYSTEM
                 binding.themeLight.id -> ThemeOption.LIGHT
                 binding.themeDark.id -> ThemeOption.DARK
                 else -> ThemeOption.SYSTEM
-            })
-            UserSettingsStore.applyThemeAndLocale(this)
-            updateSummaries()
+            }
+            viewModel.onAction(SettingsAction.SelectTheme(selected))
         }
         binding.serverRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             if (isUpdatingUi) return@setOnCheckedChangeListener
-            val isCustom = checkedId == binding.serverCustom.id
-            binding.customServerInputLayout.visibility = if (isCustom) View.VISIBLE else View.GONE
-            UserSettingsStore.saveServerSource(this, when (checkedId) {
+            val source = when (checkedId) {
                 binding.serverDefault.id -> ServerSource.DEFAULT
                 binding.serverVpngate.id -> ServerSource.VPNGATE
                 binding.serverCustom.id -> ServerSource.CUSTOM
                 else -> ServerSource.DEFAULT
-            })
-            updateServerContentFocus()
-            updateSummaries()
+            }
+            viewModel.onAction(SettingsAction.SelectServerSource(source))
         }
         binding.autoSwitchRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             if (isUpdatingUi) return@setOnCheckedChangeListener
             val enabled = checkedId == binding.autoSwitchOn.id
-            UserSettingsStore.saveAutoSwitchWithinCountry(this, enabled)
-            updateSummaries()
+            viewModel.onAction(SettingsAction.SetAutoSwitchWithinCountry(enabled))
         }
     }
 
@@ -136,9 +131,8 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         binding.customServerInput.addTextChangedListener {
             if (isUpdatingUi) return@addTextChangedListener
             if (binding.serverCustom.isChecked) {
-                val value = it?.toString()?.trim() ?: ""
-                UserSettingsStore.saveCustomServerUrl(this, value)
-                updateSummaries()
+                val value = it?.toString() ?: ""
+                viewModel.onAction(SettingsAction.SetCustomServerUrl(value))
             }
         }
     }
@@ -146,41 +140,24 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
     private fun setupCacheInputWatcher() {
         binding.cacheInput.addTextChangedListener { text ->
             if (isUpdatingUi) return@addTextChangedListener
-        val minutes = text?.toString()?.toLongOrNull() ?: return@addTextChangedListener
-        if (minutes <= 0) return@addTextChangedListener
-        val ttlMs = minutes * 60 * 1000L
-            currentCacheTtlMs = ttlMs
-            UserSettingsStore.saveCacheTtlMs(this, ttlMs)
-            updateSummaries()
+            viewModel.onAction(SettingsAction.SetCacheTtlInput(text?.toString().orEmpty()))
         }
     }
 
     private fun setupStatusTimerWatcher() {
         binding.statusTimerInput.addTextChangedListener { text ->
             if (isUpdatingUi) return@addTextChangedListener
-            val seconds = text?.toString()?.toIntOrNull() ?: return@addTextChangedListener
-            if (seconds <= 0) return@addTextChangedListener
-            currentStatusStallTimeoutSeconds = seconds
-            UserSettingsStore.saveStatusStallTimeoutSeconds(this, seconds)
-            updateSummaries()
+            viewModel.onAction(SettingsAction.SetStatusStallTimeoutInput(text?.toString().orEmpty()))
         }
     }
 
-    private fun updateSummaries() {
-        binding.languageSummary.text = selectedRadioText(binding.languageRadioGroup)
-        binding.themeSummary.text = selectedRadioText(binding.themeRadioGroup)
-        binding.serverSummary.text = if (binding.serverCustom.isChecked) {
-            val url = binding.customServerInput.text?.toString()?.takeIf { it.isNotBlank() }
-            url ?: selectedRadioText(binding.serverRadioGroup)
-        } else {
-            selectedRadioText(binding.serverRadioGroup)
+    private fun observeViewModel() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                launch { viewModel.state.collect { render(it) } }
+                launch { viewModel.effects.collect { handleEffect(it) } }
+            }
         }
-        binding.autoSwitchSummary.text = selectedRadioText(binding.autoSwitchRadioGroup)
-        binding.statusTimerSummary.text = getString(
-            R.string.settings_status_timer_summary_format,
-            currentStatusStallTimeoutSeconds
-        )
-        binding.cacheSummary.text = formatMinutesSummary(currentCacheTtlMs)
     }
 
     private fun setupCollapsibleSection(header: View, content: View, chevron: ImageView) {
@@ -234,9 +211,9 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         binding.cacheInput.nextFocusUpId = binding.cacheHeader.id
     }
 
-    private fun updateServerContentFocus() {
+    private fun updateServerContentFocus(isCustom: Boolean) {
         val nextHeaderId = binding.autoSwitchHeader.id
-        if (binding.serverCustom.isChecked) {
+        if (isCustom) {
             binding.serverCustom.nextFocusDownId = binding.customServerInput.id
             binding.customServerInput.nextFocusDownId = nextHeaderId
         } else {
@@ -244,49 +221,97 @@ class SettingsActivity : BaseTemplateActivity(R.string.menu_settings) {
         }
     }
 
-    private fun selectedRadioText(group: RadioGroup): String {
-        val selectedId = group.checkedRadioButtonId
-        val radio = group.findViewById<RadioButton>(selectedId)
-        return radio?.text?.toString().orEmpty()
-    }
-
-    private fun loadSettingsIntoUi(settings: UserSettings) {
+    private fun render(state: SettingsUiState) {
         isUpdatingUi = true
-        when (settings.language) {
+        when (state.language) {
             LanguageOption.SYSTEM -> binding.languageRadioGroup.check(binding.languageSystem.id)
             LanguageOption.ENGLISH -> binding.languageRadioGroup.check(binding.languageEn.id)
             LanguageOption.RUSSIAN -> binding.languageRadioGroup.check(binding.languageRu.id)
             LanguageOption.POLISH -> binding.languageRadioGroup.check(binding.languagePl.id)
         }
 
-        when (settings.theme) {
+        when (state.theme) {
             ThemeOption.SYSTEM -> binding.themeRadioGroup.check(binding.themeSystem.id)
             ThemeOption.LIGHT -> binding.themeRadioGroup.check(binding.themeLight.id)
             ThemeOption.DARK -> binding.themeRadioGroup.check(binding.themeDark.id)
         }
 
-        when (settings.serverSource) {
+        when (state.serverSource) {
             ServerSource.DEFAULT -> binding.serverRadioGroup.check(binding.serverDefault.id)
             ServerSource.VPNGATE -> binding.serverRadioGroup.check(binding.serverVpngate.id)
             ServerSource.CUSTOM -> binding.serverRadioGroup.check(binding.serverCustom.id)
         }
 
-        binding.customServerInput.setText(settings.customServerUrl)
+        if (binding.customServerInput.text?.toString() != state.customServerUrl) {
+            binding.customServerInput.setText(state.customServerUrl)
+        }
         binding.customServerInputLayout.visibility =
-            if (settings.serverSource == ServerSource.CUSTOM) View.VISIBLE else View.GONE
+            if (state.serverSource == ServerSource.CUSTOM) View.VISIBLE else View.GONE
 
-        currentCacheTtlMs = settings.cacheTtlMs
-        val cacheMinutes = (settings.cacheTtlMs / 60000).coerceAtLeast(1)
-        binding.cacheInput.setText(cacheMinutes.toString())
+        if (binding.cacheInput.text?.toString() != state.cacheTtlInput) {
+            binding.cacheInput.setText(state.cacheTtlInput)
+        }
+
+        if (binding.statusTimerInput.text?.toString() != state.statusStallTimeoutInput) {
+            binding.statusTimerInput.setText(state.statusStallTimeoutInput)
+        }
+
         binding.autoSwitchRadioGroup.check(
-            if (settings.autoSwitchWithinCountry) binding.autoSwitchOn.id else binding.autoSwitchOff.id
+            if (state.autoSwitchWithinCountry) binding.autoSwitchOn.id else binding.autoSwitchOff.id
         )
-        currentStatusStallTimeoutSeconds = settings.statusStallTimeoutSeconds
-        binding.statusTimerInput.setText(settings.statusStallTimeoutSeconds.toString())
 
-        updateServerContentFocus()
+        updateServerContentFocus(state.serverSource == ServerSource.CUSTOM)
+        updateSummaries(state)
         isUpdatingUi = false
-        binding.languageHeader.requestFocus()
+
+        if (!initialFocusRequested) {
+            initialFocusRequested = true
+            binding.languageHeader.requestFocus()
+        }
+    }
+
+    private fun handleEffect(effect: SettingsEffect) {
+        when (effect) {
+            SettingsEffect.ApplyThemeAndLocale -> UserSettingsStore.applyThemeAndLocale(this)
+            SettingsEffect.RefreshNotification -> VpnManager.refreshNotification(this)
+        }
+    }
+
+    private fun updateSummaries(state: SettingsUiState) {
+        binding.languageSummary.text = languageLabel(state.language)
+        binding.themeSummary.text = themeLabel(state.theme)
+        binding.serverSummary.text = if (state.serverSource == ServerSource.CUSTOM) {
+            val url = state.customServerUrl.trim().takeIf { it.isNotBlank() }
+            url ?: serverLabel(state.serverSource)
+        } else {
+            serverLabel(state.serverSource)
+        }
+        binding.autoSwitchSummary.text =
+            if (state.autoSwitchWithinCountry) binding.autoSwitchOn.text else binding.autoSwitchOff.text
+        binding.statusTimerSummary.text = getString(
+            R.string.settings_status_timer_summary_format,
+            state.statusStallTimeoutSeconds
+        )
+        binding.cacheSummary.text = formatMinutesSummary(state.cacheTtlMs)
+    }
+
+    private fun languageLabel(option: LanguageOption): String = when (option) {
+        LanguageOption.SYSTEM -> binding.languageSystem.text.toString()
+        LanguageOption.ENGLISH -> binding.languageEn.text.toString()
+        LanguageOption.RUSSIAN -> binding.languageRu.text.toString()
+        LanguageOption.POLISH -> binding.languagePl.text.toString()
+    }
+
+    private fun themeLabel(option: ThemeOption): String = when (option) {
+        ThemeOption.SYSTEM -> binding.themeSystem.text.toString()
+        ThemeOption.LIGHT -> binding.themeLight.text.toString()
+        ThemeOption.DARK -> binding.themeDark.text.toString()
+    }
+
+    private fun serverLabel(source: ServerSource): String = when (source) {
+        ServerSource.DEFAULT -> binding.serverDefault.text.toString()
+        ServerSource.VPNGATE -> binding.serverVpngate.text.toString()
+        ServerSource.CUSTOM -> binding.serverCustom.text.toString()
     }
 
     private fun formatMinutesSummary(ttlMs: Long): String {

@@ -16,6 +16,8 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInterac
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
+import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultSettingsRepository
+import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.dns.DefaultDnsSettingsRepository
@@ -29,6 +31,9 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.DefaultServerListLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.DefaultSettingsLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
 import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
@@ -60,6 +65,7 @@ val coreModule = module {
     }
 
     single<UserSettingsStore> { UserSettingsStore }
+    single<SettingsRepository> { DefaultSettingsRepository(androidContext(), get()) }
     single<DnsSettingsRepository> { DefaultDnsSettingsRepository(get()) }
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
@@ -80,4 +86,6 @@ val coreModule = module {
     single<VpnConnectionStateProvider> { DefaultVpnConnectionStateProvider() }
     single<ServerListLogger> { DefaultServerListLogger() }
     viewModel { ServerListViewModel(get(), get(), get()) }
+    single<SettingsLogger> { DefaultSettingsLogger() }
+    viewModel { SettingsViewModel(get(), get()) }
 }

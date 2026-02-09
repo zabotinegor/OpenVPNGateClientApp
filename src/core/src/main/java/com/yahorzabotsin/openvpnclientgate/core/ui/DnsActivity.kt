@@ -1,10 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.ViewGroup
+import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentDnsBinding
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsAction
@@ -16,23 +16,21 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class DnsActivity : BaseTemplateActivity(R.string.menu_dns) {
+class DnsActivity : AppCompatActivity() {
+    private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var binding: ContentDnsBinding
     private var adapter: DnsOptionAdapter? = null
     private val viewModel: DnsViewModel by viewModel()
     private var pendingFocusOption: DnsOption? = null
 
-    override fun inflateContent(inflater: LayoutInflater, container: ViewGroup) {
-        binding = ContentDnsBinding.inflate(inflater, container, true)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        templateBinding = TemplatePage.create(this, R.string.menu_dns, null)
+        binding = ContentDnsBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
         binding.dnsRecyclerView.layoutManager = LinearLayoutManager(this)
         binding.dnsRecyclerView.addItemDecoration(MarginItemDecoration(UiUtils.dpToPx(8, resources)))
         observeViewModel()
     }
-
     private fun observeViewModel() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {

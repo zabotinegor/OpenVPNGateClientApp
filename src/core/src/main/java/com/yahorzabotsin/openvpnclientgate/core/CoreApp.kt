@@ -11,6 +11,7 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 
 class CoreApp : Application() {
+
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CoreApp"
     }
