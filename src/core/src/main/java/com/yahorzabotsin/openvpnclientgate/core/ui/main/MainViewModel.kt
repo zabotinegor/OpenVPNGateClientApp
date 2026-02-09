@@ -3,7 +3,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -17,8 +16,7 @@ class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
     private val connectionInteractor: MainConnectionInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
-    private val logger: MainLogger,
-    private val connectionControlsUseCase: ConnectionControlsUseCase
+    private val logger: MainLogger
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
@@ -184,16 +182,13 @@ class MainViewModel(
                     fromUserSelection = true
                 )
                 val connectionState = connectionStateProvider.state.value
-                val configChanged = connectionControlsUseCase.shouldStopForUserSelection(
+                val shouldStopForUserSelection = connectionInteractor.shouldStopForUserSelection(
                     state = connectionState,
                     previousConfig = previousConfig,
-                    newConfig = config
+                    newConfig = config,
+                    previousIp = previousIp,
+                    newIp = resolvedSelection.ip
                 )
-                val ipChanged = previousIp != resolvedSelection.ip
-                val isVpnActive = connectionState == ConnectionState.CONNECTED ||
-                    connectionState == ConnectionState.CONNECTING
-                val serverChanged = configChanged || ipChanged
-                val shouldStopForUserSelection = isVpnActive && serverChanged
                 if (shouldStopForUserSelection) {
                     _effects.send(MainEffect.StopVpn)
                 }

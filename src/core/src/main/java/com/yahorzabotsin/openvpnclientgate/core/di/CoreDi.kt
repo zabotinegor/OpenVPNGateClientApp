@@ -114,5 +114,5 @@ val coreModule = module {
     single { ConnectionControlsUseCase() }
     single<ConnectionControlsRuntime> { DefaultConnectionControlsRuntime() }
     single<ConnectionControlsSelectionStore> { DefaultConnectionControlsSelectionStore() }
-    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get()) }
 }

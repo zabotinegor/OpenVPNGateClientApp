@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 
 data class PreparedConnectionStart(
     val config: String,
@@ -16,6 +17,14 @@ interface MainConnectionInteractor {
         selectedServer: MainSelectedServer?,
         preferUserSelection: Boolean
     ): PreparedConnectionStart?
+
+    fun shouldStopForUserSelection(
+        state: ConnectionState,
+        previousConfig: String?,
+        newConfig: String?,
+        previousIp: String?,
+        newIp: String?
+    ): Boolean
 }
 
 class DefaultMainConnectionInteractor(
@@ -75,6 +84,25 @@ class DefaultMainConnectionInteractor(
             country = selectedServer.country,
             ip = ipForConfig
         )
+    }
+
+    override fun shouldStopForUserSelection(
+        state: ConnectionState,
+        previousConfig: String?,
+        newConfig: String?,
+        previousIp: String?,
+        newIp: String?
+    ): Boolean {
+        val isVpnActive = state == ConnectionState.CONNECTED ||
+            state == ConnectionState.CONNECTING
+        if (!isVpnActive) return false
+
+        val configChanged = !previousConfig.isNullOrBlank() &&
+            !newConfig.isNullOrBlank() &&
+            previousConfig != newConfig
+        val ipChanged = previousIp != newIp
+
+        return configChanged || ipChanged
     }
 
     private fun resolveIpForConfig(config: String?, fallbackIp: String?): String? {

@@ -962,7 +962,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (shouldIgnoreLevelAfterUserStop(level)) return
         statusHandler.post { handleForegroundForLevel(level) }
         if (allowAutoSwitch) {
-            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL") } catch (_: Exception) { }
+            try {
+                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to notify auto-switcher from AIDL", e)
+            }
         }
         ConnectionStateManager.updateFromEngine(level, detail)
     }

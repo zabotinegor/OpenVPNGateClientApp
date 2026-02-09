@@ -81,8 +81,17 @@ object ServerAutoSwitcher {
             }
         }
 
-        if (level == ConnectionStatus.LEVEL_AUTH_FAILED && timerActive) {
-            if (!waitingStopForRetry) {
+        val immediateSwitchLevels = setOf(
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.LEVEL_NONETWORK
+        )
+        if (level in immediateSwitchLevels && !waitingStopForRetry) {
+            val isConnecting = try {
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            } catch (_: Exception) {
+                false
+            }
+            if (timerActive || isConnecting) {
                 requestSwitchNow(appContext, level = level, fromTimer = false, waitedSeconds = null)
             }
             return
