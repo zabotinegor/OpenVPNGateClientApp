@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.utils
 
 import android.app.UiModeManager
 import android.content.Context
@@ -17,4 +17,5 @@ object TvUtils {
         }
     }
 }
+
 

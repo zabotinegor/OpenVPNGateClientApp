@@ -16,8 +16,8 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBind
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentFilterBinding
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.core.ui.TvUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -152,4 +152,5 @@ class FilterActivity : AppCompatActivity() {
     }
 
 }
+
 

@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.decor
 
 import android.graphics.Rect
 import android.view.View
@@ -21,3 +21,4 @@ class MarginItemDecoration(private val spaceSize: Int) : RecyclerView.ItemDecora
         }
     }
 }
+

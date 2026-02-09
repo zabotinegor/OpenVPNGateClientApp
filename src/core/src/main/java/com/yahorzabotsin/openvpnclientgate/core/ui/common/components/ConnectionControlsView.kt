@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.Manifest
 import android.content.Context
@@ -547,6 +547,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+
 
 
 

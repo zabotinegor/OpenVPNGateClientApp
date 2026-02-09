@@ -8,9 +8,9 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.FragmentFilterPageBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
-import com.yahorzabotsin.openvpnclientgate.core.ui.TvUtils
-import com.yahorzabotsin.openvpnclientgate.core.ui.UiUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.UiUtils
 
 class FilterPageFragment : Fragment() {
 
@@ -89,4 +89,5 @@ class FilterPageFragment : Fragment() {
             }
     }
 }
+
 

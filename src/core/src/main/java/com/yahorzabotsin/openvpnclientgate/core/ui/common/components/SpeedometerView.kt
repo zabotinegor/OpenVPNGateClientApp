@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
 import android.graphics.Canvas
@@ -254,4 +254,5 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         }
     }
 }
+
 

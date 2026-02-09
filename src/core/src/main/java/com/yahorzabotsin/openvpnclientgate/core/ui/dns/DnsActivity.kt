@@ -7,9 +7,9 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentDnsBinding
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.core.ui.UiUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.UiUtils
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
@@ -80,4 +80,5 @@ class DnsActivity : AppCompatActivity() {
         }
     }
 }
+
 

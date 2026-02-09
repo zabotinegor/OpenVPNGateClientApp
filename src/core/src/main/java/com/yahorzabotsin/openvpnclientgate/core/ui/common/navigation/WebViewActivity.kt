@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation
 
 import android.annotation.SuppressLint
 import android.net.Uri
@@ -73,4 +73,5 @@ class WebViewActivity : AppCompatActivity() {
         wv.loadUrl(url)
     }
 }
+
 

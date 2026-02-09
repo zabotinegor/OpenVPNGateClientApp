@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.Manifest
 import android.app.Activity
@@ -22,16 +22,10 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityMainBinding
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainAction
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainDestination
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainEffect
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectedServer
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainUiState
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.SelectedServerResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
@@ -283,3 +277,4 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.statusValue.text = text
     }
 }
+

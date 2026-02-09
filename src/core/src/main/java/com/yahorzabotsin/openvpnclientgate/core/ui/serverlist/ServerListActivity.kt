@@ -14,8 +14,8 @@ import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
-import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -140,5 +140,6 @@ open class ServerListActivity : AppCompatActivity() {
         const val EXTRA_SELECTED_SERVER_IP = "EXTRA_SELECTED_SERVER_IP"
     }
 }
+
 
 

@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui
 
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Test

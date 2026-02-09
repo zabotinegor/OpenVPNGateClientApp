@@ -43,7 +43,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
-        <com.yahorzabotsin.openvpnclientgate.core.ui.ConnectionControlsView
+        <com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
             android:id="@+id/connection_controls"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -64,3 +64,4 @@
         app:menu="@menu/navigation_menu" />
 
 </androidx.drawerlayout.widget.DrawerLayout>
+

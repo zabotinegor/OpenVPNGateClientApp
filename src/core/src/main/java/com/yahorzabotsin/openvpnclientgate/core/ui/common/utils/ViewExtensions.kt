@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.utils
 
 import android.view.View
 import android.widget.Toast
@@ -9,4 +9,5 @@ fun View.setAsStub() {
         Toast.makeText(context, R.string.feature_in_development, Toast.LENGTH_SHORT).show()
     }
 }
+
 

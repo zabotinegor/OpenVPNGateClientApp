@@ -17,8 +17,8 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
-import com.yahorzabotsin.openvpnclientgate.core.ui.MarginItemDecoration
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import org.koin.android.ext.android.inject
@@ -142,5 +142,6 @@ class CountryServersActivity : AppCompatActivity() {
         const val EXTRA_COUNTRY_CODE = "EXTRA_COUNTRY_CODE"
     }
 }
+
 
 

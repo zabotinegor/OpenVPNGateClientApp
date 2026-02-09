@@ -9,7 +9,7 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.ui.UiUtils
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.UiUtils
 
 data class DnsOptionItem(
     val option: DnsOption,
@@ -80,4 +80,5 @@ class DnsOptionAdapter(
         }
     }
 }
+
 

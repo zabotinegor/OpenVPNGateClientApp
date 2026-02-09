@@ -15,7 +15,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -316,4 +316,5 @@ class SettingsActivity : AppCompatActivity() {
         return getString(R.string.settings_cache_summary_format, minutes)
     }
 }
+
 

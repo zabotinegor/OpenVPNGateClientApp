@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation
 
 import android.content.Intent
 import android.util.Log
@@ -70,4 +70,5 @@ object TemplatePage {
         }
     }
 }
+
 

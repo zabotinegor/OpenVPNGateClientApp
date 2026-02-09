@@ -16,8 +16,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
-import com.yahorzabotsin.openvpnclientgate.core.ui.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.core.ui.WebViewActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.WebViewActivity
 import kotlinx.coroutines.launch
 import java.io.File
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -223,4 +223,5 @@ class AboutActivity : AppCompatActivity() {
         }
     }
 }
+
 

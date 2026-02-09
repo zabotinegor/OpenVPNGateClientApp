@@ -61,7 +61,7 @@
             android:name="com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutActivity"
             android:exported="false" />
         <activity
-            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.WebViewActivity"
+            android:name="com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.WebViewActivity"
             android:exported="false" />
         <activity
             android:name="com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryServersActivity"
@@ -70,3 +70,4 @@
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
+
