@@ -12,6 +12,8 @@ import com.yahorzabotsin.openvpnclientgate.core.about.SystemYearProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.YearProvider
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
@@ -29,6 +31,9 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.filter.DefaultFilterLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.DefaultServerListLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryServersLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryServersViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.DefaultCountryServersLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.DefaultSettingsLogger
@@ -76,6 +81,7 @@ val coreModule = module {
 
     single { ServerRepository(get(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
+    single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
 
     single<YearProvider> { SystemYearProvider() }
     single<AboutInfoProvider> { DefaultAboutInfoProvider(get(), get()) }
@@ -91,6 +97,8 @@ val coreModule = module {
     single<VpnConnectionStateProvider> { DefaultVpnConnectionStateProvider() }
     single<ServerListLogger> { DefaultServerListLogger() }
     viewModel { ServerListViewModel(get(), get(), get()) }
+    single<CountryServersLogger> { DefaultCountryServersLogger() }
+    viewModel { CountryServersViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }

@@ -1,17 +1,18 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui
 
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ConnectionControlsViewTest {
+    private val useCase = ConnectionControlsUseCase()
 
     @Test
     fun stopOnUserSelectionWhenConnectedOrConnecting() {
         assertEquals(
             true,
-            ConnectionControlsView.shouldStopForUserSelection(
+            useCase.shouldStopForUserSelection(
                 ConnectionState.CONNECTED,
                 "config1",
                 "config2"
@@ -19,7 +20,7 @@ class ConnectionControlsViewTest {
         )
         assertEquals(
             true,
-            ConnectionControlsView.shouldStopForUserSelection(
+            useCase.shouldStopForUserSelection(
                 ConnectionState.CONNECTING,
                 "config1",
                 "config2"
@@ -31,7 +32,7 @@ class ConnectionControlsViewTest {
     fun noStopWhenDisconnectedOrSameConfig() {
         assertEquals(
             false,
-            ConnectionControlsView.shouldStopForUserSelection(
+            useCase.shouldStopForUserSelection(
                 ConnectionState.DISCONNECTED,
                 "config1",
                 "config2"
@@ -39,7 +40,7 @@ class ConnectionControlsViewTest {
         )
         assertEquals(
             false,
-            ConnectionControlsView.shouldStopForUserSelection(
+            useCase.shouldStopForUserSelection(
                 ConnectionState.DISCONNECTING,
                 "config1",
                 "config2"
@@ -47,7 +48,7 @@ class ConnectionControlsViewTest {
         )
         assertEquals(
             false,
-            ConnectionControlsView.shouldStopForUserSelection(
+            useCase.shouldStopForUserSelection(
                 ConnectionState.CONNECTED,
                 "config1",
                 "config1"

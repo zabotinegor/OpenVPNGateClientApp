@@ -3,128 +3,120 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentCountryServersBinding
-import com.yahorzabotsin.openvpnclientgate.core.servers.Country
-import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
-import com.yahorzabotsin.openvpnclientgate.core.servers.Server
-import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
-import org.koin.android.ext.android.inject
+import kotlinx.coroutines.launch
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class CountryServersActivity : AppCompatActivity() {
 
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var contentBinding: ContentCountryServersBinding
-    private val serverRepository: ServerRepository by inject()
-    private var countryName: String? = null
-    private var countryCode: String? = null
-    private var servers: List<Server> = emptyList()
-    private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersActivity"
+    private val viewModel: CountryServersViewModel by viewModel()
+    private var adapter: ServerPickerAdapter? = null
+    private var pendingFocusFirst = false
+    private var lastRenderedServers = emptyList<com.yahorzabotsin.openvpnclientgate.core.servers.Server>()
+    private var initialized = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         templateBinding = TemplatePage.create(this, R.string.menu_server, null)
         contentBinding = ContentCountryServersBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
 
-        countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME)
-        countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
-
-        countryName?.let { templateBinding.toolbarTitle.text = it }
-
         contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
         contentBinding.serversRecyclerView.addItemDecoration(
             MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin))
         )
 
-        loadServers()
-    }
+        observeViewModel()
 
-    private fun setLoadingState(isLoading: Boolean) {
-        contentBinding.progressBar.isVisible = isLoading
-        contentBinding.serversRecyclerView.isVisible = !isLoading
-    }
-
-    private fun loadServers() {
-        val name = countryName
-        if (name.isNullOrBlank()) {
-            finishWithCancel()
-            return
+        if (!initialized) {
+            initialized = true
+            viewModel.onAction(
+                CountryServersAction.Initialize(
+                    countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME),
+                    countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
+                )
+            )
         }
-        launchLogged(TAG) {
-            setLoadingState(true)
-            try {
-                val cacheOnly = ConnectionStateManager.state.value == ConnectionState.CONNECTED
-                val allServers = serverRepository.getServers(this@CountryServersActivity, forceRefresh = false, cacheOnly = cacheOnly)
-                servers = allServers.filter { it.country.name == name }
-                if (servers.isEmpty()) {
-                    Toast.makeText(this@CountryServersActivity, R.string.no_servers_for_country, Toast.LENGTH_SHORT).show()
-                    finishWithCancel()
-                    return@launchLogged
-                }
-                val adapter = ServerPickerAdapter(servers) { selected ->
-                    selectServer(selected)
-                }
-                contentBinding.serversRecyclerView.adapter = adapter
-                contentBinding.serversRecyclerView.post {
-                    contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
-                        ?.itemView
-                        ?.requestFocus()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading servers for $name", e)
-                Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
-                finishWithCancel()
-            } finally {
-                setLoadingState(false)
+    }
+
+    private fun observeViewModel() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                launch { viewModel.state.collect { render(it) } }
+                launch { viewModel.effects.collect { handleEffect(it) } }
             }
         }
     }
 
-    private fun selectServer(selected: Server) {
-        launchLogged(TAG) {
-            setLoadingState(true)
-            try {
-                val configs = serverRepository.loadConfigs(this@CountryServersActivity, servers)
-                val resolvedServers = servers.map { srv ->
-                    srv.copy(configData = configs[srv.lineIndex].orEmpty())
-                }
-                SelectedCountryStore.saveSelection(this@CountryServersActivity, selected.country.name, resolvedServers)
-                val chosenResolved = resolvedServers.firstOrNull { it.lineIndex == selected.lineIndex }
-                    ?: resolvedServers.first()
-                try {
-                    SelectedCountryStore.ensureIndexForConfig(this@CountryServersActivity, chosenResolved.configData)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to align index with chosen server", e)
-                }
-                val resultIntent = Intent().apply {
-                    putExtra(EXTRA_SELECTED_SERVER_COUNTRY, selected.country.name)
-                    putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, countryCode)
-                    putExtra(EXTRA_SELECTED_SERVER_CITY, chosenResolved.city)
-                    putExtra(EXTRA_SELECTED_SERVER_CONFIG, chosenResolved.configData)
-                    putExtra(EXTRA_SELECTED_SERVER_IP, chosenResolved.ip)
-                }
-                setResult(Activity.RESULT_OK, resultIntent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error selecting server ${selected.ip}", e)
-                Snackbar.make(templateBinding.root, R.string.error_getting_servers, Snackbar.LENGTH_LONG).show()
-                setResult(Activity.RESULT_CANCELED)
-            } finally {
-                setLoadingState(false)
-                finish()
+    private fun render(state: CountryServersUiState) {
+        contentBinding.progressBar.isVisible = state.isLoading
+        contentBinding.serversRecyclerView.isVisible = !state.isLoading
+        state.countryName?.let { templateBinding.toolbarTitle.text = it }
+
+        if (adapter == null || state.servers != lastRenderedServers) {
+            lastRenderedServers = state.servers
+            adapter = ServerPickerAdapter(state.servers) { selected ->
+                viewModel.onAction(CountryServersAction.ServerSelected(selected))
+            }
+            contentBinding.serversRecyclerView.adapter = adapter
+            if (pendingFocusFirst) {
+                focusFirstItem()
+                pendingFocusFirst = false
             }
         }
+    }
+
+    private fun handleEffect(effect: CountryServersEffect) {
+        when (effect) {
+            is CountryServersEffect.ShowToast -> {
+                Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
+            }
+            is CountryServersEffect.ShowSnackbar -> {
+                Snackbar.make(templateBinding.root, effect.resId, Snackbar.LENGTH_LONG).show()
+            }
+            is CountryServersEffect.FinishWithSelection -> finishWithSelection(effect.result)
+            CountryServersEffect.FinishCanceled -> finishWithCancel()
+            CountryServersEffect.FocusFirstItem -> {
+                if (lastRenderedServers.isEmpty()) {
+                    pendingFocusFirst = true
+                } else {
+                    focusFirstItem()
+                }
+            }
+        }
+    }
+
+    private fun focusFirstItem() {
+        contentBinding.serversRecyclerView.post {
+            contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
+                ?.itemView
+                ?.requestFocus()
+        }
+    }
+
+    private fun finishWithSelection(result: ServerSelectionResult) {
+        val resultIntent = Intent().apply {
+            putExtra(EXTRA_SELECTED_SERVER_COUNTRY, result.countryName)
+            putExtra(EXTRA_SELECTED_SERVER_COUNTRY_CODE, result.countryCode)
+            putExtra(EXTRA_SELECTED_SERVER_CITY, result.city)
+            putExtra(EXTRA_SELECTED_SERVER_CONFIG, result.config)
+            putExtra(EXTRA_SELECTED_SERVER_IP, result.ip)
+        }
+        setResult(Activity.RESULT_OK, resultIntent)
+        finish()
     }
 
     private fun finishWithCancel() {
@@ -142,6 +134,3 @@ class CountryServersActivity : AppCompatActivity() {
         const val EXTRA_COUNTRY_CODE = "EXTRA_COUNTRY_CODE"
     }
 }
-
-
-

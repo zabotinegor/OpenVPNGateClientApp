@@ -50,18 +50,11 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var requestNotificationPermission: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
     private var userSelectedConfigOverride = false
+    private val useCase = ConnectionControlsUseCase()
 
     companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
         private const val DURATION_PLACEHOLDER = "00:00:00"
-        internal fun shouldStopForUserSelection(
-            state: ConnectionState,
-            previousConfig: String?,
-            newConfig: String?
-        ): Boolean {
-            if (previousConfig.isNullOrBlank() || newConfig.isNullOrBlank() || previousConfig == newConfig) return false
-            return state != ConnectionState.DISCONNECTED && state != ConnectionState.DISCONNECTING
-        }
     }
 
     init {
@@ -228,7 +221,7 @@ class ConnectionControlsView @JvmOverloads constructor(
             applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
         }
         updateServerPosition()
-        if (fromUserSelection && shouldStopForUserSelection(ConnectionStateManager.state.value, previousConfig, config)) {
+        if (fromUserSelection && useCase.shouldStopForUserSelection(ConnectionStateManager.state.value, previousConfig, config)) {
             stopForUserSelection()
         }
     }
@@ -354,7 +347,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         val statusText = if (state == ConnectionState.CONNECTING && remaining != null && showCountdown) {
             val suffix = runCatching { context.getString(R.string.state_countdown_seconds, remaining) }
                 .getOrDefault("")
-            "${trimEllipsis(baseStatus)}$suffix"
+            "${useCase.trimEllipsis(baseStatus)}$suffix"
         } else {
             baseStatus
         }
@@ -412,34 +405,9 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun engineDetailToText(detail: String?): CharSequence {
-        val resId = when (detail) {
-            "CONNECTING" -> R.string.state_connecting
-            "WAIT" -> R.string.state_wait
-            "AUTH" -> R.string.state_auth
-            "VPN_GENERATE_CONFIG" -> R.string.building_configuration
-            "GET_CONFIG" -> R.string.state_get_config
-            "ASSIGN_IP" -> R.string.state_assign_ip
-            "ADD_ROUTES" -> R.string.state_add_routes
-            "CONNECTED" -> R.string.state_connected
-            "DISCONNECTED" -> R.string.state_disconnected
-            "CONNECTRETRY" -> R.string.state_reconnecting
-            "RECONNECTING" -> R.string.state_reconnecting
-            "EXITING" -> R.string.state_exiting
-            "RESOLVE" -> R.string.state_resolve
-            "TCP_CONNECT" -> R.string.state_tcp_connect
-            "AUTH_PENDING" -> R.string.state_auth_pending
-            else -> null
-        }
-        return resId?.let { context.getString(it) } ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
-    }
-
-    private fun trimEllipsis(text: String): String {
-        val trimmed = text.trimEnd()
-        return when {
-            trimmed.endsWith("...") -> trimmed.removeSuffix("...").trimEnd()
-            trimmed.endsWith("…") -> trimmed.removeSuffix("…").trimEnd()
-            else -> trimmed
-        }
+        val resId = useCase.mapEngineDetailToResId(detail)
+        return resId?.let { context.getString(it) }
+            ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
     }
 
     private fun updateDurationTimer() {
@@ -459,22 +427,9 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun updateTraffic(downloaded: Long, uploaded: Long) {
         connectionDetailsListener?.updateTraffic(
-            formatBytes(downloaded),
-            formatBytes(uploaded)
+            useCase.formatBytes(downloaded),
+            useCase.formatBytes(uploaded)
         )
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        val kb = 1024.0
-        val mb = kb * 1024
-        val gb = mb * 1024
-        val value = bytes.toDouble()
-        return when {
-            value >= gb -> String.format(Locale.US, "%.2f GB", value / gb)
-            value >= mb -> String.format(Locale.US, "%.2f MB", value / mb)
-            value >= kb -> String.format(Locale.US, "%.2f KB", value / kb)
-            else -> String.format(Locale.US, "%.0f B", value)
-        }
     }
 
     private fun updateLocationPlaceholders() {
@@ -547,6 +502,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+
 
 
 
