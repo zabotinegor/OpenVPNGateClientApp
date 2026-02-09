@@ -169,7 +169,12 @@ class LogExportUseCase(
 
     private fun cleanupOldExports(outputDir: File) {
         outputDir.listFiles()
-            ?.filter { it.isFile && (it.name.startsWith("logcat_") || it.name.contains("_raw")) }
+            ?.filter {
+                it.isFile && (
+                    (it.name.startsWith("logcat_") && (it.name.endsWith(".txt") || it.name.endsWith(".zip"))) ||
+                        it.name.endsWith("_raw.txt")
+                    )
+            }
             ?.forEach { runCatching { it.delete() } }
     }
 }
