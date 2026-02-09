@@ -27,9 +27,13 @@ class WebViewActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         templateBinding = TemplatePage.create(this, R.string.web_title, null)
         bindingContent = ContentWebviewBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
-        val url = intent.getStringExtra(EXTRA_URL) ?: return finish()
+        val rawUrl = intent.getStringExtra(EXTRA_URL) ?: return finish()
+        val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return finish()
+        val scheme = uri.scheme?.lowercase() ?: return finish()
+        if (scheme != "http" && scheme != "https") return finish()
+        val url = uri.toString()
 
-        val host = try { Uri.parse(url).host } catch (_: Exception) { null }
+        val host = uri.host
         if (!host.isNullOrBlank()) {
             templateBinding.toolbarTitle.text = host
         }
