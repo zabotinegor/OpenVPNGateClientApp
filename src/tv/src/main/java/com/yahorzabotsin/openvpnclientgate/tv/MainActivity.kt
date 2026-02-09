@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.tv
 import android.util.Log
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 
@@ -42,6 +43,15 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     override fun afterViewsReady() {
         binding.navView.setCheckedItem(selectedMenuItemId)
         connectionControlsView.post { connectionControlsView.requestPrimaryFocus() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        connectionControlsView.post {
+            if (!binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                connectionControlsView.requestPrimaryFocus()
+            }
+        }
     }
 }
 
