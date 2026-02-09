@@ -248,15 +248,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.customServerInputLayout.visibility =
             if (state.serverSource == ServerSource.CUSTOM) View.VISIBLE else View.GONE
 
-        val cacheMinutes = (state.cacheTtlMs / 60000).coerceAtLeast(1)
-        val cacheText = cacheMinutes.toString()
-        if (binding.cacheInput.text?.toString() != cacheText) {
-            binding.cacheInput.setText(cacheText)
+        if (binding.cacheInput.text?.toString() != state.cacheTtlInput) {
+            binding.cacheInput.setText(state.cacheTtlInput)
         }
 
-        val statusText = state.statusStallTimeoutSeconds.toString()
-        if (binding.statusTimerInput.text?.toString() != statusText) {
-            binding.statusTimerInput.setText(statusText)
+        if (binding.statusTimerInput.text?.toString() != state.statusStallTimeoutInput) {
+            binding.statusTimerInput.setText(state.statusStallTimeoutInput)
         }
 
         binding.autoSwitchRadioGroup.check(

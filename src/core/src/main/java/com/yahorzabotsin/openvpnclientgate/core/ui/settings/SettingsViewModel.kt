@@ -48,7 +48,9 @@ class SettingsViewModel(
             customServerUrl = settings.customServerUrl,
             autoSwitchWithinCountry = settings.autoSwitchWithinCountry,
             statusStallTimeoutSeconds = settings.statusStallTimeoutSeconds,
-            cacheTtlMs = settings.cacheTtlMs
+            statusStallTimeoutInput = settings.statusStallTimeoutSeconds.toString(),
+            cacheTtlMs = settings.cacheTtlMs,
+            cacheTtlInput = (settings.cacheTtlMs / 60000L).coerceAtLeast(1L).toString()
         )
         _state.value = state
         logger.logScreenOpened(state)
@@ -100,6 +102,10 @@ class SettingsViewModel(
     }
 
     private fun onStatusTimeoutChanged(raw: String) {
+        val current = _state.value
+        if (current.statusStallTimeoutInput != raw) {
+            _state.value = current.copy(statusStallTimeoutInput = raw)
+        }
         val seconds = raw.trim().toIntOrNull() ?: return
         if (seconds <= 0) return
         if (_state.value.statusStallTimeoutSeconds == seconds) return
@@ -109,6 +115,10 @@ class SettingsViewModel(
     }
 
     private fun onCacheTtlChanged(raw: String) {
+        val current = _state.value
+        if (current.cacheTtlInput != raw) {
+            _state.value = current.copy(cacheTtlInput = raw)
+        }
         val minutes = raw.trim().toLongOrNull() ?: return
         if (minutes <= 0) return
         val ttlMs = minutes * 60 * 1000L

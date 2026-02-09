@@ -92,6 +92,36 @@ class SettingsViewModelTest {
         assertEquals(25 * 60 * 1000L, repo.savedCacheTtlMs)
     }
 
+    @Test
+    fun `status timeout stores raw input when invalid`() = runTest {
+        val repo = FakeSettingsRepository(UserSettings(statusStallTimeoutSeconds = 5))
+        val logger = FakeSettingsLogger()
+        val vm = SettingsViewModel(repo, logger)
+        advanceUntilIdle()
+
+        vm.onAction(SettingsAction.SetStatusStallTimeoutInput("abc"))
+        advanceUntilIdle()
+
+        assertEquals("abc", vm.state.value.statusStallTimeoutInput)
+        assertEquals(5, vm.state.value.statusStallTimeoutSeconds)
+        assertEquals(null, repo.savedStatusStallTimeoutSeconds)
+    }
+
+    @Test
+    fun `cache ttl stores raw input when invalid`() = runTest {
+        val repo = FakeSettingsRepository(UserSettings(cacheTtlMs = 20 * 60 * 1000L))
+        val logger = FakeSettingsLogger()
+        val vm = SettingsViewModel(repo, logger)
+        advanceUntilIdle()
+
+        vm.onAction(SettingsAction.SetCacheTtlInput("0"))
+        advanceUntilIdle()
+
+        assertEquals("0", vm.state.value.cacheTtlInput)
+        assertEquals(20 * 60 * 1000L, vm.state.value.cacheTtlMs)
+        assertEquals(null, repo.savedCacheTtlMs)
+    }
+
     private class FakeSettingsRepository(initial: UserSettings) : SettingsRepository {
         private var stored: UserSettings = initial
 

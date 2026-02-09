@@ -12,7 +12,9 @@ data class SettingsUiState(
     val customServerUrl: String = "",
     val autoSwitchWithinCountry: Boolean = true,
     val statusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS,
-    val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS
+    val statusStallTimeoutInput: String = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS.toString(),
+    val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
+    val cacheTtlInput: String = (UserSettingsStore.DEFAULT_CACHE_TTL_MS / 60000L).toString()
 )
 
 sealed interface SettingsAction {
