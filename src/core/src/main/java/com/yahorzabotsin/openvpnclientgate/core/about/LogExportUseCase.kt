@@ -31,8 +31,9 @@ class LogExportUseCase(
 
     override suspend fun export(): LogExportResult = withContext(Dispatchers.IO) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val outputDir = context.getExternalFilesDir("logs") ?: File(context.filesDir, "logs")
+        val outputDir = File(context.cacheDir, "logs")
         if (!outputDir.exists()) outputDir.mkdirs()
+        cleanupOldExports(outputDir)
 
         val logFile = File(outputDir, "logcat_${timestamp}.txt")
         val zipFile = File(outputDir, "logcat_${timestamp}.zip")
@@ -72,9 +73,13 @@ class LogExportUseCase(
                 zipFile.absolutePath
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to archive logs", e)
+                logFile.delete()
+                zipFile.delete()
                 ""
             }
         } else {
+            logFile.delete()
+            zipFile.delete()
             ""
         }
 
@@ -160,5 +165,11 @@ class LogExportUseCase(
             target.delete()
         }
         return LogcatResult(false, "no tag matches")
+    }
+
+    private fun cleanupOldExports(outputDir: File) {
+        outputDir.listFiles()
+            ?.filter { it.isFile && (it.name.startsWith("logcat_") || it.name.contains("_raw")) }
+            ?.forEach { runCatching { it.delete() } }
     }
 }
