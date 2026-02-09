@@ -64,7 +64,6 @@ class DefaultSettingsLogger : SettingsLogger {
         val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return "<invalid>"
         val scheme = uri.scheme ?: "<no-scheme>"
         val host = uri.host ?: "<no-host>"
-        val hasQuery = !uri.query.isNullOrBlank()
-        return "$scheme://$host?query=$hasQuery"
+        return "$scheme://$host"
     }
 }
