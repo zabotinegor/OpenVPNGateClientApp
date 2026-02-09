@@ -9,8 +9,10 @@ interface DnsSettingsRepository {
 }
 
 class DefaultDnsSettingsRepository(
-    private val appContext: Context
+    context: Context
 ) : DnsSettingsRepository {
+    private val appContext = context.applicationContext
+
     override fun loadDnsOption(): DnsOption = UserSettingsStore.load(appContext).dnsOption
 
     override fun saveDnsOption(option: DnsOption) {
