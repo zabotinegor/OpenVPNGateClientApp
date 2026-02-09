@@ -60,8 +60,10 @@ class SettingsViewModel(
         _state.value = _state.value.copy(language = option)
         repository.saveLanguage(option)
         logger.logLanguageChanged(old, option)
-        emitEffect(SettingsEffect.ApplyThemeAndLocale)
-        emitEffect(SettingsEffect.RefreshNotification)
+        emitEffects(
+            SettingsEffect.ApplyThemeAndLocale,
+            SettingsEffect.RefreshNotification
+        )
     }
 
     private fun onThemeSelected(option: ThemeOption) {
@@ -70,7 +72,7 @@ class SettingsViewModel(
         _state.value = _state.value.copy(theme = option)
         repository.saveTheme(option)
         logger.logThemeChanged(old, option)
-        emitEffect(SettingsEffect.ApplyThemeAndLocale)
+        emitEffects(SettingsEffect.ApplyThemeAndLocale)
     }
 
     private fun onServerSourceSelected(source: ServerSource) {
@@ -116,9 +118,11 @@ class SettingsViewModel(
         logger.logCacheTtlChanged(ttlMs)
     }
 
-    private fun emitEffect(effect: SettingsEffect) {
+    private fun emitEffects(vararg effects: SettingsEffect) {
         viewModelScope.launch {
-            _effects.emit(effect)
+            effects.forEach { effect ->
+                _effects.emit(effect)
+            }
         }
     }
 }
