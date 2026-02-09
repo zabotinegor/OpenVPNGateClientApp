@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
+import android.net.Uri
 import android.util.Log
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
@@ -24,7 +25,7 @@ class DefaultSettingsLogger : SettingsLogger {
         Log.i(
             tag,
             "Settings screen opened: language=${state.language.name}, theme=${state.theme.name}, " +
-                "serverSource=${state.serverSource.name}, customUrl=${state.customServerUrl}, " +
+                "serverSource=${state.serverSource.name}, customUrl=${redactUrl(state.customServerUrl)}, " +
                 "autoSwitch=${state.autoSwitchWithinCountry}, statusTimeout=${state.statusStallTimeoutSeconds}, " +
                 "cacheTtlMs=${state.cacheTtlMs}"
         )
@@ -43,7 +44,7 @@ class DefaultSettingsLogger : SettingsLogger {
     }
 
     override fun logCustomServerUrlChanged(value: String) {
-        Log.i(tag, "Settings custom server url changed: ${value}")
+        Log.i(tag, "Settings custom server url changed: ${redactUrl(value)}")
     }
 
     override fun logAutoSwitchChanged(enabled: Boolean) {
@@ -56,5 +57,14 @@ class DefaultSettingsLogger : SettingsLogger {
 
     override fun logCacheTtlChanged(ttlMs: Long) {
         Log.i(tag, "Settings cache ttl changed: ttlMs=$ttlMs")
+    }
+
+    private fun redactUrl(value: String): String {
+        if (value.isBlank()) return "<empty>"
+        val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return "<invalid>"
+        val scheme = uri.scheme ?: "<no-scheme>"
+        val host = uri.host ?: "<no-host>"
+        val hasQuery = !uri.query.isNullOrBlank()
+        return "$scheme://$host?query=$hasQuery"
     }
 }
