@@ -1,6 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import java.io.IOException
 
 interface CountryServersInteractor {
@@ -17,6 +19,9 @@ class DefaultCountryServersInteractor(
     private val appContext: Context,
     private val serverRepository: ServerRepository
 ) : CountryServersInteractor {
+    private companion object {
+        private val TAG = LogTags.APP + ":CountryServersInteractor"
+    }
 
     override suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server> {
         val allServers = serverRepository.getServers(
@@ -41,15 +46,20 @@ class DefaultCountryServersInteractor(
         }
 
         SelectedCountryStore.saveSelection(appContext, countryName, resolvedServers)
-        val chosenIndex = listOf(
-            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex && it.ip == selectedServer.ip },
-            resolvedServers.indexOfFirst { it.ip == selectedServer.ip },
-            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex },
-            resolvedServers.indexOfFirst { it.configData == selectedServer.configData && it.city == selectedServer.city }
-        ).firstOrNull { it >= 0 } ?: 0
+        val chosenIndex = resolveSelectedIndex(
+            selectedServer = selectedServer,
+            inputServers = servers,
+            resolvedServers = resolvedServers
+        )
 
         runCatching { SelectedCountryStore.setCurrentIndex(appContext, chosenIndex) }
         val chosenResolved = resolvedServers[chosenIndex]
+        val currentPos = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
+        val currentPosText = currentPos?.let { "${it.first}/${it.second}" } ?: "unknown"
+        Log.i(
+            TAG,
+            "Selection resolved: country=$countryName selectedIp=${selectedServer.ip ?: "<none>"} selectedLine=${selectedServer.lineIndex} chosenIndex=${chosenIndex + 1}/${resolvedServers.size} chosenIp=${chosenResolved.ip ?: "<none>"} currentPos=$currentPosText"
+        )
 
         return ServerSelectionResult(
             countryName = countryName,
@@ -58,5 +68,23 @@ class DefaultCountryServersInteractor(
             config = chosenResolved.configData,
             ip = chosenResolved.ip
         )
+    }
+
+    private fun resolveSelectedIndex(
+        selectedServer: Server,
+        inputServers: List<Server>,
+        resolvedServers: List<Server>
+    ): Int {
+        val selectedIndexInInput = inputServers.indexOfFirst { it === selectedServer }
+            .takeIf { it >= 0 }
+            ?: inputServers.indexOf(selectedServer).takeIf { it >= 0 }
+
+        return listOf(
+            selectedIndexInInput ?: -1,
+            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex && it.ip == selectedServer.ip },
+            resolvedServers.indexOfFirst { it.ip == selectedServer.ip },
+            resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex },
+            resolvedServers.indexOfFirst { it.configData == selectedServer.configData && it.city == selectedServer.city }
+        ).firstOrNull { it >= 0 } ?: 0
     }
 }

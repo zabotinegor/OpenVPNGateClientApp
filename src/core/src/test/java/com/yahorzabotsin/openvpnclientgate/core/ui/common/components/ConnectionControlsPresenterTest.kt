@@ -101,6 +101,28 @@ class ConnectionControlsPresenterTest {
         assertEquals("2.2.2.2", sync?.ip)
     }
 
+    @Test
+    fun `syncServer prefers current server ip during reconnecting`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Canada",
+            currentServer = StoredServer(city = "Toronto", config = "cfg-3", ip = "3.3.3.3"),
+            lastStarted = LastConfig(country = "Canada", config = "cfg-3", ip = "3.3.3.3"),
+            lastSuccessfulIp = "3.3.3.3",
+            position = null
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Canada",
+            selectedServerIp = "2.2.2.2",
+            vpnConfig = "cfg-2",
+            reconnectingHint = true
+        )
+
+        assertNotNull(sync)
+        assertEquals("3.3.3.3", sync?.ip)
+    }
+
     private class FakeSelectionStore(
         private val selectedCountry: String?,
         private val currentServer: StoredServer?,

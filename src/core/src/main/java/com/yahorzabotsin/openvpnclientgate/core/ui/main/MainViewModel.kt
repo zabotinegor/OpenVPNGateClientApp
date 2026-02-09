@@ -166,29 +166,32 @@ class MainViewModel(
 
     private fun onServerSelectionResult(selection: SelectedServerResult?) {
         viewModelScope.launch {
-            val hasSelectionData = selection?.country != null &&
-                selection.city != null &&
-                selection.config != null
+            val resolvedSelection = selection?.takeIf {
+                it.country != null && it.city != null && it.config != null
+            }
 
-            if (hasSelectionData) {
-                logger.logServerSelectionApplied(selection!!)
+            if (resolvedSelection != null) {
+                logger.logServerSelectionApplied(resolvedSelection)
+                val country = requireNotNull(resolvedSelection.country)
+                val config = requireNotNull(resolvedSelection.config)
                 val previousConfig = _state.value.selectedServer?.config
                 val previousIp = _state.value.selectedServer?.ip
                 updateSelectedServer(
-                    country = selection.country,
-                    countryCode = selection.countryCode,
-                    config = selection.config,
-                    ip = selection.ip,
+                    country = country,
+                    countryCode = resolvedSelection.countryCode,
+                    config = config,
+                    ip = resolvedSelection.ip,
                     fromUserSelection = true
                 )
+                val connectionState = connectionStateProvider.state.value
                 val configChanged = connectionControlsUseCase.shouldStopForUserSelection(
-                    state = connectionStateProvider.state.value,
+                    state = connectionState,
                     previousConfig = previousConfig,
-                    newConfig = selection.config
+                    newConfig = config
                 )
-                val ipChanged = previousIp != selection.ip
-                val state = connectionStateProvider.state.value
-                val isVpnActive = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
+                val ipChanged = previousIp != resolvedSelection.ip
+                val isVpnActive = connectionState == ConnectionState.CONNECTED ||
+                    connectionState == ConnectionState.CONNECTING
                 val serverChanged = configChanged || ipChanged
                 val shouldStopForUserSelection = isVpnActive && serverChanged
                 if (shouldStopForUserSelection) {

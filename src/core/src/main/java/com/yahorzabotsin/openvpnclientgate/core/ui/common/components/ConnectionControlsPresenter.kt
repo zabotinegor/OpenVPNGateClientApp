@@ -111,7 +111,8 @@ class ConnectionControlsPresenter(
         selectionStore: ConnectionControlsSelectionStore,
         selectedCountry: String?,
         selectedServerIp: String?,
-        vpnConfig: String?
+        vpnConfig: String?,
+        reconnectingHint: Boolean = false
     ): ConnectionServerSync? {
         val resolvedCountry = selectedCountry ?: runCatching { selectionStore.getSelectedCountry(context) }.getOrNull()
         if (resolvedCountry.isNullOrBlank()) return null
@@ -124,12 +125,14 @@ class ConnectionControlsPresenter(
         val ipFromLastStartedConfig = lastStarted
             ?.takeIf { it.country == resolvedCountry && it.config == vpnConfig }
             ?.ip
+        val ipFromCurrentServer = current?.ip
 
         val ip = when {
             !ipFromCurrentConfig.isNullOrBlank() -> ipFromCurrentConfig
             !ipFromLastStartedConfig.isNullOrBlank() -> ipFromLastStartedConfig
+            reconnectingHint && !ipFromCurrentServer.isNullOrBlank() -> ipFromCurrentServer
             !selectedServerIp.isNullOrBlank() -> selectedServerIp
-            !current?.ip.isNullOrBlank() -> current?.ip
+            !ipFromCurrentServer.isNullOrBlank() -> ipFromCurrentServer
             !lastStarted?.takeIf { it.country == resolvedCountry }?.ip.isNullOrBlank() -> lastStarted?.ip
             !lastSuccessfulIp.isNullOrBlank() -> lastSuccessfulIp
             else -> null

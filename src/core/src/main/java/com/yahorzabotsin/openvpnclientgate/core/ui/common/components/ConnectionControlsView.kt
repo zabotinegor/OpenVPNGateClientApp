@@ -190,12 +190,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         }
 
     private fun syncSelectedServerIpFromStore() {
-        val sync = presenter.syncServer(
-            selectionStore = selectionStore,
-            selectedCountry = selectedCountry,
-            selectedServerIp = selectedServerIp,
-            vpnConfig = vpnConfig
-        ) ?: return
+        val sync = buildServerSync() ?: return
         selectedCountry = sync.country
 
         if (!sync.ip.isNullOrBlank() && sync.ip != selectedServerIp) {
@@ -302,13 +297,18 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun updateServerPosition() {
-        val sync = presenter.syncServer(
+        val sync = buildServerSync()
+        connectionDetailsListener?.updateCity(sync?.cityText.orEmpty())
+    }
+
+    private fun buildServerSync(): ConnectionServerSync? {
+        return presenter.syncServer(
             selectionStore = selectionStore,
             selectedCountry = selectedCountry,
             selectedServerIp = selectedServerIp,
-            vpnConfig = vpnConfig
+            vpnConfig = vpnConfig,
+            reconnectingHint = runtime.reconnectingHint.value
         )
-        connectionDetailsListener?.updateCity(sync?.cityText.orEmpty())
     }
 
     interface ConnectionDetailsListener {
