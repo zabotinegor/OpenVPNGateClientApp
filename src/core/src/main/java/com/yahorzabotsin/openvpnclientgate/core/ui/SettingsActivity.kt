@@ -281,7 +281,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.languageSummary.text = languageLabel(state.language)
         binding.themeSummary.text = themeLabel(state.theme)
         binding.serverSummary.text = if (state.serverSource == ServerSource.CUSTOM) {
-            val url = state.customServerUrl.takeIf { it.isNotBlank() }
+            val url = state.customServerUrl.trim().takeIf { it.isNotBlank() }
             url ?: serverLabel(state.serverSource)
         } else {
             serverLabel(state.serverSource)

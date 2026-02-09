@@ -86,12 +86,18 @@ class SettingsViewModel(
     }
 
     private fun onCustomServerUrlChanged(value: String) {
-        if (_state.value.serverSource != ServerSource.CUSTOM) return
-        val trimmed = value.trim()
-        if (_state.value.customServerUrl == trimmed) return
-        _state.value = _state.value.copy(customServerUrl = trimmed)
-        repository.saveCustomServerUrl(trimmed)
-        logger.logCustomServerUrlChanged(trimmed)
+        val current = _state.value
+        if (current.serverSource != ServerSource.CUSTOM) return
+        if (current.customServerUrl == value) return
+
+        _state.value = current.copy(customServerUrl = value)
+
+        val previousTrimmed = current.customServerUrl.trim()
+        val newTrimmed = value.trim()
+        if (previousTrimmed == newTrimmed) return
+
+        repository.saveCustomServerUrl(newTrimmed)
+        logger.logCustomServerUrlChanged(newTrimmed)
     }
 
     private fun onAutoSwitchChanged(enabled: Boolean) {

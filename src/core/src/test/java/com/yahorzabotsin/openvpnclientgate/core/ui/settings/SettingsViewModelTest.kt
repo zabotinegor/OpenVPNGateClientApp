@@ -122,6 +122,28 @@ class SettingsViewModelTest {
         assertEquals(null, repo.savedCacheTtlMs)
     }
 
+    @Test
+    fun `custom url keeps raw input and saves trimmed`() = runTest {
+        val repo = FakeSettingsRepository(
+            UserSettings(serverSource = ServerSource.CUSTOM, customServerUrl = "https://example.com")
+        )
+        val logger = FakeSettingsLogger()
+        val vm = SettingsViewModel(repo, logger)
+        advanceUntilIdle()
+
+        vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com "))
+        advanceUntilIdle()
+
+        assertEquals("https://example.com ", vm.state.value.customServerUrl)
+        assertEquals(null, repo.savedCustomServerUrl)
+
+        vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com/a "))
+        advanceUntilIdle()
+
+        assertEquals("https://example.com/a ", vm.state.value.customServerUrl)
+        assertEquals("https://example.com/a", repo.savedCustomServerUrl)
+    }
+
     private class FakeSettingsRepository(initial: UserSettings) : SettingsRepository {
         private var stored: UserSettings = initial
 
