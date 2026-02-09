@@ -4,7 +4,9 @@ import androidx.annotation.StringRes
 
 data class MainUiState(
     val isDetailsVisible: Boolean = true,
-    val selectedServer: MainSelectedServer? = null
+    val selectedServer: MainSelectedServer? = null,
+    val reopenDrawerAfterReturn: Boolean = false,
+    val selectionVersion: Long = 0L
 )
 
 data class MainSelectedServer(

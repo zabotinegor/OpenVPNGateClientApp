@@ -1,6 +1,5 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
-import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
@@ -90,7 +89,10 @@ class CountryServersViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects[0] is CountryServersEffect.ShowToast)
-        assertEquals(R.string.no_servers_for_country, (effects[0] as CountryServersEffect.ShowToast).resId)
+        assertEquals(
+            UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.no_servers_for_country),
+            (effects[0] as CountryServersEffect.ShowToast).text
+        )
         assertTrue(effects[1] is CountryServersEffect.FinishCanceled)
         job.cancel()
     }
@@ -150,7 +152,10 @@ class CountryServersViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects[0] is CountryServersEffect.ShowSnackbar)
-        assertEquals(R.string.error_getting_servers, (effects[0] as CountryServersEffect.ShowSnackbar).resId)
+        assertEquals(
+            UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.error_getting_servers),
+            (effects[0] as CountryServersEffect.ShowSnackbar).text
+        )
         assertTrue(effects[1] is CountryServersEffect.FinishCanceled)
         job.cancel()
     }

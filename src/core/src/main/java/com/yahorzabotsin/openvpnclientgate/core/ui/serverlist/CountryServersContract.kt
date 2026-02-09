@@ -16,9 +16,14 @@ sealed interface CountryServersAction {
 }
 
 sealed interface CountryServersEffect {
-    data class ShowToast(val resId: Int) : CountryServersEffect
-    data class ShowSnackbar(val resId: Int) : CountryServersEffect
+    data class ShowToast(val text: UiText) : CountryServersEffect
+    data class ShowSnackbar(val text: UiText) : CountryServersEffect
     data class FinishWithSelection(val result: ServerSelectionResult) : CountryServersEffect
     data object FinishCanceled : CountryServersEffect
     data object FocusFirstItem : CountryServersEffect
+}
+
+sealed interface UiText {
+    data class Res(val resId: Int, val args: List<Any> = emptyList()) : UiText
+    data class Plain(val value: String) : UiText
 }

@@ -24,8 +24,6 @@ class CountryServersViewModel(
     private val _effects = MutableSharedFlow<CountryServersEffect>()
     val effects = _effects.asSharedFlow()
 
-    private var initialized = false
-
     fun onAction(action: CountryServersAction) {
         when (action) {
             is CountryServersAction.Initialize -> onInitialize(action.countryName, action.countryCode)
@@ -34,8 +32,7 @@ class CountryServersViewModel(
     }
 
     private fun onInitialize(countryName: String?, countryCode: String?) {
-        if (initialized) return
-        initialized = true
+        if (_state.value.countryName != null) return
 
         if (countryName.isNullOrBlank()) {
             viewModelScope.launch { _effects.emit(CountryServersEffect.FinishCanceled) }
@@ -61,7 +58,7 @@ class CountryServersViewModel(
                 )
                 if (loaded.isEmpty()) {
                     logger.logNoServers(countryName)
-                    _effects.emit(CountryServersEffect.ShowToast(R.string.no_servers_for_country))
+                    _effects.emit(CountryServersEffect.ShowToast(UiText.Res(R.string.no_servers_for_country)))
                     _effects.emit(CountryServersEffect.FinishCanceled)
                 } else {
                     logger.logLoadSuccess(countryName, loaded.size)
@@ -70,7 +67,7 @@ class CountryServersViewModel(
                 }
             } catch (e: Exception) {
                 logger.logLoadError(countryName, e)
-                _effects.emit(CountryServersEffect.ShowSnackbar(R.string.error_getting_servers))
+                _effects.emit(CountryServersEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
                 _effects.emit(CountryServersEffect.FinishCanceled)
             } finally {
                 updateState { it.copy(isLoading = false) }
@@ -95,7 +92,7 @@ class CountryServersViewModel(
                 _effects.emit(CountryServersEffect.FinishWithSelection(result))
             } catch (e: Exception) {
                 logger.logSelectionError(server.ip, e)
-                _effects.emit(CountryServersEffect.ShowSnackbar(R.string.error_getting_servers))
+                _effects.emit(CountryServersEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
                 _effects.emit(CountryServersEffect.FinishCanceled)
             } finally {
                 updateState { it.copy(isLoading = false) }

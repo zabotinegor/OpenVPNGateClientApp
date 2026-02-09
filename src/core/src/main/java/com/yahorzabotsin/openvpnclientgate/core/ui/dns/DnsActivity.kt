@@ -20,7 +20,6 @@ class DnsActivity : AppCompatActivity() {
     private lateinit var binding: ContentDnsBinding
     private var adapter: DnsOptionAdapter? = null
     private val viewModel: DnsViewModel by viewModel()
-    private var pendingFocusOption: DnsOption? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,31 +51,29 @@ class DnsActivity : AppCompatActivity() {
         } else {
             adapter?.updateSelectedOption(state.selectedOption)
         }
-
-        if (pendingFocusOption != null && adapter != null) {
-            focusSelected(state.items, pendingFocusOption!!)
-            pendingFocusOption = null
-        }
     }
 
     private fun handleEffect(effect: DnsEffect) {
         when (effect) {
-            is DnsEffect.FocusSelected -> {
-                val currentItems = adapter?.items().orEmpty()
-                if (adapter == null || currentItems.isEmpty()) {
-                    pendingFocusOption = effect.option
-                } else {
-                    focusSelected(currentItems, effect.option)
-                }
-            }
+            is DnsEffect.FocusSelected -> focusSelected(effect.option)
         }
     }
 
-    private fun focusSelected(items: List<DnsOptionItem>, current: DnsOption) {
+    private fun focusSelected(current: DnsOption) {
+        val items = adapter?.items().orEmpty()
         val index = items.indexOfFirst { it.option == current }
         if (index < 0) return
+        focusAdapterPositionWhenReady(index, attemptsLeft = 10)
+    }
+
+    private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {
         binding.dnsRecyclerView.post {
-            binding.dnsRecyclerView.findViewHolderForAdapterPosition(index)?.itemView?.requestFocus()
+            val holder = binding.dnsRecyclerView.findViewHolderForAdapterPosition(position)
+            if (holder != null) {
+                holder.itemView.requestFocus()
+            } else if (attemptsLeft > 0) {
+                focusAdapterPositionWhenReady(position, attemptsLeft - 1)
+            }
         }
     }
 }

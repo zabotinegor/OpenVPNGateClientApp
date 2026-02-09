@@ -25,9 +25,7 @@ class CountryServersActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentCountryServersBinding
     private val viewModel: CountryServersViewModel by viewModel()
     private var adapter: ServerPickerAdapter? = null
-    private var pendingFocusFirst = false
     private var lastRenderedServers = emptyList<com.yahorzabotsin.openvpnclientgate.core.servers.Server>()
-    private var initialized = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,15 +39,12 @@ class CountryServersActivity : AppCompatActivity() {
 
         observeViewModel()
 
-        if (!initialized) {
-            initialized = true
-            viewModel.onAction(
-                CountryServersAction.Initialize(
-                    countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME),
-                    countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
-                )
+        viewModel.onAction(
+            CountryServersAction.Initialize(
+                countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME),
+                countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
             )
-        }
+        )
     }
 
     private fun observeViewModel() {
@@ -72,39 +67,41 @@ class CountryServersActivity : AppCompatActivity() {
                 viewModel.onAction(CountryServersAction.ServerSelected(selected))
             }
             contentBinding.serversRecyclerView.adapter = adapter
-            if (pendingFocusFirst) {
-                focusFirstItem()
-                pendingFocusFirst = false
-            }
         }
     }
 
     private fun handleEffect(effect: CountryServersEffect) {
         when (effect) {
             is CountryServersEffect.ShowToast -> {
-                Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
             }
             is CountryServersEffect.ShowSnackbar -> {
-                Snackbar.make(templateBinding.root, effect.resId, Snackbar.LENGTH_LONG).show()
+                Snackbar.make(templateBinding.root, resolve(effect.text), Snackbar.LENGTH_LONG).show()
             }
             is CountryServersEffect.FinishWithSelection -> finishWithSelection(effect.result)
             CountryServersEffect.FinishCanceled -> finishWithCancel()
-            CountryServersEffect.FocusFirstItem -> {
-                if (lastRenderedServers.isEmpty()) {
-                    pendingFocusFirst = true
-                } else {
-                    focusFirstItem()
-                }
-            }
+            CountryServersEffect.FocusFirstItem -> focusFirstItem()
         }
     }
 
     private fun focusFirstItem() {
+        focusAdapterPositionWhenReady(position = 0, attemptsLeft = 10)
+    }
+
+    private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {
         contentBinding.serversRecyclerView.post {
-            contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
-                ?.itemView
-                ?.requestFocus()
+            val holder = contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(position)
+            if (holder != null) {
+                holder.itemView.requestFocus()
+            } else if (attemptsLeft > 0) {
+                focusAdapterPositionWhenReady(position, attemptsLeft - 1)
+            }
         }
+    }
+
+    private fun resolve(text: UiText): String = when (text) {
+        is UiText.Plain -> text.value
+        is UiText.Res -> getString(text.resId, *text.args.toTypedArray())
     }
 
     private fun finishWithSelection(result: ServerSelectionResult) {

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -24,10 +25,15 @@ open class ServerListActivity : AppCompatActivity() {
     protected lateinit var templateBinding: ActivityTemplateBinding
     private val viewModel: ServerListViewModel by viewModel()
     private lateinit var contentBinding: ContentServerListBinding
-    private val REQUEST_PICK_SERVER = 1001
     private var adapter: CountryListAdapter? = null
     private var lastRenderedCountries: List<CountryWithServers> = emptyList()
-    private var pendingFocusFirst = false
+    private val countryServersLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                setResult(Activity.RESULT_OK, result.data)
+                finish()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,10 +72,6 @@ open class ServerListActivity : AppCompatActivity() {
                 viewModel.onAction(ServerListAction.CountrySelected(selected))
             }
             contentBinding.serversRecyclerView.adapter = adapter
-            if (pendingFocusFirst) {
-                focusFirstItem()
-                pendingFocusFirst = false
-            }
         }
     }
 
@@ -86,7 +88,7 @@ open class ServerListActivity : AppCompatActivity() {
                     putExtra(CountryServersActivity.EXTRA_COUNTRY_NAME, effect.countryName)
                     putExtra(CountryServersActivity.EXTRA_COUNTRY_CODE, effect.countryCode)
                 }
-                startActivityForResult(intent, REQUEST_PICK_SERVER)
+                countryServersLauncher.launch(intent)
             }
             is ServerListEffect.FinishWithSelection -> finishWithSelection(effect.result)
             ServerListEffect.SetResultCanceled -> setResult(Activity.RESULT_CANCELED)
@@ -94,21 +96,22 @@ open class ServerListActivity : AppCompatActivity() {
                 setResult(Activity.RESULT_CANCELED)
                 finish()
             }
-            ServerListEffect.FocusFirstItem -> {
-                if (lastRenderedCountries.isEmpty()) {
-                    pendingFocusFirst = true
-                } else {
-                    focusFirstItem()
-                }
-            }
+            ServerListEffect.FocusFirstItem -> focusFirstItem()
         }
     }
 
     private fun focusFirstItem() {
+        focusAdapterPositionWhenReady(position = 0, attemptsLeft = 10)
+    }
+
+    private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {
         contentBinding.serversRecyclerView.post {
-            contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(0)
-                ?.itemView
-                ?.requestFocus()
+            val holder = contentBinding.serversRecyclerView.findViewHolderForAdapterPosition(position)
+            if (holder != null) {
+                holder.itemView.requestFocus()
+            } else if (attemptsLeft > 0) {
+                focusAdapterPositionWhenReady(position, attemptsLeft - 1)
+            }
         }
     }
 
@@ -122,14 +125,6 @@ open class ServerListActivity : AppCompatActivity() {
         }
         setResult(Activity.RESULT_OK, resultIntent)
         finish()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_PICK_SERVER && resultCode == Activity.RESULT_OK) {
-            setResult(Activity.RESULT_OK, data)
-            finish()
-        }
     }
 
     companion object {

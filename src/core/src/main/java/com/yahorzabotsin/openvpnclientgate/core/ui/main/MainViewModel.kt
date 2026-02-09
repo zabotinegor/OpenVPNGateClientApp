@@ -22,9 +22,6 @@ class MainViewModel(
     private val _effects = MutableSharedFlow<MainEffect>()
     val effects = _effects.asSharedFlow()
 
-    private var reopenDrawerAfterReturn = false
-    private var selectionVersion: Long = 0L
-
     fun onAction(action: MainAction) {
         when (action) {
             MainAction.LoadInitialSelection -> loadInitialSelection()
@@ -63,15 +60,16 @@ class MainViewModel(
         ip: String?,
         fromUserSelection: Boolean
     ) {
-        selectionVersion += 1
+        val nextVersion = _state.value.selectionVersion + 1
         _state.value = _state.value.copy(
+            selectionVersion = nextVersion,
             selectedServer = MainSelectedServer(
                 country = country,
                 countryCode = countryCode,
                 config = config,
                 ip = ip,
                 fromUserSelection = fromUserSelection,
-                version = selectionVersion
+                version = nextVersion
             )
         )
     }
@@ -80,7 +78,7 @@ class MainViewModel(
         viewModelScope.launch {
             when (itemId) {
                 R.id.nav_server -> {
-                    reopenDrawerAfterReturn = true
+                    _state.value = _state.value.copy(reopenDrawerAfterReturn = true)
                     _effects.emit(
                         MainEffect.OpenDestination(
                             destination = MainDestination.ServerList,
@@ -99,7 +97,7 @@ class MainViewModel(
     }
 
     private fun onOpenServerListFromConnectionControls() {
-        reopenDrawerAfterReturn = false
+        _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
         viewModelScope.launch {
             _effects.emit(
                 MainEffect.OpenDestination(
@@ -129,12 +127,12 @@ class MainViewModel(
                 logger.logIncompleteServerSelection(selection)
             }
 
-            if (reopenDrawerAfterReturn) {
+            if (_state.value.reopenDrawerAfterReturn) {
                 _effects.emit(MainEffect.ReopenDrawer)
             } else {
                 _effects.emit(MainEffect.RequestPrimaryFocus)
             }
-            reopenDrawerAfterReturn = false
+            _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
         }
     }
 
