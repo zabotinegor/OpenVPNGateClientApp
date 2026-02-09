@@ -194,7 +194,19 @@ object SelectedCountryStore {
         val list = getServers(ctx)
         if (list.isEmpty()) return
         val current = getIndex(ctx)
-        if (current in list.indices && list[current].config == config) return
+        if (current in list.indices &&
+            list[current].config == config &&
+            (ip.isNullOrBlank() || list[current].ip == ip)
+        ) return
+
+        if (!config.isNullOrBlank() && !ip.isNullOrBlank()) {
+            val foundByConfigAndIp = list.indexOfFirst { it.config == config && it.ip == ip }
+            if (foundByConfigAndIp >= 0) {
+                setIndex(ctx, foundByConfigAndIp)
+                return
+            }
+        }
+
         val foundByConfig = config?.let { cfg -> list.indexOfFirst { it.config == cfg } } ?: -1
         if (foundByConfig >= 0) {
             setIndex(ctx, foundByConfig)

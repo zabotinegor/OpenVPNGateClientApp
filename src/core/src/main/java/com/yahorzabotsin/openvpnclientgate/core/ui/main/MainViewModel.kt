@@ -7,10 +7,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionC
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 class MainViewModel(
@@ -24,8 +24,8 @@ class MainViewModel(
     private val _state = MutableStateFlow(MainUiState())
     val state = _state.asStateFlow()
 
-    private val _effects = MutableSharedFlow<MainEffect>()
-    val effects = _effects.asSharedFlow()
+    private val _effects = Channel<MainEffect>(capacity = Channel.BUFFERED)
+    val effects = _effects.receiveAsFlow()
 
     fun onAction(action: MainAction) {
         when (action) {
@@ -87,20 +87,20 @@ class MainViewModel(
             when (itemId) {
                 R.id.nav_server -> {
                     _state.value = _state.value.copy(reopenDrawerAfterReturn = true)
-                    _effects.emit(
+                    _effects.send(
                         MainEffect.OpenDestination(
                             destination = MainDestination.ServerList,
                             reopenDrawerAfterReturn = true
                         )
                     )
                 }
-                R.id.nav_dns -> _effects.emit(MainEffect.OpenDestination(MainDestination.Dns))
-                R.id.nav_filter -> _effects.emit(MainEffect.OpenDestination(MainDestination.Filter))
-                R.id.nav_settings -> _effects.emit(MainEffect.OpenDestination(MainDestination.Settings))
-                R.id.nav_about -> _effects.emit(MainEffect.OpenDestination(MainDestination.About))
-                else -> _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))
+                R.id.nav_dns -> _effects.send(MainEffect.OpenDestination(MainDestination.Dns))
+                R.id.nav_filter -> _effects.send(MainEffect.OpenDestination(MainDestination.Filter))
+                R.id.nav_settings -> _effects.send(MainEffect.OpenDestination(MainDestination.Settings))
+                R.id.nav_about -> _effects.send(MainEffect.OpenDestination(MainDestination.About))
+                else -> _effects.send(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))
             }
-            _effects.emit(MainEffect.CloseDrawer)
+            _effects.send(MainEffect.CloseDrawer)
         }
     }
 
@@ -110,7 +110,7 @@ class MainViewModel(
             pendingUserSelectionOverride = false
         )
         viewModelScope.launch {
-            _effects.emit(
+            _effects.send(
                 MainEffect.OpenDestination(
                     destination = MainDestination.ServerList,
                     reopenDrawerAfterReturn = false
@@ -125,20 +125,20 @@ class MainViewModel(
                 ConnectionState.CONNECTED,
                 ConnectionState.CONNECTING,
                 ConnectionState.DISCONNECTING -> {
-                    _effects.emit(MainEffect.StopVpn)
+                    _effects.send(MainEffect.StopVpn)
                 }
                 ConnectionState.DISCONNECTED -> {
                     val selected = _state.value.selectedServer
                     if (selected?.config.isNullOrBlank()) {
-                        _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
+                        _effects.send(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
                         return@launch
                     }
                     if (!hasNotificationPermission) {
-                        _effects.emit(MainEffect.RequestNotificationPermission)
+                        _effects.send(MainEffect.RequestNotificationPermission)
                         return@launch
                     }
                     if (!hasVpnPermission) {
-                        _effects.emit(MainEffect.RequestVpnPermission)
+                        _effects.send(MainEffect.RequestVpnPermission)
                         return@launch
                     }
 
@@ -147,7 +147,7 @@ class MainViewModel(
                         preferUserSelection = _state.value.pendingUserSelectionOverride
                     )
                     if (prepared == null) {
-                        _effects.emit(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
+                        _effects.send(MainEffect.ShowToast(UiText.Res(R.string.select_server_first)))
                         return@launch
                     }
 
@@ -158,7 +158,7 @@ class MainViewModel(
                         ip = prepared.ip ?: selected.ip,
                         fromUserSelection = false
                     )
-                    _effects.emit(MainEffect.StartVpn(prepared.config, prepared.country))
+                    _effects.send(MainEffect.StartVpn(prepared.config, prepared.country))
                 }
             }
         }
@@ -173,6 +173,7 @@ class MainViewModel(
             if (hasSelectionData) {
                 logger.logServerSelectionApplied(selection!!)
                 val previousConfig = _state.value.selectedServer?.config
+                val previousIp = _state.value.selectedServer?.ip
                 updateSelectedServer(
                     country = selection.country,
                     countryCode = selection.countryCode,
@@ -180,22 +181,29 @@ class MainViewModel(
                     ip = selection.ip,
                     fromUserSelection = true
                 )
-                val shouldStopForUserSelection = connectionControlsUseCase.shouldStopForUserSelection(
+                val configChanged = connectionControlsUseCase.shouldStopForUserSelection(
                     state = connectionStateProvider.state.value,
                     previousConfig = previousConfig,
                     newConfig = selection.config
                 )
+                val ipChanged = !previousIp.isNullOrBlank() &&
+                    !selection.ip.isNullOrBlank() &&
+                    previousIp != selection.ip
+                val state = connectionStateProvider.state.value
+                val isVpnActive = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
+                val serverChanged = configChanged || ipChanged
+                val shouldStopForUserSelection = isVpnActive && serverChanged
                 if (shouldStopForUserSelection) {
-                    _effects.emit(MainEffect.StopVpn)
+                    _effects.send(MainEffect.StopVpn)
                 }
             } else if (selection != null) {
                 logger.logIncompleteServerSelection(selection)
             }
 
             if (_state.value.reopenDrawerAfterReturn) {
-                _effects.emit(MainEffect.ReopenDrawer)
+                _effects.send(MainEffect.ReopenDrawer)
             } else {
-                _effects.emit(MainEffect.RequestPrimaryFocus)
+                _effects.send(MainEffect.RequestPrimaryFocus)
             }
             _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
         }

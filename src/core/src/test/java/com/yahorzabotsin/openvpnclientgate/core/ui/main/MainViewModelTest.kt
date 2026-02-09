@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -173,6 +174,86 @@ class MainViewModelTest {
 
         assertTrue(effects.first() is MainEffect.RequestNotificationPermission)
         job.cancel()
+    }
+
+    @Test
+    fun `selection with same config but different ip emits stop when connected`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "Canada",
+                    city = "A",
+                    config = "shared-config",
+                    countryCode = "CA",
+                    ip = "1.1.1.1"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
+        )
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Canada",
+                    countryCode = "CA",
+                    city = "B",
+                    config = "shared-config",
+                    ip = "2.2.2.2"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.StopVpn)
+        assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
+        job.cancel()
+    }
+
+    @Test
+    fun `selection with same active server does not emit stop`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "Canada",
+                    city = "A",
+                    config = "shared-config",
+                    countryCode = "CA",
+                    ip = "1.1.1.1"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
+        )
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Canada",
+                    countryCode = "CA",
+                    city = "A",
+                    config = "shared-config",
+                    ip = "1.1.1.1"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        val firstEffect = viewModel.effects.first()
+        assertTrue(firstEffect !is MainEffect.StopVpn)
     }
 
     private class FakeMainSelectionInteractor(

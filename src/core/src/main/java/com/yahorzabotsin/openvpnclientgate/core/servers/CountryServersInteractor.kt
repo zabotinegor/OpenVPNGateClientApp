@@ -44,7 +44,7 @@ class DefaultCountryServersInteractor(
         val chosenResolved = resolvedServers.firstOrNull { it.lineIndex == selectedServer.lineIndex }
             ?: resolvedServers.first()
         runCatching {
-            SelectedCountryStore.ensureIndexForConfig(appContext, chosenResolved.configData)
+            SelectedCountryStore.ensureIndexForConfig(appContext, chosenResolved.configData, chosenResolved.ip)
         }
 
         return ServerSelectionResult(

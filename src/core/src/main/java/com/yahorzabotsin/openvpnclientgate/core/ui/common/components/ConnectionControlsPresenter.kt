@@ -128,10 +128,11 @@ class ConnectionControlsPresenter(
         val ip = when {
             !ipFromCurrentConfig.isNullOrBlank() -> ipFromCurrentConfig
             !ipFromLastStartedConfig.isNullOrBlank() -> ipFromLastStartedConfig
+            !selectedServerIp.isNullOrBlank() -> selectedServerIp
             !current?.ip.isNullOrBlank() -> current?.ip
             !lastStarted?.takeIf { it.country == resolvedCountry }?.ip.isNullOrBlank() -> lastStarted?.ip
             !lastSuccessfulIp.isNullOrBlank() -> lastSuccessfulIp
-            else -> selectedServerIp
+            else -> null
         }
 
         val cityText = runCatching { selectionStore.getCurrentPosition(context) }
@@ -169,4 +170,3 @@ class ConnectionControlsPresenter(
             ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
     }
 }
-

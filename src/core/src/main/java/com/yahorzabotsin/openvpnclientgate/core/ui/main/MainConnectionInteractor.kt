@@ -37,10 +37,8 @@ class DefaultMainConnectionInteractor(
             true
         }
 
-        val selectedConfig = runCatching { SelectedCountryStore.currentServer(appContext)?.config }.getOrNull()
         val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(appContext) }.getOrNull()
-        val shouldUseLastSuccessful = lastSuccessfulConfig != null &&
-            (!preferUserSelection || selectedConfig == lastSuccessfulConfig)
+        val shouldUseLastSuccessful = lastSuccessfulConfig != null && !preferUserSelection
 
         val configToUse = if (shouldUseLastSuccessful) {
             if (autoSwitchEnabled) {
@@ -90,4 +88,3 @@ class DefaultMainConnectionInteractor(
             ?: fallbackIp
     }
 }
-

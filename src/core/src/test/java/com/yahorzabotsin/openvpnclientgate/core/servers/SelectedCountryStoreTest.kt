@@ -18,7 +18,8 @@ class SelectedCountryStoreTest {
         country: Country = Country("CountryA"),
         config: String,
         lineIndex: Int = 1,
-        signalStrength: SignalStrength = SignalStrength.STRONG
+        signalStrength: SignalStrength = SignalStrength.STRONG,
+        ip: String = "1.1.1.1"
     ) = Server(
         lineIndex = lineIndex,
         name = name,
@@ -26,7 +27,7 @@ class SelectedCountryStoreTest {
         country = country,
         ping = 10,
         signalStrength = signalStrength,
-        ip = "1.1.1.1",
+        ip = ip,
         score = 100,
         speed = 1000,
         numVpnSessions = 1,
@@ -159,6 +160,26 @@ class SelectedCountryStoreTest {
         val current = SelectedCountryStore.currentServer(ctx)
         assertNotNull(current)
         assertEquals("City2", current!!.city)
+    }
+
+    @Test
+    fun ensure_index_for_config_prefers_matching_ip_when_config_duplicates() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "dup-config", lineIndex = 1, ip = "10.0.0.1"),
+            server(name = "srv-2", city = "City2", config = "dup-config", lineIndex = 2, ip = "10.0.0.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+        SelectedCountryStore.resetIndex(ctx)
+
+        SelectedCountryStore.ensureIndexForConfig(ctx, "dup-config", "10.0.0.2")
+
+        val current = SelectedCountryStore.currentServer(ctx)
+        assertNotNull(current)
+        assertEquals("City2", current!!.city)
+        assertEquals("10.0.0.2", current.ip)
     }
 
     @Test
