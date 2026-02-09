@@ -9,79 +9,62 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
-import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityMainBinding
-import com.yahorzabotsin.openvpnclientgate.core.servers.SelectionBootstrap
-import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
-import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainAction
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainDestination
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainEffect
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectedServer
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainUiState
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.SelectedServerResult
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
-import org.koin.android.ext.android.inject
+import kotlinx.coroutines.launch
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
     protected lateinit var connectionControlsView: ConnectionControlsView
-    private val serverRepository: ServerRepository by inject()
-    private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
+    private val viewModel: MainViewModel by viewModel()
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
-    private var reopenDrawerAfterReturn = false
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
             connectionControlsView.requestPrimaryFocus()
         }
     }
+    private var lastAppliedSelectionVersion: Long? = null
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            Log.i(TAG, "VPN permission granted.")
-            connectionControlsView.performConnectionClick()
-        } else {
-            Log.w(TAG, "VPN permission was not granted by the user.")
-            Toast.makeText(this, R.string.vpn_permission_not_granted, Toast.LENGTH_SHORT).show()
-        }
+        viewModel.onAction(MainAction.OnVpnPermissionResult(granted = result.resultCode == Activity.RESULT_OK))
     }
 
     private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY)
-            val countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE)
-            val city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY)
-            val config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG)
-            val ip = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_IP)
-
-            if (country != null && city != null && config != null) {
-                val total = try { SelectedCountryStore.getServers(this).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
-                if (total >= 0) {
-                    Log.i(TAG, "Server selected: $country, $city, servers - $total, ip=${ip ?: "<none>"}")
-                } else {
-                    Log.i(TAG, "Server selected: $country, $city, ip=${ip ?: "<none>"}")
-                }
-                connectionControlsView.setServer(country, countryCode, ip)
-                connectionControlsView.setVpnConfigFromUser(config)
-            } else {
-                Log.w(TAG, "Server selection returned with incomplete data.")
-            }
+        val selection = if (result.resultCode == Activity.RESULT_OK) {
+            SelectedServerResult(
+                country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY),
+                countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE),
+                city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY),
+                config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG),
+                ip = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_IP)
+            )
+        } else {
+            null
         }
-        if (!reopenDrawerAfterReturn) {
-            connectionControlsView.requestPrimaryFocus()
-        }
-        // After returning, reopen the navigation menu only if requested
-        if (reopenDrawerAfterReturn) {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
-        }
-        reopenDrawerAfterReturn = false
+        viewModel.onAction(MainAction.OnServerSelectionResult(selection))
     }
 
     private fun createDrawerReopeningLauncher() =
@@ -90,28 +73,19 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         }
 
     private val dnsActivityLauncher = createDrawerReopeningLauncher()
-
     private val filterActivityLauncher = createDrawerReopeningLauncher()
-
     private val settingsActivityLauncher = createDrawerReopeningLauncher()
-
     private val aboutActivityLauncher = createDrawerReopeningLauncher()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            Log.i(TAG, "Notification permission granted.")
-            connectionControlsView.performConnectionClick()
-        } else {
-            Log.w(TAG, "Notification permission not granted by user.")
-            Toast.makeText(this, R.string.notification_permission_required, Toast.LENGTH_SHORT).show()
-        }
+        viewModel.onAction(MainAction.OnNotificationPermissionResult(granted))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate called.")
+        Log.d(tag, "onCreate called.")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -119,20 +93,18 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         connectionControlsView = binding.connectionControls
 
         binding.connectionDetails.speedometer.bindTo(this)
-
         binding.drawerLayout.setStatusBarBackground(null)
         binding.drawerLayout.setStatusBarBackgroundColor(Color.TRANSPARENT)
 
         styleNavigationView(binding.navView)
-
         setupConnectionControls()
         setupToolbarAndDrawer(binding.drawerLayout)
         setupNavigationView()
-        loadSelectedCountryOrDefault()
+        observeViewModel()
+        viewModel.onAction(MainAction.LoadInitialSelection)
 
         afterViewsReady()
 
-        // Close drawer on back instead of exiting app
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
@@ -145,16 +117,14 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
         })
 
-        // Make the country row clickable: open servers without reopening drawer on return
         connectionControlsView.setOpenServerListHandler {
-            reopenDrawerAfterReturn = false
-            serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
+            viewModel.onAction(MainAction.OpenServerListFromConnectionControls)
         }
 
         connectionControlsView.requestPrimaryFocus()
-        
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            updateDetailsVisibility()
+            viewModel.onAction(MainAction.OnMultiWindowModeChanged(isInMultiWindowMode))
         }
     }
 
@@ -164,7 +134,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         try {
             startService(Intent(this, OpenVpnService::class.java))
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to start OpenVpnService from UI", e)
+            Log.w(tag, "Failed to start OpenVpnService from UI", e)
         }
     }
 
@@ -176,13 +146,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
         super.onMultiWindowModeChanged(isInMultiWindowMode)
-        Log.d(TAG, "Multi-window mode changed: $isInMultiWindowMode")
-        updateDetailsVisibility()
-    }
-
-    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
-    private fun updateDetailsVisibility() {
-        binding.connectionDetails.detailsContainer?.visibility = if (isInMultiWindowMode) View.GONE else View.VISIBLE
+        Log.d(tag, "Multi-window mode changed: $isInMultiWindowMode")
+        viewModel.onAction(MainAction.OnMultiWindowModeChanged(isInMultiWindowMode))
     }
 
     private fun setupConnectionControls() {
@@ -226,21 +191,58 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     private fun setupNavigationView() {
         binding.navView.setNavigationItemSelectedListener {
-            when (it.itemId) {
-                R.id.nav_server -> {
-                    reopenDrawerAfterReturn = true
-                    serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
-                }
-                R.id.nav_dns -> dnsActivityLauncher.launch(Intent(this, DnsActivity::class.java))
-                R.id.nav_filter -> filterActivityLauncher.launch(Intent(this, FilterActivity::class.java))
-                R.id.nav_settings -> settingsActivityLauncher.launch(Intent(this, SettingsActivity::class.java))
-                R.id.nav_about -> aboutActivityLauncher.launch(Intent(this, AboutActivity::class.java))
-                else -> {
-                    Toast.makeText(this, R.string.feature_in_development, Toast.LENGTH_SHORT).show()
-                }
-            }
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            viewModel.onAction(MainAction.NavigationItemSelected(it.itemId))
             true
+        }
+    }
+
+    private fun observeViewModel() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { viewModel.state.collect { render(it) } }
+                launch { viewModel.effects.collect { handleEffect(it) } }
+            }
+        }
+    }
+
+    private fun render(state: MainUiState) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            binding.connectionDetails.detailsContainer?.visibility =
+                if (state.isDetailsVisible) View.VISIBLE else View.GONE
+        }
+        applySelectedServerIfNeeded(state.selectedServer)
+    }
+
+    private fun handleEffect(effect: MainEffect) {
+        when (effect) {
+            is MainEffect.OpenDestination -> openDestination(effect.destination)
+            MainEffect.CloseDrawer -> binding.drawerLayout.closeDrawer(GravityCompat.START)
+            MainEffect.ReopenDrawer -> binding.drawerLayout.openDrawer(GravityCompat.START)
+            MainEffect.RequestPrimaryFocus -> connectionControlsView.requestPrimaryFocus()
+            MainEffect.TriggerConnectionClick -> connectionControlsView.performConnectionClick()
+            is MainEffect.ShowToast -> Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun applySelectedServerIfNeeded(selection: MainSelectedServer?) {
+        if (selection == null) return
+        if (lastAppliedSelectionVersion == selection.version) return
+        lastAppliedSelectionVersion = selection.version
+        connectionControlsView.setServer(selection.country, selection.countryCode, selection.ip)
+        if (selection.fromUserSelection) {
+            connectionControlsView.setVpnConfigFromUser(selection.config)
+        } else {
+            connectionControlsView.setVpnConfig(selection.config)
+        }
+    }
+
+    private fun openDestination(destination: MainDestination) {
+        when (destination) {
+            MainDestination.ServerList -> serverListActivityLauncher.launch(Intent(this, ServerListActivity::class.java))
+            MainDestination.Dns -> dnsActivityLauncher.launch(Intent(this, DnsActivity::class.java))
+            MainDestination.Filter -> filterActivityLauncher.launch(Intent(this, FilterActivity::class.java))
+            MainDestination.Settings -> settingsActivityLauncher.launch(Intent(this, SettingsActivity::class.java))
+            MainDestination.About -> aboutActivityLauncher.launch(Intent(this, AboutActivity::class.java))
         }
     }
 
@@ -249,26 +251,6 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             binding.drawerLayout.removeDrawerListener(focusRestoringDrawerListener)
         }
         super.onDestroy()
-    }
-
-    private fun loadSelectedCountryOrDefault() {
-        launchLogged(TAG) {
-            try {
-                SelectionBootstrap.ensureSelection(
-                    this@MainActivityCore,
-                    {
-                        val cacheOnly = ConnectionStateManager.state.value == ConnectionState.CONNECTED
-                        serverRepository.getServers(this@MainActivityCore, cacheOnly = cacheOnly)
-                    },
-                    { srv -> serverRepository.loadConfigs(this@MainActivityCore, srv) }
-                ) { country, city, config, countryCode, ip ->
-                    connectionControlsView.setServer(country, countryCode, ip)
-                    connectionControlsView.setVpnConfig(config)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize selection", e)
-            }
-        }
     }
 
     protected open fun styleNavigationView(nv: NavigationView) {}
@@ -296,5 +278,3 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.statusValue.text = text
     }
 }
-
-

@@ -34,6 +34,11 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewMode
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.DefaultSettingsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainSelectionInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
 import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
@@ -88,4 +93,7 @@ val coreModule = module {
     viewModel { ServerListViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get()) }
+    single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
+    single<MainLogger> { DefaultMainLogger() }
+    viewModel { MainViewModel(get(), get(), get()) }
 }
