@@ -37,7 +37,7 @@ class ConnectionControlsUseCase {
         val trimmed = text.trimEnd()
         return when {
             trimmed.endsWith("...") -> trimmed.removeSuffix("...").trimEnd()
-            trimmed.endsWith("вЂ¦") -> trimmed.removeSuffix("вЂ¦").trimEnd()
+            trimmed.endsWith("…") -> trimmed.removeSuffix("…").trimEnd()
             else -> trimmed
         }
     }
