@@ -109,29 +109,51 @@ class SettingsViewModel(
 
     private fun onStatusTimeoutChanged(raw: String) {
         val current = _state.value
-        if (current.statusStallTimeoutInput != raw) {
-            _state.value = current.copy(statusStallTimeoutInput = raw)
+        val inputChanged = current.statusStallTimeoutInput != raw
+        val parsedSeconds = raw.trim().toIntOrNull()
+        val validSeconds = parsedSeconds?.takeIf { it > 0 }
+        val logicalChanged = validSeconds != null && current.statusStallTimeoutSeconds != validSeconds
+
+        if (!inputChanged && !logicalChanged) return
+
+        _state.value = if (logicalChanged) {
+            current.copy(
+                statusStallTimeoutInput = raw,
+                statusStallTimeoutSeconds = validSeconds!!
+            )
+        } else {
+            current.copy(statusStallTimeoutInput = raw)
         }
-        val seconds = raw.trim().toIntOrNull() ?: return
-        if (seconds <= 0) return
-        if (_state.value.statusStallTimeoutSeconds == seconds) return
-        _state.value = _state.value.copy(statusStallTimeoutSeconds = seconds)
-        repository.saveStatusStallTimeoutSeconds(seconds)
-        logger.logStatusStallTimeoutChanged(seconds)
+
+        if (logicalChanged) {
+            repository.saveStatusStallTimeoutSeconds(validSeconds!!)
+            logger.logStatusStallTimeoutChanged(validSeconds)
+        }
     }
 
     private fun onCacheTtlChanged(raw: String) {
         val current = _state.value
-        if (current.cacheTtlInput != raw) {
-            _state.value = current.copy(cacheTtlInput = raw)
+        val inputChanged = current.cacheTtlInput != raw
+        val parsedMinutes = raw.trim().toLongOrNull()
+        val validMinutes = parsedMinutes?.takeIf { it > 0 }
+        val ttlMs = validMinutes?.times(60 * 1000L)
+        val logicalChanged = ttlMs != null && current.cacheTtlMs != ttlMs
+
+        if (!inputChanged && !logicalChanged) return
+
+        _state.value = if (logicalChanged) {
+            current.copy(
+                cacheTtlInput = raw,
+                cacheTtlMs = ttlMs!!
+            )
+        } else {
+            current.copy(cacheTtlInput = raw)
         }
-        val minutes = raw.trim().toLongOrNull() ?: return
-        if (minutes <= 0) return
-        val ttlMs = minutes * 60 * 1000L
-        if (_state.value.cacheTtlMs == ttlMs) return
-        _state.value = _state.value.copy(cacheTtlMs = ttlMs)
-        repository.saveCacheTtlMs(ttlMs)
-        logger.logCacheTtlChanged(ttlMs)
+
+        if (logicalChanged) {
+            repository.saveCacheTtlMs(ttlMs!!)
+            logger.logCacheTtlChanged(ttlMs)
+        }
     }
 
     private fun emitEffects(vararg effects: SettingsEffect) {
