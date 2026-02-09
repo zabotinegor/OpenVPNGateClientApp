@@ -3,7 +3,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -30,24 +29,15 @@ class CountryServersActivity : AppCompatActivity() {
     private var countryCode: String? = null
     private var servers: List<Server> = emptyList()
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersActivity"
-    private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        templateBinding = ActivityTemplateBinding.inflate(layoutInflater)
-        setContentView(templateBinding.root)
-
+        templateBinding = TemplatePage.create(this, R.string.menu_server, null)
         contentBinding = ContentCountryServersBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
 
         countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME)
         countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
 
-        TemplatePage.setupHeader(
-            activity = this,
-            binding = templateBinding,
-            titleResId = R.string.menu_server,
-            backDestination = null
-        )
         countryName?.let { templateBinding.toolbarTitle.text = it }
 
         contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
@@ -56,16 +46,6 @@ class CountryServersActivity : AppCompatActivity() {
         )
 
         loadServers()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
-    }
-
-    override fun onStop() {
-        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
-        super.onStop()
     }
 
     private fun setLoadingState(isLoading: Boolean) {
