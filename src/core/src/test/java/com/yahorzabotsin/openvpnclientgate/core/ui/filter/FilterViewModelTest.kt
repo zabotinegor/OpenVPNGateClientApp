@@ -2,8 +2,13 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterEntry
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
+import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -105,9 +110,30 @@ class FilterViewModelTest {
         assertEquals(2, logger.selectAlls.last().third)
     }
 
+    @Test
+    fun `load failure emits toast effect`() = runTest {
+        val vmRef = CompletableDeferred<FilterViewModel>()
+        val effectDeferred = async { vmRef.await().effects.first() }
+        val repo = FakeAppFilterRepository(
+            apps = emptyList(),
+            initialExcluded = emptySet(),
+            failOnLoad = true
+        )
+        val vm = FilterViewModel(repo, FakeFilterLogger())
+        vmRef.complete(vm)
+
+        advanceUntilIdle()
+
+        val effect = effectDeferred.await()
+        val toast = effect as FilterEffect.ShowToast
+        assertEquals(UiText.Res(R.string.error_getting_servers), toast.text)
+        assertTrue(!vm.state.value.isLoading)
+    }
+
     private class FakeAppFilterRepository(
         private val apps: List<AppFilterEntry>,
-        initialExcluded: Set<String>
+        initialExcluded: Set<String>,
+        private val failOnLoad: Boolean = false
     ) : AppFilterRepository {
         private var excluded = initialExcluded.toMutableSet()
         val saved: MutableList<Set<String>> = mutableListOf()
@@ -116,6 +142,7 @@ class FilterViewModelTest {
 
         override suspend fun loadInstalledApps(): List<AppFilterEntry> {
             loadCalled = true
+            if (failOnLoad) error("boom")
             return apps
         }
 
