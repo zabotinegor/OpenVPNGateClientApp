@@ -1,9 +1,14 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
+import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterEntry
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+
 data class FilterUiState(
     val isLoading: Boolean = false,
     val currentCategory: AppCategory = AppCategory.USER,
-    val itemsByCategory: Map<AppCategory, List<FilterUiItem>> = emptyMap()
+    val itemsByCategory: Map<AppCategory, List<FilterUiItem>> = emptyMap(),
+    val allApps: List<AppFilterEntry> = emptyList(),
+    val excludedPackages: Set<String> = emptySet()
 )
 
 sealed class FilterUiItem {
@@ -17,4 +22,6 @@ sealed class FilterAction {
     data class ToggleApp(val packageName: String, val isEnabled: Boolean) : FilterAction()
 }
 
-sealed class FilterEffect
+sealed interface FilterEffect {
+    data class ShowToast(val text: UiText) : FilterEffect
+}
