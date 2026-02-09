@@ -1,13 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
-import android.Manifest
 import android.content.Context
 import android.content.res.ColorStateList
-import android.net.VpnService
 import android.util.AttributeSet
 import android.util.Log
 import android.view.LayoutInflater
-import android.widget.Toast
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
@@ -22,11 +19,9 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ViewConnectionControlsBinding
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
-import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import com.yahorzabotsin.openvpnclientgate.vpn.ServerAutoSwitcher
-import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -46,10 +41,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var selectedCountryCode: String? = null
     private var selectedServerIp: String? = null
     private var openServerList: (() -> Unit)? = null
-    private var requestVpnPermission: (() -> Unit)? = null
-    private var requestNotificationPermission: (() -> Unit)? = null
+    private var onConnectionButtonClick: (() -> Unit)? = null
     private var connectionDetailsListener: ConnectionDetailsListener? = null
-    private var userSelectedConfigOverride = false
     private val useCase = ConnectionControlsUseCase()
 
     companion object {
@@ -64,35 +57,13 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun setupClicks() {
         binding.startConnectionButton.setOnClickListener {
-            when (ConnectionStateManager.state.value) {
-                ConnectionState.DISCONNECTED -> {
-                    if (vpnConfig != null) {
-                        Log.d(TAG, "Start VPN requested")
-                        prepareAndStartVpn()
-                    } else {
-                        Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
-                        Log.d(TAG, "Connect clicked but no VPN config; ignoring")
-                    }
-                }
-                ConnectionState.CONNECTED -> {
-                    Log.d(TAG, "Stop VPN requested")
-                    VpnManager.stopVpn(context)
-                }
-                ConnectionState.CONNECTING, ConnectionState.DISCONNECTING -> {
-                    Log.d(TAG, "Cancel while ${ConnectionStateManager.state.value}; stopping VPN")
-                    VpnManager.stopVpn(context)
-                }
-            }
+            onConnectionButtonClick?.invoke()
         }
 
         binding.serverSelectionContainer.setOnClickListener {
             Log.d(TAG, "Server selection container clicked")
             openServerList?.invoke()
         }
-    }
-
-    fun performConnectionClick() {
-        binding.startConnectionButton.performClick()
     }
 
     fun requestPrimaryFocus() {
@@ -105,82 +76,8 @@ class ConnectionControlsView @JvmOverloads constructor(
         connectionDetailsListener = listener
     }
 
-    private fun prepareAndStartVpn() {
-        val needNotificationPermission = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
-        val hasNotificationPermission = if (needNotificationPermission) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else true
-
-        if (!hasNotificationPermission) {
-            Log.d(TAG, "POST_NOTIFICATIONS not granted; requesting")
-            requestNotificationPermission?.invoke()
-            return
-        }
-
-        if (VpnService.prepare(context) != null) {
-            Log.d(TAG, "VPN permission not granted; requesting")
-            requestVpnPermission?.invoke()
-            return
-        }
-
-        val currentConfig = vpnConfig
-        if (currentConfig.isNullOrBlank()) {
-            Log.w(TAG, "No VPN config available to start")
-            Toast.makeText(context, R.string.select_server_first, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val autoSwitchEnabled = try {
-            UserSettingsStore.load(context).autoSwitchWithinCountry
-        } catch (_: Exception) {
-            true
-        }
-
-        val selectedConfig = runCatching { SelectedCountryStore.currentServer(context)?.config }.getOrNull()
-        val lastSuccessfulConfig = runCatching { SelectedCountryStore.getLastSuccessfulConfigForSelected(context) }.getOrNull()
-        val shouldUseLastSuccessful = lastSuccessfulConfig != null &&
-            (!userSelectedConfigOverride || selectedConfig == lastSuccessfulConfig)
-
-        val configToUse = if (shouldUseLastSuccessful) {
-            if (autoSwitchEnabled) {
-                runCatching {
-                    SelectedCountryStore.prepareAutoSwitchFromStart(context)
-                    SelectedCountryStore.ensureIndexForConfig(context, lastSuccessfulConfig, resolveIpForConfig(lastSuccessfulConfig))
-                }.onFailure { e -> Log.e(TAG, "Failed to prepare index for auto-switch from start", e) }
-            }
-            lastSuccessfulConfig!!
-        } else {
-            if (autoSwitchEnabled) {
-                runCatching { SelectedCountryStore.ensureIndexForConfig(context, currentConfig, resolveIpForConfig(currentConfig)) }
-                    .onFailure { e -> Log.e(TAG, "Failed to align server index with current selection", e) }
-            }
-            currentConfig
-        }
-
-        val ipForConfig = resolveIpForConfig(configToUse)
-        persistLastStarted(configToUse, ipForConfig)
-        updateAddress(ipForConfig)
-
-        Log.d(TAG, "Starting VPN with ${if (configToUse == vpnConfig) "current selection" else "last successful config"} (ip=${ipForConfig ?: "<none>"})")
-        VpnManager.startVpn(context, configToUse, selectedCountry)
-        userSelectedConfigOverride = false
-    }
-
-    private fun persistLastStarted(config: String, ip: String?) {
-        runCatching {
-            SelectedCountryStore.saveLastStartedConfig(context, selectedCountry, config, ip)
-        }.onFailure { e -> Log.w(TAG, "Failed to persist last started config", e) }
-    }
-
-    fun setVpnPermissionRequestHandler(handler: () -> Unit) {
-        requestVpnPermission = handler
-    }
-
-    fun setNotificationPermissionRequestHandler(handler: () -> Unit) {
-        requestNotificationPermission = handler
+    fun setConnectionButtonClickHandler(handler: () -> Unit) {
+        onConnectionButtonClick = handler
     }
 
     fun setOpenServerListHandler(handler: () -> Unit) {
@@ -201,36 +98,22 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setVpnConfig(config: String) {
-        setVpnConfigInternal(config, fromUserSelection = false)
+        setVpnConfigInternal(config)
     }
 
     fun setVpnConfigFromUser(config: String) {
-        setVpnConfigInternal(config, fromUserSelection = true)
+        setVpnConfigInternal(config)
     }
 
-    private fun setVpnConfigInternal(config: String, fromUserSelection: Boolean) {
-        val previousConfig = vpnConfig
-        userSelectedConfigOverride = fromUserSelection
+    private fun setVpnConfigInternal(config: String) {
         Log.d(TAG, "VPN config set")
         vpnConfig = config
-        runCatching { SelectedCountryStore.ensureIndexForConfig(context, config) }
-            .onFailure { e -> Log.w(TAG, "Failed to align server index on config set", e) }
         val resolvedIp = resolveIpForConfig(config)
         if (!resolvedIp.isNullOrBlank()) {
             updateAddress(resolvedIp)
             applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
         }
         updateServerPosition()
-        if (fromUserSelection && useCase.shouldStopForUserSelection(ConnectionStateManager.state.value, previousConfig, config)) {
-            stopForUserSelection()
-        }
-    }
-
-    private fun stopForUserSelection() {
-        val state = ConnectionStateManager.state.value
-        if (state == ConnectionState.DISCONNECTED || state == ConnectionState.DISCONNECTING) return
-        Log.i(TAG, "User selection while $state; stopping VPN")
-        VpnManager.stopVpn(context)
     }
 
     fun setLifecycleOwner(lifecycleOwner: LifecycleOwner) {

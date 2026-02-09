@@ -38,6 +38,7 @@ class MainViewModelTest {
         )
         val viewModel = MainViewModel(
             selectionInteractor = interactor,
+            connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
         )
@@ -56,13 +57,14 @@ class MainViewModelTest {
     fun `server menu and successful selection reopens drawer and applies user config`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
-            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
         )
 
         val effects = mutableListOf<MainEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) {
-            viewModel.effects.take(3).toList(effects)
+            viewModel.effects.take(4).toList(effects)
         }
 
         viewModel.onAction(MainAction.NavigationItemSelected(R.id.nav_server))
@@ -87,9 +89,10 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `vpn permission denied emits toast effect`() = runTest {
+    fun `connection click without selected server emits toast effect`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
+            connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
             logger = FakeMainLogger()
         )
@@ -98,11 +101,16 @@ class MainViewModelTest {
             viewModel.effects.take(1).toList(effects)
         }
 
-        viewModel.onAction(MainAction.OnVpnPermissionResult(granted = false))
+        viewModel.onAction(
+            MainAction.ConnectionButtonClicked(
+                hasNotificationPermission = true,
+                hasVpnPermission = true
+            )
+        )
         advanceUntilIdle()
 
         val effect = effects.first() as MainEffect.ShowToast
-        assertEquals(R.string.vpn_permission_not_granted, effect.resId)
+        assertEquals(R.string.select_server_first, effect.resId)
         job.cancel()
     }
 
@@ -110,6 +118,7 @@ class MainViewModelTest {
     fun `multi window mode updates details visibility in state`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
+            connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
             logger = FakeMainLogger()
         )
@@ -121,6 +130,42 @@ class MainViewModelTest {
         viewModel.onAction(MainAction.OnMultiWindowModeChanged(isInMultiWindowMode = false))
         advanceUntilIdle()
         assertEquals(true, viewModel.state.value.isDetailsVisible)
+    }
+
+    @Test
+    fun `connection click with missing permissions emits permission effect`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "France",
+                    city = "Paris",
+                    config = "config",
+                    countryCode = "FR",
+                    ip = "1.2.3.4"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeMainLogger()
+        )
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(
+            MainAction.ConnectionButtonClicked(
+                hasNotificationPermission = false,
+                hasVpnPermission = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.RequestNotificationPermission)
+        job.cancel()
     }
 
     private class FakeMainSelectionInteractor(
@@ -138,6 +183,19 @@ class MainViewModelTest {
         private val stateFlow = MutableStateFlow(initial)
         override val state: StateFlow<ConnectionState> = stateFlow
         override fun isConnected(): Boolean = stateFlow.value == ConnectionState.CONNECTED
+    }
+
+    private class FakeMainConnectionInteractor : MainConnectionInteractor {
+        override fun prepareStart(
+            selectedServer: MainSelectedServer?,
+            preferUserSelection: Boolean
+        ): PreparedConnectionStart? = selectedServer?.let {
+            PreparedConnectionStart(
+                config = it.config,
+                country = it.country,
+                ip = it.ip
+            )
+        }
     }
 
     private class FakeMainLogger : MainLogger {

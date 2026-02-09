@@ -40,6 +40,8 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.settings.DefaultSettingsLogge
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainLogger
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainConnectionInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainConnectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainSelectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
@@ -102,6 +104,7 @@ val coreModule = module {
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
+    single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
     single<MainLogger> { DefaultMainLogger() }
-    viewModel { MainViewModel(get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get()) }
 }

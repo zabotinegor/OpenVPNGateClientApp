@@ -6,7 +6,8 @@ data class MainUiState(
     val isDetailsVisible: Boolean = true,
     val selectedServer: MainSelectedServer? = null,
     val reopenDrawerAfterReturn: Boolean = false,
-    val selectionVersion: Long = 0L
+    val selectionVersion: Long = 0L,
+    val pendingUserSelectionOverride: Boolean = false
 )
 
 data class MainSelectedServer(
@@ -22,9 +23,11 @@ sealed interface MainAction {
     data object LoadInitialSelection : MainAction
     data class NavigationItemSelected(val itemId: Int) : MainAction
     data object OpenServerListFromConnectionControls : MainAction
+    data class ConnectionButtonClicked(
+        val hasNotificationPermission: Boolean,
+        val hasVpnPermission: Boolean
+    ) : MainAction
     data class OnServerSelectionResult(val selection: SelectedServerResult?) : MainAction
-    data class OnVpnPermissionResult(val granted: Boolean) : MainAction
-    data class OnNotificationPermissionResult(val granted: Boolean) : MainAction
     data class OnMultiWindowModeChanged(val isInMultiWindowMode: Boolean) : MainAction
 }
 
@@ -53,7 +56,10 @@ sealed interface MainEffect {
     data object CloseDrawer : MainEffect
     data object ReopenDrawer : MainEffect
     data object RequestPrimaryFocus : MainEffect
-    data object TriggerConnectionClick : MainEffect
+    data object RequestVpnPermission : MainEffect
+    data object RequestNotificationPermission : MainEffect
+    data class StartVpn(val config: String, val country: String?) : MainEffect
+    data object StopVpn : MainEffect
 
     data class ShowToast(@StringRes val resId: Int) : MainEffect
 }

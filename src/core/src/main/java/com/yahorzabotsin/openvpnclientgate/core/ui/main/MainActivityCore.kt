@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.VpnService
 import android.os.Bundle
@@ -29,6 +30,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -48,7 +50,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private var lastAppliedSelectionVersion: Long? = null
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        viewModel.onAction(MainAction.OnVpnPermissionResult(granted = result.resultCode == Activity.RESULT_OK))
+        if (result.resultCode == Activity.RESULT_OK) {
+            dispatchConnectionButtonClick()
+        } else {
+            Toast.makeText(this, R.string.vpn_permission_not_granted, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -79,7 +85,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        viewModel.onAction(MainAction.OnNotificationPermissionResult(granted))
+        if (granted) {
+            dispatchConnectionButtonClick()
+        } else {
+            Toast.makeText(this, R.string.notification_permission_required, Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,20 +162,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private fun setupConnectionControls() {
         connectionControlsView.setLifecycleOwner(this)
         connectionControlsView.setConnectionDetailsListener(this)
-        connectionControlsView.setVpnPermissionRequestHandler {
-            val intent = VpnService.prepare(this)
-            if (intent != null) {
-                vpnPermissionLauncher.launch(intent)
-            } else {
-                connectionControlsView.performConnectionClick()
-            }
-        }
-        connectionControlsView.setNotificationPermissionRequestHandler {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                connectionControlsView.performConnectionClick()
-            }
+        connectionControlsView.setConnectionButtonClickHandler {
+            dispatchConnectionButtonClick()
         }
     }
 
@@ -218,7 +216,23 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             MainEffect.CloseDrawer -> binding.drawerLayout.closeDrawer(GravityCompat.START)
             MainEffect.ReopenDrawer -> binding.drawerLayout.openDrawer(GravityCompat.START)
             MainEffect.RequestPrimaryFocus -> connectionControlsView.requestPrimaryFocus()
-            MainEffect.TriggerConnectionClick -> connectionControlsView.performConnectionClick()
+            MainEffect.RequestVpnPermission -> {
+                val intent = VpnService.prepare(this)
+                if (intent != null) {
+                    vpnPermissionLauncher.launch(intent)
+                } else {
+                    dispatchConnectionButtonClick()
+                }
+            }
+            MainEffect.RequestNotificationPermission -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    dispatchConnectionButtonClick()
+                }
+            }
+            is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
+            MainEffect.StopVpn -> VpnManager.stopVpn(this)
             is MainEffect.ShowToast -> Toast.makeText(this, effect.resId, Toast.LENGTH_SHORT).show()
         }
     }
@@ -243,6 +257,21 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             MainDestination.Settings -> settingsActivityLauncher.launch(Intent(this, SettingsActivity::class.java))
             MainDestination.About -> aboutActivityLauncher.launch(Intent(this, AboutActivity::class.java))
         }
+    }
+
+    private fun dispatchConnectionButtonClick() {
+        val hasNotificationPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        val hasVpnPermission = VpnService.prepare(this) == null
+        viewModel.onAction(
+            MainAction.ConnectionButtonClicked(
+                hasNotificationPermission = hasNotificationPermission,
+                hasVpnPermission = hasVpnPermission
+            )
+        )
     }
 
     override fun onDestroy() {

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
+    private val connectionInteractor: MainConnectionInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: MainLogger
 ) : ViewModel() {
@@ -27,9 +29,11 @@ class MainViewModel(
             MainAction.LoadInitialSelection -> loadInitialSelection()
             is MainAction.NavigationItemSelected -> onNavigationItemSelected(action.itemId)
             MainAction.OpenServerListFromConnectionControls -> onOpenServerListFromConnectionControls()
+            is MainAction.ConnectionButtonClicked -> onConnectionButtonClicked(
+                hasNotificationPermission = action.hasNotificationPermission,
+                hasVpnPermission = action.hasVpnPermission
+            )
             is MainAction.OnServerSelectionResult -> onServerSelectionResult(action.selection)
-            is MainAction.OnVpnPermissionResult -> onVpnPermissionResult(action.granted)
-            is MainAction.OnNotificationPermissionResult -> onNotificationPermissionResult(action.granted)
             is MainAction.OnMultiWindowModeChanged -> onMultiWindowModeChanged(action.isInMultiWindowMode)
         }
     }
@@ -63,6 +67,7 @@ class MainViewModel(
         val nextVersion = _state.value.selectionVersion + 1
         _state.value = _state.value.copy(
             selectionVersion = nextVersion,
+            pendingUserSelectionOverride = fromUserSelection,
             selectedServer = MainSelectedServer(
                 country = country,
                 countryCode = countryCode,
@@ -97,7 +102,10 @@ class MainViewModel(
     }
 
     private fun onOpenServerListFromConnectionControls() {
-        _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
+        _state.value = _state.value.copy(
+            reopenDrawerAfterReturn = false,
+            pendingUserSelectionOverride = false
+        )
         viewModelScope.launch {
             _effects.emit(
                 MainEffect.OpenDestination(
@@ -105,6 +113,51 @@ class MainViewModel(
                     reopenDrawerAfterReturn = false
                 )
             )
+        }
+    }
+
+    private fun onConnectionButtonClicked(hasNotificationPermission: Boolean, hasVpnPermission: Boolean) {
+        viewModelScope.launch {
+            when (connectionStateProvider.state.value) {
+                ConnectionState.CONNECTED,
+                ConnectionState.CONNECTING,
+                ConnectionState.DISCONNECTING -> {
+                    _effects.emit(MainEffect.StopVpn)
+                }
+                ConnectionState.DISCONNECTED -> {
+                    val selected = _state.value.selectedServer
+                    if (selected?.config.isNullOrBlank()) {
+                        _effects.emit(MainEffect.ShowToast(R.string.select_server_first))
+                        return@launch
+                    }
+                    if (!hasNotificationPermission) {
+                        _effects.emit(MainEffect.RequestNotificationPermission)
+                        return@launch
+                    }
+                    if (!hasVpnPermission) {
+                        _effects.emit(MainEffect.RequestVpnPermission)
+                        return@launch
+                    }
+
+                    val prepared = connectionInteractor.prepareStart(
+                        selectedServer = selected,
+                        preferUserSelection = _state.value.pendingUserSelectionOverride
+                    )
+                    if (prepared == null) {
+                        _effects.emit(MainEffect.ShowToast(R.string.select_server_first))
+                        return@launch
+                    }
+
+                    updateSelectedServer(
+                        country = selected!!.country,
+                        countryCode = selected.countryCode,
+                        config = prepared.config,
+                        ip = prepared.ip ?: selected.ip,
+                        fromUserSelection = false
+                    )
+                    _effects.emit(MainEffect.StartVpn(prepared.config, prepared.country))
+                }
+            }
         }
     }
 
@@ -116,6 +169,7 @@ class MainViewModel(
 
             if (hasSelectionData) {
                 logger.logServerSelectionApplied(selection!!)
+                val previousConfig = _state.value.selectedServer?.config
                 updateSelectedServer(
                     country = selection.country,
                     countryCode = selection.countryCode,
@@ -123,6 +177,13 @@ class MainViewModel(
                     ip = selection.ip,
                     fromUserSelection = true
                 )
+                val shouldStopForUserSelection = !previousConfig.isNullOrBlank() &&
+                    previousConfig != selection.config &&
+                    connectionStateProvider.state.value != ConnectionState.DISCONNECTED &&
+                    connectionStateProvider.state.value != ConnectionState.DISCONNECTING
+                if (shouldStopForUserSelection) {
+                    _effects.emit(MainEffect.StopVpn)
+                }
             } else if (selection != null) {
                 logger.logIncompleteServerSelection(selection)
             }
@@ -133,26 +194,6 @@ class MainViewModel(
                 _effects.emit(MainEffect.RequestPrimaryFocus)
             }
             _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
-        }
-    }
-
-    private fun onVpnPermissionResult(granted: Boolean) {
-        viewModelScope.launch {
-            if (granted) {
-                _effects.emit(MainEffect.TriggerConnectionClick)
-            } else {
-                _effects.emit(MainEffect.ShowToast(R.string.vpn_permission_not_granted))
-            }
-        }
-    }
-
-    private fun onNotificationPermissionResult(granted: Boolean) {
-        viewModelScope.launch {
-            if (granted) {
-                _effects.emit(MainEffect.TriggerConnectionClick)
-            } else {
-                _effects.emit(MainEffect.ShowToast(R.string.notification_permission_required))
-            }
         }
     }
 
