@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -16,7 +17,8 @@ class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
     private val connectionInteractor: MainConnectionInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
-    private val logger: MainLogger
+    private val logger: MainLogger,
+    private val connectionControlsUseCase: ConnectionControlsUseCase
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
@@ -178,10 +180,11 @@ class MainViewModel(
                     ip = selection.ip,
                     fromUserSelection = true
                 )
-                val shouldStopForUserSelection = !previousConfig.isNullOrBlank() &&
-                    previousConfig != selection.config &&
-                    connectionStateProvider.state.value != ConnectionState.DISCONNECTED &&
-                    connectionStateProvider.state.value != ConnectionState.DISCONNECTING
+                val shouldStopForUserSelection = connectionControlsUseCase.shouldStopForUserSelection(
+                    state = connectionStateProvider.state.value,
+                    previousConfig = previousConfig,
+                    newConfig = selection.config
+                )
                 if (shouldStopForUserSelection) {
                     _effects.emit(MainEffect.StopVpn)
                 }

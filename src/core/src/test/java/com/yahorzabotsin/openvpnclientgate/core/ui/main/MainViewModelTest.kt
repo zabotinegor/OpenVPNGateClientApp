@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
@@ -41,7 +42,8 @@ class MainViewModelTest {
             selectionInteractor = interactor,
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
-            logger = FakeMainLogger()
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
         )
 
         viewModel.onAction(MainAction.LoadInitialSelection)
@@ -60,7 +62,8 @@ class MainViewModelTest {
             selectionInteractor = FakeMainSelectionInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
-            logger = FakeMainLogger()
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
         )
 
         val effects = mutableListOf<MainEffect>()
@@ -95,7 +98,8 @@ class MainViewModelTest {
             selectionInteractor = FakeMainSelectionInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeMainLogger()
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
         )
         val effects = mutableListOf<MainEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -121,7 +125,8 @@ class MainViewModelTest {
             selectionInteractor = FakeMainSelectionInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeMainLogger()
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
         )
 
         viewModel.onAction(MainAction.OnMultiWindowModeChanged(isInMultiWindowMode = true))
@@ -147,7 +152,8 @@ class MainViewModelTest {
             ),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeMainLogger()
+            logger = FakeMainLogger(),
+            connectionControlsUseCase = ConnectionControlsUseCase()
         )
         viewModel.onAction(MainAction.LoadInitialSelection)
         advanceUntilIdle()

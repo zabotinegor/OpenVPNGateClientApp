@@ -24,6 +24,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.dns.DefaultDnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DefaultDnsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsViewModel
@@ -106,5 +107,6 @@ val coreModule = module {
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
     single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
     single<MainLogger> { DefaultMainLogger() }
-    viewModel { MainViewModel(get(), get(), get(), get()) }
+    single { ConnectionControlsUseCase() }
+    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
 }
