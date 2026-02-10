@@ -16,7 +16,7 @@ import android.os.Handler
 import android.app.PendingIntent
 import android.content.res.Configuration
 import android.os.LocaleList
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
@@ -129,7 +129,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "Service created")
+        AppLog.i(TAG, "Service created")
         ensureServiceNotificationChannel()
         startForegroundIfNeeded()
         ensureEngineNotificationChannels()
@@ -146,7 +146,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (statusSource != source) {
             statusSource = source
             lastStatusSourceSwitchMs = System.currentTimeMillis()
-            Log.i(TAG, "Status source -> ${source.name} (${reason})")
+            AppLog.i(TAG, "Status source -> ${source.name} (${reason})")
         }
     }
 
@@ -176,7 +176,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
         }
         if (previousLevel != level || previousState != state) {
-            Log.d(TAG, "Engine state (${source}): level=${level} state=${state ?: "<null>"}")
+            AppLog.d(TAG, "Engine state (${source}): level=${level} state=${state ?: "<null>"}")
         }
     }
 
@@ -192,21 +192,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try {
                 startService(statusIntent)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to start status service", e)
+                AppLog.w(TAG, "Failed to start status service", e)
             }
             boundToStatus = bindService(statusIntent, statusConnection, Context.BIND_AUTO_CREATE)
-            Log.d(TAG, "Binding status service: $boundToStatus")
+            AppLog.d(TAG, "Binding status service: $boundToStatus")
             if (!boundToStatus) {
                 scheduleStatusRebind()
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to bind status service", t)
+            AppLog.w(TAG, "Failed to bind status service", t)
             scheduleStatusRebind()
         }
     }
 
     private val statusDeathRecipient = IBinder.DeathRecipient {
-        Log.w(TAG, "Status binder died; scheduling rebind")
+        AppLog.w(TAG, "Status binder died; scheduling rebind")
         statusBinder = null
         boundToStatus = false
         updateStatusSource(StatusSource.VPN_STATUS, "status binder died")
@@ -216,7 +216,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleStatusRebind() {
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.postDelayed(statusRebindRunnable, statusRebindDelayMs)
-        Log.d(TAG, "Scheduled status rebind in ${statusRebindDelayMs}ms")
+        AppLog.d(TAG, "Scheduled status rebind in ${statusRebindDelayMs}ms")
         statusRebindDelayMs = (statusRebindDelayMs * 2).coerceAtMost(8_000L)
     }
 
@@ -231,7 +231,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (prefs.getBoolean(KEY_OVPN3, true)) prefs.edit().putBoolean(KEY_OVPN3, false).apply()
             if (!prefs.getBoolean(KEY_DISABLE_CONFIRMATION, false)) prefs.edit().putBoolean(KEY_DISABLE_CONFIRMATION, true).apply()
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t)
+            AppLog.w(TAG, "Failed to set default OpenVPN preferences (ovpn3=false, disableconfirmation=true)", t)
         }
     }
 
@@ -321,7 +321,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             startForeground(FOREGROUND_NOTIFICATION_ID, notification)
             foregroundStarted = true
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to start foreground", e)
+            AppLog.w(TAG, "Failed to start foreground", e)
         }
     }
 
@@ -347,7 +347,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } else {
             "n/a"
         }
-        Log.i(
+        AppLog.i(
             TAG,
             "Notification status (${reason}): enabled=${notificationsEnabled}, permission=${permissionGranted}, channel=${channel?.id ?: "null"}, importance=${importance}"
         )
@@ -359,7 +359,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             stopForeground(true)
             foregroundStarted = false
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to stop foreground notification", e)
+            AppLog.w(TAG, "Failed to stop foreground notification", e)
         }
     }
 
@@ -417,7 +417,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
-                Log.i(TAG, "ACTION_START")
+                AppLog.i(TAG, "ACTION_START")
                 startForegroundIfNeeded()
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
@@ -427,9 +427,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
                 try {
                     ConnectionStateManager.setReconnectingHint(isReconnect)
-                    Log.d(TAG, "reconnectHint=${isReconnect} (start)")
+                    AppLog.d(TAG, "reconnectHint=${isReconnect} (start)")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to set reconnecting hint on start", e)
+                    AppLog.w(TAG, "Failed to set reconnecting hint on start", e)
                 }
                 if (isReconnect) {
                     sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
@@ -437,36 +437,36 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                     sessionAttempt = 1
                 }
-                if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
                     SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to align server index with config being started", e)
+                    AppLog.w(TAG, "Failed to align server index with config being started", e)
                 }
                 run {
                     val titleStr = title?.let { ": $it" } ?: ""
                     val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
                     val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
                     val ipStr = targetIp ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
-                    Log.i(TAG, "Session attempt ${sessionAttempt} (serversInCountry=${totalServersStr()}, server=${positionStr}, ip=${ipStr ?: "<none>"})${titleStr}")
+                    AppLog.i(TAG, "Session attempt ${sessionAttempt} (serversInCountry=${totalServersStr()}, server=${positionStr}, ip=${ipStr ?: "<none>"})${titleStr}")
                 }
                 try {
                     SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config, targetIp)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to persist last started config", e)
+                    AppLog.w(TAG, "Failed to persist last started config", e)
                 }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
                 startIcsOpenVpn(config, title)
             }
             VpnManager.ACTION_STOP -> {
-                Log.i(TAG, "ACTION_STOP")
+                AppLog.i(TAG, "ACTION_STOP")
                 startForegroundIfNeeded()
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
-                    Log.d(TAG, "Preserving reconnect hint/state for retry stop")
+                    AppLog.d(TAG, "Preserving reconnect hint/state for retry stop")
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
@@ -475,20 +475,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = true
                     userInitiatedStart = false
                     ignoreConnectedUntilNotConnected = true
-                    try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
+                    try { ConnectionStateManager.setReconnectingHint(false); AppLog.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
                     try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
                     ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
                     requestStopIcsOpenVpn()
                 }
             }
             VpnManager.ACTION_REFRESH_NOTIFICATION -> {
-                Log.d(TAG, "ACTION_REFRESH_NOTIFICATION")
+                AppLog.d(TAG, "ACTION_REFRESH_NOTIFICATION")
                 refreshForegroundNotification()
             }
             else -> {
                 val action = intent?.getStringExtra(VpnManager.actionKey(this))
                 if (!action.isNullOrBlank()) {
-                    Log.w(TAG, "Unknown action: $action")
+                    AppLog.w(TAG, "Unknown action: $action")
                 }
             }
         }
@@ -508,12 +508,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             applyDnsSettings(profile)
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
-            Log.i(TAG, "Requested engine start (profile=${profile.mName})")
+            AppLog.i(TAG, "Requested engine start (profile=${profile.mName})")
             stopForegroundIfStarted()
         } catch (e: ConfigParseError) {
-            Log.e(TAG, "OVPN parse error", e); stopSelf()
+            AppLog.e(TAG, "OVPN parse error", e); stopSelf()
         } catch (e: Exception) {
-            Log.e(TAG, "Start error", e); stopSelf()
+            AppLog.e(TAG, "Start error", e); stopSelf()
         }
     }
 
@@ -526,7 +526,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 profile.mAllowedAppsVpn.addAll(excluded)
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to apply app filter", t)
+            AppLog.w(TAG, "Failed to apply app filter", t)
         }
     }
 
@@ -539,13 +539,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val config = DnsOptions.resolve(option)
         if (!config.overrideDns) {
             profile.mOverrideDNS = false
-            Log.i(TAG, "DNS apply: option=${option.name}, override=false (use server DNS)")
+            AppLog.i(TAG, "DNS apply: option=${option.name}, override=false (use server DNS)")
             return
         }
         profile.mOverrideDNS = true
         profile.mDNS1 = config.primary ?: ""
         profile.mDNS2 = config.secondary ?: ""
-        Log.i(TAG, "DNS apply: option=${option.name}, dns1=${profile.mDNS1}, dns2=${profile.mDNS2}")
+        AppLog.i(TAG, "DNS apply: option=${option.name}, dns1=${profile.mDNS1}, dns2=${profile.mDNS2}")
     }
 
     private fun requestStopIcsOpenVpn() {
@@ -554,15 +554,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 action = de.blinkt.openvpn.core.OpenVPNService.START_SERVICE
             }
             val bound = bindService(engineIntent, engineConnection, Context.BIND_AUTO_CREATE)
-            Log.d(TAG, "Binding engine to stop: $bound")
+            AppLog.d(TAG, "Binding engine to stop: $bound")
             if (!bound) {
-                Log.w(TAG, "Bind failed; launching DisconnectVPN")
+                AppLog.w(TAG, "Bind failed; launching DisconnectVPN")
                 try {
                     startActivity(Intent().apply {
                         setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     })
-                } catch (e: Exception) { Log.w(TAG, "Failed to start DisconnectVPN activity", e) }
+                } catch (e: Exception) { AppLog.w(TAG, "Failed to start DisconnectVPN activity", e) }
                 stopSelfSafely()
             }
         } else tryStopVpn()
@@ -572,25 +572,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val userStop = userInitiatedStop
         try {
             val stopped = engineBinder?.stopVPN(false) ?: false
-            Log.i(TAG, "stopVPN invoked, result=$stopped")
+            AppLog.i(TAG, "stopVPN invoked, result=$stopped")
             if (!stopped && userStop) {
-                Log.w(TAG, "stopVPN returned false on user stop; launching DisconnectVPN")
+                AppLog.w(TAG, "stopVPN returned false on user stop; launching DisconnectVPN")
                 try {
                     startActivity(Intent().apply {
                         setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     })
-                } catch (e: Exception) { Log.w(TAG, "Failed to start DisconnectVPN activity", e) }
+                } catch (e: Exception) { AppLog.w(TAG, "Failed to start DisconnectVPN activity", e) }
             }
         } catch (e: RemoteException) {
-            Log.e(TAG, "Binder stop error", e)
+            AppLog.e(TAG, "Binder stop error", e)
         } finally {
-            if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine after stop", e) }; boundToEngine = false }
+            if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine after stop", e) }; boundToEngine = false }
             if (userInitiatedStop) { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED); userInitiatedStop = false }
         }
     }
 
-    private fun stopSelfSafely() { try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service in stopSelfSafely", e) }; stopSelf() }
+    private fun stopSelfSafely() { try { stopForeground(true) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop foreground service in stopSelfSafely", e) }; stopSelf() }
 
     override fun onDestroy() {
         super.onDestroy()
@@ -607,9 +607,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             boundToStatus = false
             statusBinder = null
         }
-        try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service on destroy", e) }
-        if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { Log.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
-        Log.d(TAG, "Service destroyed and listener removed")
+        try { stopForeground(true) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop foreground service on destroy", e) }
+        if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
+        AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -635,8 +635,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NOTCONNECTED
         )
         if (level !in failureLevelsHandledByService) {
-            Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+            AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
+            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         }
         if (shouldIgnoreLevelAfterUserStop(level)) return
         ConnectionStateManager.updateFromEngine(level, state)
@@ -646,24 +646,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
             val autoSwitchEnabled = try { com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.load(applicationContext).autoSwitchWithinCountry } catch (_: Exception) { true }
             if (!autoSwitchEnabled) {
-                Log.d(TAG, "Auto-switch disabled; skipping engine auto-switch path")
+                AppLog.d(TAG, "Auto-switch disabled; skipping engine auto-switch path")
             } else {
                 val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
-                if (candidates >= 0) Log.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
+                if (candidates >= 0) AppLog.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
                 val next = SelectedCountryStore.nextServer(applicationContext)
                 val title = SelectedCountryStore.getSelectedCountry(applicationContext)
                 if (next != null) {
                 val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
                 val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
-                Log.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
-                try { stopForeground(true) } catch (e: Exception) { Log.w(TAG, "Failed to stop foreground service during server switch", e) }
-                try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { Log.e(TAG, "Failed to begin chained server switch", e) }
+                AppLog.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
+                try { stopForeground(true) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop foreground service during server switch", e) }
+                try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
+                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
                 return
               } else {
                   userInitiatedStart = false
-                  try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
-                Log.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")
+                  try { ConnectionStateManager.setReconnectingHint(false); AppLog.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
+                AppLog.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")
               }
             }
         }
@@ -671,7 +671,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
               ConnectionStatus.LEVEL_CONNECTED -> {
                   userInitiatedStart = false
                   userInitiatedStop = false
-                Log.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
+                AppLog.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -680,7 +680,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (userInitiatedStop) { userInitiatedStop = false }
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
-                Log.d(TAG, "Waiting for user input")
+                AppLog.d(TAG, "Waiting for user input")
             }
             else -> {}
         }
@@ -722,7 +722,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     tryRestoreTrafficSnapshot()
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
+                AppLog.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
             }
         }
 
@@ -754,7 +754,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val history: TrafficHistory = try {
             binder.trafficHistory
         } catch (e: RemoteException) {
-            Log.w(TAG, "Failed to get traffic history from status service", e)
+            AppLog.w(TAG, "Failed to get traffic history from status service", e)
             return
         } ?: return
 
@@ -781,7 +781,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val statusConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             if (service == null) {
-                Log.w(TAG, "Status service connected with null binder; scheduling rebind")
+                AppLog.w(TAG, "Status service connected with null binder; scheduling rebind")
                 statusBinder = null
                 boundToStatus = false
                 scheduleStatusRebind()
@@ -791,16 +791,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             boundToStatus = true
             statusRebindDelayMs = 500L
             updateStatusSource(StatusSource.AIDL, "status service connected")
-            Log.i(TAG, "Status service connected")
+            AppLog.i(TAG, "Status service connected")
             try {
                 service?.linkToDeath(statusDeathRecipient, 0)
             } catch (e: RemoteException) {
-                Log.w(TAG, "Failed to link status binder death", e)
+                AppLog.w(TAG, "Failed to link status binder death", e)
             }
             try {
                 statusBinder?.registerStatusCallback(statusCallbacks)
             } catch (e: RemoteException) {
-                Log.e(TAG, "Failed to register status callback", e)
+                AppLog.e(TAG, "Failed to register status callback", e)
             }
             trySyncStatusSnapshot()
         }
@@ -808,7 +808,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusBinder = null
             boundToStatus = false
             updateStatusSource(StatusSource.VPN_STATUS, "status service disconnected")
-            Log.w(TAG, "Status service disconnected")
+            AppLog.w(TAG, "Status service disconnected")
             scheduleStatusRebind()
         }
     }
@@ -868,7 +868,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             } catch (e: Exception) {
                 if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Error in trafficPollRunnable", e)
+                    AppLog.w(TAG, "Error in trafficPollRunnable", e)
                 }
             }
 
@@ -883,13 +883,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         try {
             val msg = logItem.getString(this)
             when (logItem.logLevel) {
-                VpnStatus.LogLevel.ERROR -> Log.e(TAG, msg)
-                VpnStatus.LogLevel.WARNING -> Log.w(TAG, msg)
-                VpnStatus.LogLevel.INFO -> Log.i(TAG, msg)
-                VpnStatus.LogLevel.VERBOSE -> Log.d(TAG, msg)
-                else -> Log.d(TAG, msg)
+                VpnStatus.LogLevel.ERROR -> AppLog.e(TAG, msg)
+                VpnStatus.LogLevel.WARNING -> AppLog.w(TAG, msg)
+                VpnStatus.LogLevel.INFO -> AppLog.iThrottled(TAG, msg, key = "ovpn-info:$msg")
+                VpnStatus.LogLevel.VERBOSE -> AppLog.dThrottled(TAG, msg, key = "ovpn-verbose:$msg")
+                else -> AppLog.dThrottled(TAG, msg, key = "ovpn-default:$msg")
             }
-        } catch (e: Exception) { Log.w(TAG, "Failed to format OpenVPN log item", e) }
+        } catch (e: Exception) { AppLog.w(TAG, "Failed to format OpenVPN log item", e) }
     }
 
     private fun trySyncStatusSnapshot() {
@@ -897,7 +897,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val snapshot = try {
             binder.lastStatusSnapshot
         } catch (e: RemoteException) {
-            Log.w(TAG, "Failed to read status snapshot", e)
+            AppLog.w(TAG, "Failed to read status snapshot", e)
             statusBinder = null
             boundToStatus = false
             scheduleStatusRebind()
@@ -915,10 +915,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val ageMs = now - ts
             if (ageMs > staleSnapshotMaxAgeMs) {
                 if (now - lastLiveStatusMs <= liveStatusGraceMs) {
-                    Log.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
+                    AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
                 }
-                Log.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=${staleSnapshotCount + 1}")
+                AppLog.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=${staleSnapshotCount + 1}")
                 staleSnapshotCount += 1
                 if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
@@ -940,7 +940,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun forceRebindStatusService(reason: String) {
-        Log.w(TAG, "Forcing status rebind: $reason")
+        AppLog.w(TAG, "Forcing status rebind: $reason")
         statusHandler.removeCallbacks(statusRebindRunnable)
         if (boundToStatus) {
             try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
@@ -957,7 +957,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val detailChanged = detail != lastEngineDetail
         val levelChanged = level != lastEngineLevel
         if (levelChanged || detailChanged || now - lastEngineLevelLogMs > 5_000L) {
-            Log.i(TAG, "Engine level=${level} detail=${detail ?: "<none>"} source=${statusSource ?: StatusSource.VPN_STATUS}")
+            AppLog.i(TAG, "Engine level=${level} detail=${detail ?: "<none>"} source=${statusSource ?: StatusSource.VPN_STATUS}")
             lastEngineLevel = level
             lastEngineDetail = detail
             lastEngineLevelLogMs = now
@@ -972,7 +972,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to notify auto-switcher from AIDL", e)
+                AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
         }
         ConnectionStateManager.updateFromEngine(level, detail)
@@ -982,7 +982,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!ignoreConnectedUntilNotConnected) return false
         return when (level) {
             ConnectionStatus.LEVEL_CONNECTED -> {
-                Log.d(TAG, "Ignoring stale LEVEL_CONNECTED after user stop")
+                AppLog.d(TAG, "Ignoring stale LEVEL_CONNECTED after user stop")
                 true
             }
             ConnectionStatus.LEVEL_NOTCONNECTED,
@@ -991,7 +991,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> {
                 ignoreConnectedUntilNotConnected = false
-                Log.d(TAG, "Cleared stale CONNECTED guard on level=$level")
+                AppLog.d(TAG, "Cleared stale CONNECTED guard on level=$level")
                 false
             }
             else -> false
@@ -1014,9 +1014,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to save last successful config from status", e)
+            AppLog.w(TAG, "Failed to save last successful config from status", e)
         }
     }
 }
+
 
 
