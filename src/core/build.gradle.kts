@@ -101,6 +101,7 @@ dependencies {
     implementation(libs.retrofit.converter.scalars)
     implementation(libs.koin.android)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.timber)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.koin.test)
