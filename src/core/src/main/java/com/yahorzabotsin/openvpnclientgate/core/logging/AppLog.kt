@@ -110,7 +110,6 @@ object AppLog {
             .toList()
         keysToEvict.forEach { key ->
             throttledUntilMs.remove(key)
-            throttledSuppressedCount.remove(key)
         }
     }
 
