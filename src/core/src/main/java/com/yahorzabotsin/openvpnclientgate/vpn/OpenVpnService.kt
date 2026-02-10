@@ -629,8 +629,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
         logEngineStateChange("VPN_STATUS", level, state)
-        Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        val failureLevelsHandledByService = setOf(
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_NOTCONNECTED
+        )
+        if (level !in failureLevelsHandledByService) {
+            Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
+            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        }
         if (shouldIgnoreLevelAfterUserStop(level)) return
         ConnectionStateManager.updateFromEngine(level, state)
         handleForegroundForLevel(level)

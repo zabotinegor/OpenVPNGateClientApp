@@ -81,11 +81,10 @@ object ServerAutoSwitcher {
             }
         }
 
-        val immediateSwitchLevels = setOf(
-            ConnectionStatus.LEVEL_AUTH_FAILED,
-            ConnectionStatus.LEVEL_NONETWORK
-        )
-        if (level in immediateSwitchLevels && !waitingStopForRetry) {
+        val shouldSwitchImmediately =
+            level == ConnectionStatus.LEVEL_AUTH_FAILED ||
+                (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
+        if (shouldSwitchImmediately && !waitingStopForRetry) {
             val isConnecting = try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
             } catch (_: Exception) {
