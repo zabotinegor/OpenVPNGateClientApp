@@ -87,14 +87,13 @@ object AppLog {
         if (throttleOpsCount.incrementAndGet() % CLEANUP_INTERVAL_OPS != 0) return
         cleanupExpired(nowMs)
         trimToMaxSize()
+        trimSuppressedToMaxSize()
     }
 
     private fun cleanupExpired(nowMs: Long) {
         throttledUntilMs.entries.forEach { entry ->
             if (entry.value <= nowMs) {
-                if (throttledUntilMs.remove(entry.key, entry.value)) {
-                    throttledSuppressedCount.remove(entry.key)
-                }
+                throttledUntilMs.remove(entry.key, entry.value)
             }
         }
     }
@@ -112,6 +111,18 @@ object AppLog {
         keysToEvict.forEach { key ->
             throttledUntilMs.remove(key)
             throttledSuppressedCount.remove(key)
+        }
+    }
+
+    private fun trimSuppressedToMaxSize() {
+        val size = throttledSuppressedCount.size
+        if (size <= MAX_THROTTLED_KEYS) return
+        val overflow = size - MAX_THROTTLED_KEYS
+        val iterator = throttledSuppressedCount.keys.iterator()
+        repeat(overflow) {
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
         }
     }
 

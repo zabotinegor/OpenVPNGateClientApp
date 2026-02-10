@@ -70,4 +70,23 @@ class AppLogTest {
 
         assertTrue(AppLog.throttledKeyCountForTest() <= 4_096)
     }
+
+    @Test
+    fun suppressedCountSurvivesExpiredWindowUntilNextLog() {
+        AppLog.dThrottled(tag, "spam", key = "k", windowMs = 30_000L)
+        AppLog.dThrottled(tag, "spam", key = "k", windowMs = 30_000L)
+        nowMs += 30_001L
+
+        repeat(127) { index ->
+            AppLog.dThrottled(tag, "other-$index", key = "other-$index", windowMs = 30_000L)
+        }
+
+        AppLog.dThrottled(tag, "spam", key = "k", windowMs = 30_000L)
+
+        val messages = ShadowLog.getLogs()
+            .filter { it.tag == tag }
+            .map { it.msg }
+
+        assertTrue(messages.any { it.contains("Suppressed 1 repeated logs for key=k") })
+    }
 }
