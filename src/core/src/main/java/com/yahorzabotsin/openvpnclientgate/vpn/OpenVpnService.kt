@@ -55,6 +55,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED
         )
+        private val numberRegex = Regex("\\d+")
+        private val ipv4Regex = Regex("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b")
+        private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
+        private const val MAX_THROTTLE_KEY_LENGTH = 96
     }
 
     // Track engine binding for start/stop coordination
@@ -885,11 +889,29 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             when (logItem.logLevel) {
                 VpnStatus.LogLevel.ERROR -> AppLog.e(TAG, msg)
                 VpnStatus.LogLevel.WARNING -> AppLog.w(TAG, msg)
-                VpnStatus.LogLevel.INFO -> AppLog.iThrottled(TAG, msg, key = "ovpn-info:$msg")
-                VpnStatus.LogLevel.VERBOSE -> AppLog.dThrottled(TAG, msg, key = "ovpn-verbose:$msg")
-                else -> AppLog.dThrottled(TAG, msg, key = "ovpn-default:$msg")
+                VpnStatus.LogLevel.INFO -> AppLog.iThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-info", msg))
+                VpnStatus.LogLevel.VERBOSE -> AppLog.dThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-verbose", msg))
+                else -> AppLog.dThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-default", msg))
             }
         } catch (e: Exception) { AppLog.w(TAG, "Failed to format OpenVPN log item", e) }
+    }
+
+    private fun buildLogThrottleKey(prefix: String, message: String): String {
+        val normalized = hexRegex.replace(
+            ipv4Regex.replace(
+                numberRegex.replace(message.lowercase(), "#"),
+                "<ip>"
+            ),
+            "<hex>"
+        )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        val suffix = if (normalized.length > MAX_THROTTLE_KEY_LENGTH) {
+            normalized.take(MAX_THROTTLE_KEY_LENGTH)
+        } else {
+            normalized
+        }
+        return "$prefix:$suffix"
     }
 
     private fun trySyncStatusSnapshot() {
