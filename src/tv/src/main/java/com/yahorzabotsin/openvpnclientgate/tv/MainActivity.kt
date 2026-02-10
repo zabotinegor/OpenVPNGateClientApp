@@ -1,6 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.tv
 
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.GravityCompat
@@ -25,7 +25,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
             override fun onDrawerOpened(drawerView: View) {
-                Log.d(TAG, "Drawer opened, focusing on selected item.")
+                AppLog.d(TAG, "Drawer opened, focusing on selected item.")
                 binding.navView.setCheckedItem(selectedMenuItemId)
                 binding.navView.post {
                     val viewToFocus = binding.navView.findViewById<View>(selectedMenuItemId)
@@ -33,7 +33,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 }
             }
             override fun onDrawerClosed(drawerView: View) {
-                Log.d(TAG, "Drawer closed, focusing on connection button.")
+                AppLog.d(TAG, "Drawer closed, focusing on connection button.")
                 connectionControlsView.requestPrimaryFocus()
             }
             override fun onDrawerStateChanged(newState: Int) {}
@@ -54,6 +54,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         }
     }
 }
+
 
 
 

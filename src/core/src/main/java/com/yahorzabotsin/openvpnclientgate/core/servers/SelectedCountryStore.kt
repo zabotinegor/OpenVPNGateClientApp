@@ -2,7 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import org.json.JSONException
 import org.json.JSONArray
@@ -74,7 +74,7 @@ object SelectedCountryStore {
                 )
             }
         } catch (e: JSONException) {
-            Log.e(TAG, "Error parsing servers JSON from SharedPreferences", e)
+            AppLog.e(TAG, "Error parsing servers JSON from SharedPreferences", e)
             emptyList()
         }
     }
@@ -92,7 +92,7 @@ object SelectedCountryStore {
         if (index in list.indices) {
             setIndex(ctx, index)
             val current = list[index]
-            Log.d(
+            AppLog.d(
                 TAG,
                 "setCurrentIndex: index=${index + 1}/${list.size} ip=${current.ip ?: "<none>"} city=${current.city.ifBlank { "<none>" }}"
             )
@@ -169,7 +169,7 @@ object SelectedCountryStore {
         val config = prefs.getString(KEY_LAST_SUCCESS_CONFIG, null)
         val selected = getSelectedCountry(ctx)
         val country = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
-        Log.d(TAG, "getLastSuccessfulConfigForSelected: selected=${selected ?: "<none>"} storedCountry=${country ?: "<none>"} hasConfig=${config != null}")
+        AppLog.d(TAG, "getLastSuccessfulConfigForSelected: selected=${selected ?: "<none>"} storedCountry=${country ?: "<none>"} hasConfig=${config != null}")
         if (config.isNullOrBlank() || selected.isNullOrBlank()) return null
         return if (selected == country) config else null
     }
@@ -199,7 +199,7 @@ object SelectedCountryStore {
         val cfg = prefs.getString(KEY_LAST_STARTED_CONFIG, null)
         val country = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
         val ip = prefs.getString(KEY_LAST_STARTED_IP, null)
-        Log.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
+        AppLog.d(TAG, "getLastStartedConfig: country=${country ?: "<none>"} hasConfig=${cfg != null}")
         return if (cfg.isNullOrBlank()) null else LastConfig(country, cfg, ip)
     }
 
@@ -217,7 +217,7 @@ object SelectedCountryStore {
             val foundByConfigAndIp = list.indexOfFirst { it.config == config && it.ip == ip }
             if (foundByConfigAndIp >= 0) {
                 setIndex(ctx, foundByConfigAndIp)
-                Log.d(
+                AppLog.d(
                     TAG,
                     "ensureIndexForConfig: matched by config+ip index=${foundByConfigAndIp + 1}/${list.size} ip=${ip ?: "<none>"}"
                 )
@@ -229,7 +229,7 @@ object SelectedCountryStore {
         if (foundByConfig >= 0) {
             setIndex(ctx, foundByConfig)
             val matchedIp = list[foundByConfig].ip
-            Log.d(
+            AppLog.d(
                 TAG,
                 "ensureIndexForConfig: matched by config index=${foundByConfig + 1}/${list.size} ip=${matchedIp ?: "<none>"}"
             )
@@ -239,10 +239,11 @@ object SelectedCountryStore {
             val foundByIp = list.indexOfFirst { it.ip == ip }
             if (foundByIp >= 0) {
                 setIndex(ctx, foundByIp)
-                Log.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
+                AppLog.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
             }
         }
     }
 }
+
 
 

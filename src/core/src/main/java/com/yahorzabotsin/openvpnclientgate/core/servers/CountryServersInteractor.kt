@@ -1,7 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import java.io.IOException
 
@@ -56,7 +56,7 @@ class DefaultCountryServersInteractor(
         val chosenResolved = resolvedServers[chosenIndex]
         val currentPos = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
         val currentPosText = currentPos?.let { "${it.first}/${it.second}" } ?: "unknown"
-        Log.i(
+        AppLog.i(
             TAG,
             "Selection resolved: country=$countryName selectedIp=${selectedServer.ip ?: "<none>"} selectedLine=${selectedServer.lineIndex} chosenIndex=${chosenIndex + 1}/${resolvedServers.size} chosenIp=${chosenResolved.ip ?: "<none>"} currentPos=$currentPosText"
         )
@@ -88,3 +88,4 @@ class DefaultCountryServersInteractor(
         ).firstOrNull { it >= 0 } ?: 0
     }
 }
+

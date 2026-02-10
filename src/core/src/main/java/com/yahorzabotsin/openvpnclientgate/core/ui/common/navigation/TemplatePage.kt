@@ -1,7 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation
 
 import android.content.Intent
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -62,13 +62,14 @@ object TemplatePage {
             com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
 
         override fun onStart(owner: LifecycleOwner) {
-            Log.i(screenLogTag, "enter ${owner.javaClass.simpleName}")
+            AppLog.i(screenLogTag, "enter ${owner.javaClass.simpleName}")
         }
 
         override fun onStop(owner: LifecycleOwner) {
-            Log.i(screenLogTag, "exit ${owner.javaClass.simpleName}")
+            AppLog.i(screenLogTag, "exit ${owner.javaClass.simpleName}")
         }
     }
 }
+
 
 

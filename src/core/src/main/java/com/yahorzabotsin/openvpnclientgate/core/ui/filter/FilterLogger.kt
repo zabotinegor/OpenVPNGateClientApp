@@ -1,6 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.filter
 
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 
 interface FilterLogger {
@@ -13,14 +13,15 @@ class DefaultFilterLogger : FilterLogger {
     private val tag = LogTags.APP + ':' + "FilterActivity"
 
     override fun logScreenOpened(userCount: Int, systemCount: Int, excludedCount: Int) {
-        Log.i(tag, "Filter screen opened: user=$userCount, system=$systemCount, excluded=$excludedCount")
+        AppLog.i(tag, "Filter screen opened: user=$userCount, system=$systemCount, excluded=$excludedCount")
     }
 
     override fun logSelectAll(category: AppCategory, isChecked: Boolean, affectedCount: Int) {
-        Log.i(tag, "Filter select all: category=${category.name}, checked=$isChecked, affected=$affectedCount")
+        AppLog.i(tag, "Filter select all: category=${category.name}, checked=$isChecked, affected=$affectedCount")
     }
 
     override fun logToggle(packageName: String, isEnabled: Boolean) {
-        Log.i(tag, "Filter toggle: package=$packageName, enabled=$isEnabled")
+        AppLog.i(tag, "Filter toggle: package=$packageName, enabled=$isEnabled")
     }
 }
+

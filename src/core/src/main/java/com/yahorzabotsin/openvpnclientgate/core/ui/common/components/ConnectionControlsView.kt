@@ -3,7 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import android.content.Context
 import android.content.res.ColorStateList
 import android.util.AttributeSet
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.LayoutInflater
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -58,7 +58,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         }
 
         binding.serverSelectionContainer.setOnClickListener {
-            Log.d(TAG, "Server selection container clicked")
+            AppLog.d(TAG, "Server selection container clicked")
             openServerList?.invoke()
         }
     }
@@ -82,7 +82,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     fun setServer(country: String, countryCode: String? = null, ip: String? = null) {
-        Log.d(TAG, "Server set: $country, ip=$ip")
+        AppLog.d(TAG, "Server set: $country, ip=$ip")
         selectedCountry = country
         selectedCountryCode = countryCode
         updateAddress(ip)
@@ -103,7 +103,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     private fun setVpnConfigInternal(config: String) {
-        Log.d(TAG, "VPN config set")
+        AppLog.d(TAG, "VPN config set")
         vpnConfig = config
         val resolvedIp = resolveIpForConfig(config)
         if (!resolvedIp.isNullOrBlank()) {
@@ -329,6 +329,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+
 
 
 
