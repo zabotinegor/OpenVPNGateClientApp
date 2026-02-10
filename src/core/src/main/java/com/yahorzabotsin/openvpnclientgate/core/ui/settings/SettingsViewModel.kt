@@ -57,11 +57,12 @@ class SettingsViewModel(
     }
 
     private fun onLanguageSelected(option: LanguageOption) {
-        if (_state.value.language == option) return
-        val old = _state.value.language
-        _state.value = _state.value.copy(language = option)
+        val current = _state.value
+        if (current.language == option) return
+
+        _state.value = current.copy(language = option)
         repository.saveLanguage(option)
-        logger.logLanguageChanged(old, option)
+        logger.logLanguageChanged(current.language, option)
         emitEffects(
             SettingsEffect.ApplyThemeAndLocale,
             SettingsEffect.RefreshNotification
