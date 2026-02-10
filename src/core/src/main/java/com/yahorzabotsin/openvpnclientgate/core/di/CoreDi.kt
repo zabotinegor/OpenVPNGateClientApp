@@ -20,7 +20,6 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
-import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.dns.DefaultDnsSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
@@ -81,12 +80,11 @@ val coreModule = module {
         get<Retrofit>().create(VpnServersApi::class.java)
     }
 
-    single<UserSettingsStore> { UserSettingsStore }
-    single<SettingsRepository> { DefaultSettingsRepository(androidContext(), get()) }
+    single<SettingsRepository> { DefaultSettingsRepository(androidContext()) }
     single<DnsSettingsRepository> { DefaultDnsSettingsRepository(get()) }
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
-    single { ServerRepository(get(), get()) }
+    single { ServerRepository(get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
 

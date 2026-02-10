@@ -26,7 +26,7 @@ interface VpnServersApi {
 
 class ServerRepository(
     internal val api: VpnServersApi,
-    private val settingsStore: UserSettingsStore
+    private val settingsStore: UserSettingsStore = UserSettingsStore
 ) {
 
     private companion object {
