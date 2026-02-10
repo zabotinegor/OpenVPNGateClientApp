@@ -897,12 +897,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun buildLogThrottleKey(prefix: String, message: String): String {
-        val normalized = hexRegex.replace(
-            ipv4Regex.replace(
-                numberRegex.replace(message.lowercase(), "#"),
-                "<ip>"
+        val normalized = numberRegex.replace(
+            hexRegex.replace(
+                ipv4Regex.replace(message.lowercase(), "<ip>"),
+                "<hex>"
             ),
-            "<hex>"
+            "#"
         )
             .replace(Regex("\\s+"), " ")
             .trim()
