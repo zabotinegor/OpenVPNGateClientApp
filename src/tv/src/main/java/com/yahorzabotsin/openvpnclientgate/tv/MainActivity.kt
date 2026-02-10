@@ -1,15 +1,16 @@
-﻿package com.yahorzabotsin.openvpnclientgate.tv
+package com.yahorzabotsin.openvpnclientgate.tv
 
 import android.util.Log
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 
 import com.yahorzabotsin.openvpnclientgate.core.R as coreR
 import com.yahorzabotsin.openvpnclientgate.tv.R as tvR
 
-class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCore() {
+class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivityCore() {
     private companion object { const val TAG = "MainActivityTV" }
     private var selectedMenuItemId: Int = coreR.id.nav_server
 
@@ -43,7 +44,17 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCor
         binding.navView.setCheckedItem(selectedMenuItemId)
         connectionControlsView.post { connectionControlsView.requestPrimaryFocus() }
     }
+
+    override fun onResume() {
+        super.onResume()
+        connectionControlsView.post {
+            if (!binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                connectionControlsView.requestPrimaryFocus()
+            }
+        }
+    }
 }
+
 
 
 

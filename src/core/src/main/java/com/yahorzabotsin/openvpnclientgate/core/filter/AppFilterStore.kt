@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.filter
+package com.yahorzabotsin.openvpnclientgate.core.filter
 
 import android.content.Context
 import android.content.SharedPreferences

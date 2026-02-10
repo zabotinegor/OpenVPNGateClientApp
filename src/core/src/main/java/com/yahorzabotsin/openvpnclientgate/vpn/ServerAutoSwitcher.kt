@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Context
 import android.os.Handler
@@ -81,6 +81,21 @@ object ServerAutoSwitcher {
             }
         }
 
+        val shouldSwitchImmediately =
+            level == ConnectionStatus.LEVEL_AUTH_FAILED ||
+                (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
+        if (shouldSwitchImmediately && !waitingStopForRetry) {
+            val isConnecting = try {
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            } catch (_: Exception) {
+                false
+            }
+            if (timerActive || isConnecting) {
+                requestSwitchNow(appContext, level = level, fromTimer = false, waitedSeconds = null)
+            }
+            return
+        }
+
         val timeoutLevels = setOf(
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
@@ -145,60 +160,8 @@ object ServerAutoSwitcher {
                     Log.d(TAG, "Switch wait: ${seconds}s (level=${timerLevel})")
                 }
                 if (seconds >= threshold) {
-                    if (!isEnabled(appContext)) {
-                        Log.d(TAG, "Auto-switch disabled; stopping timer and engine to avoid hang")
-                        cancel(resetCycle = true)
-                        try {
-                            ConnectionStateManager.setReconnectingHint(false)
-                            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
-                        } catch (e: Exception) { Log.w(TAG, "Failed to reset state when auto-switch disabled", e) }
-                        try { stopper(appContext) } catch (e: Exception) { Log.w(TAG, "Failed to stop engine when auto-switch disabled", e) }
-                        return
-                    }
-                    val title = SelectedCountryStore.getSelectedCountry(appContext)
-                    val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
-                    val next = try {
-                        if (cycleStartIndex == null) {
-                            cycleStartIndex = SelectedCountryStore.getCurrentIndex(appContext)
-                        }
-                        SelectedCountryStore.nextServerCircular(appContext, cycleStartIndex)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to resolve next server circularly", e); null
-                    }
-                    if (next != null) {
-                        val position = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
-                        val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
-                        Log.i(TAG, "Timed switch after ${threshold}s at level=${timerLevel}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
-                        cancel(resetCycle = false)
-                        try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (timed switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for timed switch", e) }
-                        try {
-                            Log.d(TAG, "Requesting explicit engine stop before retry")
-                            pendingConfig = next.config
-                            pendingTitle = title
-                            waitingStopForRetry = true
-                            scheduleStopRetryTimeout(appContext)
-                            VpnManager.stopVpn(appContext, preserveReconnectHint = true)
-                        } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
-                        return
-                    } else {
-                        Log.i(TAG, "Timed switch: completed full server cycle for ${title ?: "<unknown>"} (serversInCountry=${if (total>=0) total else "unknown"})")
-                        try {
-                            val startIndex = cycleStartIndex
-                            if (startIndex != null) {
-                                SelectedCountryStore.setCurrentIndex(appContext, startIndex)
-                            }
-                        } catch (e: Exception) { Log.w(TAG, "Failed to restore start index after full cycle", e) }
-                        cancel(resetCycle = true)
-                        try {
-                            ConnectionStateManager.setReconnectingHint(false)
-                            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
-                        } catch (e: Exception) { Log.w(TAG, "Failed to reset state after no-alternative path", e) }
-                        try {
-                            Log.d(TAG, "Requesting explicit engine stop (no-alternative path)")
-                            stopper(appContext)
-                        } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop (no-alternative path)", e) }
-                        return
-                    }
+                    requestSwitchNow(appContext, timerLevel ?: level, fromTimer = true, waitedSeconds = threshold)
+                    return
                 }
                 handler.postDelayed(this, 1_000)
             }
@@ -226,6 +189,78 @@ object ServerAutoSwitcher {
         if (resetCycle) {
             cycleStartIndex = null
         }
+    }
+
+    private fun requestSwitchNow(
+        appContext: Context,
+        level: ConnectionStatus,
+        fromTimer: Boolean,
+        waitedSeconds: Int?
+    ) {
+        if (!isEnabled(appContext)) {
+            Log.d(TAG, "Auto-switch disabled; stopping timer and engine to avoid hang")
+            cancel(resetCycle = true)
+            try {
+                ConnectionStateManager.setReconnectingHint(false)
+                ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+            } catch (e: Exception) { Log.w(TAG, "Failed to reset state when auto-switch disabled", e) }
+            try { stopper(appContext) } catch (e: Exception) { Log.w(TAG, "Failed to stop engine when auto-switch disabled", e) }
+            return
+        }
+
+        val title = SelectedCountryStore.getSelectedCountry(appContext)
+        val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { Log.w(TAG, "Failed to get server count", e); -1 }
+        val next = try {
+            if (cycleStartIndex == null) {
+                cycleStartIndex = SelectedCountryStore.getCurrentIndex(appContext)
+            }
+            SelectedCountryStore.nextServerCircular(appContext, cycleStartIndex)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to resolve next server circularly", e)
+            null
+        }
+
+        if (next != null) {
+            val position = runCatching { SelectedCountryStore.getCurrentPosition(appContext) }.getOrNull()
+            val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
+            if (fromTimer && waitedSeconds != null) {
+                Log.i(TAG, "Timed switch after ${waitedSeconds}s at level=${level}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
+            } else {
+                Log.i(TAG, "Immediate switch at level=${level}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
+            }
+            cancel(resetCycle = false)
+            try { ConnectionStateManager.setReconnectingHint(true); Log.d(TAG, "reconnectHint=true (switch)") } catch (e: Exception) { Log.w(TAG, "Failed to set reconnecting hint for switch", e) }
+            try {
+                Log.d(TAG, "Requesting explicit engine stop before retry")
+                pendingConfig = next.config
+                pendingTitle = title
+                waitingStopForRetry = true
+                scheduleStopRetryTimeout(appContext)
+                VpnManager.stopVpn(appContext, preserveReconnectHint = true)
+            } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop before retry", e) }
+            return
+        }
+
+        if (fromTimer) {
+            Log.i(TAG, "Timed switch: completed full server cycle for ${title ?: "<unknown>"} (serversInCountry=${if (total>=0) total else "unknown"})")
+        } else {
+            Log.i(TAG, "Immediate switch: completed full server cycle for ${title ?: "<unknown>"} (serversInCountry=${if (total>=0) total else "unknown"})")
+        }
+        try {
+            val startIndex = cycleStartIndex
+            if (startIndex != null) {
+                SelectedCountryStore.setCurrentIndex(appContext, startIndex)
+            }
+        } catch (e: Exception) { Log.w(TAG, "Failed to restore start index after full cycle", e) }
+        cancel(resetCycle = true)
+        try {
+            ConnectionStateManager.setReconnectingHint(false)
+            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        } catch (e: Exception) { Log.w(TAG, "Failed to reset state after no-alternative path", e) }
+        try {
+            Log.d(TAG, "Requesting explicit engine stop (no-alternative path)")
+            stopper(appContext)
+        } catch (e: Exception) { Log.w(TAG, "Failed to request engine stop (no-alternative path)", e) }
     }
 
     private fun scheduleIdleTolerance(appContext: Context, level: ConnectionStatus) {

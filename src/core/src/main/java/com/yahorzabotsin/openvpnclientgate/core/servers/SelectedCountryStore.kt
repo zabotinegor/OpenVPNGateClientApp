@@ -1,11 +1,12 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.servers
+package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import org.json.JSONException
 import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONException
-import android.util.Log
 
 data class StoredServer(
     val city: String,
@@ -31,7 +32,7 @@ object SelectedCountryStore {
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
-    private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "SelectedCountryStore"
+    private val TAG = LogTags.APP + ":SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
     private const val KEY_JSON_CONFIG = "config"
     private const val KEY_JSON_CODE = "code"
@@ -90,6 +91,11 @@ object SelectedCountryStore {
         val list = getServers(ctx)
         if (index in list.indices) {
             setIndex(ctx, index)
+            val current = list[index]
+            Log.d(
+                TAG,
+                "setCurrentIndex: index=${index + 1}/${list.size} ip=${current.ip ?: "<none>"} city=${current.city.ifBlank { "<none>" }}"
+            )
         }
     }
 
@@ -139,7 +145,13 @@ object SelectedCountryStore {
 
     fun getIpForConfig(ctx: Context, config: String?): String? = resolveIpForConfig(ctx, config)
 
-    fun saveLastSuccessfulConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
+    fun saveLastSuccessfulConfig(
+        ctx: Context,
+        country: String?,
+        config: String,
+        ip: String? = null,
+        alignIndex: Boolean = true
+    ) {
         if (config.isBlank()) return
         val ipToStore = ip ?: resolveIpForConfig(ctx, config)
         prefs(ctx).edit()
@@ -147,7 +159,9 @@ object SelectedCountryStore {
             .putString(KEY_LAST_SUCCESS_COUNTRY, country)
             .putString(KEY_LAST_SUCCESS_IP, ipToStore)
             .apply()
-        ensureIndexForConfig(ctx, config, ipToStore)
+        if (alignIndex) {
+            ensureIndexForConfig(ctx, config, ipToStore)
+        }
     }
 
     fun getLastSuccessfulConfigForSelected(ctx: Context): String? {
@@ -194,15 +208,39 @@ object SelectedCountryStore {
         val list = getServers(ctx)
         if (list.isEmpty()) return
         val current = getIndex(ctx)
-        if (current in list.indices && list[current].config == config) return
+        if (current in list.indices &&
+            list[current].config == config &&
+            (ip.isNullOrBlank() || list[current].ip == ip)
+        ) return
+
+        if (!config.isNullOrBlank() && !ip.isNullOrBlank()) {
+            val foundByConfigAndIp = list.indexOfFirst { it.config == config && it.ip == ip }
+            if (foundByConfigAndIp >= 0) {
+                setIndex(ctx, foundByConfigAndIp)
+                Log.d(
+                    TAG,
+                    "ensureIndexForConfig: matched by config+ip index=${foundByConfigAndIp + 1}/${list.size} ip=${ip ?: "<none>"}"
+                )
+                return
+            }
+        }
+
         val foundByConfig = config?.let { cfg -> list.indexOfFirst { it.config == cfg } } ?: -1
         if (foundByConfig >= 0) {
             setIndex(ctx, foundByConfig)
+            val matchedIp = list[foundByConfig].ip
+            Log.d(
+                TAG,
+                "ensureIndexForConfig: matched by config index=${foundByConfig + 1}/${list.size} ip=${matchedIp ?: "<none>"}"
+            )
             return
         }
         if (!ip.isNullOrBlank()) {
             val foundByIp = list.indexOfFirst { it.ip == ip }
-            if (foundByIp >= 0) setIndex(ctx, foundByIp)
+            if (foundByIp >= 0) {
+                setIndex(ctx, foundByIp)
+                Log.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
+            }
         }
     }
 }

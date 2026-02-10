@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,8 +21,8 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
@@ -64,6 +64,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Remember whether start/stop were user-driven vs auto-switch
     private var userInitiatedStart = false
     private var userInitiatedStop = false
+    private var ignoreConnectedUntilNotConnected = false
 
     // Suppress duplicate engine state callbacks while we manage retries
     private var suppressEngineState = true
@@ -422,6 +423,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
                 userInitiatedStop = false
+                ignoreConnectedUntilNotConnected = false
                 val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
                 try {
                     ConnectionStateManager.setReconnectingHint(isReconnect)
@@ -429,12 +431,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set reconnecting hint on start", e)
                 }
-                  if (isReconnect) {
+                if (isReconnect) {
                     sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
-                  } else {
-                      sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
-                      sessionAttempt = 1
-                  }
+                } else {
+                    sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
+                    sessionAttempt = 1
+                }
                 if (config.isNullOrBlank()) { Log.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -464,26 +466,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 startForegroundIfNeeded()
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
-                    // Auto-switch retry: keep hint and state, just stop engine
                     Log.d(TAG, "Preserving reconnect hint/state for retry stop")
                     userInitiatedStop = false
                     userInitiatedStart = true
+                    ignoreConnectedUntilNotConnected = false
                     requestStopIcsOpenVpn()
                 } else {
-                userInitiatedStop = true
-                userInitiatedStart = false
-                try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
-                try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
-                ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
-                requestStopIcsOpenVpn()
-            }
+                    userInitiatedStop = true
+                    userInitiatedStart = false
+                    ignoreConnectedUntilNotConnected = true
+                    try { ConnectionStateManager.setReconnectingHint(false); Log.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { Log.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
+                    try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
+                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+                    requestStopIcsOpenVpn()
+                }
             }
             VpnManager.ACTION_REFRESH_NOTIFICATION -> {
                 Log.d(TAG, "ACTION_REFRESH_NOTIFICATION")
                 refreshForegroundNotification()
             }
-            else -> if (intent != null) {
-                Log.w(TAG, "Unknown/missing action: ${intent.getStringExtra(VpnManager.actionKey(this))}")
+            else -> {
+                val action = intent?.getStringExtra(VpnManager.actionKey(this))
+                if (!action.isNullOrBlank()) {
+                    Log.w(TAG, "Unknown action: $action")
+                }
             }
         }
         return START_NOT_STICKY
@@ -623,8 +629,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
         logEngineStateChange("VPN_STATUS", level, state)
-        Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-        try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        val failureLevelsHandledByService = setOf(
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_NOTCONNECTED
+        )
+        if (level !in failureLevelsHandledByService) {
+            Log.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
+            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { Log.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+        }
+        if (shouldIgnoreLevelAfterUserStop(level)) return
         ConnectionStateManager.updateFromEngine(level, state)
         handleForegroundForLevel(level)
         if (suppressEngineState) return
@@ -952,11 +966,36 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
+        if (shouldIgnoreLevelAfterUserStop(level)) return
         statusHandler.post { handleForegroundForLevel(level) }
         if (allowAutoSwitch) {
-            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL") } catch (_: Exception) { }
+            try {
+                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to notify auto-switcher from AIDL", e)
+            }
         }
         ConnectionStateManager.updateFromEngine(level, detail)
+    }
+
+    private fun shouldIgnoreLevelAfterUserStop(level: ConnectionStatus): Boolean {
+        if (!ignoreConnectedUntilNotConnected) return false
+        return when (level) {
+            ConnectionStatus.LEVEL_CONNECTED -> {
+                Log.d(TAG, "Ignoring stale LEVEL_CONNECTED after user stop")
+                true
+            }
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_VPNPAUSED,
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.UNKNOWN_LEVEL -> {
+                ignoreConnectedUntilNotConnected = false
+                Log.d(TAG, "Cleared stale CONNECTED guard on level=$level")
+                false
+            }
+            else -> false
+        }
     }
 
     private fun persistLastSuccessfulConfig() {
@@ -966,12 +1005,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val country = last?.country
             val ip = last?.ip
             if (!cfg.isNullOrBlank()) {
-                SelectedCountryStore.saveLastSuccessfulConfig(applicationContext, country, cfg, ip)
-                try {
-                    SelectedCountryStore.ensureIndexForConfig(applicationContext, cfg)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to ensure index for last successful config", e)
-                }
+                SelectedCountryStore.saveLastSuccessfulConfig(
+                    ctx = applicationContext,
+                    country = country,
+                    config = cfg,
+                    ip = ip,
+                    alignIndex = false
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save last successful config from status", e)
