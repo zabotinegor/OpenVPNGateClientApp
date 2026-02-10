@@ -57,6 +57,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         )
         private val numberRegex = Regex("\\d+")
         private val ipv4Regex = Regex("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b")
+        private val urlRegex = Regex("\\bhttps?://\\S+\\b")
         private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
         private const val MAX_THROTTLE_KEY_LENGTH = 96
     }
@@ -886,14 +887,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (logItem == null) return
         try {
             val msg = logItem.getString(this)
+            val sanitized = redactMessage(msg)
             when (logItem.logLevel) {
-                VpnStatus.LogLevel.ERROR -> AppLog.e(TAG, msg)
-                VpnStatus.LogLevel.WARNING -> AppLog.w(TAG, msg)
-                VpnStatus.LogLevel.INFO -> AppLog.iThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-info", msg))
-                VpnStatus.LogLevel.VERBOSE -> AppLog.dThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-verbose", msg))
-                else -> AppLog.dThrottled(TAG, msg, key = buildLogThrottleKey("ovpn-default", msg))
+                VpnStatus.LogLevel.ERROR -> AppLog.e(TAG, sanitized)
+                VpnStatus.LogLevel.WARNING -> AppLog.w(TAG, sanitized)
+                VpnStatus.LogLevel.INFO -> AppLog.iThrottled(TAG, sanitized, key = buildLogThrottleKey("ovpn-info", sanitized))
+                VpnStatus.LogLevel.VERBOSE -> AppLog.dThrottled(TAG, sanitized, key = buildLogThrottleKey("ovpn-verbose", sanitized))
+                else -> AppLog.dThrottled(TAG, sanitized, key = buildLogThrottleKey("ovpn-default", sanitized))
             }
         } catch (e: Exception) { AppLog.w(TAG, "Failed to format OpenVPN log item", e) }
+    }
+
+    private fun redactMessage(message: String): String {
+        return hexRegex.replace(
+            ipv4Regex.replace(
+                urlRegex.replace(message, "<url>"),
+                "<ip>"
+            ),
+            "<hex>"
+        )
     }
 
     private fun buildLogThrottleKey(prefix: String, message: String): String {
