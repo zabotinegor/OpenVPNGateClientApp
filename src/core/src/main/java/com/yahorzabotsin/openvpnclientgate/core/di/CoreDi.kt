@@ -81,7 +81,7 @@ val coreModule = module {
     }
 
     single<SettingsRepository> { DefaultSettingsRepository(androidContext()) }
-    single<DnsSettingsRepository> { DefaultDnsSettingsRepository(get()) }
+    single<DnsSettingsRepository> { DefaultDnsSettingsRepository(androidContext()) }
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
 
     single { ServerRepository(get()) }
