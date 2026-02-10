@@ -61,4 +61,13 @@ class AppLogTest {
         assertTrue(messages.any { it.contains("Suppressed 1 repeated logs") })
         assertEquals(3, messages.size)
     }
+
+    @Test
+    fun throttledCacheIsBoundedForUniqueKeys() {
+        repeat(10_000) { index ->
+            AppLog.dThrottled(tag, "msg-$index", key = "k-$index", windowMs = 5 * 60_000L)
+        }
+
+        assertTrue(AppLog.throttledKeyCountForTest() <= 4_096)
+    }
 }

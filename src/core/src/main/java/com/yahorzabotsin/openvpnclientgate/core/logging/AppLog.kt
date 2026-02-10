@@ -2,12 +2,16 @@ package com.yahorzabotsin.openvpnclientgate.core.logging
 
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import timber.log.Timber
 
 object AppLog {
     private const val DEFAULT_THROTTLE_WINDOW_MS = 30_000L
+    private const val CLEANUP_INTERVAL_OPS = 128
+    private const val MAX_THROTTLED_KEYS = 4_096
     private val throttledUntilMs = ConcurrentHashMap<String, Long>()
     private val throttledSuppressedCount = ConcurrentHashMap<String, Int>()
+    private val throttleOpsCount = AtomicInteger(0)
     @Volatile
     private var currentTimeMsProvider: () -> Long = { System.currentTimeMillis() }
 
@@ -56,6 +60,7 @@ object AppLog {
         throwable: Throwable?
     ) {
         val now = currentTimeMsProvider()
+        maybeCleanup(now)
         val compositeKey = "$priority|$tag|$key"
         val allowedAfter = throttledUntilMs[compositeKey]
         if (allowedAfter != null && now < allowedAfter) {
@@ -74,16 +79,54 @@ object AppLog {
         }
 
         throttledUntilMs[compositeKey] = now + windowMs
+        trimToMaxSize()
         log(priority = priority, tag = tag, message = message, throwable = throwable)
+    }
+
+    private fun maybeCleanup(nowMs: Long) {
+        if (throttleOpsCount.incrementAndGet() % CLEANUP_INTERVAL_OPS != 0) return
+        cleanupExpired(nowMs)
+        trimToMaxSize()
+    }
+
+    private fun cleanupExpired(nowMs: Long) {
+        val expiredKeys = throttledUntilMs.entries
+            .asSequence()
+            .filter { it.value <= nowMs }
+            .map { it.key }
+            .toList()
+        expiredKeys.forEach { key ->
+            throttledUntilMs.remove(key)
+            throttledSuppressedCount.remove(key)
+        }
+    }
+
+    private fun trimToMaxSize() {
+        val size = throttledUntilMs.size
+        if (size <= MAX_THROTTLED_KEYS) return
+        val overflow = size - MAX_THROTTLED_KEYS
+        val keysToEvict = throttledUntilMs.entries
+            .asSequence()
+            .sortedBy { it.value }
+            .take(overflow)
+            .map { it.key }
+            .toList()
+        keysToEvict.forEach { key ->
+            throttledUntilMs.remove(key)
+            throttledSuppressedCount.remove(key)
+        }
     }
 
     internal fun setTimeProviderForTest(provider: () -> Long) {
         currentTimeMsProvider = provider
     }
 
+    internal fun throttledKeyCountForTest(): Int = throttledUntilMs.size
+
     internal fun resetForTest() {
         throttledUntilMs.clear()
         throttledSuppressedCount.clear()
+        throttleOpsCount.set(0)
         currentTimeMsProvider = { System.currentTimeMillis() }
     }
 }
