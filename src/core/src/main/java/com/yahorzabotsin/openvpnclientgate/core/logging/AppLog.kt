@@ -90,14 +90,12 @@ object AppLog {
     }
 
     private fun cleanupExpired(nowMs: Long) {
-        val expiredKeys = throttledUntilMs.entries
-            .asSequence()
-            .filter { it.value <= nowMs }
-            .map { it.key }
-            .toList()
-        expiredKeys.forEach { key ->
-            throttledUntilMs.remove(key)
-            throttledSuppressedCount.remove(key)
+        throttledUntilMs.entries.forEach { entry ->
+            if (entry.value <= nowMs) {
+                if (throttledUntilMs.remove(entry.key, entry.value)) {
+                    throttledSuppressedCount.remove(entry.key)
+                }
+            }
         }
     }
 
