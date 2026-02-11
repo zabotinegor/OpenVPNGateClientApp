@@ -76,8 +76,10 @@ class SettingsActivity : AppCompatActivity() {
             (headerRows + optionRows).forEach { row ->
                 row.setBackgroundResource(lightBackground)
             }
-            templateBinding.backButton.setBackgroundResource(R.drawable.tv_back_button_focus_light)
         }
+        templateBinding.backButton.setBackgroundResource(
+            if (isNight) R.drawable.tv_back_button_focus_dark else R.drawable.tv_back_button_focus_light
+        )
     }
 
     private fun setupCollapsibles() {
