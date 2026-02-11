@@ -59,6 +59,4 @@
     <color name="switch_thumb_unchecked">#F1F1F1</color>
     <color name="switch_track_unchecked">#80B0B0B0</color>
 
-    <!-- Section: Settings -->
-    <color name="settings_input_stroke">@color/text_color_primary</color>
 </resources>
