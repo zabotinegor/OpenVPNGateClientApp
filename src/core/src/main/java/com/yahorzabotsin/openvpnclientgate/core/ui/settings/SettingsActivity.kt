@@ -67,15 +67,13 @@ class SettingsActivity : AppCompatActivity() {
             binding.autoSwitchOn,
             binding.autoSwitchOff
         )
-        if (isNight) {
-            optionRows.forEach { row ->
-                row.setBackgroundResource(R.drawable.tv_settings_item_background_dark)
-            }
+        val backgroundRes = if (isNight) {
+            R.drawable.tv_settings_item_background_dark
         } else {
-            val lightBackground = R.drawable.tv_settings_item_background_light
-            (headerRows + optionRows).forEach { row ->
-                row.setBackgroundResource(lightBackground)
-            }
+            R.drawable.tv_settings_item_background_light
+        }
+        (headerRows + optionRows).forEach { row ->
+            row.setBackgroundResource(backgroundRes)
         }
         templateBinding.backButton.setBackgroundResource(
             if (isNight) R.drawable.tv_back_button_focus_dark else R.drawable.tv_back_button_focus_light
