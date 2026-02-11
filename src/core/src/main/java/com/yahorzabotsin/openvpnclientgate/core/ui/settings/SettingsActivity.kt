@@ -45,15 +45,13 @@ class SettingsActivity : AppCompatActivity() {
     private fun applyTvFocusBackgrounds() {
         if (!TvUtils.isTvDevice(this)) return
         val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val headerRows = listOf(
+        val rowsToStyle = listOf(
             binding.languageHeader,
             binding.themeHeader,
             binding.serverHeader,
             binding.autoSwitchHeader,
             binding.statusTimerHeader,
-            binding.cacheHeader
-        )
-        val optionRows = listOf(
+            binding.cacheHeader,
             binding.languageSystem,
             binding.languageEn,
             binding.languageRu,
@@ -72,7 +70,7 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             R.drawable.tv_settings_item_background_light
         }
-        (headerRows + optionRows).forEach { row ->
+        rowsToStyle.forEach { row ->
             row.setBackgroundResource(backgroundRes)
         }
         templateBinding.backButton.setBackgroundResource(
