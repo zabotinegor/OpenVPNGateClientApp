@@ -9,6 +9,7 @@
     <color name="text_color_tertiary">#FFFFFF</color>
     <color name="icon_color">#B0B0B0</color>
     <color name="theme_color_secondary">#FFFFFF</color>
+    <color name="button_primary_background">#424242</color>
 
     <!-- Section: Splash -->
     <color name="splash_background_color">#1A1A1A</color>
