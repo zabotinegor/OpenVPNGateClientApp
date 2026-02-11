@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class OpenVpnServiceNotificationTest {
@@ -19,8 +20,6 @@ class OpenVpnServiceNotificationTest {
     fun updateStateStopsForegroundWhenConnectedAndRestartsWhenDisconnected() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
-
-        assertTrue(service.isForegroundStarted())
 
         service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, Intent())
         assertFalse(service.isForegroundStarted())
@@ -58,6 +57,22 @@ class OpenVpnServiceNotificationTest {
 
         service.onStartCommand(intent, 0, 1)
         assertTrue(service.isForegroundStarted())
+    }
+
+    @Test
+    fun refreshNotificationStopsServiceWhenNotForeground() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+
+        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, Intent())
+        assertFalse(service.isForegroundStarted())
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_REFRESH_NOTIFICATION)
+        }
+
+        service.onStartCommand(intent, 0, 1)
+        assertTrue(shadowOf(service).isStoppedBySelf)
     }
 
     private fun OpenVpnService.isForegroundStarted(): Boolean {

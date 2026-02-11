@@ -136,7 +136,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         super.onCreate()
         AppLog.i(TAG, "Service created")
         ensureServiceNotificationChannel()
-        startForegroundIfNeeded()
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
         VpnStatus.addStateListener(this)
@@ -488,7 +487,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_REFRESH_NOTIFICATION -> {
                 AppLog.d(TAG, "ACTION_REFRESH_NOTIFICATION")
-                refreshForegroundNotification()
+                if (foregroundStarted) {
+                    refreshForegroundNotification()
+                } else {
+                    AppLog.d(TAG, "Skipping notification refresh: service is not in foreground")
+                    stopSelf()
+                }
             }
             else -> {
                 val action = intent?.getStringExtra(VpnManager.actionKey(this))

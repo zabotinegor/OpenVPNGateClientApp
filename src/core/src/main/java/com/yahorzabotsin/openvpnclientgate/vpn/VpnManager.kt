@@ -47,6 +47,10 @@ object VpnManager {
 
     fun refreshNotification(context: Context) {
         AppLog.d(TAG, "refreshNotification")
+        if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+            AppLog.d(TAG, "skip refreshNotification: VPN is disconnected")
+            return
+        }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
         }

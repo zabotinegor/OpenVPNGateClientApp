@@ -35,7 +35,6 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
-import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -150,11 +149,6 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun onStart() {
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
-        try {
-            startService(Intent(this, OpenVpnService::class.java))
-        } catch (e: Exception) {
-            AppLog.w(tag, "Failed to start OpenVpnService from UI", e)
-        }
     }
 
     override fun onStop() {
