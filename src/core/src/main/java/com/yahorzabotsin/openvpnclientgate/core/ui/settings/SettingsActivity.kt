@@ -47,12 +47,16 @@ class SettingsActivity : AppCompatActivity() {
         val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         if (!isNight) {
             val itemBackground = R.drawable.tv_settings_item_background_light
-            binding.languageHeader.setBackgroundResource(itemBackground)
-            binding.themeHeader.setBackgroundResource(itemBackground)
-            binding.serverHeader.setBackgroundResource(itemBackground)
-            binding.autoSwitchHeader.setBackgroundResource(itemBackground)
-            binding.statusTimerHeader.setBackgroundResource(itemBackground)
-            binding.cacheHeader.setBackgroundResource(itemBackground)
+            listOf(
+                binding.languageHeader,
+                binding.themeHeader,
+                binding.serverHeader,
+                binding.autoSwitchHeader,
+                binding.statusTimerHeader,
+                binding.cacheHeader
+            ).forEach { header ->
+                header.setBackgroundResource(itemBackground)
+            }
             templateBinding.backButton.setBackgroundResource(R.drawable.tv_back_button_focus_light)
         }
 
