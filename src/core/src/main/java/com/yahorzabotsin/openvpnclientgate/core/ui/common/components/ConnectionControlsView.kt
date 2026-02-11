@@ -276,8 +276,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private fun updateServerButtonIcons(showGlobe: Boolean) {
         val tint = MaterialColors.getColor(
             binding.serverSelectionContainer,
-            com.google.android.material.R.attr.colorOnPrimary,
-            ContextCompat.getColor(context, android.R.color.white)
+            com.google.android.material.R.attr.colorOnSurface,
+            ContextCompat.getColor(context, R.color.text_color_primary)
         )
         val globe = if (showGlobe) {
             ContextCompat.getDrawable(context, R.drawable.ic_baseline_public_24)

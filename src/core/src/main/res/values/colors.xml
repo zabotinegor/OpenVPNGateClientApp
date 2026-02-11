@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Section: Theme palette (Light) -->
-    <color name="app_background">#FFFBF5</color>
-    <color name="nav_bar_background">#F7EFE5</color>
+    <color name="app_background">#F7F9FC</color>
+    <color name="nav_bar_background">#FFFFFF</color>
     <color name="menu_icon_color">#FFFFFF</color>
     <color name="text_color_primary">#092635</color>
-    <color name="text_color_secondary">#94A3B8</color>
+    <color name="text_color_secondary">#5F7384</color>
     <color name="text_color_tertiary">#FFFBF5</color>
     <color name="icon_color">#94A3B8</color>
     <color name="theme_color_secondary">#94A3B8</color>
+    <color name="button_primary_background">#C9D4E2</color>
 
     <!-- Section: Splash -->
     <color name="splash_background_color">#1A1A1A</color>
 
     <!-- Section: Speedometer -->
-    <color name="speedometer_arc_color">#DFD1E6</color>
-    <color name="speedometer_progress_color">#092635</color>
+    <color name="speedometer_arc_color">#C9D4E2</color>
+    <color name="speedometer_progress_color">#C9D4E2</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
 
     <!-- Section: Ping -->
@@ -30,9 +31,9 @@
     <color name="selected_background">@color/speedometer_progress_color</color>
 
     <!-- Section: Connection button -->
-    <color name="connection_button_disconnected">#3B7CFF</color>
-    <color name="connection_button_connecting">#FFC107</color>
-    <color name="connection_button_active">#E53935</color>
+    <color name="connection_button_disconnected">@color/button_primary_background</color>
+    <color name="connection_button_connecting">@color/button_primary_background</color>
+    <color name="connection_button_active">@color/button_primary_background</color>
     <color name="fastlane_background">@color/nav_bar_background</color>
     <color name="search_opaque">#80FFFFFF</color>
 
