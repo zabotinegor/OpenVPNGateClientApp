@@ -75,12 +75,12 @@
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
                     android:stateListAnimator="@animator/focus_bounce_refresh"
-                    android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnSurface"
+                    app:backgroundTint="@color/button_primary_background"
                     app:icon="@drawable/ic_baseline_refresh_24"
                     app:iconGravity="textStart"
                     app:iconPadding="8dp"
-                    app:iconTint="?attr/colorOnPrimary"
+                    app:iconTint="?attr/colorOnSurface"
                     app:rippleColor="@android:color/transparent" />
 
                 <TextView

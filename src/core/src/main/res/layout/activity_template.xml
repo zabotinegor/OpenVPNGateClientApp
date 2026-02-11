@@ -22,7 +22,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
+        android:background="@drawable/toolbar_nav_button_background"
         android:contentDescription="@string/abc_action_bar_up_description"
         android:padding="8dp"
         android:src="?attr/homeAsUpIndicator"
