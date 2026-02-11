@@ -28,7 +28,7 @@
     <color name="background_gradient_start">@color/app_background</color>
     <color name="background_gradient_end">@color/nav_bar_background</color>
     <color name="default_background">@color/nav_bar_background</color>
-    <color name="selected_background">@color/speedometer_progress_color</color>
+    <color name="selected_background">@color/button_primary_background</color>
     <color name="tv_focus_overlay_light">#4DC9D4E2</color>
     <color name="tv_focus_overlay_dark">#1FFFFFFF</color>
 
@@ -40,12 +40,12 @@
     <color name="search_opaque">#80FFFFFF</color>
 
     <!-- Section: Toolbar nav focus (TV) -->
-    <color name="toolbar_nav_focus_bg">#333B7CFF</color>
+    <color name="toolbar_nav_focus_bg">@color/selected_background</color>
 
     <!-- Section: Server selection chips -->
     <color name="server_selection_bg_default">#00000000</color>
-    <color name="server_selection_bg_focus">#1A3B7CFF</color>
-    <color name="server_selection_bg_pressed">#333B7CFF</color>
+    <color name="server_selection_bg_focus">@color/selected_background</color>
+    <color name="server_selection_bg_pressed">@color/selected_background</color>
     <color name="server_selection_border_default">#092635</color>
     <color name="server_selection_border_focus">#2F5C75</color>
     <color name="server_selection_border_pressed">#2F5C75</color>
