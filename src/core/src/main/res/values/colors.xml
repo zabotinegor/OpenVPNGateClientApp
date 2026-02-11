@@ -29,6 +29,8 @@
     <color name="background_gradient_end">@color/nav_bar_background</color>
     <color name="default_background">@color/nav_bar_background</color>
     <color name="selected_background">@color/speedometer_progress_color</color>
+    <color name="tv_focus_overlay_light">#4DC9D4E2</color>
+    <color name="tv_focus_overlay_dark">#1FFFFFFF</color>
 
     <!-- Section: Connection button -->
     <color name="connection_button_disconnected">@color/button_primary_background</color>

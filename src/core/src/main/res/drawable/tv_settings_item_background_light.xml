@@ -2,12 +2,12 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_selected="true">
         <shape android:shape="rectangle">
-            <solid android:color="#4DC9D4E2" />
+            <solid android:color="@color/tv_focus_overlay_light" />
         </shape>
     </item>
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="#4DC9D4E2" />
+            <solid android:color="@color/tv_focus_overlay_light" />
         </shape>
     </item>
     <item android:drawable="@android:color/transparent" />
