@@ -45,21 +45,14 @@ class SettingsActivity : AppCompatActivity() {
     private fun applyTvFocusBackgrounds() {
         if (!TvUtils.isTvDevice(this)) return
         val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        if (!isNight) {
-            val itemBackground = R.drawable.tv_settings_item_background_light
-            listOf(
-                binding.languageHeader,
-                binding.themeHeader,
-                binding.serverHeader,
-                binding.autoSwitchHeader,
-                binding.statusTimerHeader,
-                binding.cacheHeader
-            ).forEach { header ->
-                header.setBackgroundResource(itemBackground)
-            }
-            templateBinding.backButton.setBackgroundResource(R.drawable.tv_back_button_focus_light)
-        }
-
+        val headerRows = listOf(
+            binding.languageHeader,
+            binding.themeHeader,
+            binding.serverHeader,
+            binding.autoSwitchHeader,
+            binding.statusTimerHeader,
+            binding.cacheHeader
+        )
         val optionRows = listOf(
             binding.languageSystem,
             binding.languageEn,
@@ -74,13 +67,16 @@ class SettingsActivity : AppCompatActivity() {
             binding.autoSwitchOn,
             binding.autoSwitchOff
         )
-        val optionBackground = if (isNight) {
-            R.drawable.tv_settings_item_background_dark
+        if (isNight) {
+            optionRows.forEach { row ->
+                row.setBackgroundResource(R.drawable.tv_settings_item_background_dark)
+            }
         } else {
-            R.drawable.tv_settings_item_background_light
-        }
-        optionRows.forEach { row ->
-            row.setBackgroundResource(optionBackground)
+            val lightBackground = R.drawable.tv_settings_item_background_light
+            (headerRows + optionRows).forEach { row ->
+                row.setBackgroundResource(lightBackground)
+            }
+            templateBinding.backButton.setBackgroundResource(R.drawable.tv_back_button_focus_light)
         }
     }
 
