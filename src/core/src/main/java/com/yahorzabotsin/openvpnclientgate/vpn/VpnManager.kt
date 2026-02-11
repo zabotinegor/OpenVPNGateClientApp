@@ -3,7 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import androidx.core.content.ContextCompat
 
 object VpnManager {
@@ -21,7 +21,7 @@ object VpnManager {
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false) {
-        Log.d(TAG, "startVpn")
+        AppLog.d(TAG, "startVpn")
         val decodedConfig = try {
             String(Base64.decode(base64Config, Base64.DEFAULT))
         } catch (_: IllegalArgumentException) {
@@ -37,7 +37,7 @@ object VpnManager {
     }
 
     fun stopVpn(context: Context, preserveReconnectHint: Boolean = false) {
-        Log.d(TAG, "stopVpn")
+        AppLog.d(TAG, "stopVpn")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
@@ -46,12 +46,13 @@ object VpnManager {
     }
 
     fun refreshNotification(context: Context) {
-        Log.d(TAG, "refreshNotification")
+        AppLog.d(TAG, "refreshNotification")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
         }
         context.startService(intent)
     }
 }
+
 
 

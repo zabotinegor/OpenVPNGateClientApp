@@ -7,7 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.VpnService
 import android.os.Bundle
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -104,7 +104,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(tag, "onCreate called.")
+        AppLog.d(tag, "onCreate called.")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -149,23 +149,23 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     override fun onStart() {
         super.onStart()
-        Log.i(screenLogTag, "enter ${javaClass.simpleName}")
+        AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
         try {
             startService(Intent(this, OpenVpnService::class.java))
         } catch (e: Exception) {
-            Log.w(tag, "Failed to start OpenVpnService from UI", e)
+            AppLog.w(tag, "Failed to start OpenVpnService from UI", e)
         }
     }
 
     override fun onStop() {
-        Log.i(screenLogTag, "exit ${javaClass.simpleName}")
+        AppLog.i(screenLogTag, "exit ${javaClass.simpleName}")
         super.onStop()
     }
 
     @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.N)
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
         super.onMultiWindowModeChanged(isInMultiWindowMode)
-        Log.d(tag, "Multi-window mode changed: $isInMultiWindowMode")
+        AppLog.d(tag, "Multi-window mode changed: $isInMultiWindowMode")
         viewModel.onAction(MainAction.OnMultiWindowModeChanged(isInMultiWindowMode))
     }
 
@@ -321,4 +321,5 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.statusValue.text = text
     }
 }
+
 

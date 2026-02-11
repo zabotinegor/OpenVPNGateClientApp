@@ -1,6 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 
 interface CountryServersLogger {
     fun logLoadSuccess(countryName: String, count: Int)
@@ -13,18 +13,19 @@ class DefaultCountryServersLogger : CountryServersLogger {
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
 
     override fun logLoadSuccess(countryName: String, count: Int) {
-        Log.i(tag, "Loaded $count servers for $countryName")
+        AppLog.i(tag, "Loaded $count servers for $countryName")
     }
 
     override fun logLoadError(countryName: String, error: Exception) {
-        Log.e(tag, "Error loading servers for $countryName", error)
+        AppLog.e(tag, "Error loading servers for $countryName", error)
     }
 
     override fun logNoServers(countryName: String) {
-        Log.w(tag, "No servers for $countryName")
+        AppLog.w(tag, "No servers for $countryName")
     }
 
     override fun logSelectionError(serverIp: String?, error: Exception) {
-        Log.e(tag, "Error selecting server ip=${serverIp ?: "<none>"}", error)
+        AppLog.e(tag, "Error selecting server ip=${serverIp ?: "<none>"}", error)
     }
 }
+

@@ -1,7 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.content.Context
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -58,7 +58,7 @@ class DefaultMainConnectionInteractor(
                         lastSuccessfulConfig,
                         resolveIpForConfig(lastSuccessfulConfig, selectedServer.ip)
                     )
-                }.onFailure { e -> Log.e(tag, "Failed to prepare index for auto-switch from start", e) }
+                }.onFailure { e -> AppLog.e(tag, "Failed to prepare index for auto-switch from start", e) }
             }
             lastSuccessfulConfig
         } else {
@@ -69,7 +69,7 @@ class DefaultMainConnectionInteractor(
                         currentConfig,
                         resolveIpForConfig(currentConfig, selectedServer.ip)
                     )
-                }.onFailure { e -> Log.e(tag, "Failed to align server index with current selection", e) }
+                }.onFailure { e -> AppLog.e(tag, "Failed to align server index with current selection", e) }
             }
             currentConfig
         } ?: return null
@@ -77,7 +77,7 @@ class DefaultMainConnectionInteractor(
         val ipForConfig = resolveIpForConfig(configToUse, selectedServer.ip)
         runCatching {
             SelectedCountryStore.saveLastStartedConfig(appContext, selectedServer.country, configToUse, ipForConfig)
-        }.onFailure { e -> Log.w(tag, "Failed to persist last started config", e) }
+        }.onFailure { e -> AppLog.w(tag, "Failed to persist last started config", e) }
 
         return PreparedConnectionStart(
             config = configToUse,
@@ -116,3 +116,4 @@ class DefaultMainConnectionInteractor(
             ?: fallbackIp
     }
 }
+

@@ -2,7 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
@@ -76,7 +76,7 @@ class ServerRepository(
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
                 .putString(KEY_LAST_CACHE, key)
                 .apply()
-        }.onFailure { Log.w(TAG, "Failed to write cache file", it) }
+        }.onFailure { AppLog.w(TAG, "Failed to write cache file", it) }
     }
 
     private fun saveLastCacheKey(context: Context, key: String) {
@@ -102,7 +102,7 @@ class ServerRepository(
                 val (file, ts) = cached ?: throw IOException("Server cache is empty while VPN is connected")
                 val age = now - ts
                 val servers = parseServers(file)
-                Log.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}")
+                AppLog.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}")
                 saveLastCacheKey(context, cacheKey)
                 return@withContext servers
             }
@@ -110,12 +110,12 @@ class ServerRepository(
             if (cachedFresh != null) {
                 val age = cached?.let { now - it.second } ?: -1
                 val servers = parseServers(cachedFresh)
-                Log.i(TAG, "Using cached servers (fresh). age=$age ms, items=${servers.size}")
+                AppLog.i(TAG, "Using cached servers (fresh). age=$age ms, items=${servers.size}")
                 saveLastCacheKey(context, cacheKey)
                 return@withContext servers
             }
 
-            Log.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs, force=$forceRefresh")
+            AppLog.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs, force=$forceRefresh")
 
             var lastError: Exception? = null
             var response: ResponseBody? = null
@@ -123,34 +123,34 @@ class ServerRepository(
             var parsedResponse: List<Server>? = null
             for ((index, url) in urls.withIndex()) {
                 try {
-                    Log.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}")
+                    AppLog.d(TAG, "Requesting servers from ${if (index == 0) "PRIMARY" else "SECONDARY"}")
                     response = api.getServers(url)
                     usedIndex = index
                     break
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     lastError = e
-                    Log.w(TAG, "Server request failed (index=$index)", e)
+                    AppLog.w(TAG, "Server request failed (index=$index)", e)
                 }
             }
 
             if (response != null) {
                 writeCache(context, cacheKey, response)
                 parsedResponse = parseServers(cacheFile(context, cacheKey))
-                Log.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+                AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
             }
 
             val result = parsedResponse ?: cached?.first?.let { parseServers(it) } ?: throw (lastError ?: IOException("No server response"))
             if (response == null && cached != null) {
-                Log.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
+                AppLog.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
             }
             saveLastCacheKey(context, cacheKey)
 
             if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
                 settingsStore.saveServerSource(context, ServerSource.VPNGATE)
-                Log.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+                AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
             } else if (usedIndex >= 0) {
-                Log.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
+                AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
 
             return@withContext result
@@ -331,5 +331,6 @@ class ServerRepository(
         return if (result.isEmpty()) null else result
     }
 }
+
 
 

@@ -1,7 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
 import android.net.Uri
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
@@ -22,7 +22,7 @@ class DefaultSettingsLogger : SettingsLogger {
     private val tag = LogTags.APP + ':' + "SettingsActivity"
 
     override fun logScreenOpened(state: SettingsUiState) {
-        Log.i(
+        AppLog.i(
             tag,
             "Settings screen opened: language=${state.language.name}, theme=${state.theme.name}, " +
                 "serverSource=${state.serverSource.name}, customUrl=${redactUrl(state.customServerUrl)}, " +
@@ -32,31 +32,31 @@ class DefaultSettingsLogger : SettingsLogger {
     }
 
     override fun logLanguageChanged(old: LanguageOption, selected: LanguageOption) {
-        Log.i(tag, "Settings language changed: ${old.name} -> ${selected.name}")
+        AppLog.i(tag, "Settings language changed: ${old.name} -> ${selected.name}")
     }
 
     override fun logThemeChanged(old: ThemeOption, selected: ThemeOption) {
-        Log.i(tag, "Settings theme changed: ${old.name} -> ${selected.name}")
+        AppLog.i(tag, "Settings theme changed: ${old.name} -> ${selected.name}")
     }
 
     override fun logServerSourceChanged(old: ServerSource, selected: ServerSource) {
-        Log.i(tag, "Settings server source changed: ${old.name} -> ${selected.name}")
+        AppLog.i(tag, "Settings server source changed: ${old.name} -> ${selected.name}")
     }
 
     override fun logCustomServerUrlChanged(value: String) {
-        Log.i(tag, "Settings custom server url changed: ${redactUrl(value)}")
+        AppLog.i(tag, "Settings custom server url changed: ${redactUrl(value)}")
     }
 
     override fun logAutoSwitchChanged(enabled: Boolean) {
-        Log.i(tag, "Settings auto switch changed: enabled=$enabled")
+        AppLog.i(tag, "Settings auto switch changed: enabled=$enabled")
     }
 
     override fun logStatusStallTimeoutChanged(seconds: Int) {
-        Log.i(tag, "Settings status stall timeout changed: seconds=$seconds")
+        AppLog.i(tag, "Settings status stall timeout changed: seconds=$seconds")
     }
 
     override fun logCacheTtlChanged(ttlMs: Long) {
-        Log.i(tag, "Settings cache ttl changed: ttlMs=$ttlMs")
+        AppLog.i(tag, "Settings cache ttl changed: ttlMs=$ttlMs")
     }
 
     private fun redactUrl(value: String): String {
@@ -67,3 +67,4 @@ class DefaultSettingsLogger : SettingsLogger {
         return "$scheme://$host"
     }
 }
+
