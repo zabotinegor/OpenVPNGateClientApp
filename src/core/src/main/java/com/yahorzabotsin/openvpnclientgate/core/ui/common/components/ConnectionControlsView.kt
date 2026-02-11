@@ -233,11 +233,8 @@ class ConnectionControlsView @JvmOverloads constructor(
         val color = when (model.style) {
             ConnectionButtonStyle.ACTIVE -> ContextCompat.getColor(context, R.color.connection_button_active)
             ConnectionButtonStyle.CONNECTING -> ContextCompat.getColor(context, R.color.connection_button_connecting)
-            ConnectionButtonStyle.DISCONNECTED -> MaterialColors.getColor(
-                this,
-                androidx.appcompat.R.attr.colorPrimary,
+            ConnectionButtonStyle.DISCONNECTED ->
                 ContextCompat.getColor(context, R.color.connection_button_disconnected)
-            )
         }
         connectButton.backgroundTintList = ColorStateList.valueOf(color)
     }
@@ -276,8 +273,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private fun updateServerButtonIcons(showGlobe: Boolean) {
         val tint = MaterialColors.getColor(
             binding.serverSelectionContainer,
-            com.google.android.material.R.attr.colorOnPrimary,
-            ContextCompat.getColor(context, android.R.color.white)
+            com.google.android.material.R.attr.colorOnSurface,
+            ContextCompat.getColor(context, R.color.text_color_primary)
         )
         val globe = if (showGlobe) {
             ContextCompat.getDrawable(context, R.drawable.ic_baseline_public_24)
