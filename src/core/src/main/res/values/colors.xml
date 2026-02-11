@@ -52,8 +52,8 @@
     <color name="loading_spinner_color">@color/speedometer_progress_color</color>
 
     <!-- Section: Switch Colors -->
-    <color name="switch_thumb_checked">#092635</color>
-    <color name="switch_track_checked">#94A3B8</color>
+    <color name="switch_thumb_checked">@color/button_primary_background</color>
+    <color name="switch_track_checked">#80C9D4E2</color>
     <color name="switch_thumb_unchecked">#F1F1F1</color>
     <color name="switch_track_unchecked">#80B0B0B0</color>
 </resources>
