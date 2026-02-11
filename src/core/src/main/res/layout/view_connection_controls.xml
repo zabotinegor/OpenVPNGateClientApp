@@ -12,7 +12,7 @@
         android:layout_marginStart="24dp"
         android:layout_marginEnd="24dp"
         android:layout_marginBottom="12dp"
-        android:backgroundTint="?attr/colorPrimary"
+        android:backgroundTint="@color/button_primary_background"
         android:shadowColor="@color/text_color_tertiary"
         android:shadowRadius="10"
         app:layout_constraintBottom_toTopOf="@+id/start_connection_button"

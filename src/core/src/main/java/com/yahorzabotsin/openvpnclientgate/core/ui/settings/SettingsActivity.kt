@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
 import android.os.Bundle
+import android.content.res.Configuration
 import android.view.View
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
@@ -16,6 +17,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -31,12 +33,51 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         templateBinding = TemplatePage.create(this, R.string.menu_settings, null)
         binding = ContentSettingsBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
+        applyTvFocusBackgrounds()
         setupCollapsibles()
         setupRadioGroups()
         setupCustomInputWatcher()
         setupCacheInputWatcher()
         setupStatusTimerWatcher()
         observeViewModel()
+    }
+
+    private fun applyTvFocusBackgrounds() {
+        if (!TvUtils.isTvDevice(this)) return
+        val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        if (!isNight) {
+            val itemBackground = R.drawable.tv_settings_item_background_light
+            binding.languageHeader.setBackgroundResource(itemBackground)
+            binding.themeHeader.setBackgroundResource(itemBackground)
+            binding.serverHeader.setBackgroundResource(itemBackground)
+            binding.autoSwitchHeader.setBackgroundResource(itemBackground)
+            binding.statusTimerHeader.setBackgroundResource(itemBackground)
+            binding.cacheHeader.setBackgroundResource(itemBackground)
+            templateBinding.backButton.setBackgroundResource(R.drawable.tv_back_button_focus_light)
+        }
+
+        val optionRows = listOf(
+            binding.languageSystem,
+            binding.languageEn,
+            binding.languageRu,
+            binding.languagePl,
+            binding.themeSystem,
+            binding.themeLight,
+            binding.themeDark,
+            binding.serverDefault,
+            binding.serverVpngate,
+            binding.serverCustom,
+            binding.autoSwitchOn,
+            binding.autoSwitchOff
+        )
+        val optionBackground = if (isNight) {
+            R.drawable.tv_settings_item_background_dark
+        } else {
+            R.drawable.tv_settings_item_background_light
+        }
+        optionRows.forEach { row ->
+            row.setBackgroundResource(optionBackground)
+        }
     }
 
     private fun setupCollapsibles() {

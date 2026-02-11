@@ -76,7 +76,7 @@
                     android:paddingEnd="12dp"
                     android:stateListAnimator="@animator/focus_bounce_refresh"
                     android:textColor="?attr/colorOnSurface"
-                    app:backgroundTint="?attr/colorPrimary"
+                    app:backgroundTint="@color/button_primary_background"
                     app:icon="@drawable/ic_baseline_refresh_24"
                     app:iconGravity="textStart"
                     app:iconPadding="8dp"

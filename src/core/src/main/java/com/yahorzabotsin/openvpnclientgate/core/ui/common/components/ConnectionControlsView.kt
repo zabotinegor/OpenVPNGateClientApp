@@ -233,11 +233,8 @@ class ConnectionControlsView @JvmOverloads constructor(
         val color = when (model.style) {
             ConnectionButtonStyle.ACTIVE -> ContextCompat.getColor(context, R.color.connection_button_active)
             ConnectionButtonStyle.CONNECTING -> ContextCompat.getColor(context, R.color.connection_button_connecting)
-            ConnectionButtonStyle.DISCONNECTED -> MaterialColors.getColor(
-                this,
-                androidx.appcompat.R.attr.colorPrimary,
+            ConnectionButtonStyle.DISCONNECTED ->
                 ContextCompat.getColor(context, R.color.connection_button_disconnected)
-            )
         }
         connectButton.backgroundTintList = ColorStateList.valueOf(color)
     }

@@ -25,7 +25,7 @@
     <color name="ping_weak_color">#E53935</color>
 
     <!-- Connection button dedicated colors (night) -->
-    <color name="connection_button_disconnected">#3B7CFF</color>
+    <color name="connection_button_disconnected">@color/button_primary_background</color>
     <color name="connection_button_connecting">#FFB300</color>
     <color name="connection_button_active">#E53935</color>
 
