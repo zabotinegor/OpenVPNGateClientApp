@@ -67,7 +67,7 @@ class VpnManagerTest {
     }
 
     @Test
-    fun stopControllerIfIdle_skipsServiceStartWhenDisconnected() {
+    fun stopControllerIfIdle_startsServiceWhenDisconnected() {
         val app: Application = RuntimeEnvironment.getApplication()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
 
