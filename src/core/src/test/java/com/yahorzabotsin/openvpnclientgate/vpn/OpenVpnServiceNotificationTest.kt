@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import de.blinkt.openvpn.core.ConnectionStatus
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,7 +46,7 @@ class OpenVpnServiceNotificationTest {
     }
 
     @Test
-    fun syncStatusActionStopsServiceAfterOneShotWindow() {
+    fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
 
@@ -55,6 +56,8 @@ class OpenVpnServiceNotificationTest {
 
         service.onStartCommand(intent, 0, 1)
         Shadows.shadowOf(service.mainLooper).idleFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        Shadows.shadowOf(service.mainLooper).idleFor(13, java.util.concurrent.TimeUnit.SECONDS)
         assertTrue(shadowOf(service).isStoppedBySelf)
     }
 }

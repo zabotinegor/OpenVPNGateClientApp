@@ -52,6 +52,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private val urlRegex = Regex("\\bhttps?://\\S+\\b")
         private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
         private const val MAX_THROTTLE_KEY_LENGTH = 96
+        private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
+        private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
     }
 
     // Track engine binding for start/stop coordination
@@ -107,16 +109,28 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
+    private var oneShotSyncReceivedInitialState = false
     private val stopAfterOneShotSyncRunnable = Runnable {
         if (!oneShotSyncRequested) return@Runnable
+        if (!oneShotSyncReceivedInitialState) {
+            AppLog.d(TAG, "One-shot status sync pending; keep controller alive")
+            return@Runnable
+        }
         if (userInitiatedStart || userInitiatedStop) return@Runnable
         if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
             AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected")
             return@Runnable
         }
         oneShotSyncRequested = false
+        oneShotSyncReceivedInitialState = false
         AppLog.d(TAG, "One-shot status sync complete; stopping controller service")
         stopSelf()
+    }
+    private val oneShotSyncTimeoutRunnable = Runnable {
+        if (!oneShotSyncRequested || oneShotSyncReceivedInitialState) return@Runnable
+        AppLog.w(TAG, "One-shot sync timeout; stopping controller with current state")
+        oneShotSyncReceivedInitialState = true
+        scheduleOneShotStop(0L)
     }
 
     private fun totalServersStr(): String =
@@ -258,7 +272,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             VpnManager.ACTION_START -> {
                 AppLog.i(TAG, "ACTION_START")
                 oneShotSyncRequested = false
+                oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
@@ -304,7 +320,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
                 oneShotSyncRequested = false
+                oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
                     AppLog.d(TAG, "Preserving reconnect hint/state for retry stop")
@@ -333,9 +351,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             VpnManager.ACTION_SYNC_STATUS -> {
                 AppLog.d(TAG, "ACTION_SYNC_STATUS")
                 oneShotSyncRequested = true
+                oneShotSyncReceivedInitialState = false
+                statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 if (!boundToStatus) bindStatusService()
-                trySyncStatusSnapshot()
-                scheduleOneShotStop(3_000L)
+                val snapshotApplied = trySyncStatusSnapshot()
+                if (!snapshotApplied) {
+                    statusHandler.postDelayed(oneShotSyncTimeoutRunnable, ONE_SHOT_SYNC_TIMEOUT_MS)
+                }
             }
             else -> {
                 val action = intent?.getStringExtra(VpnManager.actionKey(this))
@@ -347,10 +370,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return START_NOT_STICKY
     }
 
-    private fun scheduleOneShotStop(delayMs: Long = 1_000L) {
+    private fun scheduleOneShotStop(delayMs: Long = ONE_SHOT_STOP_DELAY_MS) {
         if (!oneShotSyncRequested) return
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
         statusHandler.postDelayed(stopAfterOneShotSyncRunnable, delayMs)
+    }
+
+    private fun onOneShotInitialStateSynced(reason: String) {
+        if (!oneShotSyncRequested || oneShotSyncReceivedInitialState) return
+        oneShotSyncReceivedInitialState = true
+        statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+        AppLog.d(TAG, "One-shot initial state synced from $reason")
+        scheduleOneShotStop()
     }
 
     private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {
@@ -460,6 +491,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -576,7 +608,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             logEngineStateChange("AIDL", level, state)
             try {
                 syncEngineState(level, state, allowAutoSwitch = true)
-                scheduleOneShotStop()
+                onOneShotInitialStateSynced("AIDL callback")
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
@@ -781,8 +813,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return "$prefix:$suffix"
     }
 
-    private fun trySyncStatusSnapshot() {
-        val binder = statusBinder ?: return
+    private fun trySyncStatusSnapshot(): Boolean {
+        val binder = statusBinder ?: return false
         val snapshot = try {
             binder.lastStatusSnapshot
         } catch (e: RemoteException) {
@@ -791,9 +823,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             boundToStatus = false
             scheduleStatusRebind()
             null
-        } ?: return
+        } ?: return false
         updateStatusSource(StatusSource.AIDL, "AIDL snapshot")
         applyStatusSnapshot(snapshot)
+        return true
     }
 
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
@@ -819,7 +852,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
         syncEngineState(level, snapshot.state, allowAutoSwitch = false)
-        scheduleOneShotStop()
+        onOneShotInitialStateSynced("AIDL snapshot")
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {
                 ConnectionStateManager.syncConnectionStartTime(snapshot.connectedSinceMs)
