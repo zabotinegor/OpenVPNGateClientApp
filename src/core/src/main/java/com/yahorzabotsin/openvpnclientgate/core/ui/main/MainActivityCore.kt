@@ -149,6 +149,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun onStart() {
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
+        try {
+            VpnManager.syncStatus(this)
+        } catch (e: Exception) {
+            AppLog.w(tag, "Failed to trigger one-shot VPN status sync on start", e)
+        }
     }
 
     override fun onStop() {

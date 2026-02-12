@@ -4,13 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import androidx.core.content.ContextCompat
 
 object VpnManager {
 
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
     const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
+    const val ACTION_SYNC_STATUS = "sync_status"
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "VpnManager"
 
     fun extraConfigKey(context: Context) = "${context.packageName}.vpn.CONFIG"
@@ -33,7 +33,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_START)
             putExtra(extraAutoSwitchKey(context), isReconnect)
         }
-        ContextCompat.startForegroundService(context, intent)
+        context.startService(intent)
     }
 
     fun stopVpn(context: Context, preserveReconnectHint: Boolean = false) {
@@ -42,7 +42,7 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
-        ContextCompat.startForegroundService(context, intent)
+        context.startService(intent)
     }
 
     fun refreshNotification(context: Context) {
@@ -53,6 +53,14 @@ object VpnManager {
         }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
+        }
+        context.startService(intent)
+    }
+
+    fun syncStatus(context: Context) {
+        AppLog.d(TAG, "syncStatus")
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
+            putExtra(actionKey(context), ACTION_SYNC_STATUS)
         }
         context.startService(intent)
     }

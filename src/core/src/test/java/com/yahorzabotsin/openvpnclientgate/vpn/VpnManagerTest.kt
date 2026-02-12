@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -63,6 +64,30 @@ class VpnManagerTest {
         val hintKey = VpnManager.extraPreserveReconnectKey(app)
         assertEquals(VpnManager.ACTION_STOP, started.getStringExtra(actionKey))
         assertEquals(true, started.getBooleanExtra(hintKey, false))
+    }
+
+    @Test
+    fun refreshNotification_skipsServiceStartWhenDisconnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        VpnManager.refreshNotification(app)
+
+        val shadowApp = Shadows.shadowOf(app)
+        val started = shadowApp.nextStartedService
+        assertNull(started)
+    }
+
+    @Test
+    fun syncStatus_startsServiceWithSyncAction() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.syncStatus(app)
+
+        val shadowApp = Shadows.shadowOf(app)
+        val started: Intent = shadowApp.nextStartedService
+        val actionKey = VpnManager.actionKey(app)
+        assertEquals(VpnManager.ACTION_SYNC_STATUS, started.getStringExtra(actionKey))
     }
 }
 

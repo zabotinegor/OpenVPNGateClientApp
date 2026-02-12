@@ -1,15 +1,16 @@
 package com.yahorzabotsin.openvpnclientgate.vpn
 
+import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
-import android.os.Looper
 import de.blinkt.openvpn.core.ConnectionStatus
-import de.blinkt.openvpn.core.IStatusCallbacks
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.Shadows.shadowOf
 
@@ -17,55 +18,23 @@ import org.robolectric.Shadows.shadowOf
 class OpenVpnServiceNotificationTest {
 
     @Test
-    fun updateStateStopsForegroundWhenConnectedAndRestartsWhenDisconnected() {
+    fun updateStateDoesNotPostControllerForegroundNotification() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
-
-        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, Intent())
-        assertFalse(service.isForegroundStarted())
 
         service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, Intent())
-        assertTrue(service.isForegroundStarted())
+
+        assertTrue(shadowNotificationManager.allNotifications.isEmpty())
     }
 
     @Test
-    fun aidlStatusUpdatesToggleForegroundForDisconnectAndConnect() {
+    fun refreshNotificationActionStopsService() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
-        val callbacks = service.statusCallbacks()
-
-        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, Intent())
-        assertFalse(service.isForegroundStarted())
-
-        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, Intent())
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(service.isForegroundStarted())
-
-        callbacks.updateStateString("START", null, 0, ConnectionStatus.LEVEL_START, Intent())
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        assertFalse(service.isForegroundStarted())
-    }
-
-    @Test
-    fun actionStopUsesForegroundWhenNeeded() {
-        val controller = Robolectric.buildService(OpenVpnService::class.java)
-        val service = controller.create().get()
-
-        val intent = Intent().apply {
-            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP)
-        }
-
-        service.onStartCommand(intent, 0, 1)
-        assertTrue(service.isForegroundStarted())
-    }
-
-    @Test
-    fun refreshNotificationStopsServiceWhenNotForeground() {
-        val controller = Robolectric.buildService(OpenVpnService::class.java)
-        val service = controller.create().get()
-
-        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, Intent())
-        assertFalse(service.isForegroundStarted())
 
         val intent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_REFRESH_NOTIFICATION)
@@ -75,15 +44,17 @@ class OpenVpnServiceNotificationTest {
         assertTrue(shadowOf(service).isStoppedBySelf)
     }
 
-    private fun OpenVpnService.isForegroundStarted(): Boolean {
-        val field = OpenVpnService::class.java.getDeclaredField("foregroundStarted")
-        field.isAccessible = true
-        return field.getBoolean(this)
-    }
+    @Test
+    fun syncStatusActionStopsServiceAfterOneShotWindow() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
 
-    private fun OpenVpnService.statusCallbacks(): IStatusCallbacks {
-        val field = OpenVpnService::class.java.getDeclaredField("statusCallbacks")
-        field.isAccessible = true
-        return field.get(this) as IStatusCallbacks
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+
+        service.onStartCommand(intent, 0, 1)
+        Shadows.shadowOf(service.mainLooper).idleFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(shadowOf(service).isStoppedBySelf)
     }
 }
