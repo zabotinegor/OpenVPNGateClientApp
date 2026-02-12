@@ -1,0 +1,117 @@
+package com.yahorzabotsin.openvpnclientgate.core.logging
+
+import android.content.Context
+import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+class AppFileLogStore(
+    context: Context,
+    private val nowMsProvider: () -> Long = { System.currentTimeMillis() }
+) {
+    companion object {
+        const val RETENTION_DAYS = 5L
+    }
+
+    private val logDir = File(context.filesDir, "logs")
+    private val lock = Any()
+    private val lineFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private val fileDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+    private val fileNameRegex = Regex("^app_(\\d{4}-\\d{2}-\\d{2})\\.log$")
+
+    fun write(priority: Int, tag: String, message: String) {
+        synchronized(lock) {
+            runCatching {
+                if (!logDir.exists()) logDir.mkdirs()
+                cleanupOldLogsLocked()
+                val now = Instant.ofEpochMilli(nowMsProvider())
+                val zone = ZoneId.systemDefault()
+                val fileName = "app_${fileDateFormatter.format(now.atZone(zone).toLocalDate())}.log"
+                val target = File(logDir, fileName)
+                FileOutputStream(target, true).bufferedWriter(Charsets.UTF_8).use { writer ->
+                    val ts = lineFormatter.format(now.atZone(zone).toLocalDateTime())
+                    val level = when (priority) {
+                        Log.VERBOSE -> "V"
+                        Log.DEBUG -> "D"
+                        Log.INFO -> "I"
+                        Log.WARN -> "W"
+                        Log.ERROR -> "E"
+                        Log.ASSERT -> "A"
+                        else -> priority.toString()
+                    }
+                    message.lineSequence().forEach { line ->
+                        writer.append(ts)
+                        writer.append(' ')
+                        writer.append(level)
+                        writer.append(' ')
+                        writer.append(tag)
+                        writer.append(": ")
+                        writer.append(line)
+                        writer.newLine()
+                    }
+                }
+            }
+        }
+    }
+
+    fun appendLastDaysTo(target: File, days: Long = RETENTION_DAYS, nowMs: Long = nowMsProvider()): Boolean {
+        synchronized(lock) {
+            if (!logDir.exists()) return false
+            cleanupOldLogsLocked()
+            val zone = ZoneId.systemDefault()
+            val now = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+            val cutoffDate = now.minusDays(days)
+            val sourceFiles = logDir.listFiles()
+                ?.asSequence()
+                ?.filter { it.isFile }
+                ?.mapNotNull { file ->
+                    parseLogFileDate(file.name)?.let { date -> file to date }
+                }
+                ?.filter { (_, date) -> !date.isBefore(cutoffDate) }
+                ?.sortedBy { (_, date) -> date }
+                ?.map { (file, _) -> file }
+                ?.toList()
+                ?: emptyList()
+            if (sourceFiles.isEmpty()) return false
+
+            var appended = false
+            val targetDir = target.parentFile ?: return false
+            if (!targetDir.exists()) targetDir.mkdirs()
+            FileOutputStream(target, true).bufferedWriter(Charsets.UTF_8).use { writer ->
+                sourceFiles.forEach { source ->
+                    source.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                        lines.forEach { line ->
+                            writer.appendLine(line)
+                            appended = true
+                        }
+                    }
+                }
+            }
+            return appended
+        }
+    }
+
+    private fun cleanupOldLogsLocked() {
+        if (!logDir.exists()) return
+        val zone = ZoneId.systemDefault()
+        val nowDate = Instant.ofEpochMilli(nowMsProvider()).atZone(zone).toLocalDate()
+        val cutoffDate = nowDate.minusDays(RETENTION_DAYS)
+        logDir.listFiles()?.forEach { file ->
+            if (!file.isFile) return@forEach
+            val date = parseLogFileDate(file.name) ?: return@forEach
+            if (date.isBefore(cutoffDate)) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
+    private fun parseLogFileDate(fileName: String): LocalDate? {
+        val match = fileNameRegex.matchEntire(fileName) ?: return null
+        return runCatching { LocalDate.parse(match.groupValues[1], fileDateFormatter) }.getOrNull()
+    }
+}

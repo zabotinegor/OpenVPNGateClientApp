@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.about
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -85,6 +86,29 @@ class LogExportUseCaseTest {
         assertFalse(content.contains("old stack line"))
         assertTrue(content.contains("fresh"))
         assertTrue(content.contains("fresh stack line"))
+    }
+
+    @Test
+    fun exportUsesPersistentAppLogsWhenLogcatIsUnavailable() {
+        val now = Instant.parse("2026-02-10T12:00:00Z")
+        val nowMs = now.toEpochMilli()
+        File(context.cacheDir, "logs").deleteRecursively()
+        File(context.filesDir, "logs").deleteRecursively()
+
+        val appLogs = AppFileLogStore(context, nowMsProvider = { nowMs })
+        appLogs.write(android.util.Log.INFO, "OpenVPNGateApp:Test", "persistent line")
+
+        val useCase = LogExportUseCase(
+            context = context,
+            nowMsProvider = { nowMs },
+            processFactory = { FakeProcess("logcat: permission denied", 1) }
+        )
+
+        val result = runBlocking { useCase.export() }
+        assertTrue(result is LogExportResult.Success)
+        val zipFile = (result as LogExportResult.Success).file
+        val content = unzipSingleFile(zipFile)
+        assertTrue(content.contains("persistent line"))
     }
 
     private fun formatTs(instant: Instant): String =
