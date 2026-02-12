@@ -69,7 +69,7 @@ class SettingsViewModelTest {
         assertEquals(LanguageOption.POLISH, vm.state.value.language)
         assertEquals(LanguageOption.POLISH, repo.savedLanguage)
         assertEquals(
-            listOf(SettingsEffect.ApplyThemeAndLocale, SettingsEffect.RefreshNotification),
+            listOf(SettingsEffect.ApplyThemeAndLocale, SettingsEffect.StopControllerIfIdle),
             effects
         )
         job.cancel()

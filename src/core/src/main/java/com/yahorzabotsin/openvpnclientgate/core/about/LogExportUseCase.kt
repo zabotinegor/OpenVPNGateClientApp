@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.about
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,7 @@ class LogExportUseCase(
 
         val uid = context.applicationInfo.uid
         val tagPrefix = LogTags.APP
+        val appFileLogStore = AppFileLogStore(context, nowMsProvider)
         val attempts = listOf(
             LogcatAttempt(withSince = true, useUid = true),
             LogcatAttempt(withSince = true, useUid = false),
@@ -64,8 +66,14 @@ class LogExportUseCase(
             }
             failureReason = result.reason
         }
+        val hasAppFileLogs = runCatching {
+            appFileLogStore.appendLastDaysTo(logFile, LogExportRetention.RETENTION_DAYS, nowMs)
+        }.getOrElse { error ->
+            AppLog.w(TAG, "Failed to append persistent app logs", error)
+            false
+        }
 
-        val resultPath = if (ok && logFile.length() > 0) {
+        val resultPath = if ((ok || hasAppFileLogs) && logFile.length() > 0) {
             try {
                 ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
                     logFile.name.also { entryName ->
@@ -93,6 +101,9 @@ class LogExportUseCase(
         if (resultPath.isNotBlank()) {
             LogExportResult.Success(zipFile, resultPath)
         } else {
+            if (!ok && !hasAppFileLogs) {
+                failureReason = "no logs in last ${LogExportRetention.RETENTION_DAYS} days"
+            }
             LogExportResult.Failure(failureReason)
         }
     }
