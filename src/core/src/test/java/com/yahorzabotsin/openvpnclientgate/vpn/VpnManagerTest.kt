@@ -74,6 +74,19 @@ class VpnManagerTest {
         VpnManager.stopControllerIfIdle(app)
 
         val shadowApp = Shadows.shadowOf(app)
+        val started: Intent = shadowApp.nextStartedService
+        val actionKey = VpnManager.actionKey(app)
+        assertEquals(VpnManager.ACTION_STOP_IF_IDLE, started.getStringExtra(actionKey))
+    }
+
+    @Test
+    fun stopControllerIfIdle_skipsServiceStartWhenConnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        VpnManager.stopControllerIfIdle(app)
+
+        val shadowApp = Shadows.shadowOf(app)
         val started = shadowApp.nextStartedService
         assertNull(started)
     }

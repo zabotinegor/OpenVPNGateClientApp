@@ -324,6 +324,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP_IF_IDLE -> {
                 AppLog.d(TAG, "ACTION_STOP_IF_IDLE")
+                if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+                    AppLog.d(TAG, "Ignoring stop-if-idle while VPN is active")
+                    return START_NOT_STICKY
+                }
                 stopSelf()
             }
             VpnManager.ACTION_SYNC_STATUS -> {

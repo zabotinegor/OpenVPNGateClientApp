@@ -47,8 +47,8 @@ object VpnManager {
 
     fun stopControllerIfIdle(context: Context) {
         AppLog.d(TAG, "stopControllerIfIdle")
-        if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
-            AppLog.d(TAG, "skip stopControllerIfIdle: VPN is disconnected")
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            AppLog.d(TAG, "skip stopControllerIfIdle: VPN is active")
             return
         }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
