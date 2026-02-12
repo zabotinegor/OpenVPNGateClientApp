@@ -23,15 +23,17 @@ class AppFileLogStore(
     private val lineFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private val fileDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     private val fileNameRegex = Regex("^app_(\\d{4}-\\d{2}-\\d{2})\\.log$")
+    private var lastCleanupDate: LocalDate? = null
 
     fun write(priority: Int, tag: String, message: String) {
         synchronized(lock) {
             runCatching {
                 if (!logDir.exists()) logDir.mkdirs()
-                cleanupOldLogsLocked()
-                val now = Instant.ofEpochMilli(nowMsProvider())
                 val zone = ZoneId.systemDefault()
-                val fileName = "app_${fileDateFormatter.format(now.atZone(zone).toLocalDate())}.log"
+                val now = Instant.ofEpochMilli(nowMsProvider())
+                val currentDate = now.atZone(zone).toLocalDate()
+                ensureDailyCleanupLocked(currentDate)
+                val fileName = "app_${fileDateFormatter.format(currentDate)}.log"
                 val target = File(logDir, fileName)
                 FileOutputStream(target, true).bufferedWriter(Charsets.UTF_8).use { writer ->
                     val ts = lineFormatter.format(now.atZone(zone).toLocalDateTime())
@@ -62,9 +64,9 @@ class AppFileLogStore(
     fun appendLastDaysTo(target: File, days: Long = RETENTION_DAYS, nowMs: Long = nowMsProvider()): Boolean {
         synchronized(lock) {
             if (!logDir.exists()) return false
-            cleanupOldLogsLocked()
             val zone = ZoneId.systemDefault()
             val now = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+            ensureDailyCleanupLocked(now)
             val cutoffDate = now.minusDays(days)
             val sourceFiles = logDir.listFiles()
                 ?.asSequence()
@@ -96,10 +98,14 @@ class AppFileLogStore(
         }
     }
 
-    private fun cleanupOldLogsLocked() {
+    private fun ensureDailyCleanupLocked(nowDate: LocalDate) {
+        if (lastCleanupDate == nowDate) return
+        cleanupOldLogsLocked(nowDate)
+        lastCleanupDate = nowDate
+    }
+
+    private fun cleanupOldLogsLocked(nowDate: LocalDate) {
         if (!logDir.exists()) return
-        val zone = ZoneId.systemDefault()
-        val nowDate = Instant.ofEpochMilli(nowMsProvider()).atZone(zone).toLocalDate()
         val cutoffDate = nowDate.minusDays(RETENTION_DAYS)
         logDir.listFiles()?.forEach { file ->
             if (!file.isFile) return@forEach
