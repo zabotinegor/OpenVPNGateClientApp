@@ -132,7 +132,14 @@ object ServerAutoSwitcher {
         pendingTitle = title
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)
-        try { VpnManager.stopVpn(appContext, preserveReconnectHint = true) } catch (e: Exception) { AppLog.w(TAG, "Failed to request engine stop for chained switch", e) }
+        try {
+            val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
+            if (!dispatched) {
+                AppLog.w(TAG, "Controller stop dispatch rejected for chained switch")
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to request engine stop for chained switch", e)
+        }
     }
 
     private fun start(appContext: Context, level: ConnectionStatus) {
@@ -240,7 +247,10 @@ object ServerAutoSwitcher {
                 pendingTitle = title
                 waitingStopForRetry = true
                 scheduleStopRetryTimeout(appContext)
-                VpnManager.stopVpn(appContext, preserveReconnectHint = true)
+                val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
+                if (!dispatched) {
+                    AppLog.w(TAG, "Controller stop dispatch rejected before retry")
+                }
             } catch (e: Exception) { AppLog.w(TAG, "Failed to request engine stop before retry", e) }
             return
         }

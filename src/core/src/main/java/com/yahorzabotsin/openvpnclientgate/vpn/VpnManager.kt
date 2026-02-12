@@ -20,7 +20,7 @@ object VpnManager {
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
-    fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false) {
+    fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
         AppLog.d(TAG, "startVpn")
         val decodedConfig = try {
             String(Base64.decode(base64Config, Base64.DEFAULT))
@@ -33,36 +33,52 @@ object VpnManager {
             putExtra(actionKey(context), ACTION_START)
             putExtra(extraAutoSwitchKey(context), isReconnect)
         }
-        context.startService(intent)
+        return startControllerService(context, intent, ACTION_START)
     }
 
-    fun stopVpn(context: Context, preserveReconnectHint: Boolean = false) {
+    fun stopVpn(context: Context, preserveReconnectHint: Boolean = false): Boolean {
         AppLog.d(TAG, "stopVpn")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_STOP)
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
-        context.startService(intent)
+        return startControllerService(context, intent, ACTION_STOP)
     }
 
-    fun stopControllerIfIdle(context: Context) {
+    fun stopControllerIfIdle(context: Context): Boolean {
         AppLog.d(TAG, "stopControllerIfIdle")
         if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
             AppLog.d(TAG, "skip stopControllerIfIdle: VPN is active")
-            return
+            return false
         }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_STOP_IF_IDLE)
         }
-        context.startService(intent)
+        return startControllerService(context, intent, ACTION_STOP_IF_IDLE)
     }
 
-    fun syncStatus(context: Context) {
+    fun syncStatus(context: Context): Boolean {
         AppLog.d(TAG, "syncStatus")
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(actionKey(context), ACTION_SYNC_STATUS)
         }
-        context.startService(intent)
+        return startControllerService(context, intent, ACTION_SYNC_STATUS)
+    }
+
+    private fun startControllerService(context: Context, intent: Intent, action: String): Boolean {
+        return try {
+            context.startService(intent)
+            true
+        } catch (e: IllegalStateException) {
+            AppLog.w(TAG, "Failed to start controller service for action=$action", e)
+            false
+        } catch (e: SecurityException) {
+            AppLog.w(TAG, "Security error while starting controller for action=$action", e)
+            false
+        } catch (e: RuntimeException) {
+            AppLog.w(TAG, "Runtime error while starting controller for action=$action", e)
+            false
+        }
     }
 }
 

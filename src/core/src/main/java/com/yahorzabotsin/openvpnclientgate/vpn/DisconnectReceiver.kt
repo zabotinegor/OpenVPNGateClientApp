@@ -13,9 +13,20 @@ class DisconnectReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         Thread {
             try {
-                VpnManager.stopVpn(context.applicationContext)
+                val dispatched = VpnManager.stopVpn(context.applicationContext)
+                if (!dispatched) {
+                    AppLog.w(TAG, "Controller stop dispatch rejected; launching DisconnectVPN fallback")
+                    try {
+                        context.startActivity(Intent().apply {
+                            setClassName(context.applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    } catch (activityError: Exception) {
+                        AppLog.w(TAG, "Failed to launch DisconnectVPN fallback activity", activityError)
+                    }
+                }
             } catch (e: Exception) {
-                AppLog.w(TAG, "Failed to stop VPN via controller service; launching DisconnectVPN", e)
+                AppLog.w(TAG, "Unexpected stop path error; launching DisconnectVPN", e)
                 try {
                     context.startActivity(Intent().apply {
                         setClassName(context.applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
