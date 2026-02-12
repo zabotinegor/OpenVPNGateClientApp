@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.logging
 
 import android.content.Context
 import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.about.LogExportRetention
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
@@ -15,7 +16,6 @@ class AppFileLogStore(
     private val nowMsProvider: () -> Long = { System.currentTimeMillis() }
 ) {
     companion object {
-        const val RETENTION_DAYS = 5L
         private const val TAG = "AppFileLogStore"
     }
 
@@ -64,7 +64,7 @@ class AppFileLogStore(
         }
     }
 
-    fun appendLastDaysTo(target: File, days: Long = RETENTION_DAYS, nowMs: Long = nowMsProvider()): Boolean {
+    fun appendLastDaysTo(target: File, days: Long = LogExportRetention.RETENTION_DAYS, nowMs: Long = nowMsProvider()): Boolean {
         synchronized(lock) {
             if (!logDir.exists()) return false
             val zone = ZoneId.systemDefault()
@@ -109,7 +109,7 @@ class AppFileLogStore(
 
     private fun cleanupOldLogsLocked(nowDate: LocalDate) {
         if (!logDir.exists()) return
-        val cutoffDate = nowDate.minusDays(RETENTION_DAYS)
+        val cutoffDate = nowDate.minusDays(LogExportRetention.RETENTION_DAYS)
         logDir.listFiles()?.forEach { file ->
             if (!file.isFile) return@forEach
             val date = parseLogFileDate(file.name) ?: return@forEach
