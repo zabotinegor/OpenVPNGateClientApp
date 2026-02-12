@@ -65,7 +65,7 @@ class SettingsViewModel(
         logger.logLanguageChanged(current.language, option)
         emitEffects(
             SettingsEffect.ApplyThemeAndLocale,
-            SettingsEffect.RefreshNotification
+            SettingsEffect.StopControllerIfIdle
         )
     }
 

@@ -309,7 +309,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun handleEffect(effect: SettingsEffect) {
         when (effect) {
             SettingsEffect.ApplyThemeAndLocale -> UserSettingsStore.applyThemeAndLocale(this)
-            SettingsEffect.RefreshNotification -> VpnManager.stopControllerIfIdle(this)
+            SettingsEffect.StopControllerIfIdle -> VpnManager.stopControllerIfIdle(this)
         }
     }
 
