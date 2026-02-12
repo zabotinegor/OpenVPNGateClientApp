@@ -16,6 +16,7 @@ class AppFileLogStore(
 ) {
     companion object {
         const val RETENTION_DAYS = 5L
+        private const val TAG = "AppFileLogStore"
     }
 
     private val logDir = File(context.filesDir, "logs")
@@ -57,6 +58,8 @@ class AppFileLogStore(
                         writer.newLine()
                     }
                 }
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to write app log", error)
             }
         }
     }
