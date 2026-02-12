@@ -48,11 +48,12 @@ class AppReleaseTree(
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
         val resolvedTag = resolvedTag(tag)
         val fullMessage = fullMessage(message, t)
+        val redactedMessage = redactSensitiveUrls(fullMessage)
         if (priority >= Log.INFO) {
-            persistentLogStore?.write(priority, resolvedTag, redactSensitiveUrls(fullMessage))
+            persistentLogStore?.write(priority, resolvedTag, redactedMessage)
         }
         if (priority == Log.DEBUG || priority == Log.VERBOSE) return
-        Log.println(priority, resolvedTag, fullMessage)
+        Log.println(priority, resolvedTag, redactedMessage)
     }
 }
 
