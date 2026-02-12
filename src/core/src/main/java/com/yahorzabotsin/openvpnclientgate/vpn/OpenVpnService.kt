@@ -322,8 +322,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     requestStopIcsOpenVpn()
                 }
             }
-            VpnManager.ACTION_REFRESH_NOTIFICATION -> {
-                AppLog.d(TAG, "ACTION_REFRESH_NOTIFICATION")
+            VpnManager.ACTION_STOP_IF_IDLE -> {
+                AppLog.d(TAG, "ACTION_STOP_IF_IDLE")
                 stopSelf()
             }
             VpnManager.ACTION_SYNC_STATUS -> {

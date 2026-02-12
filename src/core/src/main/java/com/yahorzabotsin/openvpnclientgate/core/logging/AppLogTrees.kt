@@ -3,8 +3,8 @@ package com.yahorzabotsin.openvpnclientgate.core.logging
 import android.util.Log
 import timber.log.Timber
 
-private abstract class BaseAppTree(
-    protected val fileLogStore: AppFileLogStore?
+abstract class BaseAppTree(
+    protected val persistentLogStore: AppFileLogStore?
 ) : Timber.Tree() {
     protected fun resolvedTag(tag: String?): String = tag ?: LogTags.APP
 
@@ -13,23 +13,23 @@ private abstract class BaseAppTree(
 }
 
 class AppDebugTree(
-    private val fileLogStore: AppFileLogStore? = null
+    fileLogStore: AppFileLogStore? = null
 ) : BaseAppTree(fileLogStore) {
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
         val resolvedTag = resolvedTag(tag)
         val fullMessage = fullMessage(message, t)
         Log.println(priority, resolvedTag, fullMessage)
-        fileLogStore?.write(priority, resolvedTag, fullMessage)
+        persistentLogStore?.write(priority, resolvedTag, fullMessage)
     }
 }
 
 class AppReleaseTree(
-    private val fileLogStore: AppFileLogStore? = null
+    fileLogStore: AppFileLogStore? = null
 ) : BaseAppTree(fileLogStore) {
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
         val resolvedTag = resolvedTag(tag)
         val fullMessage = fullMessage(message, t)
-        fileLogStore?.write(priority, resolvedTag, fullMessage)
+        persistentLogStore?.write(priority, resolvedTag, fullMessage)
         if (priority == Log.DEBUG || priority == Log.VERBOSE) return
         Log.println(priority, resolvedTag, fullMessage)
     }

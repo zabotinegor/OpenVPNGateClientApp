@@ -9,7 +9,7 @@ object VpnManager {
 
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
-    const val ACTION_REFRESH_NOTIFICATION = "refresh_notification"
+    const val ACTION_STOP_IF_IDLE = "stop_if_idle"
     const val ACTION_SYNC_STATUS = "sync_status"
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "VpnManager"
 
@@ -45,14 +45,14 @@ object VpnManager {
         context.startService(intent)
     }
 
-    fun refreshNotification(context: Context) {
-        AppLog.d(TAG, "refreshNotification")
+    fun stopControllerIfIdle(context: Context) {
+        AppLog.d(TAG, "stopControllerIfIdle")
         if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
-            AppLog.d(TAG, "skip refreshNotification: VPN is disconnected")
+            AppLog.d(TAG, "skip stopControllerIfIdle: VPN is disconnected")
             return
         }
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
-            putExtra(actionKey(context), ACTION_REFRESH_NOTIFICATION)
+            putExtra(actionKey(context), ACTION_STOP_IF_IDLE)
         }
         context.startService(intent)
     }

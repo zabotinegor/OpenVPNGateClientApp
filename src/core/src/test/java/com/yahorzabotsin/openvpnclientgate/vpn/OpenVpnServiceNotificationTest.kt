@@ -32,12 +32,12 @@ class OpenVpnServiceNotificationTest {
     }
 
     @Test
-    fun refreshNotificationActionStopsService() {
+    fun stopIfIdleActionStopsService() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
 
         val intent = Intent().apply {
-            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_REFRESH_NOTIFICATION)
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP_IF_IDLE)
         }
 
         service.onStartCommand(intent, 0, 1)

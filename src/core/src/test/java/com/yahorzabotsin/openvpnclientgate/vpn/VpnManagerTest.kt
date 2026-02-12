@@ -67,11 +67,11 @@ class VpnManagerTest {
     }
 
     @Test
-    fun refreshNotification_skipsServiceStartWhenDisconnected() {
+    fun stopControllerIfIdle_skipsServiceStartWhenDisconnected() {
         val app: Application = RuntimeEnvironment.getApplication()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
 
-        VpnManager.refreshNotification(app)
+        VpnManager.stopControllerIfIdle(app)
 
         val shadowApp = Shadows.shadowOf(app)
         val started = shadowApp.nextStartedService
