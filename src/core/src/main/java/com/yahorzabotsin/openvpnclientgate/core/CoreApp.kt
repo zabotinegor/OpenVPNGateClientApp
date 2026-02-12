@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.app.Application
 import com.yahorzabotsin.openvpnclientgate.core.di.coreModule
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppDebugTree
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppReleaseTree
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -38,7 +39,8 @@ class CoreApp : Application() {
 
     private fun initLogging() {
         if (Timber.forest().isNotEmpty()) return
-        val tree = if (BuildConfig.DEBUG) AppDebugTree() else AppReleaseTree()
+        val fileLogStore = AppFileLogStore(this)
+        val tree = if (BuildConfig.DEBUG) AppDebugTree(fileLogStore) else AppReleaseTree(fileLogStore)
         Timber.plant(tree)
     }
 

@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: release-build-number
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build and Release
@@ -54,15 +58,16 @@ jobs:
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
             echo "==> Base on latest stable tag ${STABLE_TAG}; next version ${VERSION}."
           fi
-          RUN_BASE=${GITHUB_RUN_NUMBER:-1}
-          VERSION_CODE_MOBILE=$((RUN_BASE * 2 - 1))
-          VERSION_CODE_TV=$((RUN_BASE * 2))
-          TAG="v${VERSION}-auto(${RUN_BASE})"
+          LAST_USED_BUILD=$(git tag --list | sed -nE 's/.*-auto\(([0-9]+)\)$/\1/p' | sort -n | tail -n 1)
+          LAST_USED_BUILD=${LAST_USED_BUILD:-0}
+          VERSION_CODE_MOBILE=$((LAST_USED_BUILD + 1))
+          VERSION_CODE_TV=$((LAST_USED_BUILD + 2))
+          TAG="v${VERSION}-auto(${VERSION_CODE_TV})"
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "==> App version: $VERSION"
           echo "==> Git tag: $TAG"
           echo "==> App versionCode: mobile=${VERSION_CODE_MOBILE} tv=${VERSION_CODE_TV}"
-          echo "==> Build number: ${RUN_BASE}"
+          echo "==> Last used build number: ${LAST_USED_BUILD}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version_code_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT

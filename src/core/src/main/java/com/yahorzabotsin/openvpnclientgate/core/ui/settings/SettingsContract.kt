@@ -29,5 +29,5 @@ sealed interface SettingsAction {
 
 sealed interface SettingsEffect {
     data object ApplyThemeAndLocale : SettingsEffect
-    data object RefreshNotification : SettingsEffect
+    data object StopControllerIfIdle : SettingsEffect
 }

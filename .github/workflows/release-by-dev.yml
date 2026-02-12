@@ -8,6 +8,10 @@ on:
       - 'src/**'
   workflow_dispatch:
 
+concurrency:
+  group: release-build-number
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build and Release
@@ -70,10 +74,11 @@ jobs:
           fi
           echo "==> Next beta number: $BETA_NUM"
 
-          RUN_BASE=${GITHUB_RUN_NUMBER:-1}
-          VERSION_CODE_MOBILE=$((RUN_BASE * 2 - 1))
-          VERSION_CODE_TV=$((RUN_BASE * 2))
-          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto(${RUN_BASE})"
+          LAST_USED_BUILD=$(git tag --list | sed -nE 's/.*-auto\(([0-9]+)\)$/\1/p' | sort -n | tail -n 1)
+          LAST_USED_BUILD=${LAST_USED_BUILD:-0}
+          VERSION_CODE_MOBILE=$((LAST_USED_BUILD + 1))
+          VERSION_CODE_TV=$((LAST_USED_BUILD + 2))
+          FINAL_TAG="v${VERSION}-beta.${BETA_NUM}-auto(${VERSION_CODE_TV})"
           APP_VERSION="${VERSION}-beta.${BETA_NUM}"
 
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
