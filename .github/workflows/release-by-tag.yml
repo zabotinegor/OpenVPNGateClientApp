@@ -18,6 +18,7 @@ jobs:
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
       VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
       VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
+      RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON: '["ru","pl"]'
 
     if: "!contains(github.ref_name, '-auto')" # Ignore tags created by other workflows
 
@@ -168,6 +169,7 @@ jobs:
           prerelease: false
 
       - name: Push mobile version release
+        id: push_mobile_version_release
         shell: bash
         run: |
           set -euo pipefail
@@ -219,6 +221,8 @@ jobs:
           if [[ "$create_status" == "409" ]]; then
             echo "::warning::Mobile version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
             cat "$create_response"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "version_id=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -227,3 +231,43 @@ jobs:
             cat "$create_response"
             exit 1
           fi
+
+          VERSION_ID=$(jq -r '.data.id // empty' "$create_response")
+          if [[ -z "$VERSION_ID" ]]; then
+            echo "::error::Version created but response does not contain data.id"
+            cat "$create_response"
+            exit 1
+          fi
+
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Auto-translate mobile release notes
+        if: steps.push_mobile_version_release.outputs.created == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_BASE="${VERSIONS_API_BASE_URL%/}"
+          VERSION_ID="${{ steps.push_mobile_version_release.outputs.version_id }}"
+          SOURCE_LOCALE="en"
+
+          mapfile -t TARGET_LANGUAGES < <(jq -r '.[]' <<< '${{ env.RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON }}')
+          if [[ ${#TARGET_LANGUAGES[@]} -eq 0 ]]; then
+            echo "::warning::No auto-translate target languages configured."
+            exit 0
+          fi
+
+          for language_code in "${TARGET_LANGUAGES[@]}"; do
+            echo "Auto-translating release notes to '${language_code}' for versionId=${VERSION_ID}"
+            translate_response=$(mktemp)
+            translate_status=$(curl -sS -o "$translate_response" -w "%{http_code}" \
+              -X POST "${API_BASE}/api/v1/versions/${VERSION_ID}/localizations/${language_code}/auto-translate?sourceLocale=${SOURCE_LOCALE}" \
+              -H "X-API-Key: ${VERSIONS_API_KEY}")
+
+            if [[ "$translate_status" != "200" ]]; then
+              echo "::error::Auto-translate failed for '${language_code}'. HTTP ${translate_status}"
+              cat "$translate_response"
+              exit 1
+            fi
+          done
