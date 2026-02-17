@@ -51,7 +51,7 @@ object ConnectionStateManager {
         val allowed = when (current) {
             ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
             ConnectionState.CONNECTING -> setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
-            ConnectionState.CONNECTED -> setOf(ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+            ConnectionState.CONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
             ConnectionState.DISCONNECTING -> setOf(ConnectionState.DISCONNECTED)
         }
 

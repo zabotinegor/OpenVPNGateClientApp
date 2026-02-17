@@ -45,6 +45,20 @@ class ConnectionStateManagerTest {
     }
 
     @Test
+    fun reconnectHintMovesConnectedToConnectingOnEngineDisconnect() {
+        // Given VPN is shown as connected and reconnect flow is active
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.setReconnectingHint(true)
+
+        // When engine reports not connected while reconnecting
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, "NOPROCESS")
+
+        // Then UI must leave CONNECTED and show CONNECTING
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
     fun keepsDisconnectingDuringEngineExit() {
         // Given user initiated a stop (drive valid transitions)
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
