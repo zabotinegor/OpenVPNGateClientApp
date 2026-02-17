@@ -5,6 +5,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 data class MainUiState(
     val isDetailsVisible: Boolean = true,
     val selectedServer: MainSelectedServer? = null,
+    val whatsNew: MainWhatsNew? = null,
     val reopenDrawerAfterReturn: Boolean = false,
     val selectionVersion: Long = 0L,
     val pendingUserSelectionOverride: Boolean = false
@@ -17,6 +18,13 @@ data class MainSelectedServer(
     val ip: String?,
     val fromUserSelection: Boolean,
     val version: Long
+)
+
+data class MainWhatsNew(
+    val versionNumber: String,
+    val name: String,
+    val changelog: String,
+    val changelogHtml: String
 )
 
 sealed interface MainAction {
@@ -45,6 +53,7 @@ sealed interface MainDestination {
     data object Filter : MainDestination
     data object Settings : MainDestination
     data object About : MainDestination
+    data class WhatsNew(val data: MainWhatsNew) : MainDestination
 }
 
 sealed interface MainEffect {

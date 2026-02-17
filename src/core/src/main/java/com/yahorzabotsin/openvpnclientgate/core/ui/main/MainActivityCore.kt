@@ -29,6 +29,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionC
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsUseCase
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ConnectionControlsView
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.WebViewActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.filter.FilterActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
@@ -90,6 +91,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private val filterActivityLauncher = createDrawerReopeningLauncher()
     private val settingsActivityLauncher = createDrawerReopeningLauncher()
     private val aboutActivityLauncher = createDrawerReopeningLauncher()
+    private val whatsNewActivityLauncher = createDrawerReopeningLauncher()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -221,6 +223,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             binding.connectionDetails.detailsContainer?.visibility =
                 if (state.isDetailsVisible) View.VISIBLE else View.GONE
         }
+        binding.navView.menu.findItem(R.id.nav_whats_new)?.isVisible = state.whatsNew != null
         applySelectedServerIfNeeded(state.selectedServer)
     }
 
@@ -270,6 +273,13 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             MainDestination.Filter -> filterActivityLauncher.launch(Intent(this, FilterActivity::class.java))
             MainDestination.Settings -> settingsActivityLauncher.launch(Intent(this, SettingsActivity::class.java))
             MainDestination.About -> aboutActivityLauncher.launch(Intent(this, AboutActivity::class.java))
+            is MainDestination.WhatsNew -> {
+                val intent = Intent(this, WebViewActivity::class.java).apply {
+                    putExtra(WebViewActivity.EXTRA_TITLE, getString(R.string.menu_whats_new))
+                    putExtra(WebViewActivity.EXTRA_HTML, destination.data.changelogHtml)
+                }
+                whatsNewActivityLauncher.launch(intent)
+            }
         }
     }
 
