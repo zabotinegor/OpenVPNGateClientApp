@@ -138,13 +138,24 @@ class DefaultVersionReleaseRepository(
         val uri = runCatching { Uri.parse(sourceUrl) }.getOrNull() ?: return null
         val scheme = uri.scheme ?: return null
         val authority = uri.encodedAuthority ?: return null
+        val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
         val encodedVersion = Uri.encode(versionName)
         val localeQuery = locale
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.let { "?locale=${Uri.encode(it)}" }
             .orEmpty()
-        return "$scheme://$authority/api/v1/versions/number/$encodedVersion/build/$buildNumber$localeQuery"
+        return "$scheme://$authority$basePathPrefix/api/v1/versions/number/$encodedVersion/build/$buildNumber$localeQuery"
+    }
+
+    private fun extractApiBasePathPrefix(encodedPath: String): String {
+        val marker = "/api/v1/"
+        val markerIndex = encodedPath.indexOf(marker)
+        if (markerIndex <= 0) return ""
+
+        val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
+        if (prefix.isBlank()) return ""
+        return if (prefix.startsWith('/')) prefix else "/$prefix"
     }
 
     private fun resolvePreferredLocale(language: LanguageOption): String =

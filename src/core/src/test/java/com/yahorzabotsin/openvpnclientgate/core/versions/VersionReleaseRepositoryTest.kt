@@ -203,6 +203,28 @@ class VersionReleaseRepositoryTest {
         assertFalse(api.requestedUrls.none { it.contains("locale=pl") })
     }
 
+    @Test
+    fun `getLatestRelease keeps custom base path when building versions url`() = runTest {
+        val api = CapturingVersionsApi()
+        val repository = DefaultVersionReleaseRepository(context, api)
+
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api.example.com/custom/root/api/v1/servers/active"
+            )
+        )
+
+        repository.getLatestRelease()
+
+        assertEquals(
+            "https://api.example.com/custom/root/api/v1/versions/number/1.2.3/build/42?locale=en",
+            api.requestedUrl
+        )
+    }
+
     private fun setPackageInfo(versionName: String, buildNumber: Long) {
         val packageInfo = PackageInfo().apply {
             packageName = context.packageName
