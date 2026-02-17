@@ -12,6 +12,9 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class VersionReleaseCacheStoreTest {
+    private companion object {
+        const val ENTRY_TTL_MS = 1_000L
+    }
 
     private lateinit var context: Context
 
@@ -42,7 +45,8 @@ class VersionReleaseCacheStoreTest {
             versionName = "1.2.3",
             buildNumber = 42L,
             locale = "en-US",
-            sourceKey = "sourceA"
+            sourceKey = "sourceA",
+            cacheTtlMs = ENTRY_TTL_MS
         )
 
         assertNotNull(cached)
@@ -74,7 +78,8 @@ class VersionReleaseCacheStoreTest {
             buildNumber = 42L,
             locale = "pl",
             sourceKey = "sourceA",
-            nowEpochMs = 1_000L + VersionReleaseCacheStore.FALLBACK_LOCALE_TTL_MS - 1L
+            nowEpochMs = 1_000L + VersionReleaseCacheStore.FALLBACK_LOCALE_TTL_MS - 1L,
+            cacheTtlMs = Long.MAX_VALUE
         )
 
         assertNotNull(cached)
@@ -104,7 +109,67 @@ class VersionReleaseCacheStoreTest {
             buildNumber = 42L,
             locale = "pl",
             sourceKey = "sourceA",
-            nowEpochMs = 1_000L + VersionReleaseCacheStore.FALLBACK_LOCALE_TTL_MS + 1L
+            nowEpochMs = 1_000L + VersionReleaseCacheStore.FALLBACK_LOCALE_TTL_MS + 1L,
+            cacheTtlMs = Long.MAX_VALUE
+        )
+
+        assertNull(cached)
+    }
+
+    @Test
+    fun `get keeps exact locale cache within entry ttl`() {
+        VersionReleaseCacheStore.put(
+            context = context,
+            versionName = "1.2.3",
+            buildNumber = 42L,
+            locale = "en",
+            sourceKey = "sourceA",
+            value = LatestReleaseInfo(
+                versionNumber = "1.2.3",
+                name = "Release",
+                changelog = "## Added"
+            ),
+            nowEpochMs = 1_000L
+        )
+
+        val cached = VersionReleaseCacheStore.get(
+            context = context,
+            versionName = "1.2.3",
+            buildNumber = 42L,
+            locale = "en",
+            sourceKey = "sourceA",
+            nowEpochMs = 1_999L,
+            cacheTtlMs = ENTRY_TTL_MS
+        )
+
+        assertNotNull(cached)
+        assertEquals("Release", cached?.value?.name)
+    }
+
+    @Test
+    fun `get drops exact locale cache after entry ttl`() {
+        VersionReleaseCacheStore.put(
+            context = context,
+            versionName = "1.2.3",
+            buildNumber = 42L,
+            locale = "en",
+            sourceKey = "sourceA",
+            value = LatestReleaseInfo(
+                versionNumber = "1.2.3",
+                name = "Release",
+                changelog = "## Added"
+            ),
+            nowEpochMs = 1_000L
+        )
+
+        val cached = VersionReleaseCacheStore.get(
+            context = context,
+            versionName = "1.2.3",
+            buildNumber = 42L,
+            locale = "en",
+            sourceKey = "sourceA",
+            nowEpochMs = 2_001L,
+            cacheTtlMs = ENTRY_TTL_MS
         )
 
         assertNull(cached)
