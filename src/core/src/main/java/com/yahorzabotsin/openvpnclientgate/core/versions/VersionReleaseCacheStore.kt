@@ -37,32 +37,26 @@ object VersionReleaseCacheStore {
     ): CacheLookup? {
         val normalizedLocale = normalizeLocale(locale)
         val exact = prefs(context).getString(composeKey(versionName, buildNumber, normalizedLocale, sourceKey), null)
-        if (!exact.isNullOrBlank()) {
-            return parse(exact)?.takeUnless {
-                isExpiredFallback(it, requestedLocale = normalizedLocale, nowEpochMs = nowEpochMs, fallbackLocaleTtlMs = fallbackLocaleTtlMs)
-            }?.let {
-                CacheLookup(
-                    value = it.value,
-                    matchedLocale = normalizedLocale,
-                    matchedByFallback = false
-                )
-            }
-        }
+        resolveLookup(
+            raw = exact,
+            matchedLocale = normalizedLocale,
+            matchedByFallback = false,
+            requestedLocale = normalizedLocale,
+            nowEpochMs = nowEpochMs,
+            fallbackLocaleTtlMs = fallbackLocaleTtlMs
+        )?.let { return it }
 
         val baseLocale = toBaseLocale(normalizedLocale)
         if (baseLocale != null && !baseLocale.equals(normalizedLocale, ignoreCase = true)) {
             val base = prefs(context).getString(composeKey(versionName, buildNumber, baseLocale, sourceKey), null)
-            if (!base.isNullOrBlank()) {
-                return parse(base)?.takeUnless {
-                    isExpiredFallback(it, requestedLocale = normalizedLocale, nowEpochMs = nowEpochMs, fallbackLocaleTtlMs = fallbackLocaleTtlMs)
-                }?.let {
-                    CacheLookup(
-                        value = it.value,
-                        matchedLocale = baseLocale,
-                        matchedByFallback = true
-                    )
-                }
-            }
+            resolveLookup(
+                raw = base,
+                matchedLocale = baseLocale,
+                matchedByFallback = true,
+                requestedLocale = normalizedLocale,
+                nowEpochMs = nowEpochMs,
+                fallbackLocaleTtlMs = fallbackLocaleTtlMs
+            )?.let { return it }
         }
 
         return null
@@ -117,6 +111,31 @@ object VersionReleaseCacheStore {
             ),
             cachedAtMs = cachedAtMs
         )
+    }
+
+    private fun resolveLookup(
+        raw: String?,
+        matchedLocale: String,
+        matchedByFallback: Boolean,
+        requestedLocale: String,
+        nowEpochMs: Long,
+        fallbackLocaleTtlMs: Long
+    ): CacheLookup? {
+        if (raw.isNullOrBlank()) return null
+        return parse(raw)?.takeUnless {
+            isExpiredFallback(
+                it,
+                requestedLocale = requestedLocale,
+                nowEpochMs = nowEpochMs,
+                fallbackLocaleTtlMs = fallbackLocaleTtlMs
+            )
+        }?.let {
+            CacheLookup(
+                value = it.value,
+                matchedLocale = matchedLocale,
+                matchedByFallback = matchedByFallback
+            )
+        }
     }
 
     private fun isExpiredFallback(
