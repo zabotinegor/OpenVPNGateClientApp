@@ -64,7 +64,8 @@ class DefaultVersionReleaseRepository(
             versionName = currentVersion.versionName,
             buildNumber = currentVersion.buildNumber,
             locale = preferredLocale,
-            sourceKey = sourceKey
+            sourceKey = sourceKey,
+            cacheTtlMs = settings.cacheTtlMs
         )?.let { cached ->
             AppLog.i(
                 tag,
