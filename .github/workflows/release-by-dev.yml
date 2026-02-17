@@ -216,6 +216,8 @@ jobs:
       - name: Push mobile version release
         id: push_mobile_version_release
         shell: bash
+        env:
+          LAST_COMMIT_MESSAGE: ${{ steps.versioning.outputs.last_commit }}
         run: |
           set -euo pipefail
 
@@ -228,7 +230,7 @@ jobs:
           VERSION_NUMBER="${{ steps.versioning.outputs.app_version }}"
           BUILD_NUMBER="${{ steps.versioning.outputs.build_number_mobile }}"
           RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
-          CHANGELOG="${{ steps.versioning.outputs.last_commit }}"
+          CHANGELOG="${LAST_COMMIT_MESSAGE}"
           RELEASE_TYPE=1
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
@@ -336,6 +338,8 @@ jobs:
       - name: Push tv version release
         id: push_tv_version_release
         shell: bash
+        env:
+          LAST_COMMIT_MESSAGE: ${{ steps.versioning.outputs.last_commit }}
         run: |
           set -euo pipefail
 
@@ -348,7 +352,7 @@ jobs:
           VERSION_NUMBER="${{ steps.versioning.outputs.app_version }}"
           BUILD_NUMBER="${{ steps.versioning.outputs.build_number_tv }}"
           RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
-          CHANGELOG="${{ steps.versioning.outputs.last_commit }}"
+          CHANGELOG="${LAST_COMMIT_MESSAGE}"
           RELEASE_TYPE=1
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"

@@ -33,6 +33,7 @@ object VersionReleaseCacheStore {
         locale: String,
         sourceKey: String,
         nowEpochMs: Long = System.currentTimeMillis(),
+        cacheTtlMs: Long,
         fallbackLocaleTtlMs: Long = FALLBACK_LOCALE_TTL_MS
     ): CacheLookup? {
         val normalizedLocale = normalizeLocale(locale)
@@ -43,6 +44,7 @@ object VersionReleaseCacheStore {
             matchedByFallback = false,
             requestedLocale = normalizedLocale,
             nowEpochMs = nowEpochMs,
+            cacheTtlMs = cacheTtlMs,
             fallbackLocaleTtlMs = fallbackLocaleTtlMs
         )?.let { return it }
 
@@ -55,6 +57,7 @@ object VersionReleaseCacheStore {
                 matchedByFallback = true,
                 requestedLocale = normalizedLocale,
                 nowEpochMs = nowEpochMs,
+                cacheTtlMs = cacheTtlMs,
                 fallbackLocaleTtlMs = fallbackLocaleTtlMs
             )?.let { return it }
         }
@@ -119,11 +122,16 @@ object VersionReleaseCacheStore {
         matchedByFallback: Boolean,
         requestedLocale: String,
         nowEpochMs: Long,
+        cacheTtlMs: Long,
         fallbackLocaleTtlMs: Long
     ): CacheLookup? {
         if (raw.isNullOrBlank()) return null
         return parse(raw)?.takeUnless {
-            isExpiredFallback(
+            isExpiredByTtl(
+                entry = it,
+                nowEpochMs = nowEpochMs,
+                cacheTtlMs = cacheTtlMs
+            ) || isExpiredFallback(
                 it,
                 requestedLocale = requestedLocale,
                 nowEpochMs = nowEpochMs,
@@ -136,6 +144,16 @@ object VersionReleaseCacheStore {
                 matchedByFallback = matchedByFallback
             )
         }
+    }
+
+    private fun isExpiredByTtl(
+        entry: CacheEntry,
+        nowEpochMs: Long,
+        cacheTtlMs: Long
+    ): Boolean {
+        if (cacheTtlMs <= 0L) return false
+        if (entry.cachedAtMs <= 0L) return false
+        return nowEpochMs - entry.cachedAtMs > cacheTtlMs
     }
 
     private fun isExpiredFallback(
