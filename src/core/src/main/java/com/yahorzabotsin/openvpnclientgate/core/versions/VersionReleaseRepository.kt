@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.versions
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.content.pm.PackageInfoCompat
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -128,12 +129,7 @@ class DefaultVersionReleaseRepository(
             return null
         }
         val versionName = pInfo.versionName ?: ""
-        val buildNumber = if (android.os.Build.VERSION.SDK_INT >= 28) {
-            pInfo.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            pInfo.versionCode.toLong()
-        }
+        val buildNumber = PackageInfoCompat.getLongVersionCode(pInfo)
         return CurrentAppVersion(versionName = versionName, buildNumber = buildNumber)
     }
 
