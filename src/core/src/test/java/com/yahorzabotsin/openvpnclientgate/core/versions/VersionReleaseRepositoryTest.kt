@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.versions
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
@@ -14,6 +15,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -223,6 +225,29 @@ class VersionReleaseRepositoryTest {
             "https://api.example.com/custom/root/api/v1/versions/number/1.2.3/build/42?locale=en",
             api.requestedUrl
         )
+    }
+
+    @Test
+    fun `getLatestRelease returns null when package info is unavailable`() = runTest {
+        val api = CapturingVersionsApi()
+        val unknownPackageContext = object : ContextWrapper(context) {
+            override fun getPackageName(): String = "com.yahorzabotsin.openvpnclientgate.missing"
+        }
+        val repository = DefaultVersionReleaseRepository(unknownPackageContext, api)
+
+        UserSettingsStore.save(
+            unknownPackageContext,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api.example.com/api/v1/servers/active"
+            )
+        )
+
+        val result = repository.getLatestRelease()
+
+        assertNull(result)
+        assertEquals(0, api.callCount)
     }
 
     private fun setPackageInfo(versionName: String, buildNumber: Long) {

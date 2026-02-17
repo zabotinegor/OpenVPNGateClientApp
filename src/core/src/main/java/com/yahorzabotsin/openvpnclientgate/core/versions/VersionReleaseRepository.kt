@@ -40,7 +40,10 @@ class DefaultVersionReleaseRepository(
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "VersionReleaseRepository"
 
     override suspend fun getLatestRelease(): LatestReleaseInfo? = withContext(Dispatchers.IO) {
-        val currentVersion = getCurrentAppVersion()
+        val currentVersion = getCurrentAppVersion() ?: run {
+            AppLog.w(tag, "Unable to resolve current app version/build")
+            return@withContext null
+        }
         if (currentVersion.versionName.isBlank() || currentVersion.buildNumber <= 0L) {
             AppLog.w(tag, "Invalid current app version/build: ${currentVersion.versionName}/${currentVersion.buildNumber}")
             return@withContext null
@@ -117,8 +120,13 @@ class DefaultVersionReleaseRepository(
         val buildNumber: Long
     )
 
-    private fun getCurrentAppVersion(): CurrentAppVersion {
-        val pInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+    private fun getCurrentAppVersion(): CurrentAppVersion? {
+        val pInfo = runCatching {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+        }.getOrElse {
+            AppLog.w(tag, "Failed to read package info for ${appContext.packageName}", it)
+            return null
+        }
         val versionName = pInfo.versionName ?: ""
         val buildNumber = if (android.os.Build.VERSION.SDK_INT >= 28) {
             pInfo.longVersionCode
