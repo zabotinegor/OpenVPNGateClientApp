@@ -7,7 +7,6 @@ object MarkdownRenderer {
     private val parser: Parser = Parser.builder().build()
     private val renderer: HtmlRenderer = HtmlRenderer.builder()
         .escapeHtml(true)
-        .softbreak("<br />\n")
         .build()
 
     fun renderDocument(markdown: String): String {
