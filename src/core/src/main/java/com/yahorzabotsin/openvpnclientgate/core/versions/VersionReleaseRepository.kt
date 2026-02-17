@@ -176,8 +176,10 @@ class DefaultVersionReleaseRepository(
 
     private fun sourceKey(urls: List<String>): String {
         val joined = urls.joinToString("|")
-        val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
-        return digest.joinToString("") { "%02x".format(it) }
+        return runCatching {
+            val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
+            digest.joinToString("") { "%02x".format(it) }
+        }.getOrDefault(joined)
     }
 
     private fun parseVersionByNumberAndBuild(rawJson: String): LatestReleaseInfo? {
