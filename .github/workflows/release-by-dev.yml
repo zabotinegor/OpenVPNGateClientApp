@@ -19,6 +19,8 @@ jobs:
     env:
       ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+      VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
+      VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
 
     steps:
       - name: Checkout code
@@ -207,3 +209,64 @@ jobs:
             output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_mobile }}.aab
             output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.app_version }}_build${{ steps.versioning.outputs.build_number_tv }}.aab
           generateReleaseNotes: true
+
+      - name: Push mobile version release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VERSIONS_API_BASE_URL:-}" || -z "${VERSIONS_API_KEY:-}" ]]; then
+            echo "::error::VERSIONS_API_BASE_URL (repo variable) and VERSIONS_API_KEY (repo secret) must be configured."
+            exit 1
+          fi
+
+          API_BASE="${VERSIONS_API_BASE_URL%/}"
+          VERSION_NUMBER="${{ steps.versioning.outputs.app_version }}"
+          BUILD_NUMBER="${{ steps.versioning.outputs.build_number_mobile }}"
+          RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
+          CHANGELOG="${{ steps.versioning.outputs.last_commit }}"
+          RELEASE_TYPE=1
+          ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
+          ASSET_MOBILE_AAB="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
+          RELEASE_TITLE="Beta Release mobile v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
+
+          payload=$(jq -n \
+            --arg versionNumber "$VERSION_NUMBER" \
+            --argjson buildNumber "$BUILD_NUMBER" \
+            --arg name "$RELEASE_TITLE" \
+            --argjson releaseType "$RELEASE_TYPE" \
+            --arg changelog "$CHANGELOG" \
+            --arg assetBaseUrl "$ASSET_BASE_URL" \
+            --arg apkName "$ASSET_MOBILE_APK" \
+            --arg aabName "$ASSET_MOBILE_AAB" \
+            '{
+              versionNumber:$versionNumber,
+              buildNumber:$buildNumber,
+              name:$name,
+              releaseType:$releaseType,
+              changelog:$changelog,
+              assets:[
+                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:0},
+                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:0}
+              ]
+            }')
+
+          create_response=$(mktemp)
+          create_status=$(curl -sS -o "$create_response" -w "%{http_code}" \
+            -X POST "${API_BASE}/api/v1/versions" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${VERSIONS_API_KEY}" \
+            --data "$payload")
+
+          if [[ "$create_status" == "409" ]]; then
+            echo "::warning::Mobile version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
+            cat "$create_response"
+            exit 0
+          fi
+
+          if [[ "$create_status" != "200" ]]; then
+            echo "::error::Failed to push mobile version. HTTP ${create_status}"
+            cat "$create_response"
+            exit 1
+          fi
