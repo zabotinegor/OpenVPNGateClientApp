@@ -188,7 +188,19 @@ jobs:
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
           ASSET_MOBILE_AAB="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
+          ASSET_MOBILE_APK_PATH="output/${ASSET_MOBILE_APK}"
+          ASSET_MOBILE_AAB_PATH="output/${ASSET_MOBILE_AAB}"
           RELEASE_TITLE="Release mobile v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
+
+          if [[ ! -f "$ASSET_MOBILE_APK_PATH" || ! -f "$ASSET_MOBILE_AAB_PATH" ]]; then
+            echo "::error::Mobile artifacts not found: $ASSET_MOBILE_APK_PATH or $ASSET_MOBILE_AAB_PATH"
+            exit 1
+          fi
+
+          APK_SIZE=$(stat -c%s "$ASSET_MOBILE_APK_PATH")
+          AAB_SIZE=$(stat -c%s "$ASSET_MOBILE_AAB_PATH")
+          APK_HASH=$(sha256sum "$ASSET_MOBILE_APK_PATH" | awk '{print $1}')
+          AAB_HASH=$(sha256sum "$ASSET_MOBILE_AAB_PATH" | awk '{print $1}')
 
           payload=$(jq -n \
             --arg versionNumber "$VERSION_NUMBER" \
@@ -199,6 +211,10 @@ jobs:
             --arg assetBaseUrl "$ASSET_BASE_URL" \
             --arg apkName "$ASSET_MOBILE_APK" \
             --arg aabName "$ASSET_MOBILE_AAB" \
+            --arg apkHash "$APK_HASH" \
+            --arg aabHash "$AAB_HASH" \
+            --argjson apkSize "$APK_SIZE" \
+            --argjson aabSize "$AAB_SIZE" \
             '{
               versionNumber:$versionNumber,
               buildNumber:$buildNumber,
@@ -206,8 +222,8 @@ jobs:
               releaseType:$releaseType,
               changelog:$changelog,
               assets:[
-                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:0},
-                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:0}
+                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:$apkSize,contentHash:$apkHash},
+                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:$aabSize,contentHash:$aabHash}
               ]
             }')
 
@@ -292,7 +308,19 @@ jobs:
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
           ASSET_TV_AAB="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
+          ASSET_TV_APK_PATH="output/${ASSET_TV_APK}"
+          ASSET_TV_AAB_PATH="output/${ASSET_TV_AAB}"
           RELEASE_TITLE="Release tv v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
+
+          if [[ ! -f "$ASSET_TV_APK_PATH" || ! -f "$ASSET_TV_AAB_PATH" ]]; then
+            echo "::error::TV artifacts not found: $ASSET_TV_APK_PATH or $ASSET_TV_AAB_PATH"
+            exit 1
+          fi
+
+          APK_SIZE=$(stat -c%s "$ASSET_TV_APK_PATH")
+          AAB_SIZE=$(stat -c%s "$ASSET_TV_AAB_PATH")
+          APK_HASH=$(sha256sum "$ASSET_TV_APK_PATH" | awk '{print $1}')
+          AAB_HASH=$(sha256sum "$ASSET_TV_AAB_PATH" | awk '{print $1}')
 
           payload=$(jq -n \
             --arg versionNumber "$VERSION_NUMBER" \
@@ -303,6 +331,10 @@ jobs:
             --arg assetBaseUrl "$ASSET_BASE_URL" \
             --arg apkName "$ASSET_TV_APK" \
             --arg aabName "$ASSET_TV_AAB" \
+            --arg apkHash "$APK_HASH" \
+            --arg aabHash "$AAB_HASH" \
+            --argjson apkSize "$APK_SIZE" \
+            --argjson aabSize "$AAB_SIZE" \
             '{
               versionNumber:$versionNumber,
               buildNumber:$buildNumber,
@@ -310,8 +342,8 @@ jobs:
               releaseType:$releaseType,
               changelog:$changelog,
               assets:[
-                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:0},
-                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:0}
+                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:$apkSize,contentHash:$apkHash},
+                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:$aabSize,contentHash:$aabHash}
               ]
             }')
 
