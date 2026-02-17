@@ -15,6 +15,7 @@
     <string name="menu_rate">Оценить</string>
     <string name="menu_about">О приложении</string>
     <string name="menu_settings">Настройки</string>
+    <string name="menu_whats_new">Что нового</string>
 
     <!-- Section: Server screen -->
     <string name="server_list_title">Список серверов</string>

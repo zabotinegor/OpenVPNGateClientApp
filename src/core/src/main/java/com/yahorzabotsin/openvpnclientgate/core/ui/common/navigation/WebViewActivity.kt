@@ -17,6 +17,8 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentWebviewBindin
 class WebViewActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_URL = "extra_url"
+        const val EXTRA_HTML = "extra_html"
+        const val EXTRA_TITLE = "extra_title"
     }
 
     private lateinit var templateBinding: ActivityTemplateBinding
@@ -27,6 +29,20 @@ class WebViewActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         templateBinding = TemplatePage.create(this, R.string.web_title, null)
         bindingContent = ContentWebviewBinding.inflate(layoutInflater, templateBinding.contentContainer, true)
+        val title = intent.getStringExtra(EXTRA_TITLE)
+        if (!title.isNullOrBlank()) {
+            templateBinding.toolbarTitle.text = title
+        }
+
+        val rawHtml = intent.getStringExtra(EXTRA_HTML)
+        if (!rawHtml.isNullOrBlank()) {
+            val wv = bindingContent.webview
+            configureWebView(wv, enableJavaScript = false)
+            wv.webViewClient = createSafeWebViewClient()
+            wv.loadDataWithBaseURL(null, rawHtml, "text/html", "utf-8", null)
+            return
+        }
+
         val rawUrl = intent.getStringExtra(EXTRA_URL) ?: return finish()
         val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return finish()
         val scheme = uri.scheme?.lowercase() ?: return finish()
@@ -39,8 +55,14 @@ class WebViewActivity : AppCompatActivity() {
         }
 
         val wv = bindingContent.webview
-        wv.settings.apply {
-            javaScriptEnabled = true
+        configureWebView(wv, enableJavaScript = true)
+        wv.webViewClient = createSafeWebViewClient()
+        wv.loadUrl(url)
+    }
+
+    private fun configureWebView(webView: WebView, enableJavaScript: Boolean) {
+        webView.settings.apply {
+            javaScriptEnabled = enableJavaScript
             domStorageEnabled = true
             cacheMode = WebSettings.LOAD_DEFAULT
             builtInZoomControls = true
@@ -48,15 +70,20 @@ class WebViewActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             loadsImagesAutomatically = true
-            blockNetworkImage = false
             allowFileAccess = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            val isTv = (getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION)
-            if (isTv) {
-                userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+            if (enableJavaScript) {
+                blockNetworkImage = false
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                val isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+                if (isTv) {
+                    userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+                }
             }
         }
-        wv.webViewClient = object : WebViewClient() {
+    }
+
+    private fun createSafeWebViewClient(): WebViewClient =
+        object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
                 val scheme = uri.scheme
@@ -70,7 +97,16 @@ class WebViewActivity : AppCompatActivity() {
                 }
             }
         }
-        wv.loadUrl(url)
+
+    override fun onDestroy() {
+        if (::bindingContent.isInitialized) {
+            bindingContent.webview.apply {
+                stopLoading()
+                webViewClient = WebViewClient()
+                destroy()
+            }
+        }
+        super.onDestroy()
     }
 }
 

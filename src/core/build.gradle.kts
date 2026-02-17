@@ -102,6 +102,7 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.timber)
+    implementation(libs.commonmark)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.koin.test)

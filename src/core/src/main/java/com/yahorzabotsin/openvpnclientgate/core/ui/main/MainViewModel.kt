@@ -3,9 +3,11 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +16,7 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
+    private val versionReleaseInteractor: VersionReleaseInteractor,
     private val connectionInteractor: MainConnectionInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: MainLogger
@@ -40,6 +43,7 @@ class MainViewModel(
     }
 
     private fun loadInitialSelection() {
+        loadWhatsNew()
         viewModelScope.launch {
             try {
                 val cacheOnly = connectionStateProvider.isConnected()
@@ -53,7 +57,32 @@ class MainViewModel(
                     fromUserSelection = false
                 )
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 logger.logInitialSelectionError(e)
+            }
+        }
+    }
+
+    private fun loadWhatsNew() {
+        viewModelScope.launch {
+            try {
+                val latestRelease = versionReleaseInteractor.loadLatestRelease()
+                if (latestRelease == null) {
+                    logger.logWhatsNewUnavailable()
+                    return@launch
+                }
+
+                val whatsNew = MainWhatsNew(
+                    versionNumber = latestRelease.versionNumber,
+                    name = latestRelease.name,
+                    changelog = latestRelease.changelog,
+                    changelogHtml = MarkdownRenderer.renderDocument(latestRelease.changelog)
+                )
+                logger.logWhatsNewLoaded(whatsNew)
+                _state.value = _state.value.copy(whatsNew = whatsNew)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                logger.logWhatsNewLoadError(e)
             }
         }
     }
@@ -96,6 +125,12 @@ class MainViewModel(
                 R.id.nav_filter -> _effects.send(MainEffect.OpenDestination(MainDestination.Filter))
                 R.id.nav_settings -> _effects.send(MainEffect.OpenDestination(MainDestination.Settings))
                 R.id.nav_about -> _effects.send(MainEffect.OpenDestination(MainDestination.About))
+                R.id.nav_whats_new -> {
+                    val whatsNew = _state.value.whatsNew
+                    if (whatsNew != null) {
+                        _effects.send(MainEffect.OpenDestination(MainDestination.WhatsNew(whatsNew)))
+                    }
+                }
                 else -> _effects.send(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))
             }
             _effects.send(MainEffect.CloseDrawer)

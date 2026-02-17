@@ -50,6 +50,11 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainSelectionInte
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultVersionReleaseInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.VersionReleaseInteractor
+import com.yahorzabotsin.openvpnclientgate.core.versions.DefaultVersionReleaseRepository
+import com.yahorzabotsin.openvpnclientgate.core.versions.VersionReleaseRepository
+import com.yahorzabotsin.openvpnclientgate.core.versions.VersionsApi
 import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
@@ -79,10 +84,15 @@ val coreModule = module {
     single<VpnServersApi> {
         get<Retrofit>().create(VpnServersApi::class.java)
     }
+    single<VersionsApi> {
+        get<Retrofit>().create(VersionsApi::class.java)
+    }
 
     single<SettingsRepository> { DefaultSettingsRepository(androidContext()) }
     single<DnsSettingsRepository> { DefaultDnsSettingsRepository(androidContext()) }
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
+    single<VersionReleaseRepository> { DefaultVersionReleaseRepository(androidContext(), get()) }
+    single<VersionReleaseInteractor> { DefaultVersionReleaseInteractor(get()) }
 
     single { ServerRepository(get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
@@ -112,5 +122,5 @@ val coreModule = module {
     single { ConnectionControlsUseCase() }
     single<ConnectionControlsRuntime> { DefaultConnectionControlsRuntime() }
     single<ConnectionControlsSelectionStore> { DefaultConnectionControlsSelectionStore() }
-    viewModel { MainViewModel(get(), get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
 }

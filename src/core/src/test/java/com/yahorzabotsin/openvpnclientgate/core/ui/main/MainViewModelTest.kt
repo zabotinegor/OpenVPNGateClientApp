@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.versions.LatestReleaseInfo
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -40,6 +41,7 @@ class MainViewModelTest {
         )
         val viewModel = MainViewModel(
             selectionInteractor = interactor,
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
@@ -59,6 +61,7 @@ class MainViewModelTest {
     fun `server menu and successful selection reopens drawer and applies user config`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
@@ -94,6 +97,7 @@ class MainViewModelTest {
     fun `connection click without selected server emits toast effect`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
             logger = FakeMainLogger()
@@ -120,6 +124,7 @@ class MainViewModelTest {
     fun `multi window mode updates details visibility in state`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
             logger = FakeMainLogger()
@@ -146,6 +151,7 @@ class MainViewModelTest {
                     ip = "1.2.3.4"
                 )
             ),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
             logger = FakeMainLogger()
@@ -171,6 +177,65 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `load initial selection also loads whats new state when api has data`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(
+                latest = LatestReleaseInfo(
+                    versionNumber = "1.2.3",
+                    name = "Release 1.2.3",
+                    changelog = "## Added\n- item"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeMainLogger()
+        )
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        assertEquals("1.2.3", viewModel.state.value.whatsNew?.versionNumber)
+    }
+
+    @Test
+    fun `whats new menu emits destination effect when data is loaded`() = runTest {
+        val viewModel = MainViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(
+                latest = LatestReleaseInfo(
+                    versionNumber = "1.2.3",
+                    name = "Release 1.2.3",
+                    changelog = "## Added\n- item"
+                )
+            ),
+            connectionInteractor = FakeMainConnectionInteractor(),
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeMainLogger()
+        )
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(2).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.NavigationItemSelected(R.id.nav_whats_new))
+        advanceUntilIdle()
+
+        assertTrue(
+            effects.any {
+                it is MainEffect.OpenDestination &&
+                    it.destination is MainDestination.WhatsNew &&
+                    (it.destination as MainDestination.WhatsNew).data.versionNumber == "1.2.3"
+            }
+        )
+        assertTrue(effects.any { it is MainEffect.CloseDrawer })
+        job.cancel()
+    }
+
+    @Test
     fun `selection with same config but different ip emits stop when connected`() = runTest {
         val viewModel = MainViewModel(
             selectionInteractor = FakeMainSelectionInteractor(
@@ -182,6 +247,7 @@ class MainViewModelTest {
                     ip = "1.1.1.1"
                 )
             ),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
@@ -224,6 +290,7 @@ class MainViewModelTest {
                     ip = "1.1.1.1"
                 )
             ),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
@@ -260,6 +327,7 @@ class MainViewModelTest {
                     ip = "1.1.1.1"
                 )
             ),
+            versionReleaseInteractor = FakeVersionReleaseInteractor(),
             connectionInteractor = FakeMainConnectionInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
             logger = FakeMainLogger()
@@ -306,6 +374,12 @@ class MainViewModelTest {
         override fun isConnected(): Boolean = stateFlow.value == ConnectionState.CONNECTED
     }
 
+    private class FakeVersionReleaseInteractor(
+        private val latest: LatestReleaseInfo? = null
+    ) : VersionReleaseInteractor {
+        override suspend fun loadLatestRelease(): LatestReleaseInfo? = latest
+    }
+
     private class FakeMainConnectionInteractor : MainConnectionInteractor {
         override fun prepareStart(
             selectedServer: MainSelectedServer?,
@@ -339,6 +413,9 @@ class MainViewModelTest {
     private class FakeMainLogger : MainLogger {
         override fun logInitialSelectionLoaded(selection: InitialSelection) = Unit
         override fun logInitialSelectionError(error: Exception) = Unit
+        override fun logWhatsNewLoaded(release: MainWhatsNew) = Unit
+        override fun logWhatsNewUnavailable() = Unit
+        override fun logWhatsNewLoadError(error: Exception) = Unit
         override fun logServerSelectionApplied(selection: SelectedServerResult) = Unit
         override fun logIncompleteServerSelection(selection: SelectedServerResult) = Unit
     }
