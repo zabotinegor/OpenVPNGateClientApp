@@ -5,6 +5,7 @@ import android.net.Uri
 import android.app.UiModeManager
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -101,6 +102,7 @@ class WebViewActivity : AppCompatActivity() {
     override fun onDestroy() {
         if (::bindingContent.isInitialized) {
             bindingContent.webview.apply {
+                (parent as? ViewGroup)?.removeView(this)
                 stopLoading()
                 webViewClient = WebViewClient()
                 destroy()
