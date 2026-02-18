@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.IOException
+import java.net.UnknownHostException
 
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
@@ -353,6 +354,57 @@ class ServerRepositoryTest {
 
         // Both URLs attempted
         assertEquals(2, api.callCount)
+    }
+
+    @Test
+    fun uses_last_cache_key_when_current_urls_have_no_cache_and_dns_fails() = runBlocking {
+        val initial = makeServer("cached-by-default")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", first.single().name)
+        assertEquals(1, api.callCount)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://invalid-host-for-test.example/servers.csv"
+            )
+        )
+
+        val failingApi = SequenceApi(
+            listOf({ throw UnknownHostException("dns failed for custom host") })
+        )
+        val repoWithFailingApi = ServerRepository(failingApi, UserSettingsStore)
+
+        val loaded = repoWithFailingApi.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", loaded.single().name)
+        assertEquals(1, failingApi.callCount)
+    }
+
+    @Test
+    fun cache_only_uses_last_cache_key_when_current_key_missing() = runBlocking {
+        val initial = makeServer("cached-by-default")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", first.single().name)
+        assertEquals(1, api.callCount)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://another-invalid-host.example/servers.csv"
+            )
+        )
+
+        val cacheOnly = repo.getServers(context, cacheOnly = true)
+        assertEquals("cached-by-default", cacheOnly.single().name)
+        assertEquals(1, api.callCount)
     }
 }
 
