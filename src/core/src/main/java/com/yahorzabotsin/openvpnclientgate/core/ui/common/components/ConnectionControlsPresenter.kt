@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import android.content.Context
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import de.blinkt.openvpn.core.ConnectionStatus
 import java.util.Locale
 
@@ -33,29 +34,23 @@ class ConnectionControlsPresenter(
     fun buildStatusText(
         state: ConnectionState,
         engineLevel: ConnectionStatus?,
-        detail: String?,
         remainingSeconds: Int?
     ): String {
-        return when (state) {
-            ConnectionState.CONNECTING -> {
-                val showGenericConnecting = engineLevel == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                    isGenericConnectingDetail(detail)
-                val connectingText = engineDetailToText(
-                    if (showGenericConnecting) "CONNECTING" else detail
-                ).toString()
-                val showCountdown = engineLevel == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
-                    engineLevel == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
-                if (remainingSeconds != null && showCountdown) {
-                    val suffix = runCatching { context.getString(R.string.state_countdown_seconds, remainingSeconds) }
-                        .getOrDefault("")
-                    "${useCase.trimEllipsis(connectingText)}$suffix"
-                } else {
-                    connectingText
-                }
-            }
-            ConnectionState.DISCONNECTED -> context.getString(R.string.main_status_disconnected)
-            ConnectionState.CONNECTED -> context.getString(R.string.main_status_connected)
-            ConnectionState.DISCONNECTING -> context.getString(R.string.main_status_disconnecting)
+        val statusRes = when (state) {
+            ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
+            ConnectionState.CONNECTING -> R.string.main_status_connecting
+            ConnectionState.CONNECTED -> R.string.main_status_connected
+            ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
+        }
+        val baseStatus = context.getString(statusRes)
+        val showCountdown = engineLevel == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
+            engineLevel == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+        return if (state == ConnectionState.CONNECTING && remainingSeconds != null && showCountdown) {
+            val suffix = runCatching { context.getString(R.string.state_countdown_seconds, remainingSeconds) }
+                .getOrDefault("")
+            "${useCase.trimEllipsis(baseStatus)}$suffix"
+        } else {
+            baseStatus
         }
     }
 
@@ -184,6 +179,6 @@ class ConnectionControlsPresenter(
     }
 
     private fun isTeardownDetail(detail: String?): Boolean {
-        return detail == "NOPROCESS" || detail == "EXITING" || detail == "DISCONNECTED"
+        return detail != null && detail in ConnectionStateManager.engineTeardownDetails
     }
 }

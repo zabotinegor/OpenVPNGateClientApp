@@ -216,7 +216,6 @@ class ConnectionControlsView @JvmOverloads constructor(
         val statusText = presenter.buildStatusText(
             state = state,
             engineLevel = runtime.engineLevel.value,
-            detail = runtime.engineDetail.value,
             remainingSeconds = runtime.remainingSeconds.value
         )
         connectionDetailsListener?.updateStatus(statusText)

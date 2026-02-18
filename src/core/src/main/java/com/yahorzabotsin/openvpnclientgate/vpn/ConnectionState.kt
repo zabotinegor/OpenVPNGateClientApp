@@ -20,7 +20,7 @@ object ConnectionStateManager {
     private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
     private val allowedFromConnected = setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
     private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
-    private val engineTeardownDetails = setOf("NOPROCESS", "EXITING")
+    internal val engineTeardownDetails = setOf("NOPROCESS", "EXITING", "DISCONNECTED")
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
