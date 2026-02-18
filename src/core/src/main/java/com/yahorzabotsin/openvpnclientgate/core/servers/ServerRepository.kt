@@ -161,7 +161,9 @@ class ServerRepository(
             }
 
             val fallbackCache = cached?.let { CacheEntry(cacheKey, it.first, it.second) } ?: lastCached
-            val result = parsedResponse ?: fallbackCache?.file?.let { parseServers(it) } ?: throw (lastError ?: IOException("No server response"))
+            val fallbackServers = fallbackCache?.file?.let { parseServers(it) }
+            val result = parsedResponse ?: fallbackServers
+                ?: throw (lastError ?: IOException("No server response"))
             if (response == null && fallbackCache != null) {
                 AppLog.w(TAG, "Network failed; using stale cache. age=${now - fallbackCache.ts} ms, cache_key=${fallbackCache.key.take(8)}")
             }
