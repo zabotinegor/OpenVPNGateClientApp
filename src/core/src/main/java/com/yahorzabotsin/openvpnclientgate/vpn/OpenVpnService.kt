@@ -206,6 +206,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun shouldUseVpnStatus(): Boolean = !isAidlFresh()
+
+    private fun shouldSupplementAidlWithVpnStatus(level: ConnectionStatus): Boolean {
+        if (!isAidlFresh()) return false
+        if (ConnectionStateManager.state.value != ConnectionState.CONNECTING) return false
+        return level == ConnectionStatus.LEVEL_START ||
+            level == ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET ||
+            level == ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED ||
+            level == ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT
+    }
     private fun bindStatusService() {
         try {
             val statusIntent = Intent().apply { setClassName(applicationContext, "de.blinkt.openvpn.core.OpenVPNStatusService") }
@@ -518,6 +527,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
             logEngineStateChange("VPN_STATUS", level, state)
+            if (shouldSupplementAidlWithVpnStatus(level)) {
+                syncEngineState(level, state, allowAutoSwitch = false)
+            }
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
