@@ -29,6 +29,7 @@ class ConnectionControlsPresenter(
 ) {
 
     private val durationPlaceholder = "00:00:00"
+    private val connectingFallbackDetails = setOf<String?>(null, "NOPROCESS", "EXITING", "DISCONNECTED")
 
     fun buildStatusText(
         state: ConnectionState,
@@ -38,7 +39,7 @@ class ConnectionControlsPresenter(
     ): String {
         if (state == ConnectionState.CONNECTING) {
             val showGenericConnecting = engineLevel == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                detail in setOf(null, "NOPROCESS", "EXITING")
+                detail in connectingFallbackDetails
             val connectingText = engineDetailToText(
                 if (showGenericConnecting) "CONNECTING" else detail
             ).toString()
@@ -77,12 +78,12 @@ class ConnectionControlsPresenter(
 
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                    detail in setOf("NOPROCESS", "EXITING"))
+                    detail in setOf("NOPROCESS", "EXITING", "DISCONNECTED"))
                 val text = if (reconnectingHint && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                        detail in setOf(null, "NOPROCESS", "EXITING"))
+                        detail in connectingFallbackDetails)
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
                 ConnectionButtonModel(text = text, style = ConnectionButtonStyle.CONNECTING)
