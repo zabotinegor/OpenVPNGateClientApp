@@ -59,6 +59,15 @@ class ConnectionStateManagerTest {
     }
 
     @Test
+    fun allowsStopWhileConnecting() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
     fun keepsDisconnectingDuringEngineExit() {
         // Given user initiated a stop (drive valid transitions)
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
