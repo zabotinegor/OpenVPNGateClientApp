@@ -16,6 +16,11 @@ enum class ConnectionState {
 
 object ConnectionStateManager {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionState"
+    private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
+    private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
+    private val allowedFromConnected = setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+    private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
+    private val engineTeardownDetails = setOf("NOPROCESS", "EXITING")
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
@@ -49,10 +54,10 @@ object ConnectionStateManager {
         if (current == newState) return
 
         val allowed = when (current) {
-            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
-            ConnectionState.CONNECTING -> setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
-            ConnectionState.CONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
-            ConnectionState.DISCONNECTING -> setOf(ConnectionState.DISCONNECTED)
+            ConnectionState.DISCONNECTED -> allowedFromDisconnected
+            ConnectionState.CONNECTING -> allowedFromConnecting
+            ConnectionState.CONNECTED -> allowedFromConnected
+            ConnectionState.DISCONNECTING -> allowedFromDisconnecting
         }
 
         if (newState in allowed) {
@@ -114,8 +119,8 @@ object ConnectionStateManager {
         if (mapped == ConnectionState.DISCONNECTED) {
             effective = when {
                 _reconnectingHint.value -> ConnectionState.CONNECTING
-                current == ConnectionState.CONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.CONNECTING
-                current == ConnectionState.DISCONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.DISCONNECTING
+                current == ConnectionState.CONNECTING && d in engineTeardownDetails -> ConnectionState.CONNECTING
+                current == ConnectionState.DISCONNECTING && d in engineTeardownDetails -> ConnectionState.DISCONNECTING
                 else -> mapped
             }
         }
