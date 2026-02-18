@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import android.content.Context
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import de.blinkt.openvpn.core.ConnectionStatus
 import java.util.Locale
 
@@ -68,12 +69,12 @@ class ConnectionControlsPresenter(
 
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                    detail in setOf("NOPROCESS", "EXITING"))
+                    isTeardownDetail(detail))
                 val text = if (reconnectingHint && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                        detail in setOf(null, "NOPROCESS", "EXITING"))
+                        isGenericConnectingDetail(detail))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
                 ConnectionButtonModel(text = text, style = ConnectionButtonStyle.CONNECTING)
@@ -171,5 +172,13 @@ class ConnectionControlsPresenter(
         val resId = useCase.mapEngineDetailToResId(detail)
         return resId?.let { context.getString(it) }
             ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    private fun isGenericConnectingDetail(detail: String?): Boolean {
+        return detail == null || isTeardownDetail(detail)
+    }
+
+    private fun isTeardownDetail(detail: String?): Boolean {
+        return detail != null && detail in ConnectionStateManager.engineTeardownDetails
     }
 }
