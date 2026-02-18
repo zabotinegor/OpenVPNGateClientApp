@@ -180,7 +180,7 @@ class ConnectionControlsPresenter(
     }
 
     private fun isGenericConnectingDetail(detail: String?): Boolean {
-        return detail == null || detail == "NOPROCESS" || detail == "EXITING" || detail == "DISCONNECTED"
+        return detail == null || isTeardownDetail(detail)
     }
 
     private fun isTeardownDetail(detail: String?): Boolean {
