@@ -46,12 +46,28 @@ class ServerRepository(
             File(ctx.cacheDir, "$CACHE_FILE_PREFIX$key$CACHE_FILE_SUFFIX")
     }
 
+    private data class CacheEntry(
+        val key: String,
+        val file: File,
+        val ts: Long
+    )
+
     private fun readCache(context: Context, key: String): Pair<File, Long>? {
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
         val file = cacheFile(context, key)
         if (ts <= 0 || !file.exists()) return null
         return file to ts
+    }
+
+    private fun readLastCache(context: Context, excludingKey: String? = null): CacheEntry? {
+        val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+        val key = prefs.getString(KEY_LAST_CACHE, null) ?: return null
+        if (!excludingKey.isNullOrBlank() && key == excludingKey) return null
+        val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
+        val file = cacheFile(context, key)
+        if (ts <= 0L || !file.exists()) return null
+        return CacheEntry(key, file, ts)
     }
 
     private fun writeCache(context: Context, key: String, body: ResponseBody) {
@@ -94,16 +110,20 @@ class ServerRepository(
 
             val cacheKey = cacheKey(urls)
             val cached = readCache(context, cacheKey)
+            val lastCached = readLastCache(context, excludingKey = cacheKey)
             val now = System.currentTimeMillis()
             val ttlMs = settings.cacheTtlMs.takeIf { it > 0 } ?: DEFAULT_CACHE_TTL_MS
             val cachedFresh = if (forceRefresh) null else cached?.let { (file, ts) -> if (now - ts <= ttlMs) file else null }
 
             if (cacheOnly) {
-                val (file, ts) = cached ?: throw IOException("Server cache is empty while VPN is connected")
+                val cacheForRead = cached?.let { CacheEntry(cacheKey, it.first, it.second) } ?: lastCached
+                    ?: throw IOException("Server cache is empty while VPN is connected")
+                val file = cacheForRead.file
+                val ts = cacheForRead.ts
                 val age = now - ts
                 val servers = parseServers(file)
-                AppLog.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}")
-                saveLastCacheKey(context, cacheKey)
+                AppLog.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}, cache_key=${cacheForRead.key.take(8)}")
+                saveLastCacheKey(context, cacheForRead.key)
                 return@withContext servers
             }
 
@@ -140,11 +160,18 @@ class ServerRepository(
                 AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
             }
 
-            val result = parsedResponse ?: cached?.first?.let { parseServers(it) } ?: throw (lastError ?: IOException("No server response"))
-            if (response == null && cached != null) {
-                AppLog.w(TAG, "Network failed; using stale cache. age=${now - cached.second} ms")
+            val fallbackCache = cached?.let { CacheEntry(cacheKey, it.first, it.second) } ?: lastCached
+            val fallbackServers = fallbackCache?.file?.let { parseServers(it) }
+            val result = parsedResponse ?: fallbackServers
+                ?: throw (lastError ?: IOException("No server response"))
+            if (response == null && fallbackCache != null) {
+                AppLog.w(TAG, "Network failed; using stale cache. age=${now - fallbackCache.ts} ms, cache_key=${fallbackCache.key.take(8)}")
             }
-            saveLastCacheKey(context, cacheKey)
+            if (parsedResponse != null) {
+                saveLastCacheKey(context, cacheKey)
+            } else if (fallbackCache != null) {
+                saveLastCacheKey(context, fallbackCache.key)
+            }
 
             if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
                 settingsStore.saveServerSource(context, ServerSource.VPNGATE)

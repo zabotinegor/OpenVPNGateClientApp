@@ -59,6 +59,20 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun supplementsConnectingDetailFromVpnStatusWhenAidlFresh() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+
+        service.updateState("TCP_CONNECT", null, 0, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+
+        assertEquals("TCP_CONNECT", ConnectionStateManager.engineDetail.value)
+    }
+
+    @Test
     fun staleSnapshotsTriggerRebindAfterThreshold() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
