@@ -29,7 +29,6 @@ class ConnectionControlsPresenter(
 ) {
 
     private val durationPlaceholder = "00:00:00"
-    private val connectingFallbackDetails = setOf<String?>(null, "NOPROCESS", "EXITING", "DISCONNECTED")
 
     fun buildStatusText(
         state: ConnectionState,
@@ -39,7 +38,7 @@ class ConnectionControlsPresenter(
     ): String {
         if (state == ConnectionState.CONNECTING) {
             val showGenericConnecting = engineLevel == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                detail in connectingFallbackDetails
+                isGenericConnectingDetail(detail)
             val connectingText = engineDetailToText(
                 if (showGenericConnecting) "CONNECTING" else detail
             ).toString()
@@ -78,12 +77,12 @@ class ConnectionControlsPresenter(
 
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                    detail in setOf("NOPROCESS", "EXITING", "DISCONNECTED"))
+                    isTeardownDetail(detail))
                 val text = if (reconnectingHint && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
-                        detail in connectingFallbackDetails)
+                        isGenericConnectingDetail(detail))
                     engineDetailToText(if (showGenericConnecting) "CONNECTING" else detail)
                 }
                 ConnectionButtonModel(text = text, style = ConnectionButtonStyle.CONNECTING)
@@ -181,5 +180,13 @@ class ConnectionControlsPresenter(
         val resId = useCase.mapEngineDetailToResId(detail)
         return resId?.let { context.getString(it) }
             ?: (detail ?: context.getString(R.string.vpn_notification_text_connecting))
+    }
+
+    private fun isGenericConnectingDetail(detail: String?): Boolean {
+        return detail == null || detail == "NOPROCESS" || detail == "EXITING" || detail == "DISCONNECTED"
+    }
+
+    private fun isTeardownDetail(detail: String?): Boolean {
+        return detail == "NOPROCESS" || detail == "EXITING" || detail == "DISCONNECTED"
     }
 }
