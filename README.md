@@ -1,122 +1,139 @@
 # Client for OpenVPN Gate
 
-Open-source Android client for connecting to the public VPN Gate network. The app is built on top of the `ics-openvpn` engine (GPLv2) and provides multiple device UI variants that share a common core UI/logic module under a single app package.
+Open-source Android VPN client for connecting to VPN Gate and compatible server lists.
+The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two launchers (`mobile`, `tv`) over one shared `core` module.
 
 - Homepage: https://openvpngateclient.azurewebsites.net
 - GitHub (app): https://github.com/zabotinegor/OpenVPNGateClientApp
 - GitHub (engine submodule): https://github.com/zabotinegor/OpenVPNGateClientEngine
-- Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy (copy in [PRIVACY_POLICY.md](PRIVACY_POLICY.md))
-- Terms of Use / Disclaimer: https://openvpngateclient.azurewebsites.net/terms-of-use (copy in [TERMS.md](TERMS.md))
-- Google Play: internal testing planned (AAB builds ready; link will appear after publish)
+- Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy
+- Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
 - License: [GPL-2.0-only](LICENSE)
 
-## Media assets (icons/banners/screenshots)
-- Media is stored in a private submodule (`media`, repo: OpenVPNGateClientMedia). Fetch it before building:
-  ```bash
-  git submodule update --init --recursive
-  ```
-- Gradle task `copyAndRenameDrawables` copies assets from `media/Logo|Logos` into module resources:
-  - `appicon_GP_512x512.png` (fallback `appicon.png`) -> `src/main/res/drawable/appicon.png`
-  - `appbanner_GP_1280x720.png` (fallback `appdesc_GP_1024x500.png`, then `logo_with_text_1536x1024.png`) -> `src/main/res/drawable-nodpi/banner.png`
-  The build fails if required assets are missing.
+## Repository Layout
+- `src/core` - shared UI, networking, settings, VPN orchestration.
+- `src/mobile` - phone/tablet launcher.
+- `src/tv` - Android TV launcher.
+- `src/openVpnEngine` -> `src/external/OpenVPNEngine/main` (git submodule).
+- `media` - private media submodule used for app icon/banner assets.
 
-## Features
-- OpenVPN-based client with the `ics-openvpn` engine (bundled as the `openVpnEngine` submodule)
-- Server catalog pulled from a primary endpoint with automatic fallback to VPN Gate public feed; cached on disk with TTL
-- Manual country selection with per-country server picker and core connection stats (speed, duration, IP, status)
-- DNS selection screen with provider presets applied on next connection
-- Auto-switch within a country with full-cycle retry and configurable stall timer
-- Status source gating (AIDL vs VpnStatus) with stale snapshot protection and rebind logic
-- Server position indicator (current/total) and IP synchronization across selection/connect states
-- Separate device launchers sharing the same core UI and networking code under one package ID
-- Per-app filtering (user/system), Select all toggles, pinned info card, and remote-friendly focus/scroll restoration
-- Server list refresh button with localized label + icon and focus bounce feedback
-- Server list parsing/caching is streaming; configs are loaded lazily per selection to reduce memory/GC pressure
-- Status snapshots persisted in the engine with AIDL sync for reliable relaunch/idle recovery
-- User server selection while connected/connecting stops the current VPN session
-- Refresh is locked to cache while VPN is connected to avoid blocked network access
-- Theme selection with system, light, and dark modes
+## Tech Stack
+- Kotlin, Android SDK 24+ (target/compile 36)
+- ViewBinding
+- Retrofit + OkHttp (network)
+- Koin (DI)
+- Timber (logging)
+- Gradle Kotlin DSL
 
-## Runtime logging
-- Minimal screen flow logs are emitted on enter/exit for key screens.
-- DNS selection is logged when changed and when applied at VPN start.
+## Prerequisites
+- JDK 11
+- Android SDK/Build Tools compatible with compile SDK 36
+- Git submodules initialized
 
-## Stack and Modules
-- Kotlin, Android SDK 24+, ViewBinding, Retrofit/OkHttp
-- Modules:
-  - device UI modules (launchers and resources)
-  - `core` - shared UI, networking, and VPN orchestration
-  - `external/OpenVPNEngine` - fork of `ics-openvpn` (GPLv2)
-- Build system: Gradle (Kotlin DSL), Android Gradle Plugin
+```bash
+git submodule update --init --recursive
+```
 
-## Configuration
-- Required endpoints are read from Gradle properties or env vars:
-  - `PRIMARY_SERVERS_URL`
-  - `FALLBACK_SERVERS_URL`
-- Local override (not committed): create `servers.local.json` either in repo root or `src/`:
-  ```json
-  {
-    "PRIMARY_SERVERS_URL": "https://example.com/api/v1/servers/active",
-    "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
-  }
-  ```
-- Signing (release): place `keystore.properties` in `src/` with
-  ```
-  keyAlias=...
-  keyPassword=...
-  storePassword=...
-  storeFile=keystore.jks
-  ```
-  and keep the referenced `.jks` file alongside it (not tracked in git).
+## Required Build Configuration
+The `core` module requires both endpoints at build time:
+- `PRIMARY_SERVERS_URL`
+- `FALLBACK_SERVERS_URL`
 
-## Building and Running
-From the repository root:
+Resolution order in build scripts:
+1. Gradle property (`-P...`)
+2. Environment variable
+3. `servers.local.json`
+
+### Local file override (not committed)
+Create `servers.local.json` in either repository root or `src/`:
+
+```json
+{
+  "PRIMARY_SERVERS_URL": "https://example.com/api/v1/servers/active",
+  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
+}
+```
+
+## Signing Configuration (release)
+Create `src/keystore.properties`:
+
+```properties
+keyAlias=...
+keyPassword=...
+storePassword=...
+storeFile=keystore.jks
+```
+
+Place `keystore.jks` next to `keystore.properties` (not tracked in git).
+
+## Media Assets
+`mobile` and `tv` run `copyAndRenameDrawables` before `preBuild`.
+The task copies assets from `media/Logos` or `media/Logo` into module resources.
+
+Expected files (with fallbacks):
+- App icon:
+  - `appicon_GP_512x512.png`
+  - fallback: `appicon.png`
+- Banner:
+  - `appbanner_GP_1280x720.png`
+  - fallbacks: `appdesc_GP_1024x500.png`, `logo_with_text_1536x1024.png`
+
+Build fails if required media files are missing.
+
+## Build and Test
+Run from repository root:
+
 ```bash
 cd src
 ```
 
-- Debug APK:
-  ```bash
-  ./gradlew assembleDebugApp     # macOS/Linux
-  .\gradlew.bat assembleDebugApp # Windows
-  ```
-- Release APK:
-  ```bash
-  ./gradlew assembleReleaseApp \
-    -PappVersionName=1.0.0 -PappVersionCode=1 \
-    -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
-  ```
-- Google Play / AAB:
-  ```bash
-  ./gradlew bundleReleaseApp \
-    -PappVersionName=1.0.0 -PappVersionCode=1 \
-    -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
-  ```
+### Build all app variants
+```bash
+# Debug APKs (mobile + tv)
+./gradlew assembleDebugApp
+# Windows
+.\gradlew.bat assembleDebugApp
 
-### Server caching/runtime notes
-- Server CSV responses are streamed directly to a cache file (`cacheDir/servers_<hash>.csv`); no intermediate base64/strings.
-- Cache freshness is controlled by `cacheTtlMs` in user settings (`DEFAULT_CACHE_TTL_MS` fallback).
-- On cache miss/stale, we try primary, then fallback; on failure we return stale cache if present and log the fallback.
-- When VPN is connected, server list is served from cache only (ignores TTL) and manual refresh is disabled.
-- Server list stores only summaries; configs are loaded lazily via `loadConfigs()` when a country is picked.
-- Auto-switch timeouts use different thresholds for CONNECTING_NO_REPLY vs CONNECTING_REPLIED, plus idle tolerance for UNKNOWN/PAUSED.
-- Status snapshots ignore stale data when live AIDL updates are recent; repeated stale snapshots trigger a status rebind.
+# Release APKs (mobile + tv)
+./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 
-## CI/CD
-GitHub Actions workflows are located in `.github/workflows` and build signed release artifacts from `dev`, `main`, and tags (requires secrets for signing and server URLs). CI publishes a single APK/AAB artifact intended for all supported devices.
-PR checks (build-by-pull-request) run unit tests, build debug APKs for mobile and TV, upload them as artifacts with the commit short SHA, and post a PR comment with links.
-Tag and asset naming includes the build number (GitHub run number) to ensure each run is unique:
-- Stable auto: `v1.2.3-auto(45)`
-- Stable tag: `v1.2.3(45)`
-- Beta auto: `v1.2.3-beta.2-auto(45)`
-- Release assets: `OpenVPNGateClient_1.2.3(45).apk` (same for `.aab`)
+# Release AABs (mobile + tv)
+./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
+```
 
-## Data and Privacy
-- Server list: fetched from the configured primary endpoint with fallback to VPN Gate.
-- Local storage: selected servers and last connection metadata are kept in shared preferences on the device.
-- The app does not call `ipinfo.io` or similar IP geolocation services.
-- No analytics or advertising SDKs are included. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for details.
+### Version override per launcher
+- `appVersionCodeMobile`
+- `appVersionCodeTv`
+- fallback common value: `appVersionCode`
+
+### Unit tests
+```bash
+./gradlew testDebugUnitTestApp
+```
+
+## Runtime Behavior (from current code)
+- Server source modes in settings:
+  - `DEFAULT`: primary then fallback URL
+  - `VPNGATE`: fallback URL only
+  - `CUSTOM`: user-provided URL
+- Server list cache with configurable TTL (`cacheTtlMs`, default 20 minutes).
+- If VPN is connected, server refresh is locked to cache.
+- DNS provider selection is applied on next VPN connection.
+- Auto-switch within selected country with stall timeout settings.
+- Shared package/application ID across mobile and tv modules.
+
+## Logging and Diagnostics
+- Screen flow logs and VPN session logs are written via app logging trees.
+- About screen supports exporting recent logcat archive for diagnostics.
+
+## Legal and Privacy
+Canonical documents:
+- [PRIVACY_POLICY.md](PRIVACY_POLICY.md)
+- [TERMS.md](TERMS.md)
+
+The app links to hosted canonical pages and local copies are kept in sync for repository transparency.
 
 ## Licensing
-This project, including the bundled `ics-openvpn` fork, is distributed under GPL-2.0-only. Review `LICENSE` and upstream notices in `src/external/OpenVPNEngine/doc/LICENSE.txt` before distributing on app stores. Contributions are accepted under the same license.
+This project, including the bundled `ics-openvpn` fork, is distributed under GPL-2.0-only.
+Review `LICENSE` and upstream notices in `src/external/OpenVPNEngine/doc/LICENSE.txt` before redistribution.
 
