@@ -15,6 +15,7 @@
     <string name="menu_rate">Oceń</string>
     <string name="menu_about">O aplikacji</string>
     <string name="menu_settings">Ustawienia</string>
+    <string name="menu_whats_new">Co nowego</string>
 
     <!-- Section: Server screen -->
     <string name="server_list_title">Lista serwerów</string>
@@ -89,7 +90,6 @@
     <!-- Section: VPN notifications -->
     <string name="vpn_channel_name">Status VPN</string>
     <string name="vpn_channel_description">Status połączenia VPN</string>
-    <string name="vpn_notification_title_service_running">Usługa działa</string>
     <string name="vpn_notification_title_connecting">Łączenie z VPN</string>
     <string name="vpn_notification_title_connected">VPN połączono</string>
     <string name="vpn_notification_title_disconnecting">Rozłączanie z VPN</string>
@@ -138,8 +138,8 @@
     <!-- Section: Settings -->
     <string name="settings_language_title">Język</string>
     <string name="settings_language_system">Język systemu</string>
-    <string name="settings_language_english">Angielski</string>
-    <string name="settings_language_russian">Rosyjski</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
     <string name="settings_theme_title">Motyw</string>
     <string name="settings_theme_system">Motyw systemu</string>

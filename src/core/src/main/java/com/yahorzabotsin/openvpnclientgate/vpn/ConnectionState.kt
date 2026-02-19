@@ -1,6 +1,6 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import androidx.annotation.MainThread
 import kotlin.math.abs
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -16,6 +16,11 @@ enum class ConnectionState {
 
 object ConnectionStateManager {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionState"
+    private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
+    private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+    private val allowedFromConnected = setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+    private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
+    internal val engineTeardownDetails = setOf("NOPROCESS", "EXITING", "DISCONNECTED")
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
@@ -49,15 +54,15 @@ object ConnectionStateManager {
         if (current == newState) return
 
         val allowed = when (current) {
-            ConnectionState.DISCONNECTED -> setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
-            ConnectionState.CONNECTING -> setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTED)
-            ConnectionState.CONNECTED -> setOf(ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
-            ConnectionState.DISCONNECTING -> setOf(ConnectionState.DISCONNECTED)
+            ConnectionState.DISCONNECTED -> allowedFromDisconnected
+            ConnectionState.CONNECTING -> allowedFromConnecting
+            ConnectionState.CONNECTED -> allowedFromConnected
+            ConnectionState.DISCONNECTING -> allowedFromDisconnecting
         }
 
         if (newState in allowed) {
             _state.value = newState
-            Log.i(TAG, "App state: ${current} -> ${newState}")
+            AppLog.i(TAG, "App state: ${current} -> ${newState}")
             when (newState) {
                 ConnectionState.DISCONNECTED -> {
                     _speedMbps.value = 0.0
@@ -114,8 +119,8 @@ object ConnectionStateManager {
         if (mapped == ConnectionState.DISCONNECTED) {
             effective = when {
                 _reconnectingHint.value -> ConnectionState.CONNECTING
-                current == ConnectionState.CONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.CONNECTING
-                current == ConnectionState.DISCONNECTING && (d in setOf("NOPROCESS", "EXITING")) -> ConnectionState.DISCONNECTING
+                current == ConnectionState.CONNECTING && d in engineTeardownDetails -> ConnectionState.CONNECTING
+                current == ConnectionState.DISCONNECTING && d in engineTeardownDetails -> ConnectionState.DISCONNECTING
                 else -> mapped
             }
         }
@@ -148,4 +153,5 @@ object ConnectionStateManager {
         }
     }
 }
+
 

@@ -1,6 +1,7 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui
+package com.yahorzabotsin.openvpnclientgate.core.ui
 
 import android.content.Context
+import android.os.Looper
 import android.view.View
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -8,8 +9,10 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
-import com.yahorzabotsin.openvpnclientgate.core.settings.DnsOptions
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.dns.DnsOptionAdapter
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -18,6 +21,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
@@ -47,6 +51,7 @@ class DnsActivityTest {
 
         ActivityScenario.launch(DnsActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                shadowOf(Looper.getMainLooper()).idle()
                 val recycler = activity.findViewById<RecyclerView>(R.id.dns_recycler_view)
                 val adapter = recycler.adapter as DnsOptionAdapter
                 assertEquals(option, adapter.selectedOption)
@@ -58,9 +63,10 @@ class DnsActivityTest {
     fun defaultsToServerDnsWhenNotSaved() {
         ActivityScenario.launch(DnsActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                shadowOf(Looper.getMainLooper()).idle()
                 val recycler = activity.findViewById<RecyclerView>(R.id.dns_recycler_view)
                 val adapter = recycler.adapter as DnsOptionAdapter
-                assertEquals(com.yahorzabotsin.openvpnclientgate.core.settings.DnsOption.SERVER, adapter.selectedOption)
+                assertEquals(com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption.SERVER, adapter.selectedOption)
             }
         }
     }
@@ -73,6 +79,7 @@ class DnsActivityTest {
 
         ActivityScenario.launch(DnsActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                shadowOf(Looper.getMainLooper()).idle()
                 val recycler = activity.findViewById<RecyclerView>(R.id.dns_recycler_view)
                 recycler.measure(
                     View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),

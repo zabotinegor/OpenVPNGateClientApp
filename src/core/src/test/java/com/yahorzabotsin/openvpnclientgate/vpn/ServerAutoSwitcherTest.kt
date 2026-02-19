@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
@@ -112,10 +112,19 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
-    fun startsTimerOnAuthFailed() {
+    fun authFailedStartsChainedSwitchImmediately() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        assertEquals(2, ServerAutoSwitcher.remainingSeconds.value)
+
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_AUTH_FAILED, source)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        assertEquals(1, ServerAutoSwitcher.remainingSeconds.value)
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+        assertEquals(0, calls.size)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertEquals(1, calls.size)
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
     }
 
     @Test

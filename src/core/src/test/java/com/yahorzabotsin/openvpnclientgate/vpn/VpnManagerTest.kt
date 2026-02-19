@@ -1,10 +1,11 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.app.Application
 import android.content.Intent
 import android.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -63,6 +64,43 @@ class VpnManagerTest {
         val hintKey = VpnManager.extraPreserveReconnectKey(app)
         assertEquals(VpnManager.ACTION_STOP, started.getStringExtra(actionKey))
         assertEquals(true, started.getBooleanExtra(hintKey, false))
+    }
+
+    @Test
+    fun stopControllerIfIdle_startsServiceWhenDisconnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        VpnManager.stopControllerIfIdle(app)
+
+        val shadowApp = Shadows.shadowOf(app)
+        val started: Intent = shadowApp.nextStartedService
+        val actionKey = VpnManager.actionKey(app)
+        assertEquals(VpnManager.ACTION_STOP_IF_IDLE, started.getStringExtra(actionKey))
+    }
+
+    @Test
+    fun stopControllerIfIdle_skipsServiceStartWhenConnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        VpnManager.stopControllerIfIdle(app)
+
+        val shadowApp = Shadows.shadowOf(app)
+        val started = shadowApp.nextStartedService
+        assertNull(started)
+    }
+
+    @Test
+    fun syncStatus_startsServiceWithSyncAction() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.syncStatus(app)
+
+        val shadowApp = Shadows.shadowOf(app)
+        val started: Intent = shadowApp.nextStartedService
+        val actionKey = VpnManager.actionKey(app)
+        assertEquals(VpnManager.ACTION_SYNC_STATUS, started.getStringExtra(actionKey))
     }
 }
 

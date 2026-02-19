@@ -1,15 +1,16 @@
-﻿package com.yahorzabotsin.openvpnclientgate.tv
+package com.yahorzabotsin.openvpnclientgate.tv
 
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 
 import com.yahorzabotsin.openvpnclientgate.core.R as coreR
 import com.yahorzabotsin.openvpnclientgate.tv.R as tvR
 
-class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCore() {
+class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivityCore() {
     private companion object { const val TAG = "MainActivityTV" }
     private var selectedMenuItemId: Int = coreR.id.nav_server
 
@@ -24,7 +25,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCor
         drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
             override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
             override fun onDrawerOpened(drawerView: View) {
-                Log.d(TAG, "Drawer opened, focusing on selected item.")
+                AppLog.d(TAG, "Drawer opened, focusing on selected item.")
                 binding.navView.setCheckedItem(selectedMenuItemId)
                 binding.navView.post {
                     val viewToFocus = binding.navView.findViewById<View>(selectedMenuItemId)
@@ -32,7 +33,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCor
                 }
             }
             override fun onDrawerClosed(drawerView: View) {
-                Log.d(TAG, "Drawer closed, focusing on connection button.")
+                AppLog.d(TAG, "Drawer closed, focusing on connection button.")
                 connectionControlsView.requestPrimaryFocus()
             }
             override fun onDrawerStateChanged(newState: Int) {}
@@ -43,7 +44,18 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCor
         binding.navView.setCheckedItem(selectedMenuItemId)
         connectionControlsView.post { connectionControlsView.requestPrimaryFocus() }
     }
+
+    override fun onResume() {
+        super.onResume()
+        connectionControlsView.post {
+            if (!binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                connectionControlsView.requestPrimaryFocus()
+            }
+        }
+    }
 }
+
+
 
 
 
