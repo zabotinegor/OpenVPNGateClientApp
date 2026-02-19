@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
+import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
@@ -54,6 +55,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val MAX_THROTTLE_KEY_LENGTH = 96
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
+        private const val CONTROLLER_NOTIFICATION_ID = 7014
     }
 
     // Track engine binding for start/stop coordination
@@ -77,6 +79,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var aidlLastInBytes: Long = 0L
     private var aidlLastOutBytes: Long = 0L
     private var lastAidlByteUpdateTs: Long = 0L
+    private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
@@ -280,6 +283,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 AppLog.i(TAG, "ACTION_START")
+                enterControllerForeground()
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -328,6 +332,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
+                exitControllerForeground()
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -355,6 +360,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.d(TAG, "Ignoring stop-if-idle while VPN is active")
                     return START_NOT_STICKY
                 }
+                exitControllerForeground()
                 stopSelf()
             }
             VpnManager.ACTION_SYNC_STATUS -> {
@@ -494,6 +500,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun stopSelfSafely() { stopSelf() }
 
     override fun onDestroy() {
+        exitControllerForeground()
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
@@ -512,6 +519,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
         AppLog.d(TAG, "Service destroyed and listener removed")
+    }
+
+    private fun enterControllerForeground() {
+        if (controllerForegroundActive) return
+        val notification = NotificationCompat.Builder(
+            this,
+            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID
+        )
+            .setSmallIcon(R.drawable.ic_icon_system)
+            .setContentTitle(getString(R.string.vpn_notification_title_connecting))
+            .setContentText(getString(R.string.vpn_notification_text_connecting))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        startForeground(CONTROLLER_NOTIFICATION_ID, notification)
+        controllerForegroundActive = true
+    }
+
+    private fun exitControllerForeground() {
+        if (!controllerForegroundActive) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        controllerForegroundActive = false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -901,6 +936,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
+        if (controllerForegroundActive && level != ConnectionStatus.LEVEL_START && level != ConnectionStatus.UNKNOWN_LEVEL) {
+            exitControllerForeground()
+        }
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
             try {

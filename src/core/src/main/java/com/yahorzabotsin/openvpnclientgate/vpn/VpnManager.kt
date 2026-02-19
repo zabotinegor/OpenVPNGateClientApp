@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
+import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 
 object VpnManager {
@@ -67,7 +68,11 @@ object VpnManager {
 
     private fun startControllerService(context: Context, intent: Intent, action: String): Boolean {
         return try {
-            context.startService(intent)
+            if (action == ACTION_START) {
+                ContextCompat.startForegroundService(context, intent)
+            } else {
+                context.startService(intent)
+            }
             true
         } catch (e: IllegalStateException) {
             AppLog.w(TAG, "Failed to start controller service for action=$action", e)
