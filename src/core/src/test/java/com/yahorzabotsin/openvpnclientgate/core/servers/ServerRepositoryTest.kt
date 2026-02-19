@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.servers
+package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.IOException
+import java.net.UnknownHostException
 
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
@@ -98,7 +99,7 @@ class ServerRepositoryTest {
             listOf({ sampleCsv(listOf(expected)) }, { sampleCsv(emptyList()) })
         )
 
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
         val result = repo.getServers(context, forceRefresh = true)
 
         assertEquals(1, api.callCount)
@@ -115,7 +116,7 @@ class ServerRepositoryTest {
             listOf({ throw IOException("primary down") }, { sampleCsv(listOf(expected)) })
         )
 
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
         val result = repo.getServers(context, forceRefresh = true)
 
         assertEquals(2, api.callCount)
@@ -130,7 +131,7 @@ class ServerRepositoryTest {
     fun uses_cache_when_fresh() = runBlocking {
         val initial = makeServer("cached")
         val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }, { throw IOException("should not be called") }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val first = repo.getServers(context, forceRefresh = true)
         assertEquals(1, api.callCount)
@@ -147,7 +148,7 @@ class ServerRepositoryTest {
         val srv1 = makeServer("s1", lineIndex = 1).copy(configData = "cfg1")
         val srv2 = makeServer("s2", lineIndex = 2).copy(configData = "cfg2")
         val api = SequenceApi(listOf({ sampleCsv(listOf(srv1, srv2)) }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val parsed = repo.getServers(context, forceRefresh = true)
         assertEquals(2, parsed.size)
@@ -169,7 +170,7 @@ class ServerRepositoryTest {
                 { sampleCsv(listOf(updated)) }
             )
         )
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val first = repo.getServers(context, forceRefresh = true)
         assertEquals("old", first.single().name)
@@ -194,7 +195,7 @@ class ServerRepositoryTest {
                 { throw IOException("network down") }
             )
         )
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val first = repo.getServers(context, forceRefresh = true)
         assertEquals("stale", first.single().name)
@@ -217,7 +218,7 @@ class ServerRepositoryTest {
                 { sampleCsv(listOf(updated)) }
             )
         )
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val first = repo.getServers(context, forceRefresh = true)
         assertEquals("initial", first.single().name)
@@ -243,7 +244,7 @@ class ServerRepositoryTest {
                 { sampleCsv(listOf(updated)) }
             )
         )
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val first = repo.getServers(context, forceRefresh = true)
         assertEquals("cached", first.single().name)
@@ -261,7 +262,7 @@ class ServerRepositoryTest {
     @Test
     fun cache_only_throws_when_cache_missing() = runBlocking {
         val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("unused"))) }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         try {
             repo.getServers(context, cacheOnly = true)
@@ -277,7 +278,7 @@ class ServerRepositoryTest {
     fun loadConfigs_returns_empty_when_cache_missing() = runBlocking {
         val srv = makeServer("one")
         val api = SequenceApi(listOf({ sampleCsv(listOf(srv)) }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val parsed = repo.getServers(context, forceRefresh = true)
         // Remove cache file to simulate missing
@@ -295,7 +296,7 @@ class ServerRepositoryTest {
             "srv-1","1.1.1.1","10","50","1000","Country","CC","1","2","3","4","log","op","message,with,comma","cfg,with,comma"
         """.trimIndent()
         val api = SequenceApi(listOf({ csv }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val servers = repo.getServers(context, forceRefresh = true)
         assertEquals(1, servers.size)
@@ -314,7 +315,7 @@ class ServerRepositoryTest {
                 { sampleCsv(listOf(srv)) }
             )
         )
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         val servers = repo.getServers(context, forceRefresh = true)
         assertEquals("fallback", servers.single().name)
@@ -327,7 +328,7 @@ class ServerRepositoryTest {
     @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
         val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         try {
             repo.getServers(context, forceRefresh = true)
@@ -342,7 +343,7 @@ class ServerRepositoryTest {
     @Test
     fun propagates_error_after_fallback_attempts() = runBlocking {
         val api = SequenceApi(listOf({ throw IllegalStateException("boom") }, { throw IOException("fallback fail") }))
-        val repo = ServerRepository(api)
+        val repo = ServerRepository(api, UserSettingsStore)
 
         try {
             repo.getServers(context, forceRefresh = true)
@@ -353,6 +354,57 @@ class ServerRepositoryTest {
 
         // Both URLs attempted
         assertEquals(2, api.callCount)
+    }
+
+    @Test
+    fun uses_last_cache_key_when_current_urls_have_no_cache_and_dns_fails() = runBlocking {
+        val initial = makeServer("cached-by-default")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", first.single().name)
+        assertEquals(1, api.callCount)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://invalid-host-for-test.example/servers.csv"
+            )
+        )
+
+        val failingApi = SequenceApi(
+            listOf({ throw UnknownHostException("dns failed for custom host") })
+        )
+        val repoWithFailingApi = ServerRepository(failingApi, UserSettingsStore)
+
+        val loaded = repoWithFailingApi.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", loaded.single().name)
+        assertEquals(1, failingApi.callCount)
+    }
+
+    @Test
+    fun cache_only_uses_last_cache_key_when_current_key_missing() = runBlocking {
+        val initial = makeServer("cached-by-default")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-default", first.single().name)
+        assertEquals(1, api.callCount)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://another-invalid-host.example/servers.csv"
+            )
+        )
+
+        val cacheOnly = repo.getServers(context, cacheOnly = true)
+        assertEquals("cached-by-default", cacheOnly.single().name)
+        assertEquals(1, api.callCount)
     }
 }
 

@@ -1,24 +1,47 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core
+package com.yahorzabotsin.openvpnclientgate.core
 
 import android.app.ActivityManager
 import android.app.Application
-import android.util.Log
+import com.yahorzabotsin.openvpnclientgate.core.di.coreModule
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppDebugTree
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppReleaseTree
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.GlobalPreferences
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.GlobalContext
+import org.koin.core.context.startKoin
+import timber.log.Timber
 
 class CoreApp : Application() {
+
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CoreApp"
     }
 
     override fun onCreate() {
         super.onCreate()
+        initLogging()
+        if (GlobalContext.getOrNull() == null) {
+            startKoin {
+                androidContext(this@CoreApp)
+                modules(coreModule)
+            }
+        }
         installGlobalExceptionHandler()
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
-            Log.d(TAG, "Skipping OpenVpnService auto-start in Application")
+            AppLog.d(TAG, "Skipping OpenVpnService auto-start in Application")
         }
+    }
+
+    private fun initLogging() {
+        if (Timber.forest().isNotEmpty()) return
+        val fileLogStore = AppFileLogStore(this)
+        val tree = if (BuildConfig.DEBUG) AppDebugTree(fileLogStore) else AppReleaseTree(fileLogStore)
+        Timber.plant(tree)
     }
 
     private fun isMainProcess(): Boolean {
@@ -34,7 +57,7 @@ class CoreApp : Application() {
     private fun installGlobalExceptionHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            Log.e(TAG, "Uncaught exception in thread=${thread.name}", throwable)
+            AppLog.e(TAG, "Uncaught exception in thread=${thread.name}", throwable)
             previous?.uncaughtException(thread, throwable)
         }
     }

@@ -1,64 +1,63 @@
 # Privacy Policy for Client for OpenVPN Gate
 
-Updated: 2025-12-01  
-Canonical version: https://openvpngateclient.azurewebsites.net/privacy-policy
+Last updated: 2026-02-19  
+Canonical version: https://openvpngateclient.azurewebsites.net/privacy-policy  
+Related Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
 
-> Source: provided by the service owner (Yahor Zabotsin). This document mirrors the canonical policy above.
+This Privacy Policy applies to the Client for OpenVPN Gate app ("Application") for mobile devices, created by Yahor Zabotsin ("Service Provider") as an open-source service. This service is provided "AS IS".
 
-## Privacy Policy
-This privacy policy applies to the Client for OpenVPN Gate app (hereby referred to as "Application") for mobile devices that was created by Yahor Zabotsin (hereby referred to as "Service Provider") as an Open Source service. This service is intended for use "AS IS".
+## 1. Personal Data Collection
+The Service Provider does not collect, store, or sell personal data from users of the Application.
 
-## Information Collection and Use
-The Application collects information when you download and use it. This information may include information such as:
-- Your device's Internet Protocol address (e.g. IP address)
-- The pages of the Application that you visit, the time and date of your visit, the time spent on those pages
-- The time spent on the Application
-- The operating system you use on your mobile device
+The Application does not include analytics or advertising SDKs and does not require account registration.
 
-The Application does not collect precise GPS coordinates of your mobile device.
+The Application does not collect precise or approximate device location from GPS, coarse, or fine location sensors.
 
-The Application may derive your **approximate** location from your public IP address (country/region only). No GPS or coarse/fine location sensors are used. Approximate IP-based location is used in the following ways:
-- **Geolocation Services:** To provide basic country-level content and recommendations.
-- **Analytics and Improvements:** Aggregated and anonymized, to analyze trends and improve performance.
-- **Third-Party Services:** Anonymized IP-based location may be sent to external services to enhance the Application and optimize offerings.
+## 2. VPN Service and `BIND_VPN_SERVICE` Permission
+The Application uses Android `VPNService` (permission `BIND_VPN_SERVICE`) only to establish a user-initiated encrypted VPN tunnel to a VPN server selected by the user.
 
-## VPN Service and BIND_VPN_SERVICE Permission
-The Application uses Android's VPNService (which requires the BIND_VPN_SERVICE permission) solely to create a secure VPN tunnel to the OpenVPN Gate servers that you explicitly choose. Traffic is routed through the VPN tunnel only while you are connected, and the Application does not inspect, store, or sell your traffic; packets are forwarded only to maintain the VPN session.
+Traffic is routed through the VPN tunnel only while connected. The Service Provider does not inspect, retain, or sell VPN traffic content.
 
-The Service Provider may use the information you provided to contact you from time to time to provide you with important information, required notices and marketing promotions.
+## 3. Third-Party VPN Servers
+The Application is a VPN client and does not operate VPN servers.
 
-For a better experience, while using the Application, the Service Provider may require you to provide us with certain personally identifiable information. The information that the Service Provider request will be retained by them and used as described in this privacy policy.
+VPN Gate servers and any custom VPN endpoints are operated by third parties. Those server operators may process network metadata (for example, source IP address) under their own policies. The Service Provider does not control third-party server policies.
 
-## Third Party Access
-Only aggregated, anonymized data is periodically transmitted to external services to aid the Service Provider in improving the Application and their service. The Service Provider may share your information with third parties in the ways that are described in this privacy statement.
+## 4. Required Network Requests
+To function, the Application requests:
+- VPN server list data from configured endpoints.
+- "What's New" / version metadata from configured endpoints.
 
-Please note that the Application utilizes third-party services that have their own Privacy Policy about handling data. Below are the links to the Privacy Policy of the third-party service providers used by the Application:
-- [Google Play Services](https://policies.google.com/privacy)
+As with any internet request, remote endpoints can technically see the request IP address. The Service Provider does not use these requests for user profiling.
 
-The Service Provider may disclose User Provided and Automatically Collected Information:
-- as required by law, such as to comply with a subpoena, or similar legal process;
-- when they believe in good faith that disclosure is necessary to protect their rights, protect your safety or the safety of others, investigate fraud, or respond to a government request;
-- with their trusted services providers who work on their behalf, do not have an independent use of the information we disclose to them, and have agreed to adhere to the rules set forth in this privacy statement.
+## 5. Data Stored Locally on Device
+The Application stores operational data locally on the device, such as:
+- User settings (language, theme, selected source, DNS preferences).
+- Selected country/server preferences and temporary cache files.
+- Local application logs.
 
-## Opt-Out Rights
-You can stop all collection of information by the Application easily by uninstalling it. You may use the standard uninstall processes as may be available as part of your mobile device or via the mobile application marketplace or network.
+These local logs are shared only when a user explicitly exports them from the app.
 
-## Data Retention Policy
-The Service Provider will retain User Provided data for as long as you use the Application and for a reasonable time thereafter. If you'd like them to delete User Provided Data that you have provided via the Application, please contact them at openvpngateclient@gmail.com and they will respond in a reasonable time.
+## 6. Third-Party Services
+The Application is distributed through Google Play and may rely on standard Android/Google Play platform components.
 
-## Children
-The Application does not address anyone under the age of 13. The Service Provider does not knowingly collect personally identifiable information from children under 13 years of age. In the case the Service Provider discover that a child under 13 has provided personal information, the Service Provider will immediately delete this from their servers. If you are a parent or guardian and you are aware that your child has provided us with personal information, please contact the Service Provider (openvpngateclient@gmail.com) so that they will be able to take the necessary actions.
+These services may have their own privacy policies:
+- [Google Privacy Policy](https://policies.google.com/privacy)
 
-## Security
-The Service Provider is concerned about safeguarding the confidentiality of your information. The Service Provider provides physical, electronic, and procedural safeguards to protect information the Service Provider processes and maintains.
+## 7. Children
+The Application is not directed to children under 13. If a child under 13 is found to have provided personal data, the data will be removed.
 
-## Changes
-This Privacy Policy may be updated from time to time for any reason. The Service Provider will notify you of any changes to the Privacy Policy by updating this page with the new Privacy Policy. You are advised to consult this Privacy Policy regularly for any changes, as continued use is deemed approval of all changes.
+## 8. Security
+Reasonable physical, electronic, and procedural safeguards are used to protect processed information.
 
-This privacy policy is effective as of 2025-12-01.
+## 9. Opt-Out
+You can stop using the Application at any time by uninstalling it.
 
-## Your Consent
-By using the Application, you are consenting to the processing of your information as set forth in this Privacy Policy now and as amended by us.
+## 10. Relationship to Terms of Use
+Your use of the Application is also governed by the Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
 
-## Contact Us
-If you have any questions regarding privacy while using the Application, or have questions about the practices, please contact the Service Provider via email at openvpngateclient@gmail.com.
+## 11. Changes
+This Privacy Policy may be updated from time to time. Continued use after updates means acceptance of the revised policy.
+
+## 12. Contact
+If you have questions about privacy practices, contact: openvpngateclient@gmail.com.
