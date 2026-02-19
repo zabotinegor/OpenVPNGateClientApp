@@ -523,19 +523,27 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun enterControllerForeground() {
         if (controllerForegroundActive) return
-        val notification = NotificationCompat.Builder(
-            this,
-            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID
-        )
-            .setSmallIcon(R.drawable.ic_icon_system)
-            .setContentTitle(getString(R.string.vpn_notification_title_connecting))
-            .setContentText(getString(R.string.vpn_notification_text_connecting))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        startForeground(CONTROLLER_NOTIFICATION_ID, notification)
-        controllerForegroundActive = true
+        try {
+            val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
+            val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
+            val text = runCatching { getString(R.string.vpn_notification_text_connecting) }.getOrElse { "Establishing secure connection..." }
+            val notification = NotificationCompat.Builder(
+                this,
+                de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID
+            )
+                .setSmallIcon(iconRes)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+            startForeground(CONTROLLER_NOTIFICATION_ID, notification)
+            controllerForegroundActive = true
+        } catch (t: Throwable) {
+            AppLog.w(TAG, "Failed to enter controller foreground", t)
+            controllerForegroundActive = false
+        }
     }
 
     private fun exitControllerForeground() {
