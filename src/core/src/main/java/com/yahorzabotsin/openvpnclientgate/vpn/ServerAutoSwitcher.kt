@@ -135,10 +135,14 @@ object ServerAutoSwitcher {
         try {
             val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
             if (!dispatched) {
-                AppLog.w(TAG, "Controller stop dispatch rejected for chained switch")
+                AppLog.w(TAG, "Controller stop dispatch rejected for chained switch; aborting auto-switch")
+                cancel(resetCycle = true)
+                try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after dispatch rejection", e) }
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to request engine stop for chained switch", e)
+            cancel(resetCycle = true)
+            try { ConnectionStateManager.setReconnectingHint(false) } catch (ex: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after stop exception", ex) }
         }
     }
 
@@ -249,9 +253,15 @@ object ServerAutoSwitcher {
                 scheduleStopRetryTimeout(appContext)
                 val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
                 if (!dispatched) {
-                    AppLog.w(TAG, "Controller stop dispatch rejected before retry")
+                    AppLog.w(TAG, "Controller stop dispatch rejected before retry; aborting auto-switch")
+                    cancel(resetCycle = true)
+                    try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after dispatch rejection", e) }
                 }
-            } catch (e: Exception) { AppLog.w(TAG, "Failed to request engine stop before retry", e) }
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to request engine stop before retry", e)
+                cancel(resetCycle = true)
+                try { ConnectionStateManager.setReconnectingHint(false) } catch (ex: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after stop exception", ex) }
+            }
             return
         }
 
