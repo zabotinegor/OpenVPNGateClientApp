@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.Assert.assertEquals
@@ -7,6 +7,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -42,6 +43,29 @@ class ConnectionStateManagerTest {
 
         // Then effective state is CONNECTING (masked by hint)
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun reconnectHintMovesConnectedToConnectingOnEngineDisconnect() {
+        // Given VPN is shown as connected and reconnect flow is active
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.setReconnectingHint(true)
+
+        // When engine reports not connected while reconnecting
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, "NOPROCESS")
+
+        // Then UI must leave CONNECTED and show CONNECTING
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun allowsStopWhileConnecting() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
     }
 
     @Test

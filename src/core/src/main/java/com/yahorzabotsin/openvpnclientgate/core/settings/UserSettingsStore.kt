@@ -1,10 +1,11 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.settings
+package com.yahorzabotsin.openvpnclientgate.core.settings
 
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import java.util.Locale
 
 data class UserSettings(
@@ -21,14 +22,6 @@ data class UserSettings(
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
 enum class ThemeOption { SYSTEM, LIGHT, DARK }
 enum class ServerSource { DEFAULT, VPNGATE, CUSTOM }
-enum class DnsOption {
-    SERVER, GOOGLE, CLOUDFLARE, QUAD9, OPENDNS, ADGUARD, CLEANBROWSING, DNSWATCH;
-
-    companion object {
-        private val NAME_MAP by lazy { values().associateBy(DnsOption::name) }
-        fun fromString(name: String?): DnsOption = NAME_MAP[name] ?: SERVER
-    }
-}
 
 object UserSettingsStore {
     private const val PREFS_NAME = "user_settings"

@@ -1,5 +1,6 @@
-﻿package com.yahorzabotsin.openvpnclientgate.mobile
+package com.yahorzabotsin.openvpnclientgate.mobile
 
-class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.MainActivityCore()
+class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivityCore()
+
 
 

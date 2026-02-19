@@ -6,6 +6,8 @@ import android.widget.ImageView
 import android.widget.FrameLayout
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryListAdapter
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryWithServers
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith

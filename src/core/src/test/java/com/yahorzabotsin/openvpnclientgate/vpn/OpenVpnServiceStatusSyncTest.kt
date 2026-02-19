@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.vpn
+package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Intent
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
@@ -56,6 +56,20 @@ class OpenVpnServiceStatusSyncTest {
         val source = ReflectionHelpers.getField<Any>(service, "statusSource")
         assertNotNull(source)
         assertEquals("AIDL", source.toString())
+    }
+
+    @Test
+    fun supplementsConnectingDetailFromVpnStatusWhenAidlFresh() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+
+        service.updateState("TCP_CONNECT", null, 0, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+
+        assertEquals("TCP_CONNECT", ConnectionStateManager.engineDetail.value)
     }
 
     @Test

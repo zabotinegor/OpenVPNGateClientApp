@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Section: Theme palette (Light) -->
-    <color name="app_background">#0E1932</color>
-    <color name="nav_bar_background">#172A4E</color>
+    <color name="app_background">#F7F9FC</color>
+    <color name="nav_bar_background">#FFFFFF</color>
     <color name="menu_icon_color">#FFFFFF</color>
-    <color name="text_color_primary">#FFFFFF</color>
-    <color name="text_color_secondary">#A9A9A9</color>
-    <color name="icon_color">#3B7CFF</color>
-    <color name="theme_color_secondary">#3B7CFF</color>
+    <color name="text_color_primary">#092635</color>
+    <color name="text_color_secondary">#5F7384</color>
+    <color name="text_color_tertiary">#FFFBF5</color>
+    <color name="icon_color">#94A3B8</color>
+    <color name="theme_color_secondary">#94A3B8</color>
+    <color name="button_primary_background">#C9D4E2</color>
+
+    <!-- Section: Splash -->
+    <color name="splash_background_color">#1A1A1A</color>
 
     <!-- Section: Speedometer -->
-    <color name="speedometer_arc_color">#1E3A6E</color>
-    <color name="speedometer_progress_color">#3B7CFF</color>
+    <color name="speedometer_arc_color">#C9D4E2</color>
+    <color name="speedometer_progress_color">#7F93A8</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
 
     <!-- Section: Ping -->
@@ -23,32 +28,35 @@
     <color name="background_gradient_start">@color/app_background</color>
     <color name="background_gradient_end">@color/nav_bar_background</color>
     <color name="default_background">@color/nav_bar_background</color>
-    <color name="selected_background">@color/speedometer_progress_color</color>
+    <color name="selected_background">@color/button_primary_background</color>
+    <color name="tv_focus_overlay_light">#4DC9D4E2</color>
+    <color name="tv_focus_overlay_dark">#1FFFFFFF</color>
 
     <!-- Section: Connection button -->
-    <color name="connection_button_disconnected">#3B7CFF</color>
-    <color name="connection_button_connecting">#FFC107</color>
-    <color name="connection_button_active">#E53935</color>
+    <color name="connection_button_disconnected">@color/button_primary_background</color>
+    <color name="connection_button_connecting">#E0B85F</color>
+    <color name="connection_button_active">#C95A57</color>
     <color name="fastlane_background">@color/nav_bar_background</color>
     <color name="search_opaque">#80FFFFFF</color>
 
     <!-- Section: Toolbar nav focus (TV) -->
-    <color name="toolbar_nav_focus_bg">#333B7CFF</color>
+    <color name="toolbar_nav_focus_bg">@color/selected_background</color>
 
     <!-- Section: Server selection chips -->
     <color name="server_selection_bg_default">#00000000</color>
-    <color name="server_selection_bg_focus">#1A3B7CFF</color>
-    <color name="server_selection_bg_pressed">#333B7CFF</color>
-    <color name="server_selection_border_default">#3B7CFF</color>
-    <color name="server_selection_border_focus">#FF3B7CFF</color>
-    <color name="server_selection_border_pressed">#FF3B7CFF</color>
+    <color name="server_selection_bg_focus">@color/selected_background</color>
+    <color name="server_selection_bg_pressed">@color/selected_background</color>
+    <color name="server_selection_border_default">#092635</color>
+    <color name="server_selection_border_focus">#2F5C75</color>
+    <color name="server_selection_border_pressed">#2F5C75</color>
 
     <!-- Section: Loading indicator -->
     <color name="loading_spinner_color">@color/speedometer_progress_color</color>
 
     <!-- Section: Switch Colors -->
-    <color name="switch_thumb_checked">#3B7CFF</color>
-    <color name="switch_track_checked">#803B7CFF</color>
+    <color name="switch_thumb_checked">@color/button_primary_background</color>
+    <color name="switch_track_checked">#80C9D4E2</color>
     <color name="switch_thumb_unchecked">#F1F1F1</color>
     <color name="switch_track_unchecked">#80B0B0B0</color>
+
 </resources>

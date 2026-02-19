@@ -1,6 +1,7 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.settings
+package com.yahorzabotsin.openvpnclientgate.core.settings
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test

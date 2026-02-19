@@ -1,0 +1,219 @@
+package com.yahorzabotsin.openvpnclientgate.core.about
+
+import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+sealed interface LogExportResult {
+    data class Success(val file: File, val path: String) : LogExportResult
+    data class Failure(val reason: String) : LogExportResult
+}
+
+interface LogExportInteractor {
+    suspend fun export(): LogExportResult
+}
+
+class LogExportUseCase(
+    private val context: Context,
+    private val nowMsProvider: () -> Long = { System.currentTimeMillis() },
+    private val processFactory: (List<String>) -> Process = { args ->
+        ProcessBuilder(args)
+            .redirectErrorStream(true)
+            .start()
+    }
+) : LogExportInteractor {
+    private companion object {
+        private val TAG = LogTags.APP + ':' + "LogExport"
+    }
+
+    override suspend fun export(): LogExportResult = withContext(Dispatchers.IO) {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val outputDir = File(context.cacheDir, "logs")
+        if (!outputDir.exists()) outputDir.mkdirs()
+        cleanupOldExports(outputDir)
+
+        val logFile = File(outputDir, "logcat_${timestamp}.txt")
+        val zipFile = File(outputDir, "logcat_${timestamp}.zip")
+
+        val uid = context.applicationInfo.uid
+        val tagPrefix = LogTags.APP
+        val appFileLogStore = AppFileLogStore(context, nowMsProvider)
+        val attempts = listOf(
+            LogcatAttempt(withSince = true, useUid = true),
+            LogcatAttempt(withSince = true, useUid = false),
+            LogcatAttempt(withSince = false, useUid = true),
+            LogcatAttempt(withSince = false, useUid = false)
+        )
+
+        val nowMs = nowMsProvider()
+        var ok = false
+        var failureReason = "unknown"
+        for (attempt in attempts) {
+            val result = runLogcatToFile(logFile, attempt, uid, tagPrefix, nowMs)
+            if (result.success) {
+                ok = true
+                break
+            }
+            failureReason = result.reason
+        }
+        val hasAppFileLogs = runCatching {
+            appFileLogStore.appendLastDaysTo(logFile, LogExportRetention.RETENTION_DAYS, nowMs)
+        }.getOrElse { error ->
+            AppLog.w(TAG, "Failed to append persistent app logs", error)
+            false
+        }
+
+        val resultPath = if ((ok || hasAppFileLogs) && logFile.length() > 0) {
+            try {
+                ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+                    logFile.name.also { entryName ->
+                        zos.putNextEntry(ZipEntry(entryName))
+                        logFile.inputStream().use { input ->
+                            input.copyTo(zos)
+                        }
+                        zos.closeEntry()
+                    }
+                }
+                logFile.delete()
+                zipFile.absolutePath
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to archive logs", e)
+                logFile.delete()
+                zipFile.delete()
+                ""
+            }
+        } else {
+            logFile.delete()
+            zipFile.delete()
+            ""
+        }
+
+        if (resultPath.isNotBlank()) {
+            LogExportResult.Success(zipFile, resultPath)
+        } else {
+            if (!ok && !hasAppFileLogs) {
+                failureReason = "no logs in last ${LogExportRetention.RETENTION_DAYS} days"
+            }
+            LogExportResult.Failure(failureReason)
+        }
+    }
+
+    private data class LogcatAttempt(
+        val withSince: Boolean,
+        val useUid: Boolean
+    )
+
+    private data class LogcatResult(
+        val success: Boolean,
+        val reason: String
+    )
+
+    private fun runLogcatToFile(
+        target: File,
+        attempt: LogcatAttempt,
+        uid: Int,
+        tagPrefix: String,
+        nowMs: Long
+    ): LogcatResult {
+        val logcatPath = if (File("/system/bin/logcat").canExecute()) "/system/bin/logcat" else "logcat"
+        val args = mutableListOf(logcatPath, "-d", "-v", "time")
+        if (attempt.useUid) {
+            args.addAll(listOf("--uid", uid.toString()))
+        }
+        if (attempt.withSince) {
+            args.addAll(listOf("-T", "5d"))
+        }
+        val rawFile = File(target.parentFile, "${target.nameWithoutExtension}_raw.txt")
+        val process = processFactory(args)
+        rawFile.outputStream().use { output ->
+            process.inputStream.use { input ->
+                input.copyTo(output)
+            }
+        }
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            rawFile.delete()
+            return LogcatResult(false, "logcat exit $exitCode")
+        }
+        val head = try {
+            rawFile.bufferedReader().use { it.readLine().orEmpty() }
+        } catch (_: Exception) {
+            ""
+        }
+        if (head.startsWith("logcat:") || head.contains("invalid")) {
+            rawFile.delete()
+            return LogcatResult(false, head.ifBlank { "logcat error" })
+        }
+        val tagToken = tagPrefix.take(23)
+        val tagRegex = Regex("\\s[VDIWEF]\\s+${Regex.escape(tagToken)}")
+        val timestampRegex = Regex("^\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\.\\d{3}.*$")
+        var hasLines = false
+        var hasAnyLines = false
+        var includeContinuation = false
+        target.bufferedWriter().use { writer ->
+            rawFile.bufferedReader().forEachLine { line ->
+                hasAnyLines = true
+                if (tagRegex.containsMatchIn(line) || line.contains(tagToken)) {
+                    writer.write(line)
+                    writer.newLine()
+                    hasLines = true
+                    includeContinuation = true
+                } else {
+                    if (timestampRegex.matches(line)) {
+                        includeContinuation = false
+                    } else if (includeContinuation) {
+                        writer.write(line)
+                        writer.newLine()
+                        hasLines = true
+                    }
+                }
+            }
+        }
+        if (!hasAnyLines) {
+            rawFile.delete()
+            target.delete()
+            return LogcatResult(false, "empty logcat output")
+        }
+        if (hasLines) {
+            if (!LogExportRetention.filterFileToLastDays(target, target, nowMs)) {
+                target.delete()
+                rawFile.delete()
+                return LogcatResult(false, "no logs in last ${LogExportRetention.RETENTION_DAYS} days")
+            }
+            rawFile.delete()
+            return LogcatResult(true, "ok")
+        }
+        if (attempt.useUid) {
+            rawFile.copyTo(target, overwrite = true)
+            if (!LogExportRetention.filterFileToLastDays(target, target, nowMs)) {
+                target.delete()
+                rawFile.delete()
+                return LogcatResult(false, "no logs in last ${LogExportRetention.RETENTION_DAYS} days")
+            }
+            rawFile.delete()
+            return LogcatResult(true, "no tag match; used uid-only logs")
+        }
+        rawFile.delete()
+        if (!hasLines) {
+            target.delete()
+        }
+        return LogcatResult(false, "no tag matches")
+    }
+
+    private fun cleanupOldExports(outputDir: File) {
+        LogExportRetention.cleanupOldExportFiles(outputDir, nowMsProvider()) { file, error ->
+            AppLog.w(TAG, "Failed to delete old export file: ${file.absolutePath}", error)
+        }
+    }
+}
+

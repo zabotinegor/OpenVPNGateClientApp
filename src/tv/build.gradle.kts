@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.androidx.leanback)
     implementation(libs.glide)
     implementation(libs.material)
+    implementation(libs.timber)
 }
 
 apply(from = "../copy_drawables.gradle.kts")
