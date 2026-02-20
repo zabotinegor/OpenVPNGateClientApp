@@ -39,7 +39,7 @@ The Application stores operational data locally on the device, such as:
 These local logs are shared only when a user explicitly exports them from the app.
 
 ## 6. Third-Party Services
-The Application is distributed through Google Play and may rely on standard Android/Google Play platform components.
+The Application may rely on standard Android platform components.
 
 These services may have their own privacy policies:
 - [Google Privacy Policy](https://policies.google.com/privacy)

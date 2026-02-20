@@ -123,7 +123,7 @@ class AboutViewModelTest {
             telegram = "",
             github = "",
             githubEngine = "",
-            googlePlay = "",
+            androidStore = "",
             privacyPolicy = "",
             termsOfUse = "",
             gplv2 = "",

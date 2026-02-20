@@ -8,7 +8,7 @@ object AboutMeta {
     const val GITHUB = "https://github.com/zabotinegor/OpenVPNGateClientApp"
     const val GITHUB_ENGINE = "https://github.com/zabotinegor/OpenVPNGateClientEngine"
     const val ICS_OPENVPN_GITHUB = "https://github.com/schwabe/ics-openvpn"
-    const val GOOGLE_PLAY = "" // to be set after publishing
+    const val ANDROID_STORE = ""
     const val PRIVACY_POLICY = "https://openvpngateclient.azurewebsites.net/privacy-policy"
     const val TERMS_OF_USE = "https://openvpngateclient.azurewebsites.net/terms-of-use"
     const val COPYRIGHT_OWNER = "Yahor Zabotsin"

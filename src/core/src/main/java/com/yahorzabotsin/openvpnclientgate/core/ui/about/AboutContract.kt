@@ -20,7 +20,7 @@ data class AboutUiState(
         telegram = "",
         github = "",
         githubEngine = "",
-        googlePlay = "",
+        androidStore = "",
         privacyPolicy = "",
         termsOfUse = "",
         gplv2 = "",
@@ -36,7 +36,7 @@ enum class AboutRowId {
     TELEGRAM,
     GITHUB,
     GITHUB_ENGINE,
-    PLAY,
+    STORE,
     PRIVACY,
     TERMS,
     LICENSE,
@@ -52,7 +52,7 @@ sealed interface AboutAction {
 sealed interface AboutEffect {
     data class OpenUrl(val url: String) : AboutEffect
     data class OpenEmail(val email: String) : AboutEffect
-    data class OpenPlay(val webUrl: String) : AboutEffect
+    data class OpenStore(val webUrl: String) : AboutEffect
     data class CopyToClipboard(val labelResId: Int, val text: String) : AboutEffect
     data class ShowToast(val text: UiText, val duration: ToastDuration = ToastDuration.SHORT) : AboutEffect
     data class ShareLogArchive(val filePath: String) : AboutEffect
