@@ -67,7 +67,7 @@
     <string name="about_telegram">Telegram</string>
     <string name="about_github">Исходный код</string>
     <string name="about_github_engine">Исходный код (движок)</string>
-    <string name="about_google_play">Google Play</string>
+    <string name="about_android_store">Android Store</string>
     <string name="about_privacy_policy">Политика конфиденциальности</string>
     <string name="about_terms_of_use">Условия использования</string>
     <string name="about_licenses">Лицензия GPLv2</string>
