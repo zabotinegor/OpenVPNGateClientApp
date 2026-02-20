@@ -56,7 +56,7 @@ class AboutViewModel(
             AboutRowId.TELEGRAM -> openUrl(state.value.links.telegram)
             AboutRowId.GITHUB -> openUrl(state.value.links.github)
             AboutRowId.GITHUB_ENGINE -> openUrl(state.value.links.githubEngine)
-            AboutRowId.PLAY -> openPlay(state.value.links.googlePlay)
+            AboutRowId.STORE -> openStore(state.value.links.androidStore)
             AboutRowId.PRIVACY -> openUrl(state.value.links.privacyPolicy)
             AboutRowId.TERMS -> openUrl(state.value.links.termsOfUse)
             AboutRowId.LICENSE -> openUrl(state.value.links.gplv2)
@@ -73,7 +73,7 @@ class AboutViewModel(
             AboutRowId.TELEGRAM -> links.telegram to R.string.copy_label_link
             AboutRowId.GITHUB -> links.github to R.string.copy_label_link
             AboutRowId.GITHUB_ENGINE -> links.githubEngine to R.string.copy_label_link
-            AboutRowId.PLAY -> links.googlePlay to R.string.copy_label_link
+            AboutRowId.STORE -> links.androidStore to R.string.copy_label_link
             AboutRowId.PRIVACY -> links.privacyPolicy to R.string.copy_label_link
             AboutRowId.TERMS -> links.termsOfUse to R.string.copy_label_link
             AboutRowId.LICENSE -> links.gplv2 to R.string.copy_label_link
@@ -101,10 +101,10 @@ class AboutViewModel(
         }
     }
 
-    private fun openPlay(webUrl: String) {
+    private fun openStore(webUrl: String) {
         if (webUrl.isBlank()) return
         viewModelScope.launch {
-            _effects.emit(AboutEffect.OpenPlay(webUrl))
+            _effects.emit(AboutEffect.OpenStore(webUrl))
         }
     }
 

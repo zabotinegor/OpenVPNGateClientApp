@@ -42,7 +42,7 @@ class AboutActivity : AppCompatActivity() {
         bindingContent.rowTelegram.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TELEGRAM)) }
         bindingContent.rowGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB)) }
         bindingContent.rowGithubEngine.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB_ENGINE)) }
-        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PLAY)) }
+        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.STORE)) }
         bindingContent.rowPrivacy.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PRIVACY)) }
         bindingContent.rowTerms.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TERMS)) }
         bindingContent.rowLicense.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LICENSE)) }
@@ -65,7 +65,7 @@ class AboutActivity : AppCompatActivity() {
             viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB_ENGINE)); true
         }
         bindingContent.rowPlay.setOnLongClickListener {
-            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PLAY)); true
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.STORE)); true
         }
         bindingContent.rowPrivacy.setOnLongClickListener {
             viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PRIVACY)); true
@@ -109,7 +109,7 @@ class AboutActivity : AppCompatActivity() {
         bindingContent.rowTelegram.isVisible = links.telegram.isNotBlank()
         bindingContent.rowGithub.isVisible = links.github.isNotBlank()
         bindingContent.rowGithubEngine.isVisible = links.githubEngine.isNotBlank()
-        bindingContent.rowPlay.isVisible = links.googlePlay.isNotBlank()
+        bindingContent.rowPlay.isVisible = links.androidStore.isNotBlank()
         bindingContent.rowPrivacy.isVisible = links.privacyPolicy.isNotBlank()
         bindingContent.rowTerms.isVisible = links.termsOfUse.isNotBlank()
         bindingContent.rowLicense.isVisible = links.gplv2.isNotBlank()
@@ -124,7 +124,7 @@ class AboutActivity : AppCompatActivity() {
         when (effect) {
             is AboutEffect.OpenUrl -> openUrl(effect.url)
             is AboutEffect.OpenEmail -> openEmail(effect.email)
-            is AboutEffect.OpenPlay -> openPlay(effect.webUrl)
+            is AboutEffect.OpenStore -> openStore(effect.webUrl)
             is AboutEffect.CopyToClipboard -> copyToClipboard(getString(effect.labelResId), effect.text)
             is AboutEffect.ShowToast -> showToast(effect.text, effect.duration)
             is AboutEffect.ShareLogArchive -> shareLogArchive(File(effect.filePath))
@@ -198,15 +198,9 @@ class AboutActivity : AppCompatActivity() {
         }
     }
 
-    private fun openPlay(webUrl: String) {
+    private fun openStore(webUrl: String) {
         if (webUrl.isBlank()) return
-        val marketUri = Uri.parse("market://details?id=$packageName")
-        val marketIntent = Intent(Intent.ACTION_VIEW, marketUri)
-        try {
-            startActivity(marketIntent)
-        } catch (_: ActivityNotFoundException) {
-            openUrl(webUrl)
-        }
+        openUrl(webUrl)
     }
 
     private fun shareLogArchive(file: File) {
