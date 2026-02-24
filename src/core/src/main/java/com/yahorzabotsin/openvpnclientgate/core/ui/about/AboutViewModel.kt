@@ -8,6 +8,7 @@ import com.yahorzabotsin.openvpnclientgate.core.about.AboutLinksProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.ElapsedRealtimeProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportInteractor
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +20,8 @@ class AboutViewModel(
     private val infoProvider: AboutInfoProvider,
     private val linksProvider: AboutLinksProvider,
     private val logExportUseCase: LogExportInteractor,
-    private val elapsedRealtimeProvider: ElapsedRealtimeProvider
+    private val elapsedRealtimeProvider: ElapsedRealtimeProvider,
+    private val updateCheckInteractor: UpdateCheckInteractor
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AboutUiState())
@@ -61,6 +63,7 @@ class AboutViewModel(
             AboutRowId.TERMS -> openUrl(state.value.links.termsOfUse)
             AboutRowId.LICENSE -> openUrl(state.value.links.gplv2)
             AboutRowId.ICS_GITHUB -> openUrl(state.value.links.icsGithub)
+            AboutRowId.CHECK_UPDATES -> checkUpdatesManually()
         }
     }
 
@@ -78,6 +81,7 @@ class AboutViewModel(
             AboutRowId.TERMS -> links.termsOfUse to R.string.copy_label_link
             AboutRowId.LICENSE -> links.gplv2 to R.string.copy_label_link
             AboutRowId.ICS_GITHUB -> links.icsGithub to R.string.copy_label_link
+            AboutRowId.CHECK_UPDATES -> "" to R.string.copy_label_link
             AboutRowId.LOGS -> "" to R.string.copy_label_link
         }
         if (value.isBlank()) return
@@ -133,6 +137,25 @@ class AboutViewModel(
                 }
             }
             _state.value = _state.value.copy(isExportingLogs = false)
+        }
+    }
+
+    private fun checkUpdatesManually() {
+        viewModelScope.launch {
+            val update = updateCheckInteractor.check(forceRefresh = true)
+            if (update == null) {
+                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_check_failed), ToastDuration.LONG))
+                return@launch
+            }
+            if (!update.hasUpdate) {
+                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_up_to_date), ToastDuration.SHORT))
+                return@launch
+            }
+            if (update.asset == null || update.asset.downloadProxyUrl.isBlank()) {
+                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_available_no_asset), ToastDuration.LONG))
+                return@launch
+            }
+            _effects.emit(AboutEffect.PromptUpdate(update))
         }
     }
 

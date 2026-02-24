@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
 import okhttp3.MediaType.Companion.toMediaType
@@ -59,6 +60,7 @@ class CoreDiTest {
         }.koin
 
         assertNotNull(koin.get<UpdateCheckInteractor>())
+        assertNotNull(koin.get<AboutViewModel>())
         assertNotNull(koin.get<MainViewModel>())
     }
 

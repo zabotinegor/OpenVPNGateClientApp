@@ -115,7 +115,7 @@ val coreModule = module {
     single<ElapsedRealtimeProvider> { SystemElapsedRealtimeProvider() }
     single<LogExportInteractor> { LogExportUseCase(get()) }
 
-    viewModel { AboutViewModel(get(), get(), get(), get()) }
+    viewModel { AboutViewModel(get(), get(), get(), get(), get()) }
     single<DnsLogger> { DefaultDnsLogger() }
     viewModel { DnsViewModel(get(), get()) }
     single<FilterLogger> { DefaultFilterLogger() }
