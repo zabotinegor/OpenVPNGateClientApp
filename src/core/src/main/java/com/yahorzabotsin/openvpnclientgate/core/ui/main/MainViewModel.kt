@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
     private val versionReleaseInteractor: VersionReleaseInteractor,
+    private val updateCheckInteractor: UpdateCheckInteractor,
     private val connectionInteractor: MainConnectionInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: MainLogger
@@ -27,10 +28,12 @@ class MainViewModel(
 
     private val _effects = Channel<MainEffect>(capacity = Channel.BUFFERED)
     val effects = _effects.receiveAsFlow()
+    private var updatePromptShown = false
 
     fun onAction(action: MainAction) {
         when (action) {
             MainAction.LoadInitialSelection -> loadInitialSelection()
+            MainAction.RefreshUpdateAvailability -> loadUpdateAvailability()
             is MainAction.NavigationItemSelected -> onNavigationItemSelected(action.itemId)
             MainAction.OpenServerListFromConnectionControls -> onOpenServerListFromConnectionControls()
             is MainAction.ConnectionButtonClicked -> onConnectionButtonClicked(
@@ -44,6 +47,7 @@ class MainViewModel(
 
     private fun loadInitialSelection() {
         loadWhatsNew()
+        loadUpdateAvailability()
         viewModelScope.launch {
             try {
                 val cacheOnly = connectionStateProvider.isConnected()
@@ -83,6 +87,38 @@ class MainViewModel(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 logger.logWhatsNewLoadError(e)
+            }
+        }
+    }
+
+    private fun loadUpdateAvailability() {
+        viewModelScope.launch {
+            try {
+                val update = updateCheckInteractor.check()
+                if (update == null || !update.hasUpdate || update.asset?.downloadProxyUrl.isNullOrBlank()) {
+                    logger.logUpdateUnavailable()
+                    _state.value = _state.value.copy(availableUpdate = null)
+                    return@launch
+                }
+
+                val availableUpdate = MainAvailableUpdate(
+                    currentBuild = update.currentBuild,
+                    latestBuild = update.latestBuild,
+                    versionNumber = update.latestVersion ?: "",
+                    name = update.name,
+                    changelog = update.changelog,
+                    downloadProxyUrl = update.asset?.downloadProxyUrl.orEmpty(),
+                    message = update.message
+                )
+                logger.logUpdateLoaded(availableUpdate)
+                _state.value = _state.value.copy(availableUpdate = availableUpdate)
+                if (!updatePromptShown) {
+                    updatePromptShown = true
+                    _effects.send(MainEffect.PromptUpdate(availableUpdate))
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                logger.logUpdateLoadError(e)
             }
         }
     }
@@ -129,6 +165,12 @@ class MainViewModel(
                     val whatsNew = _state.value.whatsNew
                     if (whatsNew != null) {
                         _effects.send(MainEffect.OpenDestination(MainDestination.WhatsNew(whatsNew)))
+                    }
+                }
+                R.id.nav_update -> {
+                    val update = _state.value.availableUpdate
+                    if (update != null) {
+                        _effects.send(MainEffect.InstallUpdate(update))
                     }
                 }
                 else -> _effects.send(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))

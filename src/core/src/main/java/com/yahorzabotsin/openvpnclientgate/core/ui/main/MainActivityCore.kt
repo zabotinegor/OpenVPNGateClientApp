@@ -2,10 +2,12 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.Manifest
 import android.app.Activity
+import androidx.appcompat.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.VpnService
+import android.provider.Settings
 import android.os.Bundle
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
@@ -36,12 +38,18 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
+    private companion object {
+        const val UPDATE_PROMPT_PREFS = "update_prompt_prefs"
+        const val KEY_LAST_PROMPT_TOKEN = "last_prompt_token"
+    }
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
@@ -50,6 +58,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private val connectionControlsUseCase: ConnectionControlsUseCase by inject()
     private val connectionControlsRuntime: ConnectionControlsRuntime by inject()
     private val connectionControlsSelectionStore: ConnectionControlsSelectionStore by inject()
+    private val appUpdateInstaller: AppUpdateInstaller by inject()
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
@@ -151,6 +160,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun onStart() {
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
+        viewModel.onAction(MainAction.RefreshUpdateAvailability)
         try {
             VpnManager.syncStatus(this)
         } catch (e: Exception) {
@@ -224,6 +234,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 if (state.isDetailsVisible) View.VISIBLE else View.GONE
         }
         binding.navView.menu.findItem(R.id.nav_whats_new)?.isVisible = state.whatsNew != null
+        binding.navView.menu.findItem(R.id.nav_update)?.isVisible = state.availableUpdate != null
         applySelectedServerIfNeeded(state.selectedServer)
     }
 
@@ -250,8 +261,25 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
+            is MainEffect.PromptUpdate -> {
+                if (shouldShowUpdatePromptOnce(effect.update)) {
+                    showUpdateDialog(effect.update)
+                }
+            }
+            is MainEffect.InstallUpdate -> startUpdateInstall(effect.update)
+            MainEffect.OpenUnknownSourcesSettings -> openUnknownSourcesSettings()
             is MainEffect.ShowToast -> Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun shouldShowUpdatePromptOnce(update: MainAvailableUpdate): Boolean {
+        if (update.downloadProxyUrl.isBlank()) return false
+        val token = "${update.latestBuild}|${update.downloadProxyUrl}"
+        val prefs = getSharedPreferences(UPDATE_PROMPT_PREFS, MODE_PRIVATE)
+        val lastToken = prefs.getString(KEY_LAST_PROMPT_TOKEN, null)
+        if (lastToken == token) return false
+        prefs.edit().putString(KEY_LAST_PROMPT_TOKEN, token).apply()
+        return true
     }
 
     private fun applySelectedServerIfNeeded(selection: MainSelectedServer?) {
@@ -281,6 +309,73 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 whatsNewActivityLauncher.launch(intent)
             }
         }
+    }
+
+    private fun showUpdateDialog(update: MainAvailableUpdate) {
+        val message = buildString {
+            append(update.message.ifBlank { getString(R.string.update_available_message) })
+            if (!update.versionNumber.isBlank()) {
+                append("\n")
+                append(getString(R.string.update_latest_version_format, update.versionNumber))
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.action_update)
+            .setMessage(message)
+            .setPositiveButton(R.string.action_update) { _, _ ->
+                lifecycleScope.launch { installUpdate(update) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startUpdateInstall(update: MainAvailableUpdate) {
+        lifecycleScope.launch { installUpdate(update) }
+    }
+
+    private suspend fun installUpdate(update: MainAvailableUpdate) {
+        val info = com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo(
+            hasUpdate = true,
+            currentBuild = update.currentBuild,
+            latestBuild = update.latestBuild,
+            platform = "",
+            latestVersion = update.versionNumber,
+            name = update.name,
+            changelog = update.changelog,
+            resolvedLocale = null,
+            message = update.message,
+            asset = com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset(
+                id = 0,
+                name = if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk",
+                assetType = "apk",
+                sizeBytes = 0L,
+                contentHash = "",
+                downloadProxyUrl = update.downloadProxyUrl
+            )
+        )
+        when (val result = appUpdateInstaller.start(info)) {
+            AppUpdateInstallResult.Started ->
+                Toast.makeText(this@MainActivityCore, getString(R.string.update_install_started), Toast.LENGTH_SHORT).show()
+            AppUpdateInstallResult.MissingInstallPermission -> {
+                Toast.makeText(this@MainActivityCore, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+                openUnknownSourcesSettings()
+            }
+            is AppUpdateInstallResult.Failure ->
+                Toast.makeText(
+                    this@MainActivityCore,
+                    getString(R.string.update_install_failed_format, result.reason),
+                    Toast.LENGTH_LONG
+                ).show()
+        }
+    }
+
+    private fun openUnknownSourcesSettings() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+            data = android.net.Uri.parse("package:$packageName")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     private fun dispatchConnectionButtonClick() {
