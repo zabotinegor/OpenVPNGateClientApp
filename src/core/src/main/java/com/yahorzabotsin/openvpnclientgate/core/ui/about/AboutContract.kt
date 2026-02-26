@@ -58,7 +58,6 @@ sealed interface AboutEffect {
     data class ShowToast(val text: UiText, val duration: ToastDuration = ToastDuration.SHORT) : AboutEffect
     data class ShareLogArchive(val filePath: String) : AboutEffect
     data class PromptUpdate(val update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) : AboutEffect
-    data class InstallUpdate(val update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) : AboutEffect
 }
 
 enum class ToastDuration {

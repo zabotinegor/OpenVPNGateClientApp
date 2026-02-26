@@ -255,7 +255,7 @@ class DefaultUpdateCheckRepository(
                 "tv", "mobile" -> normalized
                 "1" -> "tv"
                 "0" -> "mobile"
-                else -> normalized
+                else -> "mobile"
             }
         }
         val asInt = data.optIntAny("platform", "Platform")

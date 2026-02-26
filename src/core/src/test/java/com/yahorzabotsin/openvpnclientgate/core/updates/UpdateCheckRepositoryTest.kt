@@ -164,6 +164,66 @@ class UpdateCheckRepositoryTest {
     }
 
     @Test
+    fun `checkForUpdate falls back to mobile for unknown string platform`() = runTest {
+        val api = CapturingUpdateApi(
+            responseJson = """
+                {"success":true,"data":{
+                  "hasUpdate":true,
+                  "currentBuild":1,
+                  "latestBuild":2,
+                  "platform":"desktop",
+                  "latestVersion":"1.1",
+                  "message":"Update available."
+                }}
+            """.trimIndent()
+        )
+        val repository = DefaultUpdateCheckRepository(context, api)
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api.example.com/api/v1/servers/active"
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals("mobile", result?.platform)
+    }
+
+    @Test
+    fun `checkForUpdate falls back to mobile for unknown numeric platform`() = runTest {
+        val api = CapturingUpdateApi(
+            responseJson = """
+                {"success":true,"data":{
+                  "hasUpdate":true,
+                  "currentBuild":1,
+                  "latestBuild":2,
+                  "platform":77,
+                  "latestVersion":"1.1",
+                  "message":"Update available."
+                }}
+            """.trimIndent()
+        )
+        val repository = DefaultUpdateCheckRepository(context, api)
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api.example.com/api/v1/servers/active"
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals("mobile", result?.platform)
+    }
+
+    @Test
     fun `checkForUpdate returns null when package info missing`() = runTest {
         val api = CapturingUpdateApi()
         val missingPackageContext = object : ContextWrapper(context) {

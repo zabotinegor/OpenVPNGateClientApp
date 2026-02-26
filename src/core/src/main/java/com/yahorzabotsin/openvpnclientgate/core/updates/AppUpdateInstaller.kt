@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -116,6 +117,7 @@ class DefaultAppUpdateInstaller(
                 AppUpdateInstallResult.Started
             }
         }.getOrElse { error ->
+            if (error is CancellationException) throw error
             AppLog.w(tag, "Update install failed", error)
             AppUpdateInstallResult.Failure(error.message ?: "Unknown error")
         }

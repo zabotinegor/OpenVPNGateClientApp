@@ -16,7 +16,7 @@ class UpdateInstallProgressDialog(
         max = 100
     }
     private val progressText = TextView(activity).apply {
-        text = activity.getString(R.string.update_downloading_unknown)
+        text = activity.getString(R.string.update_downloading_unknown, formatBytes(0))
     }
     private val dialog: AlertDialog = AlertDialog.Builder(activity)
         .setTitle(R.string.action_update)
@@ -83,4 +83,3 @@ class UpdateInstallProgressDialog(
         }
     }
 }
-

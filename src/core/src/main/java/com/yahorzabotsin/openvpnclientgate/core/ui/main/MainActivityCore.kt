@@ -270,8 +270,6 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                     showUpdateDialog(effect.update)
                 }
             }
-            is MainEffect.InstallUpdate -> startUpdateInstall(effect.update)
-            MainEffect.OpenUnknownSourcesSettings -> openUnknownSourcesSettings()
             is MainEffect.ShowToast -> Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
         }
     }
@@ -344,10 +342,6 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             putExtra(WebViewActivity.EXTRA_HTML, MarkdownRenderer.renderDocument(update.changelog))
         }
         whatsNewActivityLauncher.launch(intent)
-    }
-
-    private fun startUpdateInstall(update: MainAvailableUpdate) {
-        lifecycleScope.launch { installUpdate(update) }
     }
 
     private suspend fun installUpdate(update: MainAvailableUpdate) {

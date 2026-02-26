@@ -90,7 +90,5 @@ sealed interface MainEffect {
         val update: MainAvailableUpdate,
         val oneTimeOnly: Boolean = true
     ) : MainEffect
-    data class InstallUpdate(val update: MainAvailableUpdate) : MainEffect
     data class ShowToast(val text: UiText) : MainEffect
-    data object OpenUnknownSourcesSettings : MainEffect
 }

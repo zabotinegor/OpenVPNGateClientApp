@@ -138,7 +138,6 @@ class AboutActivity : AppCompatActivity() {
             is AboutEffect.ShowToast -> showToast(effect.text, effect.duration)
             is AboutEffect.ShareLogArchive -> shareLogArchive(File(effect.filePath))
             is AboutEffect.PromptUpdate -> showUpdateDialog(effect.update)
-            is AboutEffect.InstallUpdate -> startUpdateInstall(effect.update)
         }
     }
 

@@ -146,7 +146,6 @@ class MainViewModelTest {
         val promptEffects = effects.filterIsInstance<MainEffect.PromptUpdate>()
         assertEquals(2, promptEffects.size)
         assertTrue(promptEffects.any { it.update.versionNumber == "1.2.3" && !it.oneTimeOnly })
-        assertFalse(effects.any { it is MainEffect.InstallUpdate && it.update.versionNumber == "1.2.3" })
         assertTrue(effects.any { it is MainEffect.CloseDrawer })
         job.cancel()
     }

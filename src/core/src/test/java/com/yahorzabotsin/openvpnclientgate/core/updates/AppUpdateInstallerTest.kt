@@ -16,7 +16,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [25])
@@ -180,6 +182,33 @@ class AppUpdateInstallerTest {
 
         assertTrue(result is AppUpdateInstallResult.Failure)
         assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("fileprovider", ignoreCase = true))
+    }
+
+    @Test(expected = CancellationException::class)
+    fun `start rethrows cancellation exception`() = runTest {
+        val installer = DefaultAppUpdateInstaller(
+            context,
+            OkHttpClient.Builder()
+                .addInterceptor(Interceptor { throw CancellationException("cancelled") })
+                .build()
+        )
+
+        installer.start(sampleInfo())
+    }
+
+    @Test
+    fun `start returns failure on non cancellation io exception`() = runTest {
+        val installer = DefaultAppUpdateInstaller(
+            context,
+            OkHttpClient.Builder()
+                .addInterceptor(Interceptor { throw IOException("network down") })
+                .build()
+        )
+
+        val result = installer.start(sampleInfo())
+
+        assertTrue(result is AppUpdateInstallResult.Failure)
+        assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("network down"))
     }
 
     private fun sampleInfo(asset: AppUpdateAsset? = defaultAsset()): AppUpdateInfo =
