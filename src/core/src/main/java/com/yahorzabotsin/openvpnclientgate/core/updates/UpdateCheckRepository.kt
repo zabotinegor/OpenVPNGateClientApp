@@ -119,13 +119,7 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun resolveReleaseType(): String {
-        val configured = BuildConfig.APP_RELEASE_TYPE.trim().lowercase()
-        if (configured == "release" || configured == "beta") return configured
-
-        val versionName = runCatching {
-            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName.orEmpty()
-        }.getOrDefault("")
-        return if (versionName.contains("beta", ignoreCase = true)) "beta" else "release"
+        return BuildConfig.APP_RELEASE_TYPE.trim().lowercase()
     }
 
     private fun toCheckUpdateUrl(

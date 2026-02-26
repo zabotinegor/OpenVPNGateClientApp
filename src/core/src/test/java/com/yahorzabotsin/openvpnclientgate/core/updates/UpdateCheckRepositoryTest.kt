@@ -54,9 +54,34 @@ class UpdateCheckRepositoryTest {
 
         assertNotNull(result)
         assertEquals(
-            "https://api.example.com/api/v1/versions/check-update?platform=mobile&releaseType=release&currentBuild=1&locale=ru",
+            "https://api.example.com/api/v1/versions/check-update?platform=mobile&releaseType=${BuildConfig.APP_RELEASE_TYPE.trim().lowercase()}&currentBuild=1&locale=ru",
             api.requestedUrls.single()
         )
+    }
+
+    @Test
+    fun `checkForUpdate uses configured release type regardless of versionName`() = runTest {
+        val configuredReleaseType = BuildConfig.APP_RELEASE_TYPE.trim().lowercase()
+        val oppositeVersionName = if (configuredReleaseType == "beta") "1.0" else "1.0-beta.1"
+        setPackageInfo(versionName = oppositeVersionName, buildNumber = 2L)
+
+        val api = CapturingUpdateApi()
+        val repository = DefaultUpdateCheckRepository(context, api)
+
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api.example.com/api/v1/servers/active"
+            )
+        )
+
+        repository.checkForUpdate(forceRefresh = true)
+
+        val url = api.requestedUrls.single()
+        assertEquals(true, url.contains("releaseType=$configuredReleaseType"))
+        assertEquals(true, url.contains("currentBuild=2"))
     }
 
     @Test
