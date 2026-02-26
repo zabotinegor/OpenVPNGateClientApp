@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.os.Bundle
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
+import android.view.Menu
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -235,8 +236,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             binding.connectionDetails.detailsContainer?.visibility =
                 if (state.isDetailsVisible) View.VISIBLE else View.GONE
         }
-        binding.navView.menu.findItem(R.id.nav_whats_new)?.isVisible = state.whatsNew != null
-        binding.navView.menu.findItem(R.id.nav_update)?.isVisible = state.availableUpdate != null
+        applyMainMenuVisibility(binding.navView.menu, state)
         applySelectedServerIfNeeded(state.selectedServer)
     }
 
@@ -445,6 +445,25 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun updateStatus(text: String) {
         binding.connectionDetails.statusValue.text = text
     }
+}
+
+internal data class MainMenuVisibility(
+    val showUpdate: Boolean,
+    val showWhatsNew: Boolean
+)
+
+internal fun resolveMainMenuVisibility(state: MainUiState): MainMenuVisibility {
+    val hasAvailableUpdate = state.availableUpdate != null
+    return MainMenuVisibility(
+        showUpdate = hasAvailableUpdate,
+        showWhatsNew = !hasAvailableUpdate && state.whatsNew != null
+    )
+}
+
+internal fun applyMainMenuVisibility(menu: Menu, state: MainUiState) {
+    val visibility = resolveMainMenuVisibility(state)
+    menu.findItem(R.id.nav_update)?.isVisible = visibility.showUpdate
+    menu.findItem(R.id.nav_whats_new)?.isVisible = visibility.showWhatsNew
 }
 
 
