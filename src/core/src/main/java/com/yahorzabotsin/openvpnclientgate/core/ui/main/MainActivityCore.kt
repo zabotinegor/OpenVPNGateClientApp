@@ -40,6 +40,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
+import com.yahorzabotsin.openvpnclientgate.core.ui.updates.buildUpdateDialogMessage
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
 import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
@@ -314,13 +315,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun showUpdateDialog(update: MainAvailableUpdate) {
-        val message = buildString {
-            append(update.message.ifBlank { getString(R.string.update_available_message) })
-            if (!update.versionNumber.isBlank()) {
-                append("\n")
-                append(getString(R.string.update_latest_version_format, update.versionNumber))
-            }
-        }
+        val message = buildUpdateDialogMessage(this, update.versionNumber, update.message)
         val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.update_available_title)
             .setMessage(message)

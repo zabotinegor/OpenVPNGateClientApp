@@ -163,4 +163,19 @@
     <string name="settings_status_timer_hint">Limit czasu (sekundy, &gt; 0)</string>
     <string name="settings_status_timer_summary_format">%1$d s</string>
     <string name="ping_ms_format">%1$d ms</string>
+
+    <string name="about_check_updates">Sprawdź aktualizacje</string>
+    <string name="action_update">Aktualizuj</string>
+    <string name="update_available_title">Dostępna aktualizacja</string>
+    <string name="update_available_message">Dostępna jest nowa aktualizacja.</string>
+    <string name="update_latest_version_format">Najnowsza wersja: %1$s</string>
+    <string name="update_whats_new">Co nowego</string>
+    <string name="update_install_started">Rozpoczęto pobieranie aktualizacji</string>
+    <string name="update_install_permission_needed">Aby kontynuować, zezwól na instalację z nieznanych źródeł</string>
+    <string name="update_install_failed_format">Aktualizacja nie powiodła się: %1$s</string>
+    <string name="update_downloading_progress">Pobieranie aktualizacji: %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_unknown">Pobieranie aktualizacji: %1$s</string>
+    <string name="update_up_to_date">Masz już najnowszą wersję</string>
+    <string name="update_available_no_asset">Aktualizacja jest dostępna, ale pakiet do pobrania nie został jeszcze opublikowany</string>
+    <string name="update_check_failed">Nie udało się sprawdzić aktualizacji</string>
 </resources>
