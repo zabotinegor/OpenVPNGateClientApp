@@ -76,6 +76,31 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `load update availability maps asset metadata to state`() = runTest {
+        val asset = AppUpdateAsset(
+            id = 7,
+            name = "OpenVPNGateClient_mobile.apk",
+            assetType = "apk-mobile",
+            sizeBytes = 987654L,
+            contentHash = "abc123",
+            downloadProxyUrl = "https://example.com/api/v1/download-assets/10/7"
+        )
+        val viewModel = createViewModel(
+            updateCheckInteractor = FakeUpdateCheckInteractor(latest = sampleUpdate(asset = asset))
+        )
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        val update = viewModel.state.value.availableUpdate
+        assertEquals(asset.name, update?.assetName)
+        assertEquals(asset.assetType, update?.assetType)
+        assertEquals(asset.sizeBytes, update?.assetSizeBytes)
+        assertEquals(asset.contentHash, update?.assetContentHash)
+        assertEquals(asset.downloadProxyUrl, update?.downloadProxyUrl)
+    }
+
+    @Test
     fun `whats new menu emits web destination effect`() = runTest {
         val viewModel = createViewModel(
             versionReleaseInteractor = FakeVersionReleaseInteractor(latest = sampleRelease())
@@ -103,7 +128,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `update menu emits install effect when update is available`() = runTest {
+    fun `update menu emits prompt effect when update is available`() = runTest {
         val viewModel = createViewModel(
             updateCheckInteractor = FakeUpdateCheckInteractor(latest = sampleUpdate())
         )
@@ -118,8 +143,10 @@ class MainViewModelTest {
         viewModel.onAction(MainAction.NavigationItemSelected(R.id.nav_update))
         advanceUntilIdle()
 
-        assertTrue(effects.any { it is MainEffect.PromptUpdate && it.update.versionNumber == "1.2.3" })
-        assertTrue(effects.any { it is MainEffect.InstallUpdate && it.update.versionNumber == "1.2.3" })
+        val promptEffects = effects.filterIsInstance<MainEffect.PromptUpdate>()
+        assertEquals(2, promptEffects.size)
+        assertTrue(promptEffects.any { it.update.versionNumber == "1.2.3" && !it.oneTimeOnly })
+        assertFalse(effects.any { it is MainEffect.InstallUpdate && it.update.versionNumber == "1.2.3" })
         assertTrue(effects.any { it is MainEffect.CloseDrawer })
         job.cancel()
     }
@@ -411,6 +438,7 @@ class MainViewModelTest {
 
         val promptEffects = effects.filterIsInstance<MainEffect.PromptUpdate>()
         assertEquals(1, promptEffects.size)
+        assertTrue(promptEffects.first().oneTimeOnly)
         assertEquals(2, updateInteractor.callCount)
         job.cancel()
     }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.security.MessageDigest
 
 sealed interface AppUpdateInstallResult {
     data object Started : AppUpdateInstallResult
@@ -17,8 +18,17 @@ sealed interface AppUpdateInstallResult {
     data class Failure(val reason: String) : AppUpdateInstallResult
 }
 
+data class AppUpdateInstallProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long?,
+    val percent: Int?
+)
+
 interface AppUpdateInstaller {
-    suspend fun start(updateInfo: AppUpdateInfo): AppUpdateInstallResult
+    suspend fun start(
+        updateInfo: AppUpdateInfo,
+        onProgress: (AppUpdateInstallProgress) -> Unit = {}
+    ): AppUpdateInstallResult
 }
 
 class DefaultAppUpdateInstaller(
@@ -27,7 +37,10 @@ class DefaultAppUpdateInstaller(
 ) : AppUpdateInstaller {
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "AppUpdateInstaller"
 
-    override suspend fun start(updateInfo: AppUpdateInfo): AppUpdateInstallResult = withContext(Dispatchers.IO) {
+    override suspend fun start(
+        updateInfo: AppUpdateInfo,
+        onProgress: (AppUpdateInstallProgress) -> Unit
+    ): AppUpdateInstallResult = withContext(Dispatchers.IO) {
         val asset = updateInfo.asset ?: return@withContext AppUpdateInstallResult.Failure("No update asset available")
         if (asset.downloadProxyUrl.isBlank()) {
             return@withContext AppUpdateInstallResult.Failure("Download URL is empty")
@@ -51,11 +64,49 @@ class DefaultAppUpdateInstaller(
                     return@runCatching AppUpdateInstallResult.Failure("Download failed: ${response.code}")
                 }
                 val body = response.body ?: return@runCatching AppUpdateInstallResult.Failure("Empty response body")
+                val reportedTotal = body.contentLength().takeIf { it > 0 }
+                val totalBytes = when {
+                    asset.sizeBytes > 0 -> asset.sizeBytes
+                    reportedTotal != null -> reportedTotal
+                    else -> 0L
+                }
+                val expectedHash = normalizeExpectedHash(asset.contentHash)
+                val digest = MessageDigest.getInstance("SHA-256")
+                var downloadedBytes = 0L
                 body.byteStream().use { input ->
                     apkFile.outputStream().use { output ->
-                        input.copyTo(output)
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                            downloadedBytes += read
+                            onProgress(
+                                AppUpdateInstallProgress(
+                                    downloadedBytes = downloadedBytes,
+                                    totalBytes = totalBytes.takeIf { it > 0 },
+                                    percent = if (totalBytes > 0) {
+                                        ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+                                    } else {
+                                        null
+                                    }
+                                )
+                            )
+                        }
                     }
                 }
+                if (asset.sizeBytes > 0 && downloadedBytes != asset.sizeBytes) {
+                    return@runCatching AppUpdateInstallResult.Failure(
+                        "Size mismatch: expected ${asset.sizeBytes}, got $downloadedBytes"
+                    )
+                }
+
+                val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+                if (expectedHash != null && !actualHash.equals(expectedHash, ignoreCase = true)) {
+                    return@runCatching AppUpdateInstallResult.Failure("Hash mismatch")
+                }
+
                 val apkUri = FileProvider.getUriForFile(
                     appContext,
                     "${appContext.packageName}.fileprovider",
@@ -83,5 +134,13 @@ class DefaultAppUpdateInstaller(
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val withExt = if (sanitized.lowercase().endsWith(".apk")) sanitized else "$sanitized.apk"
         return withExt.take(120)
+    }
+
+    private fun normalizeExpectedHash(raw: String): String? {
+        val value = raw.trim()
+        if (value.isBlank()) return null
+        val withoutPrefix = value.removePrefix("sha256:").removePrefix("SHA256:")
+        val normalized = withoutPrefix.lowercase().replace(Regex("[^0-9a-f]"), "")
+        return normalized.takeIf { it.length == 64 }
     }
 }

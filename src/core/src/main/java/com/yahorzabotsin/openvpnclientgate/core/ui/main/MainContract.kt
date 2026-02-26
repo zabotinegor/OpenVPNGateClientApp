@@ -34,6 +34,10 @@ data class MainAvailableUpdate(
     val versionNumber: String,
     val name: String,
     val changelog: String,
+    val assetName: String,
+    val assetType: String,
+    val assetSizeBytes: Long,
+    val assetContentHash: String,
     val downloadProxyUrl: String,
     val message: String
 )
@@ -82,7 +86,10 @@ sealed interface MainEffect {
     data class StartVpn(val config: String, val country: String?) : MainEffect
     data object StopVpn : MainEffect
 
-    data class PromptUpdate(val update: MainAvailableUpdate) : MainEffect
+    data class PromptUpdate(
+        val update: MainAvailableUpdate,
+        val oneTimeOnly: Boolean = true
+    ) : MainEffect
     data class InstallUpdate(val update: MainAvailableUpdate) : MainEffect
     data class ShowToast(val text: UiText) : MainEffect
     data object OpenUnknownSourcesSettings : MainEffect

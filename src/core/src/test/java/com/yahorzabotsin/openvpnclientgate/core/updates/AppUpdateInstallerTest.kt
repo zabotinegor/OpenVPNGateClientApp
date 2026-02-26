@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.security.MessageDigest
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [25])
@@ -94,6 +95,93 @@ class AppUpdateInstallerTest {
         assertTrue(files[0].length() > 0)
     }
 
+    @Test
+    fun `start returns failure when downloaded size mismatches asset metadata`() = runTest {
+        val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
+        val result = installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(sizeBytes = 10)
+            )
+        )
+
+        assertEquals(
+            AppUpdateInstallResult.Failure("Size mismatch: expected 10, got 3"),
+            result
+        )
+    }
+
+    @Test
+    fun `start returns failure when downloaded hash mismatches asset metadata`() = runTest {
+        val payload = "apk-binary".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        val result = installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(
+                    sizeBytes = payload.size.toLong(),
+                    contentHash = "sha256:${"0".repeat(64)}"
+                )
+            )
+        )
+
+        assertEquals(AppUpdateInstallResult.Failure("Hash mismatch"), result)
+    }
+
+    @Test
+    fun `start reports download progress`() = runTest {
+        val payload = ByteArray(16 * 1024) { 1 }
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        val progressValues = mutableListOf<AppUpdateInstallProgress>()
+
+        installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(
+                    sizeBytes = payload.size.toLong(),
+                    contentHash = "sha256:${sha256(payload)}"
+                )
+            )
+        ) { progressValues += it }
+
+        assertTrue(progressValues.isNotEmpty())
+        assertEquals(100, progressValues.last().percent)
+        assertEquals(payload.size.toLong(), progressValues.last().downloadedBytes)
+    }
+
+    @Test
+    fun `start accepts hash in uppercase and with sha256 prefix`() = runTest {
+        val payload = "apk-binary".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+
+        val result = installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(
+                    sizeBytes = payload.size.toLong(),
+                    contentHash = "SHA256:${sha256(payload).uppercase()}"
+                )
+            )
+        )
+
+        assertTrue(result is AppUpdateInstallResult.Failure)
+        assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("fileprovider", ignoreCase = true))
+    }
+
+    @Test
+    fun `start ignores invalid hash format`() = runTest {
+        val payload = "apk-binary".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+
+        val result = installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(
+                    sizeBytes = payload.size.toLong(),
+                    contentHash = "not-a-sha256",
+                )
+            )
+        )
+
+        assertTrue(result is AppUpdateInstallResult.Failure)
+        assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("fileprovider", ignoreCase = true))
+    }
+
     private fun sampleInfo(asset: AppUpdateAsset? = defaultAsset()): AppUpdateInfo =
         AppUpdateInfo(
             hasUpdate = true,
@@ -116,6 +204,11 @@ class AppUpdateInstallerTest {
         contentHash = "hash",
         downloadProxyUrl = "https://example.com/api/v1/download-assets/1/1"
     )
+
+    private fun sha256(payload: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(payload)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
 
     private fun successClient(payload: ByteArray): OkHttpClient =
         OkHttpClient.Builder()

@@ -38,8 +38,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
+import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -262,7 +264,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
             is MainEffect.PromptUpdate -> {
-                if (shouldShowUpdatePromptOnce(effect.update)) {
+                val shouldShow = !effect.oneTimeOnly || shouldShowUpdatePromptOnce(effect.update)
+                AppLog.i(tag, "Prompt update requested: oneTimeOnly=${effect.oneTimeOnly}, shouldShow=$shouldShow")
+                if (shouldShow) {
                     showUpdateDialog(effect.update)
                 }
             }
@@ -319,14 +323,27 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 append(getString(R.string.update_latest_version_format, update.versionNumber))
             }
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.action_update)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.update_available_title)
             .setMessage(message)
             .setPositiveButton(R.string.action_update) { _, _ ->
                 lifecycleScope.launch { installUpdate(update) }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        if (update.changelog.isNotBlank()) {
+            dialog.setNeutralButton(R.string.update_whats_new) { _, _ ->
+                openUpdateChangelog(update)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun openUpdateChangelog(update: MainAvailableUpdate) {
+        val intent = Intent(this, WebViewActivity::class.java).apply {
+            putExtra(WebViewActivity.EXTRA_TITLE, getString(R.string.update_whats_new))
+            putExtra(WebViewActivity.EXTRA_HTML, MarkdownRenderer.renderDocument(update.changelog))
+        }
+        whatsNewActivityLauncher.launch(intent)
     }
 
     private fun startUpdateInstall(update: MainAvailableUpdate) {
@@ -346,26 +363,36 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             message = update.message,
             asset = com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset(
                 id = 0,
-                name = if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk",
-                assetType = "apk",
-                sizeBytes = 0L,
-                contentHash = "",
+                name = update.assetName.ifBlank {
+                    if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
+                },
+                assetType = update.assetType.ifBlank { "apk" },
+                sizeBytes = update.assetSizeBytes,
+                contentHash = update.assetContentHash,
                 downloadProxyUrl = update.downloadProxyUrl
             )
         )
-        when (val result = appUpdateInstaller.start(info)) {
-            AppUpdateInstallResult.Started ->
-                Toast.makeText(this@MainActivityCore, getString(R.string.update_install_started), Toast.LENGTH_SHORT).show()
-            AppUpdateInstallResult.MissingInstallPermission -> {
-                Toast.makeText(this@MainActivityCore, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
-                openUnknownSourcesSettings()
+        val progressDialog = UpdateInstallProgressDialog(this)
+        progressDialog.show()
+        try {
+            when (val result = appUpdateInstaller.start(info) { progress ->
+                progressDialog.update(progress)
+            }) {
+                AppUpdateInstallResult.Started ->
+                    Toast.makeText(this@MainActivityCore, getString(R.string.update_install_started), Toast.LENGTH_SHORT).show()
+                AppUpdateInstallResult.MissingInstallPermission -> {
+                    Toast.makeText(this@MainActivityCore, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+                    openUnknownSourcesSettings()
+                }
+                is AppUpdateInstallResult.Failure ->
+                    Toast.makeText(
+                        this@MainActivityCore,
+                        getString(R.string.update_install_failed_format, result.reason),
+                        Toast.LENGTH_LONG
+                    ).show()
             }
-            is AppUpdateInstallResult.Failure ->
-                Toast.makeText(
-                    this@MainActivityCore,
-                    getString(R.string.update_install_failed_format, result.reason),
-                    Toast.LENGTH_LONG
-                ).show()
+        } finally {
+            progressDialog.dismiss()
         }
     }
 

@@ -107,6 +107,10 @@ class MainViewModel(
                     versionNumber = update.latestVersion ?: "",
                     name = update.name,
                     changelog = update.changelog,
+                    assetName = update.asset?.name.orEmpty(),
+                    assetType = update.asset?.assetType.orEmpty(),
+                    assetSizeBytes = update.asset?.sizeBytes ?: 0L,
+                    assetContentHash = update.asset?.contentHash.orEmpty(),
                     downloadProxyUrl = update.asset?.downloadProxyUrl.orEmpty(),
                     message = update.message
                 )
@@ -170,7 +174,7 @@ class MainViewModel(
                 R.id.nav_update -> {
                     val update = _state.value.availableUpdate
                     if (update != null) {
-                        _effects.send(MainEffect.InstallUpdate(update))
+                        _effects.send(MainEffect.PromptUpdate(update, oneTimeOnly = false))
                     }
                 }
                 else -> _effects.send(MainEffect.ShowToast(UiText.Res(R.string.feature_in_development)))

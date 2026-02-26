@@ -103,11 +103,15 @@
     <string name="vpn_permission_not_granted">VPN permission was not granted</string>
     <string name="notification_permission_required">Notification permission is required for VPN status</string>
     <string name="action_update">Update</string>
+    <string name="update_available_title">Update available</string>
     <string name="update_available_message">A new update is available.</string>
     <string name="update_latest_version_format">Latest version: %1$s</string>
+    <string name="update_whats_new">What\'s new</string>
     <string name="update_install_started">Update download started</string>
     <string name="update_install_permission_needed">Allow install from unknown sources to continue</string>
     <string name="update_install_failed_format">Update failed: %1$s</string>
+    <string name="update_downloading_progress">Downloading update: %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_unknown">Downloading update: %1$s</string>
     <string name="update_up_to_date">You already have the latest version</string>
     <string name="update_available_no_asset">Update is available, but download package is not published yet</string>
     <string name="update_check_failed">Could not check for updates</string>
