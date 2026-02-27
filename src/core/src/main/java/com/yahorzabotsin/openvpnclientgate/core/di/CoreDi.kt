@@ -47,11 +47,18 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainConnectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainConnectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainSelectionInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultVersionReleaseInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
-import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultVersionReleaseInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultUpdateCheckInteractor
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.VersionReleaseInteractor
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
+import com.yahorzabotsin.openvpnclientgate.core.updates.DefaultAppUpdateInstaller
+import com.yahorzabotsin.openvpnclientgate.core.updates.DefaultUpdateCheckRepository
+import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateCheckApi
+import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateCheckRepository
 import com.yahorzabotsin.openvpnclientgate.core.versions.DefaultVersionReleaseRepository
 import com.yahorzabotsin.openvpnclientgate.core.versions.VersionReleaseRepository
 import com.yahorzabotsin.openvpnclientgate.core.versions.VersionsApi
@@ -93,6 +100,10 @@ val coreModule = module {
     single<AppFilterRepository> { DefaultAppFilterRepository(androidContext()) }
     single<VersionReleaseRepository> { DefaultVersionReleaseRepository(androidContext(), get()) }
     single<VersionReleaseInteractor> { DefaultVersionReleaseInteractor(get()) }
+    single<UpdateCheckApi> { get<Retrofit>().create(UpdateCheckApi::class.java) }
+    single<UpdateCheckRepository> { DefaultUpdateCheckRepository(androidContext(), get()) }
+    single<UpdateCheckInteractor> { DefaultUpdateCheckInteractor(get()) }
+    single<AppUpdateInstaller> { DefaultAppUpdateInstaller(androidContext(), get()) }
 
     single { ServerRepository(get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
@@ -104,7 +115,7 @@ val coreModule = module {
     single<ElapsedRealtimeProvider> { SystemElapsedRealtimeProvider() }
     single<LogExportInteractor> { LogExportUseCase(get()) }
 
-    viewModel { AboutViewModel(get(), get(), get(), get()) }
+    viewModel { AboutViewModel(get(), get(), get(), get(), get()) }
     single<DnsLogger> { DefaultDnsLogger() }
     viewModel { DnsViewModel(get(), get()) }
     single<FilterLogger> { DefaultFilterLogger() }
@@ -122,5 +133,5 @@ val coreModule = module {
     single { ConnectionControlsUseCase() }
     single<ConnectionControlsRuntime> { DefaultConnectionControlsRuntime() }
     single<ConnectionControlsSelectionStore> { DefaultConnectionControlsSelectionStore() }
-    viewModel { MainViewModel(get(), get(), get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get(), get()) }
 }

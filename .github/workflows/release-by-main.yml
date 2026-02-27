@@ -17,6 +17,7 @@ jobs:
     env:
       ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_appReleaseType: release
       VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
       VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
       RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON: '["en","ru","pl"]'
@@ -200,6 +201,7 @@ jobs:
           RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
           CHANGELOG="${LAST_COMMIT_MESSAGE}"
           RELEASE_TYPE=0
+          PLATFORM=0
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
           ASSET_MOBILE_AAB="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
@@ -222,6 +224,7 @@ jobs:
             --argjson buildNumber "$BUILD_NUMBER" \
             --arg name "$RELEASE_TITLE" \
             --argjson releaseType "$RELEASE_TYPE" \
+            --argjson platform "$PLATFORM" \
             --arg changelog "$CHANGELOG" \
             --arg assetBaseUrl "$ASSET_BASE_URL" \
             --arg apkName "$ASSET_MOBILE_APK" \
@@ -233,6 +236,7 @@ jobs:
             '{
               versionNumber:$versionNumber,
               buildNumber:$buildNumber,
+              platform:$platform,
               name:$name,
               releaseType:$releaseType,
               changelog:$changelog,
@@ -322,6 +326,7 @@ jobs:
           RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
           CHANGELOG="${LAST_COMMIT_MESSAGE}"
           RELEASE_TYPE=0
+          PLATFORM=1
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
           ASSET_TV_AAB="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
@@ -344,6 +349,7 @@ jobs:
             --argjson buildNumber "$BUILD_NUMBER" \
             --arg name "$RELEASE_TITLE" \
             --argjson releaseType "$RELEASE_TYPE" \
+            --argjson platform "$PLATFORM" \
             --arg changelog "$CHANGELOG" \
             --arg assetBaseUrl "$ASSET_BASE_URL" \
             --arg apkName "$ASSET_TV_APK" \
@@ -355,6 +361,7 @@ jobs:
             '{
               versionNumber:$versionNumber,
               buildNumber:$buildNumber,
+              platform:$platform,
               name:$name,
               releaseType:$releaseType,
               changelog:$changelog,

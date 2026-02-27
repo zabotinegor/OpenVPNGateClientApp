@@ -8,9 +8,10 @@ object MarkdownRenderer {
     private val renderer: HtmlRenderer = HtmlRenderer.builder()
         .escapeHtml(true)
         .build()
+    private val urlAttributeRegex = Regex("""(?i)\b(href|src)\s*=\s*(["'])(.*?)\2""")
 
     fun renderDocument(markdown: String): String {
-        val bodyHtml = renderer.render(parser.parse(markdown))
+        val bodyHtml = sanitizeRenderedHtml(renderer.render(parser.parse(markdown)))
         return """
             <!doctype html>
             <html>
@@ -51,5 +52,22 @@ object MarkdownRenderer {
             <body>$bodyHtml</body>
             </html>
         """.trimIndent()
+    }
+
+    private fun sanitizeRenderedHtml(html: String): String {
+        return urlAttributeRegex.replace(html) { match ->
+            val attr = match.groupValues[1]
+            val quote = match.groupValues[2]
+            val rawUrl = match.groupValues[3].trim()
+            val sanitized = if (isAllowedUrl(rawUrl)) rawUrl else "#"
+            "$attr=$quote$sanitized$quote"
+        }
+    }
+
+    private fun isAllowedUrl(url: String): Boolean {
+        val normalized = url.lowercase()
+        return normalized.startsWith("https://") ||
+            normalized.startsWith("/") ||
+            normalized.startsWith("#")
     }
 }
