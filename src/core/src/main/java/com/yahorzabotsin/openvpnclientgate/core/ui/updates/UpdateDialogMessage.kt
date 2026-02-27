@@ -5,28 +5,22 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 
 internal fun buildUpdateDialogMessage(
     context: Context,
-    latestVersion: String?,
-    backendMessage: String?
+    latestVersion: String?
 ): String {
     return buildUpdateDialogMessage(
         localizedMessage = context.getString(R.string.update_available_message),
         latestVersion = latestVersion,
         latestVersionFormatter = { version ->
             context.getString(R.string.update_latest_version_format, version)
-        },
-        backendMessage = backendMessage
+        }
     )
 }
 
 internal fun buildUpdateDialogMessage(
     localizedMessage: String,
     latestVersion: String?,
-    latestVersionFormatter: (String) -> String,
-    backendMessage: String?
+    latestVersionFormatter: (String) -> String
 ): String {
-    // Backend message may come in another language; UI always uses current app locale.
-    @Suppress("UNUSED_VARIABLE")
-    val ignoredBackendMessage = backendMessage
     val version = latestVersion?.takeIf { it.isNotBlank() } ?: return localizedMessage
     return buildString {
         append(localizedMessage)

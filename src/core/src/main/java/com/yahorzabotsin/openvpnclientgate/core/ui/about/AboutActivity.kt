@@ -230,7 +230,7 @@ class AboutActivity : AppCompatActivity() {
     }
 
     private fun showUpdateDialog(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {
-        val message = buildUpdateDialogMessage(this, update.latestVersion, update.message)
+        val message = buildUpdateDialogMessage(this, update.latestVersion)
         val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.update_available_title)
             .setMessage(message)

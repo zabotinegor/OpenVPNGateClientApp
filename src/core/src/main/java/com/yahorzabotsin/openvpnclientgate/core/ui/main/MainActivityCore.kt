@@ -316,7 +316,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun showUpdateDialog(update: MainAvailableUpdate) {
-        val message = buildUpdateDialogMessage(this, update.versionNumber, update.message)
+        val message = buildUpdateDialogMessage(this, update.versionNumber)
         val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.update_available_title)
             .setMessage(message)

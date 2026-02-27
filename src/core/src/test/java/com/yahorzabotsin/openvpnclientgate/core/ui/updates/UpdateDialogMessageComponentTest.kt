@@ -9,13 +9,11 @@ import org.robolectric.RobolectricTestRunner
 class UpdateDialogMessageComponentTest {
 
     @Test
-    fun `component message rendering ignores backend english message`() {
+    fun `component message rendering appends localized latest version`() {
         val rendered = buildUpdateDialogMessage(
             localizedMessage = "Dostępna jest nowa aktualizacja.",
             latestVersion = "1.0.2",
-            latestVersionFormatter = { version -> "Najnowsza wersja: $version" },
-            backendMessage = "Update available."
-        )
+            latestVersionFormatter = { version -> "Najnowsza wersja: $version" })
 
         assertEquals(
             "Dostępna jest nowa aktualizacja.\nNajnowsza wersja: 1.0.2",
@@ -28,11 +26,10 @@ class UpdateDialogMessageComponentTest {
         val rendered = buildUpdateDialogMessage(
             localizedMessage = "Доступно новое обновление.",
             latestVersion = null,
-            latestVersionFormatter = { version -> "Последняя версия: $version" },
-            backendMessage = "Update available."
-        )
+            latestVersionFormatter = { version -> "Последняя версия: $version" })
 
         assertEquals("Доступно новое обновление.", rendered)
     }
 }
+
 
