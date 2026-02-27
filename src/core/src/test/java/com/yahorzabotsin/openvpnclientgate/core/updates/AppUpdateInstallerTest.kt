@@ -61,6 +61,19 @@ class AppUpdateInstallerTest {
     }
 
     @Test
+    fun `start returns failure when download url is not https`() = runTest {
+        val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
+
+        val result = installer.start(
+            sampleInfo(
+                asset = defaultAsset().copy(downloadProxyUrl = "http://example.com/update.apk")
+            )
+        )
+
+        assertEquals(AppUpdateInstallResult.Failure("Download URL must use HTTPS"), result)
+    }
+
+    @Test
     fun `start returns failure when backend responds non success`() = runTest {
         val installer = DefaultAppUpdateInstaller(context, errorClient(500))
 

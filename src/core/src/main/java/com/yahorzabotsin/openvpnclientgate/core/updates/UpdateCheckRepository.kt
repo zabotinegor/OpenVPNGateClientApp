@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.content.res.Configuration
 import androidx.core.content.pm.PackageInfoCompat
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
@@ -45,7 +46,7 @@ class DefaultUpdateCheckRepository(
 
         val settings = settingsStore.load(appContext)
         val preferredLocale = resolvePreferredLocale(settings.language)
-        val urls = settingsStore.resolveServerUrls(settings)
+        val urls = resolveTrustedUpdateSources()
         if (urls.isEmpty()) return@withContext null
         val platform = resolvePlatform()
         val releaseType = resolveReleaseType()
@@ -130,7 +131,8 @@ class DefaultUpdateCheckRepository(
         locale: String?
     ): String? {
         val uri = runCatching { Uri.parse(sourceUrl) }.getOrNull() ?: return null
-        val scheme = uri.scheme ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "https") return null
         val authority = uri.encodedAuthority ?: return null
         val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
         val localeQuery = locale?.trim()?.takeIf { it.isNotBlank() }?.let { "&locale=${Uri.encode(it)}" }.orEmpty()
@@ -161,6 +163,15 @@ class DefaultUpdateCheckRepository(
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
             digest.joinToString("") { "%02x".format(it) }
         }.getOrDefault(joined)
+    }
+
+    private fun resolveTrustedUpdateSources(): List<String> {
+        return listOf(
+            ApiConstants.PRIMARY_SERVERS_URL,
+            ApiConstants.FALLBACK_SERVERS_URL
+        ).map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
     }
 
     private fun parseCheckUpdate(rawJson: String): AppUpdateInfo? {

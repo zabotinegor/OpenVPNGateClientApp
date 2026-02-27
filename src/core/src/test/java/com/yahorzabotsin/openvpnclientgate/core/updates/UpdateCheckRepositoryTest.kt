@@ -45,8 +45,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.RUSSIAN,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -54,9 +53,36 @@ class UpdateCheckRepositoryTest {
 
         assertNotNull(result)
         assertEquals(
-            "https://api.example.com/api/v1/versions/check-update?platform=mobile&releaseType=${BuildConfig.APP_RELEASE_TYPE.trim().lowercase()}&currentBuild=1&locale=ru",
+            expectedCheckUpdateUrl(
+                sourceUrl = BuildConfig.PRIMARY_SERVERS_URL,
+                platform = "mobile",
+                releaseType = BuildConfig.APP_RELEASE_TYPE.trim().lowercase(),
+                currentBuild = 1L,
+                locale = "ru"
+            ),
             api.requestedUrls.single()
         )
+    }
+
+    @Test
+    fun `checkForUpdate ignores custom server source`() = runTest {
+        val api = CapturingUpdateApi()
+        val repository = DefaultUpdateCheckRepository(context, api)
+
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://attacker.example.com/api/v1/servers/active"
+            )
+        )
+
+        repository.checkForUpdate(forceRefresh = true)
+
+        val requestedHost = Uri.parse(api.requestedUrls.single()).host
+        val primaryHost = Uri.parse(BuildConfig.PRIMARY_SERVERS_URL).host
+        assertEquals(primaryHost, requestedHost)
     }
 
     @Test
@@ -72,8 +98,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -92,8 +117,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -113,8 +137,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -175,8 +198,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -207,8 +229,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -237,8 +258,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -259,8 +279,7 @@ class UpdateCheckRepositoryTest {
             missingPackageContext,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.DEFAULT
             )
         )
 
@@ -281,8 +300,7 @@ class UpdateCheckRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.CUSTOM,
-                    customServerUrl = "https://api.example.com/api/v1/servers/active"
+                    serverSource = ServerSource.DEFAULT
                 )
             )
 
@@ -309,6 +327,30 @@ class UpdateCheckRepositoryTest {
         shadowOf(context.packageManager).installPackage(packageInfo)
     }
 
+    private fun expectedCheckUpdateUrl(
+        sourceUrl: String,
+        platform: String,
+        releaseType: String,
+        currentBuild: Long,
+        locale: String?
+    ): String {
+        val sourceUri = Uri.parse(sourceUrl)
+        val scheme = sourceUri.scheme.orEmpty()
+        val authority = sourceUri.encodedAuthority.orEmpty()
+        val basePathPrefix = extractApiBasePathPrefix(sourceUri.encodedPath.orEmpty())
+        val localeQuery = locale?.let { "&locale=$it" }.orEmpty()
+        return "$scheme://$authority$basePathPrefix/api/v1/versions/check-update?platform=$platform&releaseType=$releaseType&currentBuild=$currentBuild$localeQuery"
+    }
+
+    private fun extractApiBasePathPrefix(encodedPath: String): String {
+        val marker = "/api/v1/"
+        val markerIndex = encodedPath.indexOf(marker)
+        if (markerIndex <= 0) return ""
+        val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
+        if (prefix.isBlank()) return ""
+        return if (prefix.startsWith('/')) prefix else "/$prefix"
+    }
+
     private class CapturingUpdateApi(
         private val responseJson: String = """
             {"success":true,"data":{"hasUpdate":true,"currentBuild":1,"latestBuild":2,"platform":"mobile","message":"Update available."}}
@@ -328,3 +370,4 @@ class UpdateCheckRepositoryTest {
         }
     }
 }
+

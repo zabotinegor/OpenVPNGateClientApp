@@ -46,6 +46,10 @@ class DefaultAppUpdateInstaller(
         if (asset.downloadProxyUrl.isBlank()) {
             return@withContext AppUpdateInstallResult.Failure("Download URL is empty")
         }
+        val downloadUri = runCatching { Uri.parse(asset.downloadProxyUrl) }.getOrNull()
+        if (downloadUri?.scheme?.equals("https", ignoreCase = true) != true) {
+            return@withContext AppUpdateInstallResult.Failure("Download URL must use HTTPS")
+        }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
             !appContext.packageManager.canRequestPackageInstalls()
