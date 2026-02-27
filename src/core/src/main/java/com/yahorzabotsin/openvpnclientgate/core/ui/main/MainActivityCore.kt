@@ -41,6 +41,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.ui.updates.buildUpdateDialogMessage
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
 import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
@@ -340,31 +341,20 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private suspend fun installUpdate(update: MainAvailableUpdate) {
-        val info = com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo(
-            hasUpdate = true,
-            currentBuild = update.currentBuild,
-            latestBuild = update.latestBuild,
-            platform = "",
-            latestVersion = update.versionNumber,
-            name = update.name,
-            changelog = update.changelog,
-            resolvedLocale = null,
-            message = update.message,
-            asset = com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset(
-                id = 0,
-                name = update.assetName.ifBlank {
-                    if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
-                },
-                assetType = update.assetType.ifBlank { "apk" },
-                sizeBytes = update.assetSizeBytes,
-                contentHash = update.assetContentHash,
-                downloadProxyUrl = update.downloadProxyUrl
-            )
+        val asset = AppUpdateAsset(
+            id = 0,
+            name = update.assetName.ifBlank {
+                if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
+            },
+            assetType = update.assetType.ifBlank { "apk" },
+            sizeBytes = update.assetSizeBytes,
+            contentHash = update.assetContentHash,
+            downloadProxyUrl = update.downloadProxyUrl
         )
         val progressDialog = UpdateInstallProgressDialog(this)
         progressDialog.show()
         try {
-            when (val result = appUpdateInstaller.start(info) { progress ->
+            when (val result = appUpdateInstaller.start(asset) { progress ->
                 progressDialog.update(progress)
             }) {
                 AppUpdateInstallResult.Started ->

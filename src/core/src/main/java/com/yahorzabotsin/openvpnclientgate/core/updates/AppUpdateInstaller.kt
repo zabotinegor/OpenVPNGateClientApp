@@ -27,7 +27,7 @@ data class AppUpdateInstallProgress(
 
 interface AppUpdateInstaller {
     suspend fun start(
-        updateInfo: AppUpdateInfo,
+        asset: AppUpdateAsset,
         onProgress: (AppUpdateInstallProgress) -> Unit = {}
     ): AppUpdateInstallResult
 }
@@ -39,10 +39,9 @@ class DefaultAppUpdateInstaller(
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "AppUpdateInstaller"
 
     override suspend fun start(
-        updateInfo: AppUpdateInfo,
+        asset: AppUpdateAsset,
         onProgress: (AppUpdateInstallProgress) -> Unit
     ): AppUpdateInstallResult = withContext(Dispatchers.IO) {
-        val asset = updateInfo.asset ?: return@withContext AppUpdateInstallResult.Failure("No update asset available")
         if (asset.downloadProxyUrl.isBlank()) {
             return@withContext AppUpdateInstallResult.Failure("Download URL is empty")
         }

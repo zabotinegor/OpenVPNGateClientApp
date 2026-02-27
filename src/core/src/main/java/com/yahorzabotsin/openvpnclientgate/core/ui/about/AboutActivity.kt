@@ -249,11 +249,15 @@ class AboutActivity : AppCompatActivity() {
     }
 
     private fun startUpdateInstall(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {
+        val asset = update.asset ?: run {
+            Toast.makeText(this, getString(R.string.update_available_no_asset), Toast.LENGTH_LONG).show()
+            return
+        }
         lifecycleScope.launch {
             val progressDialog = UpdateInstallProgressDialog(this@AboutActivity)
             progressDialog.show()
             try {
-                when (val result = appUpdateInstaller.start(update) { progress ->
+                when (val result = appUpdateInstaller.start(asset) { progress ->
                     progressDialog.update(progress)
                 }) {
                     AppUpdateInstallResult.Started ->

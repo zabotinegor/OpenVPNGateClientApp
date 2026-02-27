@@ -32,28 +32,14 @@ class AppUpdateInstallerTest {
     }
 
     @Test
-    fun `start returns failure when asset missing`() = runTest {
-        val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
-
-        val result = installer.start(sampleInfo(asset = null))
-
-        assertEquals(AppUpdateInstallResult.Failure("No update asset available"), result)
-    }
-
-    @Test
     fun `start returns failure when download url blank`() = runTest {
         val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
 
         val result = installer.start(
-            sampleInfo(
-                asset = AppUpdateAsset(
-                    id = 1,
-                    name = "app.apk",
-                    assetType = "apk-mobile",
-                    sizeBytes = 1,
-                    contentHash = "",
-                    downloadProxyUrl = ""
-                )
+            defaultAsset().copy(
+                sizeBytes = 1,
+                contentHash = "",
+                downloadProxyUrl = ""
             )
         )
 
@@ -65,9 +51,7 @@ class AppUpdateInstallerTest {
         val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
 
         val result = installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(downloadProxyUrl = "http://example.com/update.apk")
-            )
+            defaultAsset().copy(downloadProxyUrl = "http://example.com/update.apk")
         )
 
         assertEquals(AppUpdateInstallResult.Failure("Download URL must use HTTPS"), result)
@@ -77,7 +61,7 @@ class AppUpdateInstallerTest {
     fun `start returns failure when backend responds non success`() = runTest {
         val installer = DefaultAppUpdateInstaller(context, errorClient(500))
 
-        val result = installer.start(sampleInfo())
+        val result = installer.start(defaultAsset())
 
         assertEquals(AppUpdateInstallResult.Failure("Download failed: 500"), result)
     }
@@ -87,15 +71,13 @@ class AppUpdateInstallerTest {
         val installer = DefaultAppUpdateInstaller(context, successClient("apk-binary".toByteArray()))
 
         val result = installer.start(
-            sampleInfo(
-                asset = AppUpdateAsset(
-                    id = 1,
-                    name = "My Update 1.0.apk",
-                    assetType = "apk-mobile",
-                    sizeBytes = 10,
-                    contentHash = "hash",
-                    downloadProxyUrl = "https://example.com/api/v1/download-assets/1/1"
-                )
+            AppUpdateAsset(
+                id = 1,
+                name = "My Update 1.0.apk",
+                assetType = "apk-mobile",
+                sizeBytes = 10,
+                contentHash = "hash",
+                downloadProxyUrl = "https://example.com/api/v1/download-assets/1/1"
             )
         )
 
@@ -114,9 +96,7 @@ class AppUpdateInstallerTest {
     fun `start returns failure when downloaded size mismatches asset metadata`() = runTest {
         val installer = DefaultAppUpdateInstaller(context, successClient("apk".toByteArray()))
         val result = installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(sizeBytes = 10)
-            )
+            defaultAsset().copy(sizeBytes = 10)
         )
 
         assertEquals(
@@ -130,11 +110,9 @@ class AppUpdateInstallerTest {
         val payload = "apk-binary".toByteArray()
         val installer = DefaultAppUpdateInstaller(context, successClient(payload))
         val result = installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(
-                    sizeBytes = payload.size.toLong(),
-                    contentHash = "sha256:${"0".repeat(64)}"
-                )
+            defaultAsset().copy(
+                sizeBytes = payload.size.toLong(),
+                contentHash = "sha256:${"0".repeat(64)}"
             )
         )
 
@@ -148,11 +126,9 @@ class AppUpdateInstallerTest {
         val progressValues = mutableListOf<AppUpdateInstallProgress>()
 
         installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(
-                    sizeBytes = payload.size.toLong(),
-                    contentHash = "sha256:${sha256(payload)}"
-                )
+            defaultAsset().copy(
+                sizeBytes = payload.size.toLong(),
+                contentHash = "sha256:${sha256(payload)}"
             )
         ) { progressValues += it }
 
@@ -167,11 +143,9 @@ class AppUpdateInstallerTest {
         val installer = DefaultAppUpdateInstaller(context, successClient(payload))
 
         val result = installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(
-                    sizeBytes = payload.size.toLong(),
-                    contentHash = "SHA256:${sha256(payload).uppercase()}"
-                )
+            defaultAsset().copy(
+                sizeBytes = payload.size.toLong(),
+                contentHash = "SHA256:${sha256(payload).uppercase()}"
             )
         )
 
@@ -185,11 +159,9 @@ class AppUpdateInstallerTest {
         val installer = DefaultAppUpdateInstaller(context, successClient(payload))
 
         val result = installer.start(
-            sampleInfo(
-                asset = defaultAsset().copy(
-                    sizeBytes = payload.size.toLong(),
-                    contentHash = "not-a-sha256",
-                )
+            defaultAsset().copy(
+                sizeBytes = payload.size.toLong(),
+                contentHash = "not-a-sha256",
             )
         )
 
@@ -206,7 +178,7 @@ class AppUpdateInstallerTest {
                 .build()
         )
 
-        installer.start(sampleInfo())
+        installer.start(defaultAsset())
     }
 
     @Test
@@ -218,25 +190,11 @@ class AppUpdateInstallerTest {
                 .build()
         )
 
-        val result = installer.start(sampleInfo())
+        val result = installer.start(defaultAsset())
 
         assertTrue(result is AppUpdateInstallResult.Failure)
         assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("network down"))
     }
-
-    private fun sampleInfo(asset: AppUpdateAsset? = defaultAsset()): AppUpdateInfo =
-        AppUpdateInfo(
-            hasUpdate = true,
-            currentBuild = 1,
-            latestBuild = 2,
-            platform = "mobile",
-            latestVersion = "1.0",
-            name = "Release",
-            changelog = "changes",
-            resolvedLocale = "en",
-            message = "Update available.",
-            asset = asset
-        )
 
     private fun defaultAsset() = AppUpdateAsset(
         id = 1,
