@@ -8,6 +8,9 @@ interface MainLogger {
     fun logWhatsNewLoaded(release: MainWhatsNew)
     fun logWhatsNewUnavailable()
     fun logWhatsNewLoadError(error: Exception)
+    fun logUpdateLoaded(update: MainAvailableUpdate)
+    fun logUpdateUnavailable()
+    fun logUpdateLoadError(error: Exception)
     fun logServerSelectionApplied(selection: SelectedServerResult)
     fun logIncompleteServerSelection(selection: SelectedServerResult)
 }
@@ -36,6 +39,18 @@ class DefaultMainLogger : MainLogger {
 
     override fun logWhatsNewLoadError(error: Exception) {
         AppLog.w(tag, "Failed to load what's new", error)
+    }
+
+    override fun logUpdateLoaded(update: MainAvailableUpdate) {
+        AppLog.i(tag, "Update loaded: ${update.versionNumber}, latestBuild=${update.latestBuild}")
+    }
+
+    override fun logUpdateUnavailable() {
+        AppLog.i(tag, "No app update is available. Menu item remains hidden.")
+    }
+
+    override fun logUpdateLoadError(error: Exception) {
+        AppLog.w(tag, "Failed to check updates", error)
     }
 
     override fun logServerSelectionApplied(selection: SelectedServerResult) {

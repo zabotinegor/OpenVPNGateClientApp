@@ -6,6 +6,7 @@ data class MainUiState(
     val isDetailsVisible: Boolean = true,
     val selectedServer: MainSelectedServer? = null,
     val whatsNew: MainWhatsNew? = null,
+    val availableUpdate: MainAvailableUpdate? = null,
     val reopenDrawerAfterReturn: Boolean = false,
     val selectionVersion: Long = 0L,
     val pendingUserSelectionOverride: Boolean = false
@@ -27,8 +28,23 @@ data class MainWhatsNew(
     val changelogHtml: String
 )
 
+data class MainAvailableUpdate(
+    val currentBuild: Long,
+    val latestBuild: Long?,
+    val versionNumber: String,
+    val name: String,
+    val changelog: String,
+    val assetName: String,
+    val assetType: String,
+    val assetSizeBytes: Long,
+    val assetContentHash: String,
+    val downloadProxyUrl: String,
+    val message: String
+)
+
 sealed interface MainAction {
     data object LoadInitialSelection : MainAction
+    data object RefreshUpdateAvailability : MainAction
     data class NavigationItemSelected(val itemId: Int) : MainAction
     data object OpenServerListFromConnectionControls : MainAction
     data class ConnectionButtonClicked(
@@ -70,5 +86,9 @@ sealed interface MainEffect {
     data class StartVpn(val config: String, val country: String?) : MainEffect
     data object StopVpn : MainEffect
 
+    data class PromptUpdate(
+        val update: MainAvailableUpdate,
+        val oneTimeOnly: Boolean = true
+    ) : MainEffect
     data class ShowToast(val text: UiText) : MainEffect
 }

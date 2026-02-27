@@ -61,6 +61,12 @@ android {
             (project.findProperty("FALLBACK_SERVERS_URL") as String?)
                 ?: System.getenv("FALLBACK_SERVERS_URL")
                 ?: localConfig["FALLBACK_SERVERS_URL"]
+        val appReleaseType: String =
+            ((project.findProperty("appReleaseType") as String?)
+                ?: System.getenv("APP_RELEASE_TYPE")
+                ?: "release")
+                .trim()
+                .lowercase()
 
         require(!primaryServersUrl.isNullOrBlank()) {
             "PRIMARY_SERVERS_URL is not set. Provide it via Gradle property PRIMARY_SERVERS_URL or env var PRIMARY_SERVERS_URL."
@@ -68,9 +74,13 @@ android {
         require(!fallbackServersUrl.isNullOrBlank()) {
             "FALLBACK_SERVERS_URL is not set. Provide it via Gradle property FALLBACK_SERVERS_URL or env var FALLBACK_SERVERS_URL."
         }
+        require(appReleaseType == "release" || appReleaseType == "beta") {
+            "APP_RELEASE_TYPE/appReleaseType must be either 'release' or 'beta'."
+        }
 
         buildConfigField("String", "PRIMARY_SERVERS_URL", "\"$primaryServersUrl\"")
         buildConfigField("String", "FALLBACK_SERVERS_URL", "\"$fallbackServersUrl\"")
+        buildConfigField("String", "APP_RELEASE_TYPE", "\"$appReleaseType\"")
     }
 
     buildTypes {
