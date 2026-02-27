@@ -138,7 +138,11 @@ class DefaultAppUpdateInstaller(
     private fun sanitizeFileName(name: String): String {
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val withExt = if (sanitized.lowercase().endsWith(".apk")) sanitized else "$sanitized.apk"
-        return withExt.take(120)
+        val result = withExt.take(120)
+        if (withExt.length > result.length) {
+            AppLog.w(tag, "Update asset file name was truncated from ${withExt.length} to ${result.length} characters")
+        }
+        return result
     }
 
     private fun normalizeExpectedHash(raw: String): String? {
