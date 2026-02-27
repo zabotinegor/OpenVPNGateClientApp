@@ -135,8 +135,18 @@ class DefaultUpdateCheckRepository(
         if (scheme != "https") return null
         val authority = uri.encodedAuthority ?: return null
         val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
-        val localeQuery = locale?.trim()?.takeIf { it.isNotBlank() }?.let { "&locale=${Uri.encode(it)}" }.orEmpty()
-        return "$scheme://$authority$basePathPrefix/api/v1/versions/check-update?platform=${Uri.encode(platform)}&releaseType=${Uri.encode(releaseType)}&currentBuild=$currentBuild$localeQuery"
+        val path = "$basePathPrefix/api/v1/versions/check-update"
+        val builder = Uri.Builder()
+            .scheme(scheme)
+            .encodedAuthority(authority)
+            .path(path)
+            .appendQueryParameter("platform", platform)
+            .appendQueryParameter("releaseType", releaseType)
+            .appendQueryParameter("currentBuild", currentBuild.toString())
+        locale?.trim()?.takeIf { it.isNotBlank() }?.let {
+            builder.appendQueryParameter("locale", it)
+        }
+        return builder.build().toString()
     }
 
     private fun extractApiBasePathPrefix(encodedPath: String): String {
