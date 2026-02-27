@@ -35,6 +35,11 @@ class DefaultUpdateCheckRepository(
     private val settingsStore: UserSettingsStore = UserSettingsStore,
     private val cacheStore: UpdateCheckCacheStore = UpdateCheckCacheStore
 ) : UpdateCheckRepository {
+    private companion object {
+        const val KEY_SUCCESS = "success"
+        const val KEY_SUCCESS_ALT = "Success"
+    }
+
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "UpdateCheckRepository"
 
     override suspend fun checkForUpdate(forceRefresh: Boolean): AppUpdateInfo? = withContext(Dispatchers.IO) {
@@ -187,7 +192,7 @@ class DefaultUpdateCheckRepository(
     private fun parseCheckUpdate(rawJson: String): AppUpdateInfo? {
         if (rawJson.isBlank()) return null
         val root = runCatching { JSONObject(rawJson) }.getOrNull() ?: return null
-        if (!root.optBooleanAny("success", "Success")) return null
+        if (!root.optBooleanAny(KEY_SUCCESS, KEY_SUCCESS_ALT)) return null
         val data = root.optObjectAny("data", "Data") ?: return null
         val hasUpdate = data.optBooleanAny("hasUpdate", "HasUpdate")
         val currentBuild = data.optLongAny("currentBuild", "CurrentBuild")
