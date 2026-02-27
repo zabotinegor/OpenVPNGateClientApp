@@ -24,4 +24,11 @@ class MarkdownRendererTest {
         val html = MarkdownRenderer.renderDocument("[x](https://example.com/changelog)")
         assertTrue(html.contains("href=\"https://example.com/changelog\""))
     }
+
+    @Test
+    fun `renderDocument strips http links`() {
+        val html = MarkdownRenderer.renderDocument("[x](http://example.com/changelog)")
+        assertFalse(html.contains("href=\"http://example.com/changelog\""))
+        assertTrue(html.contains("href=\"#\""))
+    }
 }
