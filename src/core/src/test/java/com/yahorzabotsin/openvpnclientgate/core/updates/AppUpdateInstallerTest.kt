@@ -74,6 +74,8 @@ class AppUpdateInstallerTest {
             AppUpdateAsset(
                 id = 1,
                 name = "My Update 1.0.apk",
+                platform = "mobile",
+                buildNumber = 2L,
                 assetType = "apk-mobile",
                 sizeBytes = 10,
                 contentHash = "hash",
@@ -199,6 +201,8 @@ class AppUpdateInstallerTest {
     private fun defaultAsset() = AppUpdateAsset(
         id = 1,
         name = "app.apk",
+        platform = "mobile",
+        buildNumber = 2L,
         assetType = "apk-mobile",
         sizeBytes = 10,
         contentHash = "hash",

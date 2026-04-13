@@ -12,14 +12,13 @@ object UpdateCheckCacheStore {
     fun get(
         context: Context,
         currentBuild: Long,
-        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String,
         cacheTtlMs: Long,
         nowEpochMs: Long = System.currentTimeMillis()
     ): AppUpdateInfo? {
-        val key = composeKey(currentBuild, platform, releaseType, normalizeLocale(locale), sourceKey)
+        val key = composeKey(currentBuild, releaseType, normalizeLocale(locale), sourceKey)
         val raw = prefs(context).getString(key, null) ?: return null
         val parsed = parse(raw) ?: return null
         val cachedAt = JSONObject(raw).optLong(KEY_CACHED_AT_MS, 0L)
@@ -30,7 +29,6 @@ object UpdateCheckCacheStore {
     fun put(
         context: Context,
         currentBuild: Long,
-        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String,
@@ -41,7 +39,6 @@ object UpdateCheckCacheStore {
             .put("hasUpdate", value.hasUpdate)
             .put("currentBuild", value.currentBuild)
             .put("latestBuild", value.latestBuild ?: JSONObject.NULL)
-            .put("platform", value.platform)
             .put("latestVersion", value.latestVersion ?: "")
             .put("name", value.name)
             .put("changelog", value.changelog.take(MAX_CHANGELOG_LENGTH))
@@ -53,6 +50,8 @@ object UpdateCheckCacheStore {
                     JSONObject()
                         .put("id", it.id)
                         .put("name", it.name)
+                        .put("platform", it.platform)
+                        .put("buildNumber", it.buildNumber ?: JSONObject.NULL)
                         .put("assetType", it.assetType)
                         .put("sizeBytes", it.sizeBytes)
                         .put("contentHash", it.contentHash)
@@ -63,7 +62,7 @@ object UpdateCheckCacheStore {
             .toString()
 
         prefs(context).edit()
-            .putString(composeKey(currentBuild, platform, releaseType, normalizeLocale(locale), sourceKey), json)
+            .putString(composeKey(currentBuild, releaseType, normalizeLocale(locale), sourceKey), json)
             .apply()
     }
 
@@ -72,7 +71,6 @@ object UpdateCheckCacheStore {
         val hasUpdate = root.optBoolean("hasUpdate", false)
         val currentBuild = root.optLong("currentBuild", 0L)
         val latestBuild = if (root.isNull("latestBuild")) null else root.optLong("latestBuild", 0L).takeIf { it > 0L }
-        val platform = root.optString("platform", "")
         val latestVersion = root.optString("latestVersion", "").ifBlank { null }
         val name = root.optString("name", "")
         val changelog = root.optString("changelog", "")
@@ -83,18 +81,19 @@ object UpdateCheckCacheStore {
             AppUpdateAsset(
                 id = it.optInt("id", 0),
                 name = it.optString("name", ""),
+                platform = it.optString("platform", "").ifBlank { "mobile" },
+                buildNumber = if (it.isNull("buildNumber")) null else it.optLong("buildNumber", 0L).takeIf { value -> value > 0L },
                 assetType = it.optString("assetType", ""),
                 sizeBytes = it.optLong("sizeBytes", 0L),
                 contentHash = it.optString("contentHash", ""),
                 downloadProxyUrl = it.optString("downloadProxyUrl", "")
             )
         }
-        if (currentBuild <= 0L || platform.isBlank()) return null
+        if (currentBuild <= 0L) return null
         return AppUpdateInfo(
             hasUpdate = hasUpdate,
             currentBuild = currentBuild,
             latestBuild = latestBuild,
-            platform = platform,
             latestVersion = latestVersion,
             name = name,
             changelog = changelog,
@@ -108,12 +107,11 @@ object UpdateCheckCacheStore {
 
     private fun composeKey(
         currentBuild: Long,
-        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String
     ): String =
-        "$KEY_PREFIX$currentBuild|${platform.lowercase()}|${releaseType.lowercase()}|$locale|$sourceKey"
+        "$KEY_PREFIX$currentBuild|${releaseType.lowercase()}|$locale|$sourceKey"
 
     private fun normalizeLocale(locale: String): String = locale.trim().replace('_', '-').lowercase()
 }

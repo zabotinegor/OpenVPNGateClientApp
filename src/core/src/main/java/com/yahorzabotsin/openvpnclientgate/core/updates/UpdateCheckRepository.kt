@@ -61,7 +61,6 @@ class DefaultUpdateCheckRepository(
             cacheStore.get(
                 context = appContext,
                 currentBuild = currentBuild,
-                platform = platform,
                 releaseType = releaseType,
                 locale = preferredLocale,
                 sourceKey = sourceKey,
@@ -89,12 +88,11 @@ class DefaultUpdateCheckRepository(
                 if (parsed != null) {
                     AppLog.i(
                         tag,
-                        "Update check result: hasUpdate=${parsed.hasUpdate}, currentBuild=${parsed.currentBuild}, latestBuild=${parsed.latestBuild}, platform=${parsed.platform}, hasAsset=${parsed.asset != null}"
+                        "Update check result: hasUpdate=${parsed.hasUpdate}, currentBuild=${parsed.currentBuild}, latestBuild=${parsed.latestBuild}, assetPlatform=${parsed.asset?.platform.orEmpty()}, hasAsset=${parsed.asset != null}"
                     )
                     cacheStore.put(
                         context = appContext,
                         currentBuild = currentBuild,
-                        platform = platform,
                         releaseType = releaseType,
                         locale = preferredLocale,
                         sourceKey = sourceKey,
@@ -197,25 +195,18 @@ class DefaultUpdateCheckRepository(
         val hasUpdate = data.optBooleanAny("hasUpdate", "HasUpdate")
         val currentBuild = data.optLongAny("currentBuild", "CurrentBuild")
         val latestBuild = data.optLongAny("latestBuild", "LatestBuild").takeIf { it > 0 }
-        val platform = resolvePlatformValue(data)
-        if (currentBuild <= 0L || platform.isBlank()) return null
+        if (currentBuild <= 0L) return null
         val assetData = data.optObjectAny("updateAsset", "UpdateAsset")
-        val asset = assetData?.let {
-            AppUpdateAsset(
-                id = it.optIntAny("id", "Id"),
-                name = it.optStringAny("name", "Name"),
-                assetType = it.optStringAny("assetType", "AssetType"),
-                sizeBytes = it.optLongAny("sizeBytes", "SizeBytes"),
-                contentHash = it.optStringAny("contentHash", "ContentHash"),
-                downloadProxyUrl = it.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
-            )
+        val asset = when {
+            assetData != null -> parseAsset(assetData)
+            data.optStringAny("downloadProxyUrl", "DownloadProxyUrl").isNotBlank() -> parseLegacyAsset(data)
+            else -> null
         }?.takeIf { it.downloadProxyUrl.isNotBlank() }
 
         return AppUpdateInfo(
             hasUpdate = hasUpdate,
             currentBuild = currentBuild,
             latestBuild = latestBuild,
-            platform = platform,
             latestVersion = data.optStringAny("latestVersion", "LatestVersion").ifBlank { null },
             name = data.optStringAny("name", "Name"),
             changelog = data.optStringAny("changelog", "Changelog"),
@@ -283,5 +274,31 @@ class DefaultUpdateCheckRepository(
             1 -> "tv"
             else -> "mobile"
         }
+    }
+
+    private fun parseAsset(data: JSONObject): AppUpdateAsset {
+        return AppUpdateAsset(
+            id = data.optIntAny("id", "Id"),
+            name = data.optStringAny("name", "Name"),
+            platform = resolvePlatformValue(data),
+            buildNumber = data.optLongAny("buildNumber", "BuildNumber").takeIf { it > 0L },
+            assetType = data.optStringAny("assetType", "AssetType"),
+            sizeBytes = data.optLongAny("sizeBytes", "SizeBytes"),
+            contentHash = data.optStringAny("contentHash", "ContentHash"),
+            downloadProxyUrl = data.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
+        )
+    }
+
+    private fun parseLegacyAsset(data: JSONObject): AppUpdateAsset {
+        return AppUpdateAsset(
+            id = data.optIntAny("id", "Id"),
+            name = data.optStringAny("assetName", "AssetName", "name", "Name"),
+            platform = resolvePlatformValue(data),
+            buildNumber = data.optLongAny("latestBuild", "LatestBuild").takeIf { it > 0L },
+            assetType = data.optStringAny("assetType", "AssetType"),
+            sizeBytes = data.optLongAny("sizeBytes", "SizeBytes"),
+            contentHash = data.optStringAny("contentHash", "ContentHash"),
+            downloadProxyUrl = data.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
+        )
     }
 }

@@ -278,7 +278,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     private fun shouldShowUpdatePromptOnce(update: MainAvailableUpdate): Boolean {
         if (update.downloadProxyUrl.isBlank()) return false
-        val token = "${update.latestBuild}|${update.downloadProxyUrl}"
+        val token = "${update.assetBuildNumber ?: update.latestBuild}|${update.downloadProxyUrl}"
         val prefs = getSharedPreferences(UPDATE_PROMPT_PREFS, MODE_PRIVATE)
         val lastToken = prefs.getString(KEY_LAST_PROMPT_TOKEN, null)
         if (lastToken == token) return false
@@ -346,6 +346,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             name = update.assetName.ifBlank {
                 if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
             },
+            platform = update.assetPlatform.ifBlank { "mobile" },
+            buildNumber = update.assetBuildNumber,
             assetType = update.assetType.ifBlank { "apk" },
             sizeBytes = update.assetSizeBytes,
             contentHash = update.assetContentHash,

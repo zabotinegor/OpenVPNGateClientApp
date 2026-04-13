@@ -108,6 +108,8 @@ class MainViewModel(
                     name = update.name,
                     changelog = update.changelog,
                     assetName = update.asset?.name.orEmpty(),
+                    assetPlatform = update.asset?.platform.orEmpty(),
+                    assetBuildNumber = update.asset?.buildNumber,
                     assetType = update.asset?.assetType.orEmpty(),
                     assetSizeBytes = update.asset?.sizeBytes ?: 0L,
                     assetContentHash = update.asset?.contentHash.orEmpty(),
