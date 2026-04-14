@@ -55,6 +55,7 @@ class UpdateCheckRepositoryTest {
         assertEquals(
             expectedCheckUpdateUrl(
                 sourceUrl = BuildConfig.PRIMARY_SERVERS_URL,
+                apiVersion = 2,
                 platform = "mobile",
                 releaseType = BuildConfig.APP_RELEASE_TYPE.trim().lowercase(),
                 currentBuild = 1L,
@@ -149,9 +150,8 @@ class UpdateCheckRepositoryTest {
 
     @Test
     fun `checkForUpdate retries next source when first source fails`() = runTest {
-        val primaryHost = Uri.parse(BuildConfig.PRIMARY_SERVERS_URL).host.orEmpty()
         val api = CapturingUpdateApi(
-            failUrlsContaining = listOf(primaryHost)
+            failUrlsContaining = listOf("/api/v2/versions/check-update")
         )
         val repository = DefaultUpdateCheckRepository(context, api)
         UserSettingsStore.save(
@@ -166,6 +166,29 @@ class UpdateCheckRepositoryTest {
 
         assertNotNull(result)
         assertEquals(true, api.callCount >= 2)
+        assertEquals(true, api.requestedUrls.first().contains("/api/v2/versions/check-update"))
+        assertEquals(true, api.requestedUrls.any { it.contains("/api/v1/versions/check-update") })
+    }
+
+    @Test
+    fun `checkForUpdate falls back to v1 when v2 endpoint fails`() = runTest {
+        val api = CapturingUpdateApi(
+            failUrlsContaining = listOf("/api/v2/versions/check-update")
+        )
+        val repository = DefaultUpdateCheckRepository(context, api)
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.DEFAULT
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals(true, api.requestedUrls.any { it.contains("/api/v2/versions/check-update") })
+        assertEquals(true, api.requestedUrls.any { it.contains("/api/v1/versions/check-update") })
     }
 
     @Test
@@ -385,6 +408,7 @@ class UpdateCheckRepositoryTest {
 
     private fun expectedCheckUpdateUrl(
         sourceUrl: String,
+        apiVersion: Int,
         platform: String,
         releaseType: String,
         currentBuild: Long,
@@ -395,12 +419,12 @@ class UpdateCheckRepositoryTest {
         val authority = sourceUri.encodedAuthority.orEmpty()
         val basePathPrefix = extractApiBasePathPrefix(sourceUri.encodedPath.orEmpty())
         val localeQuery = locale?.let { "&locale=$it" }.orEmpty()
-        return "$scheme://$authority$basePathPrefix/api/v1/versions/check-update?platform=$platform&releaseType=$releaseType&currentBuild=$currentBuild$localeQuery"
+        return "$scheme://$authority$basePathPrefix/api/v$apiVersion/versions/check-update?platform=$platform&releaseType=$releaseType&currentBuild=$currentBuild$localeQuery"
     }
 
     private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val marker = "/api/v1/"
-        val markerIndex = encodedPath.indexOf(marker)
+        val marker = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
+        val markerIndex = marker.find(encodedPath)?.range?.first ?: -1
         if (markerIndex <= 0) return ""
         val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
         if (prefix.isBlank()) return ""

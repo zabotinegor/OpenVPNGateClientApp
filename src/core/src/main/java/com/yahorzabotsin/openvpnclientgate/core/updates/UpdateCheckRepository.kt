@@ -38,6 +38,9 @@ class DefaultUpdateCheckRepository(
     private companion object {
         const val KEY_SUCCESS = "success"
         const val KEY_SUCCESS_ALT = "Success"
+        const val UPDATE_CHECK_PATH_V2 = "/api/v2/versions/check-update"
+        const val UPDATE_CHECK_PATH_V1 = "/api/v1/versions/check-update"
+        val API_VERSION_MARKER = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
     }
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "UpdateCheckRepository"
@@ -68,13 +71,24 @@ class DefaultUpdateCheckRepository(
             )?.let { return@withContext it }
         }
 
-        val queryUrls = urls.mapNotNull {
-            toCheckUpdateUrl(
-                sourceUrl = it,
-                platform = platform,
-                releaseType = releaseType,
-                currentBuild = currentBuild,
-                locale = preferredLocale
+        val queryUrls = urls.flatMap { source ->
+            listOfNotNull(
+                toCheckUpdateUrl(
+                    sourceUrl = source,
+                    updateCheckPath = UPDATE_CHECK_PATH_V2,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = preferredLocale
+                ),
+                toCheckUpdateUrl(
+                    sourceUrl = source,
+                    updateCheckPath = UPDATE_CHECK_PATH_V1,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = preferredLocale
+                )
             )
         }.distinct()
 
@@ -128,6 +142,7 @@ class DefaultUpdateCheckRepository(
 
     private fun toCheckUpdateUrl(
         sourceUrl: String,
+        updateCheckPath: String,
         platform: String,
         releaseType: String,
         currentBuild: Long,
@@ -138,7 +153,7 @@ class DefaultUpdateCheckRepository(
         if (scheme != "https") return null
         val authority = uri.encodedAuthority ?: return null
         val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
-        val path = "$basePathPrefix/api/v1/versions/check-update"
+        val path = "$basePathPrefix$updateCheckPath"
         val builder = Uri.Builder()
             .scheme(scheme)
             .encodedAuthority(authority)
@@ -153,8 +168,8 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val marker = "/api/v1/"
-        val markerIndex = encodedPath.indexOf(marker)
+        val markerMatch = API_VERSION_MARKER.find(encodedPath)
+        val markerIndex = markerMatch?.range?.first ?: -1
         if (markerIndex <= 0) return ""
 
         val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
