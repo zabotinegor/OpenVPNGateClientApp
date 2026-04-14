@@ -277,13 +277,12 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
 
     private fun shouldShowUpdatePromptOnce(update: MainAvailableUpdate): Boolean {
-        if (update.downloadProxyUrl.isBlank()) return false
-        val token = "${update.assetBuildNumber ?: update.latestBuild}|${update.downloadProxyUrl}"
         val prefs = getSharedPreferences(UPDATE_PROMPT_PREFS, MODE_PRIVATE)
-        val lastToken = prefs.getString(KEY_LAST_PROMPT_TOKEN, null)
-        if (lastToken == token) return false
-        prefs.edit().putString(KEY_LAST_PROMPT_TOKEN, token).apply()
-        return true
+        return UpdatePromptDedup.shouldShowOnce(
+            prefs = prefs,
+            update = update,
+            keyLastPromptToken = KEY_LAST_PROMPT_TOKEN
+        )
     }
 
     private fun applySelectedServerIfNeeded(selection: MainSelectedServer?) {
@@ -431,6 +430,22 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     override fun updateStatus(text: String) {
         binding.connectionDetails.statusValue.text = text
+    }
+}
+
+internal object UpdatePromptDedup {
+    fun shouldShowOnce(
+        prefs: android.content.SharedPreferences,
+        update: MainAvailableUpdate,
+        keyLastPromptToken: String
+    ): Boolean {
+        if (update.downloadProxyUrl.isBlank()) return false
+        // Prefer asset build for unified assets; fallback keeps legacy payload compatibility.
+        val token = "${update.assetBuildNumber ?: update.latestBuild}|${update.downloadProxyUrl}"
+        val lastToken = prefs.getString(keyLastPromptToken, null)
+        if (lastToken == token) return false
+        prefs.edit().putString(keyLastPromptToken, token).apply()
+        return true
     }
 }
 

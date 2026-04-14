@@ -93,7 +93,8 @@ class DefaultUpdateCheckRepository(
         }.distinct()
 
         for (url in queryUrls) {
-            AppLog.i(tag, "Checking updates: $url")
+            val safeUrlForLogs = sanitizeUrlForLogs(url)
+            AppLog.i(tag, "Checking updates: $safeUrlForLogs")
             runCatching {
                 api.checkUpdate(url).use { body ->
                     parseCheckUpdate(body.string())
@@ -116,7 +117,7 @@ class DefaultUpdateCheckRepository(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                AppLog.w(tag, "Failed to check updates from $url", error)
+                AppLog.w(tag, "Failed to check updates from $safeUrlForLogs", error)
             }
         }
 
@@ -191,6 +192,14 @@ class DefaultUpdateCheckRepository(
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
             digest.joinToString("") { "%02x".format(it) }
         }.getOrDefault(joined)
+    }
+
+    private fun sanitizeUrlForLogs(url: String): String {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return "invalid-url"
+        val scheme = uri.scheme ?: return "invalid-url"
+        val authority = uri.encodedAuthority ?: return "invalid-url"
+        val path = uri.encodedPath.orEmpty()
+        return "$scheme://$authority$path"
     }
 
     private fun resolveTrustedUpdateSources(): List<String> {
