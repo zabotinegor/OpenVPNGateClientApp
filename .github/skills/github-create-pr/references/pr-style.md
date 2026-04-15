@@ -6,6 +6,7 @@ Use this format for generated PR body.
 
 - English only.
 - Concise, outcome-oriented.
+- Use past-tense action wording (for example: `Added`, `Updated`, `Fixed`).
 - No `feat:` or `fix:` prefixes unless user explicitly asks.
 
 ## Description Template
@@ -38,4 +39,5 @@ Mention contract/build/workflow changes when they materially affect behavior.
 
 - Omit non-applicable sections.
 - Use concrete implementation facts from diff.
+- Describe completed actions in past tense across the full body.
 - Use backticks for classes/methods/files/routes when named explicitly.

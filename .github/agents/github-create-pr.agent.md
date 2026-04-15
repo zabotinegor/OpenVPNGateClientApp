@@ -24,4 +24,5 @@ You are a PR creation agent for this repository.
 ## Constraints
 - Do not claim PR creation unless command/API succeeded.
 - Do not use vague summaries detached from actual diff.
-- Keep title concise and outcome-oriented.
+- Keep title concise, outcome-oriented, and written with past-tense actions.
+- Use past-tense action wording in the PR body as well (for example: `Added`, `Updated`, `Fixed`).

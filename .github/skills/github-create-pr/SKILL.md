@@ -20,7 +20,7 @@ Create PRs in this order: inspect branch state, analyze `origin/main..HEAD`, dra
    - `git diff --stat origin/main..HEAD`
    - `git diff --name-only origin/main..HEAD`
 4. Group changes into 2-5 coherent themes.
-5. Draft concise English PR title (no `feat:`/`fix:` prefixes).
+5. Draft concise English PR title in past tense (no `feat:`/`fix:` prefixes).
 6. Draft PR body per [references/pr-style.md](./references/pr-style.md).
 7. Create PR via approved tooling (`gh pr create` preferred).
 8. Report title, body, and PR URL/number, or exact blocker.
@@ -30,3 +30,4 @@ Create PRs in this order: inspect branch state, analyze `origin/main..HEAD`, dra
 - Use factual diff-derived content, not assumptions.
 - Mention contract/build/workflow/test impacts when relevant.
 - Do not claim PR creation unless command/API succeeded.
+- Use past-tense action verbs in title and body (for example: `Added`, `Updated`, `Fixed`, `Refactored`).
