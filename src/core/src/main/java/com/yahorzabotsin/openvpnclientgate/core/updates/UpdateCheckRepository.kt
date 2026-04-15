@@ -199,9 +199,10 @@ class DefaultUpdateCheckRepository(
     private fun sanitizeUrlForLogs(url: String): String {
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return "invalid-url"
         val scheme = uri.scheme ?: return "invalid-url"
-        val authority = uri.encodedAuthority ?: return "invalid-url"
+        val host = uri.host ?: return "invalid-url"
+        val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
         val path = uri.encodedPath.orEmpty()
-        return "$scheme://$authority$path"
+        return "$scheme://$host$portSuffix$path"
     }
 
     private fun resolveTrustedUpdateSources(): List<String> {

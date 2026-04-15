@@ -283,7 +283,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 AppLog.i(TAG, "ACTION_START")
-                enterControllerForeground()
+                if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -521,8 +521,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground() {
-        if (controllerForegroundActive) return
+    private fun enterControllerForeground(): Boolean {
+        if (controllerForegroundActive) return true
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
             val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
@@ -540,10 +540,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 .build()
             startForeground(CONTROLLER_NOTIFICATION_ID, notification)
             controllerForegroundActive = true
+            return true
         } catch (t: Throwable) {
             AppLog.e(TAG, "Failed to enter controller foreground; stopping service", t)
             controllerForegroundActive = false
             stopSelf()
+            return false
         }
     }
 
