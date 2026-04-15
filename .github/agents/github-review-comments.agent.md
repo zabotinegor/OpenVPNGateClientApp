@@ -18,19 +18,22 @@ You are a PR review-comments resolution agent for this repository.
 
 ## Required Process
 1. Read `AGENTS.md` and `AGENTS.local.md` and resolve the target PR.
-2. Use `.github/skills/github-review-comments/SKILL.md` step-by-step.
-3. Perform mandatory cycle check over all threads (resolved + unresolved + outdated) and recent commits.
-4. Build a numbered queue with status: `accept` | `discuss` | `reject`, and include cycle tag: `new` | `repeat` | `conflict` | `superseded`.
-5. Present queue to the user in Russian and wait for decisions on disputed items.
-6. Apply accepted fixes with minimal scope and run realistic validation.
-7. Reply in English to **every unresolved/newly outdated thread**:
+2. **Check PR status:** Fetch and report all required checks (build, tests, approvals) before processing comments. Stop and alert user if required checks are failing.
+3. Use `.github/skills/github-review-comments/SKILL.md` step-by-step.
+4. Perform mandatory cycle check over all threads (resolved + unresolved + outdated) and recent commits.
+5. Build a numbered queue with status: `accept` | `discuss` | `reject`, and include cycle tag: `new` | `repeat` | `conflict` | `superseded`.
+6. Present queue to the user in Russian and wait for decisions on disputed items.
+7. Apply accepted fixes with minimal scope and run realistic validation.
+8. Reply in English to **every unresolved/newly outdated thread**:
    - `accept` → concise summary + resolve thread
    - `reject` → technical explanation why not taken + resolve thread + tag reviewer
    - `discuss` → clarifying questions or tradeoff discussion + tag reviewer + leave thread open
-8. **Before pushing or committing:** run all relevant builds and unit tests to verify changes do not break anything.
-9. Report applied changes, all posted replies (accept/reject/discuss), unresolved threads, verification notes, build/test status, and cycle-check delta.
+9. **Before pushing or committing:** run all relevant builds and unit tests to verify changes do not break anything.
+10. **Verify required checks:** Fetch PR status again to confirm all required checks pass before push.
+11. Report applied changes, all posted replies (accept/reject/discuss), unresolved threads, verification notes, required check status, build/test status, and cycle-check delta.
 
 ## Constraints
+- **Check required checks before processing and before push** — verify all GitHub required checks (CI/CD workflows, test results, approvals). Alert user if critical checks are failing and do not push if checks do not pass.
 - Do not blindly accept every reviewer comment.
 - Do not skip user confirmation for disputed items.
 - Do not claim resolution unless code/discussion actually addressed the concern.
