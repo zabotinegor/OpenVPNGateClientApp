@@ -67,7 +67,7 @@ class AppUpdateInstallerTest {
     }
 
     @Test
-    fun `start writes apk to cache before launching installer`() = runTest {
+    fun `start cleans cached apk when installer launch fails`() = runTest {
         val installer = DefaultAppUpdateInstaller(context, successClient("apk-binary".toByteArray()))
 
         val result = installer.start(
@@ -89,9 +89,7 @@ class AppUpdateInstallerTest {
 
         val updatesDir = File(context.cacheDir, "updates")
         val files = updatesDir.listFiles().orEmpty()
-        assertEquals(1, files.size)
-        assertTrue(files[0].name.endsWith(".apk"))
-        assertTrue(files[0].length() > 0)
+        assertEquals(0, files.size)
     }
 
     @Test

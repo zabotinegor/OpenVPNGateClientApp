@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import android.Manifest
 import android.app.Activity
 import androidx.appcompat.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -382,7 +383,11 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             data = android.net.Uri.parse("package:$packageName")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun dispatchConnectionButtonClick() {

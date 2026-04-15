@@ -285,7 +285,11 @@ class AboutActivity : AppCompatActivity() {
             data = Uri.parse("package:$packageName")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+        }
     }
 }
 

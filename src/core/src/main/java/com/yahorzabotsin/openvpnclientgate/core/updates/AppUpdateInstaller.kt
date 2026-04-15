@@ -127,6 +127,9 @@ class DefaultAppUpdateInstaller(
             }
         }.getOrElse { error ->
             if (error is CancellationException) throw error
+            if (apkFile.exists()) {
+                apkFile.delete()
+            }
             AppLog.w(tag, "Update install failed", error)
             AppUpdateInstallResult.Failure(error.message ?: "Unknown error")
         }
