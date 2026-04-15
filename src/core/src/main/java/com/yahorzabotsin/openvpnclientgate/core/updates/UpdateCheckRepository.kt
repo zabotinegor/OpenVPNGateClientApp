@@ -202,8 +202,7 @@ class DefaultUpdateCheckRepository(
         val scheme = uri.scheme ?: return "invalid-url"
         val host = uri.host ?: return "invalid-url"
         val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
-        val path = uri.encodedPath.orEmpty()
-        return "$scheme://$host$portSuffix$path"
+        return "$scheme://$host$portSuffix"
     }
 
     private fun resolveTrustedUpdateSources(): List<String> {

@@ -30,7 +30,7 @@ internal object LogExportRetention {
                 }
                 .onSuccess { deleted ->
                     if (!deleted) {
-                        onDeleteFailure(file, IOException("Failed to delete old export file: ${file.absolutePath}"))
+                        onDeleteFailure(file, IOException("Failed to delete old export file: ${file.name}"))
                     }
                 }
         }
