@@ -49,13 +49,19 @@ Handle review comments as a controlled workflow: collect -> classify -> confirm 
    - **`accept` threads**: Post concise completion note with code change summary. **Resolve thread immediately after replying.**
    - **`reject` threads**: Post technical explanation explaining why change is not taken. **Resolve thread immediately after replying.** Tag the reviewer.
    - **`discuss` threads**: Post response with clarifying questions or tradeoff discussion. Tag the reviewer. **Do not resolve thread** — leave for user or reviewer continuation.
-13. Report applied changes, posted replies, unresolved threads, verification notes, and cycle-check delta since the previous round.
+13. Verify build and tests:
+   - Run all relevant unit tests (`./gradlew testDebugUnitTest` or equivalent).
+   - Run relevant module builds (`./gradlew assembleDebug` or equivalent).
+   - Confirm all tests pass and no new compilation errors are introduced.
+   - Report build/test status in final summary.
+14. Report applied changes, posted replies, unresolved threads, verification notes, build/test results, and cycle-check delta since the previous round.
 
 Use [references/review-comment-style.md](./references/review-comment-style.md).
 
 ## Rules
 
 - **Must reply to ALL threads** — every unresolved + newly outdated thread gets a response in English.
+- **Always verify builds and tests before committing or pushing** — no commit without passing unit tests and module builds.
 - Do not blindly accept all comments.
 - Do not skip user confirmation for disputed items.
 - Do not claim comment resolution without actual code/discussion resolution.
