@@ -5,7 +5,8 @@
 - The Gradle root is `src/`, not the repository root.
 - The app ships as two launcher apps, `src/mobile` and `src/tv`, over one shared logic module, `src/core`.
 - `src/openVpnEngine` points to `src/external/OpenVPNEngine/main`, which is an external engine submodule and should be treated as a high-risk integration boundary.
-- The related backend/API codebase lives outside this workspace at `local path from AGENTS.local.md`.
+- The related backend/API codebase is `local path from AGENTS.local.md` (branch `main`).
+- Local-only override: if you keep a local server checkout, document its path in untracked `AGENTS.local.md` at repo root.
 
 ## Build and Test
 - Run Gradle commands from `src/`.
@@ -29,7 +30,7 @@
 - Use Timber for logging. Follow `src/docs/logging-policy.md`; do not introduce `android.util.Log` for app code.
 - Do not log secrets, raw credentials, or full sensitive URLs.
 - Build-time server endpoints come from Gradle properties, environment variables, or `servers.local.json`, in that order. Do not hardcode production endpoints in source files.
-- If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation in `local path from AGENTS.local.md` and keep client/server formats aligned.
+- If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation in `local path from AGENTS.local.md` (branch `main`) and keep client/server formats aligned.
 - `app_name` is injected via Gradle `resValue`; do not duplicate it in shared string resources unless the build logic changes.
 - This project uses ViewBinding and Kotlin-based Android modules. Match the existing style instead of introducing a new UI or DI pattern.
 
