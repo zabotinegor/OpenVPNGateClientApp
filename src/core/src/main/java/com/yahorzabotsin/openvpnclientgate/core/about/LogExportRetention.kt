@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.about
 
 import java.io.File
+import java.io.IOException
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
@@ -23,8 +24,9 @@ internal object LogExportRetention {
             if (!file.isFile) return@forEach
             if (!isExportLogFile(file.name)) return@forEach
             if (file.lastModified() >= cutoffMs) return@forEach
-            runCatching { file.delete() }
-                .onFailure { error -> onDeleteFailure(file, error) }
+            if (!file.delete()) {
+                onDeleteFailure(file, IOException("Failed to delete old export file: ${file.absolutePath}"))
+            }
         }
     }
 
@@ -91,3 +93,4 @@ internal object LogExportRetention {
         return thisYear
     }
 }
+

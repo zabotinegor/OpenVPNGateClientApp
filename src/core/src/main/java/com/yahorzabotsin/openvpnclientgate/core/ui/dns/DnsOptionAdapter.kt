@@ -49,10 +49,7 @@ class DnsOptionAdapter(
         holder.bind(item, item.option == selectedOption)
         holder.itemView.setOnClickListener {
             if (item.option == selectedOption) return@setOnClickListener
-            val old = selectedOption
-            selectedOption = item.option
-            indexByOption[old]?.let { notifyItemChanged(it) }
-            notifyItemChanged(position)
+            updateSelectedOption(item.option)
             onSelected(item.option)
             holder.itemView.requestFocus()
         }
@@ -80,5 +77,4 @@ class DnsOptionAdapter(
         }
     }
 }
-
 

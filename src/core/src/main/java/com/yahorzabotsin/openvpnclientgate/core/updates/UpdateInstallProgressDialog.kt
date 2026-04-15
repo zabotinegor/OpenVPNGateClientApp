@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.updates
 
 import android.app.Activity
+import android.text.format.Formatter
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -67,19 +68,6 @@ class UpdateInstallProgressDialog(
         }
     }
 
-    private fun formatBytes(bytes: Long): String {
-        if (bytes <= 0) return "0 B"
-        val units = arrayOf("B", "KB", "MB", "GB")
-        var value = bytes.toDouble()
-        var index = 0
-        while (value >= 1024 && index < units.lastIndex) {
-            value /= 1024.0
-            index++
-        }
-        return if (index == 0) {
-            "${value.toLong()} ${units[index]}"
-        } else {
-            String.format("%.1f %s", value, units[index])
-        }
-    }
+    private fun formatBytes(bytes: Long): String = Formatter.formatFileSize(activity, bytes)
 }
+

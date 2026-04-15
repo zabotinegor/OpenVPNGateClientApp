@@ -541,8 +541,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             startForeground(CONTROLLER_NOTIFICATION_ID, notification)
             controllerForegroundActive = true
         } catch (t: Throwable) {
-            AppLog.w(TAG, "Failed to enter controller foreground", t)
+            AppLog.e(TAG, "Failed to enter controller foreground; stopping service\n${android.util.Log.getStackTraceString(t)}")
             controllerForegroundActive = false
+            stopSelf()
         }
     }
 
@@ -998,6 +999,4 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 }
-
-
 
