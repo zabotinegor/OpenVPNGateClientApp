@@ -38,6 +38,7 @@ class UpdateCheckCacheStoreTest {
         UpdateCheckCacheStore.put(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
@@ -48,6 +49,7 @@ class UpdateCheckCacheStoreTest {
         val cached = UpdateCheckCacheStore.get(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
@@ -68,6 +70,7 @@ class UpdateCheckCacheStoreTest {
         UpdateCheckCacheStore.put(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
@@ -78,6 +81,7 @@ class UpdateCheckCacheStoreTest {
         val cached = UpdateCheckCacheStore.get(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
@@ -93,6 +97,7 @@ class UpdateCheckCacheStoreTest {
         UpdateCheckCacheStore.put(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
@@ -103,6 +108,7 @@ class UpdateCheckCacheStoreTest {
             UpdateCheckCacheStore.get(
                 context = context,
                 currentBuild = 1,
+                platform = "mobile",
                 releaseType = "release",
                 locale = "en",
                 sourceKey = "sourceA",
@@ -113,6 +119,7 @@ class UpdateCheckCacheStoreTest {
             UpdateCheckCacheStore.get(
                 context = context,
                 currentBuild = 1,
+                platform = "mobile",
                 releaseType = "beta",
                 locale = "en",
                 sourceKey = "sourceA",
@@ -123,6 +130,7 @@ class UpdateCheckCacheStoreTest {
             UpdateCheckCacheStore.get(
                 context = context,
                 currentBuild = 1,
+                platform = "mobile",
                 releaseType = "release",
                 locale = "en",
                 sourceKey = "sourceB",
@@ -134,11 +142,12 @@ class UpdateCheckCacheStoreTest {
     @Test
     fun `get returns null for malformed stored payload`() {
         val prefs = context.getSharedPreferences("update_check_cache", Context.MODE_PRIVATE)
-        prefs.edit().putString("update_1|release|en|sourceA", "{bad json").commit()
+        prefs.edit().putString("update_1|mobile|release|en|sourceA", "{bad json").commit()
 
         val cached = UpdateCheckCacheStore.get(
             context = context,
             currentBuild = 1,
+            platform = "mobile",
             releaseType = "release",
             locale = "en",
             sourceKey = "sourceA",
