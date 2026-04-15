@@ -94,12 +94,12 @@ if ($BuildType -eq 'release' -and -not $AllowReleaseInstall.IsPresent) {
 $gradleTasks = @()
 if ($BuildType -eq 'debug') {
     if ($Target -eq 'both') { $gradleTasks += 'assembleDebugApp' }
-    if ($Target -eq 'mobile') { $gradleTasks += ':mobile:assembleDebug' }
-    if ($Target -eq 'tv') { $gradleTasks += ':tv:assembleDebug' }
+    elseif ($Target -eq 'mobile') { $gradleTasks += ':mobile:assembleDebug' }
+    elseif ($Target -eq 'tv') { $gradleTasks += ':tv:assembleDebug' }
 } else {
     if ($Target -eq 'both') { $gradleTasks += 'assembleReleaseApp' }
-    if ($Target -eq 'mobile') { $gradleTasks += ':mobile:assembleRelease' }
-    if ($Target -eq 'tv') { $gradleTasks += ':tv:assembleRelease' }
+    elseif ($Target -eq 'mobile') { $gradleTasks += ':mobile:assembleRelease' }
+    elseif ($Target -eq 'tv') { $gradleTasks += ':tv:assembleRelease' }
 }
 
 Invoke-GradleBuild -SrcRoot $srcRoot -BuildType $BuildType -Target $Target

@@ -2,7 +2,7 @@
 
 ## User-Facing Summary
 
-Provide queue in Russian:
+Provide the review queue in Russian:
 
 ```markdown
 ### Review Queue

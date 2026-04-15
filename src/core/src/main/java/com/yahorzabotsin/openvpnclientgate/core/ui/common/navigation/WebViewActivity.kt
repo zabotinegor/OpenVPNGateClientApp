@@ -115,6 +115,9 @@ class WebViewActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return true
                 val scheme = uri.scheme?.lowercase()
+                if (scheme == "about" && uri.encodedPath == "blank") {
+                    return false
+                }
                 return if (scheme == "http" || scheme == "https") {
                     try {
                         startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))

@@ -16,6 +16,7 @@ class MainMenuVisibilityUnitTest {
                 versionNumber = "1.0.1",
                 name = "Update",
                 changelog = "changes",
+                assetId = 1,
                 assetName = "app.apk",
                 assetPlatform = "mobile",
                 assetBuildNumber = 2L,

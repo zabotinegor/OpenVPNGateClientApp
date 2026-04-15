@@ -61,7 +61,7 @@ class DefaultAppUpdateInstaller(
         val fileName = sanitizeFileName(asset.name.ifBlank { "app-update.apk" })
         val apkFile = File(updatesDir, fileName)
 
-        if (asset.assetType != "apk") {
+        if (!asset.assetType.startsWith("apk", ignoreCase = true)) {
             return@withContext AppUpdateInstallResult.Failure("Non-APK assets not supported")
         }
 

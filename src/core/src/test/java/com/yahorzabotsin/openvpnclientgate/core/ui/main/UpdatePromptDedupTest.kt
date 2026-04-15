@@ -103,6 +103,7 @@ class UpdatePromptDedupTest {
         versionNumber = "1.0.0",
         name = "Update",
         changelog = "Changes",
+        assetId = 1,
         assetName = "app.apk",
         assetPlatform = "mobile",
         assetBuildNumber = assetBuildNumber,
