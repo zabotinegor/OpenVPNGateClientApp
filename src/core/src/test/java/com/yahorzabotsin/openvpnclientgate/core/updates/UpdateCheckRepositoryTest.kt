@@ -55,6 +55,7 @@ class UpdateCheckRepositoryTest {
         assertEquals(
             expectedCheckUpdateUrl(
                 sourceUrl = BuildConfig.PRIMARY_SERVERS_URL,
+                apiVersion = 2,
                 platform = "mobile",
                 releaseType = BuildConfig.APP_RELEASE_TYPE.trim().lowercase(),
                 currentBuild = 1L,
@@ -149,9 +150,31 @@ class UpdateCheckRepositoryTest {
 
     @Test
     fun `checkForUpdate retries next source when first source fails`() = runTest {
-        val primaryHost = Uri.parse(BuildConfig.PRIMARY_SERVERS_URL).host.orEmpty()
+        val primaryUrl = "https://update-primary.test/api/v1/servers/active"
+        val fallbackUrl = "https://update-fallback.test/api/v1/servers/active"
         val api = CapturingUpdateApi(
-            failUrlsContaining = listOf(primaryHost)
+            failUrlsContaining = listOf("update-primary.test")
+        )
+        val repository = DefaultUpdateCheckRepository(context, api, sourcesOverride = listOf(primaryUrl, fallbackUrl))
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.DEFAULT
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals(true, api.callCount >= 2)
+        assertEquals(true, api.requestedUrls.any { Uri.parse(it).host == "update-fallback.test" })
+    }
+
+    @Test
+    fun `checkForUpdate falls back to v1 when v2 endpoint fails`() = runTest {
+        val api = CapturingUpdateApi(
+            failUrlsContaining = listOf("/api/v2/versions/check-update")
         )
         val repository = DefaultUpdateCheckRepository(context, api)
         UserSettingsStore.save(
@@ -165,7 +188,8 @@ class UpdateCheckRepositoryTest {
         val result = repository.checkForUpdate(forceRefresh = true)
 
         assertNotNull(result)
-        assertEquals(true, api.callCount >= 2)
+        assertEquals(true, api.requestedUrls.any { it.contains("/api/v2/versions/check-update") })
+        assertEquals(true, api.requestedUrls.any { it.contains("/api/v1/versions/check-update") })
     }
 
     @Test
@@ -176,7 +200,6 @@ class UpdateCheckRepositoryTest {
                   "hasUpdate":true,
                   "currentBuild":1,
                   "latestBuild":2,
-                  "platform":"0",
                   "latestVersion":"1.1",
                   "name":"Release",
                   "changelog":"## Changes",
@@ -185,6 +208,8 @@ class UpdateCheckRepositoryTest {
                   "updateAsset":{
                     "id":7,
                     "name":"mobile.apk",
+                    "platform":"0",
+                    "buildNumber":2,
                     "assetType":"apk-mobile",
                     "sizeBytes":123,
                     "contentHash":"hash",
@@ -205,21 +230,27 @@ class UpdateCheckRepositoryTest {
         val result = repository.checkForUpdate(forceRefresh = true)
 
         assertNotNull(result)
-        assertEquals("mobile", result?.platform)
         assertEquals(true, result?.hasUpdate)
+        assertEquals("mobile", result?.asset?.platform)
+        assertEquals(2L, result?.asset?.buildNumber)
         assertEquals("mobile.apk", result?.asset?.name)
     }
 
     @Test
-    fun `checkForUpdate falls back to mobile for unknown string platform`() = runTest {
+    fun `checkForUpdate parses legacy top level asset fields for older server compatibility`() = runTest {
         val api = CapturingUpdateApi(
             responseJson = """
                 {"success":true,"data":{
                   "hasUpdate":true,
                   "currentBuild":1,
-                  "latestBuild":2,
-                  "platform":"desktop",
-                  "latestVersion":"1.1",
+                  "latestBuild":5,
+                  "latestVersion":"1.5",
+                  "platform":"1",
+                  "assetName":"tv.apk",
+                  "assetType":"apk-tv",
+                  "sizeBytes":321,
+                  "contentHash":"legacy-hash",
+                  "downloadProxyUrl":"https://example.com/api/v1/download-assets/1/9",
                   "message":"Update available."
                 }}
             """.trimIndent()
@@ -236,20 +267,32 @@ class UpdateCheckRepositoryTest {
         val result = repository.checkForUpdate(forceRefresh = true)
 
         assertNotNull(result)
-        assertEquals("mobile", result?.platform)
+        assertEquals(true, result?.hasUpdate)
+        assertEquals("tv", result?.asset?.platform)
+        assertEquals(5L, result?.asset?.buildNumber)
+        assertEquals("tv.apk", result?.asset?.name)
+        assertEquals("https://example.com/api/v1/download-assets/1/9", result?.asset?.downloadProxyUrl)
     }
 
     @Test
-    fun `checkForUpdate falls back to mobile for unknown numeric platform`() = runTest {
+    fun `checkForUpdate falls back to mobile for unknown string asset platform`() = runTest {
         val api = CapturingUpdateApi(
             responseJson = """
                 {"success":true,"data":{
                   "hasUpdate":true,
                   "currentBuild":1,
                   "latestBuild":2,
-                  "platform":77,
                   "latestVersion":"1.1",
-                  "message":"Update available."
+                  "message":"Update available.",
+                  "updateAsset":{
+                    "id":7,
+                    "name":"desktop.apk",
+                    "platform":"desktop",
+                    "assetType":"apk-mobile",
+                    "sizeBytes":123,
+                    "contentHash":"hash",
+                    "downloadProxyUrl":"https://example.com/api/v1/download-assets/1/7"
+                  }
                 }}
             """.trimIndent()
         )
@@ -265,7 +308,44 @@ class UpdateCheckRepositoryTest {
         val result = repository.checkForUpdate(forceRefresh = true)
 
         assertNotNull(result)
-        assertEquals("mobile", result?.platform)
+        assertEquals("mobile", result?.asset?.platform)
+    }
+
+    @Test
+    fun `checkForUpdate falls back to mobile for unknown numeric asset platform`() = runTest {
+        val api = CapturingUpdateApi(
+            responseJson = """
+                {"success":true,"data":{
+                  "hasUpdate":true,
+                  "currentBuild":1,
+                  "latestBuild":2,
+                  "latestVersion":"1.1",
+                  "message":"Update available.",
+                  "updateAsset":{
+                    "id":7,
+                    "name":"mobile.apk",
+                    "platform":77,
+                    "assetType":"apk-mobile",
+                    "sizeBytes":123,
+                    "contentHash":"hash",
+                    "downloadProxyUrl":"https://example.com/api/v1/download-assets/1/7"
+                  }
+                }}
+            """.trimIndent()
+        )
+        val repository = DefaultUpdateCheckRepository(context, api)
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.DEFAULT
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals("mobile", result?.asset?.platform)
     }
 
     @Test
@@ -329,6 +409,7 @@ class UpdateCheckRepositoryTest {
 
     private fun expectedCheckUpdateUrl(
         sourceUrl: String,
+        apiVersion: Int,
         platform: String,
         releaseType: String,
         currentBuild: Long,
@@ -339,12 +420,12 @@ class UpdateCheckRepositoryTest {
         val authority = sourceUri.encodedAuthority.orEmpty()
         val basePathPrefix = extractApiBasePathPrefix(sourceUri.encodedPath.orEmpty())
         val localeQuery = locale?.let { "&locale=$it" }.orEmpty()
-        return "$scheme://$authority$basePathPrefix/api/v1/versions/check-update?platform=$platform&releaseType=$releaseType&currentBuild=$currentBuild$localeQuery"
+        return "$scheme://$authority$basePathPrefix/api/v$apiVersion/versions/check-update?platform=$platform&releaseType=$releaseType&currentBuild=$currentBuild$localeQuery"
     }
 
     private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val marker = "/api/v1/"
-        val markerIndex = encodedPath.indexOf(marker)
+        val marker = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
+        val markerIndex = marker.find(encodedPath)?.range?.first ?: -1
         if (markerIndex <= 0) return ""
         val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
         if (prefix.isBlank()) return ""
@@ -353,7 +434,7 @@ class UpdateCheckRepositoryTest {
 
     private class CapturingUpdateApi(
         private val responseJson: String = """
-            {"success":true,"data":{"hasUpdate":true,"currentBuild":1,"latestBuild":2,"platform":"mobile","message":"Update available."}}
+            {"success":true,"data":{"hasUpdate":true,"currentBuild":1,"latestBuild":2,"message":"Update available."}}
         """.trimIndent(),
         private val failUrlsContaining: List<String> = emptyList()
     ) : UpdateCheckApi {
@@ -370,4 +451,3 @@ class UpdateCheckRepositoryTest {
         }
     }
 }
-

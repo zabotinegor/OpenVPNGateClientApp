@@ -41,7 +41,6 @@ object UpdateCheckCacheStore {
             .put("hasUpdate", value.hasUpdate)
             .put("currentBuild", value.currentBuild)
             .put("latestBuild", value.latestBuild ?: JSONObject.NULL)
-            .put("platform", value.platform)
             .put("latestVersion", value.latestVersion ?: "")
             .put("name", value.name)
             .put("changelog", value.changelog.take(MAX_CHANGELOG_LENGTH))
@@ -53,6 +52,8 @@ object UpdateCheckCacheStore {
                     JSONObject()
                         .put("id", it.id)
                         .put("name", it.name)
+                        .put("platform", it.platform)
+                        .put("buildNumber", it.buildNumber ?: JSONObject.NULL)
                         .put("assetType", it.assetType)
                         .put("sizeBytes", it.sizeBytes)
                         .put("contentHash", it.contentHash)
@@ -72,7 +73,6 @@ object UpdateCheckCacheStore {
         val hasUpdate = root.optBoolean("hasUpdate", false)
         val currentBuild = root.optLong("currentBuild", 0L)
         val latestBuild = if (root.isNull("latestBuild")) null else root.optLong("latestBuild", 0L).takeIf { it > 0L }
-        val platform = root.optString("platform", "")
         val latestVersion = root.optString("latestVersion", "").ifBlank { null }
         val name = root.optString("name", "")
         val changelog = root.optString("changelog", "")
@@ -83,18 +83,19 @@ object UpdateCheckCacheStore {
             AppUpdateAsset(
                 id = it.optInt("id", 0),
                 name = it.optString("name", ""),
+                platform = it.optString("platform", "").ifBlank { "mobile" },
+                buildNumber = if (it.isNull("buildNumber")) null else it.optLong("buildNumber", 0L).takeIf { value -> value > 0L },
                 assetType = it.optString("assetType", ""),
                 sizeBytes = it.optLong("sizeBytes", 0L),
                 contentHash = it.optString("contentHash", ""),
                 downloadProxyUrl = it.optString("downloadProxyUrl", "")
             )
         }
-        if (currentBuild <= 0L || platform.isBlank()) return null
+        if (currentBuild <= 0L) return null
         return AppUpdateInfo(
             hasUpdate = hasUpdate,
             currentBuild = currentBuild,
             latestBuild = latestBuild,
-            platform = platform,
             latestVersion = latestVersion,
             name = name,
             changelog = changelog,

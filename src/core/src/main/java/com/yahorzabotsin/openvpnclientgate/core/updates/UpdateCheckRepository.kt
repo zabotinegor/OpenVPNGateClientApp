@@ -33,11 +33,15 @@ class DefaultUpdateCheckRepository(
     private val appContext: Context,
     private val api: UpdateCheckApi,
     private val settingsStore: UserSettingsStore = UserSettingsStore,
-    private val cacheStore: UpdateCheckCacheStore = UpdateCheckCacheStore
+    private val cacheStore: UpdateCheckCacheStore = UpdateCheckCacheStore,
+    private val sourcesOverride: List<String>? = null
 ) : UpdateCheckRepository {
     private companion object {
         const val KEY_SUCCESS = "success"
         const val KEY_SUCCESS_ALT = "Success"
+        const val UPDATE_CHECK_PATH_V2 = "/api/v2/versions/check-update"
+        const val UPDATE_CHECK_PATH_V1 = "/api/v1/versions/check-update"
+        val API_VERSION_MARKER = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
     }
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "UpdateCheckRepository"
@@ -69,18 +73,30 @@ class DefaultUpdateCheckRepository(
             )?.let { return@withContext it }
         }
 
-        val queryUrls = urls.mapNotNull {
-            toCheckUpdateUrl(
-                sourceUrl = it,
-                platform = platform,
-                releaseType = releaseType,
-                currentBuild = currentBuild,
-                locale = preferredLocale
+        val queryUrls = urls.flatMap { source ->
+            listOfNotNull(
+                toCheckUpdateUrl(
+                    sourceUrl = source,
+                    updateCheckPath = UPDATE_CHECK_PATH_V2,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = preferredLocale
+                ),
+                toCheckUpdateUrl(
+                    sourceUrl = source,
+                    updateCheckPath = UPDATE_CHECK_PATH_V1,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = preferredLocale
+                )
             )
         }.distinct()
 
         for (url in queryUrls) {
-            AppLog.i(tag, "Checking updates: $url")
+            val safeUrlForLogs = sanitizeUrlForLogs(url)
+            AppLog.i(tag, "Checking updates: $safeUrlForLogs")
             runCatching {
                 api.checkUpdate(url).use { body ->
                     parseCheckUpdate(body.string())
@@ -89,7 +105,7 @@ class DefaultUpdateCheckRepository(
                 if (parsed != null) {
                     AppLog.i(
                         tag,
-                        "Update check result: hasUpdate=${parsed.hasUpdate}, currentBuild=${parsed.currentBuild}, latestBuild=${parsed.latestBuild}, platform=${parsed.platform}, hasAsset=${parsed.asset != null}"
+                        "Update check result: hasUpdate=${parsed.hasUpdate}, currentBuild=${parsed.currentBuild}, latestBuild=${parsed.latestBuild}, assetPlatform=${parsed.asset?.platform.orEmpty()}, hasAsset=${parsed.asset != null}"
                     )
                     cacheStore.put(
                         context = appContext,
@@ -104,7 +120,7 @@ class DefaultUpdateCheckRepository(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                AppLog.w(tag, "Failed to check updates from $url", error)
+                AppLog.w(tag, "Failed to check updates from $safeUrlForLogs", error)
             }
         }
 
@@ -130,6 +146,7 @@ class DefaultUpdateCheckRepository(
 
     private fun toCheckUpdateUrl(
         sourceUrl: String,
+        updateCheckPath: String,
         platform: String,
         releaseType: String,
         currentBuild: Long,
@@ -140,7 +157,7 @@ class DefaultUpdateCheckRepository(
         if (scheme != "https") return null
         val authority = uri.encodedAuthority ?: return null
         val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
-        val path = "$basePathPrefix/api/v1/versions/check-update"
+        val path = "$basePathPrefix$updateCheckPath"
         val builder = Uri.Builder()
             .scheme(scheme)
             .encodedAuthority(authority)
@@ -155,8 +172,8 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val marker = "/api/v1/"
-        val markerIndex = encodedPath.indexOf(marker)
+        val markerMatch = API_VERSION_MARKER.find(encodedPath)
+        val markerIndex = markerMatch?.range?.first ?: -1
         if (markerIndex <= 0) return ""
 
         val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
@@ -180,11 +197,19 @@ class DefaultUpdateCheckRepository(
         }.getOrDefault(joined)
     }
 
+    private fun sanitizeUrlForLogs(url: String): String {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return "invalid-url"
+        val scheme = uri.scheme ?: return "invalid-url"
+        val host = uri.host ?: return "invalid-url"
+        val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
+        return "$scheme://$host$portSuffix"
+    }
+
     private fun resolveTrustedUpdateSources(): List<String> {
-        return listOf(
+        return (sourcesOverride ?: listOf(
             ApiConstants.PRIMARY_SERVERS_URL,
             ApiConstants.FALLBACK_SERVERS_URL
-        ).map { it.trim() }
+        )).map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
     }
@@ -197,25 +222,18 @@ class DefaultUpdateCheckRepository(
         val hasUpdate = data.optBooleanAny("hasUpdate", "HasUpdate")
         val currentBuild = data.optLongAny("currentBuild", "CurrentBuild")
         val latestBuild = data.optLongAny("latestBuild", "LatestBuild").takeIf { it > 0 }
-        val platform = resolvePlatformValue(data)
-        if (currentBuild <= 0L || platform.isBlank()) return null
+        if (currentBuild <= 0L) return null
         val assetData = data.optObjectAny("updateAsset", "UpdateAsset")
-        val asset = assetData?.let {
-            AppUpdateAsset(
-                id = it.optIntAny("id", "Id"),
-                name = it.optStringAny("name", "Name"),
-                assetType = it.optStringAny("assetType", "AssetType"),
-                sizeBytes = it.optLongAny("sizeBytes", "SizeBytes"),
-                contentHash = it.optStringAny("contentHash", "ContentHash"),
-                downloadProxyUrl = it.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
-            )
+        val asset = when {
+            assetData != null -> parseAsset(assetData)
+            data.optStringAny("downloadProxyUrl", "DownloadProxyUrl").isNotBlank() -> parseLegacyAsset(data)
+            else -> null
         }?.takeIf { it.downloadProxyUrl.isNotBlank() }
 
         return AppUpdateInfo(
             hasUpdate = hasUpdate,
             currentBuild = currentBuild,
             latestBuild = latestBuild,
-            platform = platform,
             latestVersion = data.optStringAny("latestVersion", "LatestVersion").ifBlank { null },
             name = data.optStringAny("name", "Name"),
             changelog = data.optStringAny("changelog", "Changelog"),
@@ -283,5 +301,31 @@ class DefaultUpdateCheckRepository(
             1 -> "tv"
             else -> "mobile"
         }
+    }
+
+    private fun parseAsset(data: JSONObject): AppUpdateAsset {
+        return AppUpdateAsset(
+            id = data.optIntAny("id", "Id"),
+            name = data.optStringAny("name", "Name"),
+            platform = resolvePlatformValue(data),
+            buildNumber = data.optLongAny("buildNumber", "BuildNumber").takeIf { it > 0L },
+            assetType = data.optStringAny("assetType", "AssetType"),
+            sizeBytes = data.optLongAny("sizeBytes", "SizeBytes"),
+            contentHash = data.optStringAny("contentHash", "ContentHash"),
+            downloadProxyUrl = data.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
+        )
+    }
+
+    private fun parseLegacyAsset(data: JSONObject): AppUpdateAsset {
+        return AppUpdateAsset(
+            id = data.optIntAny("id", "Id"),
+            name = data.optStringAny("assetName", "AssetName", "name", "Name"),
+            platform = resolvePlatformValue(data),
+            buildNumber = data.optLongAny("latestBuild", "LatestBuild").takeIf { it > 0L },
+            assetType = data.optStringAny("assetType", "AssetType"),
+            sizeBytes = data.optLongAny("sizeBytes", "SizeBytes"),
+            contentHash = data.optStringAny("contentHash", "ContentHash"),
+            downloadProxyUrl = data.optStringAny("downloadProxyUrl", "DownloadProxyUrl")
+        )
     }
 }

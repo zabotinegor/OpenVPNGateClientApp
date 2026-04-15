@@ -21,7 +21,9 @@ class FilterPageFragment : Fragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        category = arguments?.getString(ARG_CATEGORY)?.let { AppCategory.valueOf(it) } ?: AppCategory.USER
+        category = arguments?.getString(ARG_CATEGORY)
+            ?.let { runCatching { AppCategory.valueOf(it) }.getOrDefault(AppCategory.USER) }
+            ?: AppCategory.USER
     }
 
     override fun onCreateView(
@@ -89,5 +91,4 @@ class FilterPageFragment : Fragment() {
             }
     }
 }
-
 

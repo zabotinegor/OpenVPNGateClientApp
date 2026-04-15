@@ -80,6 +80,8 @@ class MainViewModelTest {
         val asset = AppUpdateAsset(
             id = 7,
             name = "OpenVPNGateClient_mobile.apk",
+            platform = "mobile",
+            buildNumber = 123L,
             assetType = "apk-mobile",
             sizeBytes = 987654L,
             contentHash = "abc123",
@@ -94,6 +96,7 @@ class MainViewModelTest {
 
         val update = viewModel.state.value.availableUpdate
         assertEquals(asset.name, update?.assetName)
+        assertEquals(asset.buildNumber, update?.assetBuildNumber)
         assertEquals(asset.assetType, update?.assetType)
         assertEquals(asset.sizeBytes, update?.assetSizeBytes)
         assertEquals(asset.contentHash, update?.assetContentHash)
@@ -605,7 +608,6 @@ class MainViewModelTest {
         hasUpdate = true,
         currentBuild = 100,
         latestBuild = 123,
-        platform = "mobile",
         latestVersion = "1.2.3",
         name = "Release 1.2.3",
         changelog = "## Added\n- item",
@@ -617,6 +619,8 @@ class MainViewModelTest {
     private fun sampleAsset() = AppUpdateAsset(
             id = 1,
             name = "mobile.apk",
+            platform = "mobile",
+            buildNumber = 123L,
             assetType = "apk-mobile",
             sizeBytes = 100L,
             contentHash = "hash",

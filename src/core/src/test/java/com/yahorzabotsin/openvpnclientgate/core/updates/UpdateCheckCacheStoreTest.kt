@@ -26,6 +26,8 @@ class UpdateCheckCacheStoreTest {
             asset = AppUpdateAsset(
                 id = 10,
                 name = "app.apk",
+                platform = "mobile",
+                buildNumber = 2L,
                 assetType = "apk-mobile",
                 sizeBytes = 100,
                 contentHash = "hash",
@@ -58,7 +60,8 @@ class UpdateCheckCacheStoreTest {
         assertNotNull(cached)
         assertEquals(true, cached?.hasUpdate)
         assertEquals(2L, cached?.latestBuild)
-        assertEquals("mobile", cached?.platform)
+        assertEquals("mobile", cached?.asset?.platform)
+        assertEquals(2L, cached?.asset?.buildNumber)
         assertEquals("app.apk", cached?.asset?.name)
     }
 
@@ -90,7 +93,7 @@ class UpdateCheckCacheStoreTest {
     }
 
     @Test
-    fun `cache key separates platform release type and source`() {
+    fun `cache key separates release type and source`() {
         UpdateCheckCacheStore.put(
             context = context,
             currentBuild = 1,
@@ -101,11 +104,11 @@ class UpdateCheckCacheStoreTest {
             value = sampleInfo()
         )
 
-        assertNull(
+        assertNotNull(
             UpdateCheckCacheStore.get(
                 context = context,
                 currentBuild = 1,
-                platform = "tv",
+                platform = "mobile",
                 releaseType = "release",
                 locale = "en",
                 sourceKey = "sourceA",
@@ -159,7 +162,6 @@ class UpdateCheckCacheStoreTest {
             hasUpdate = true,
             currentBuild = 1,
             latestBuild = 2,
-            platform = "mobile",
             latestVersion = "1.0",
             name = "Release",
             changelog = "changes",

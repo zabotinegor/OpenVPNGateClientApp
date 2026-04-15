@@ -49,10 +49,7 @@ class DnsOptionAdapter(
         holder.bind(item, item.option == selectedOption)
         holder.itemView.setOnClickListener {
             if (item.option == selectedOption) return@setOnClickListener
-            val old = selectedOption
-            selectedOption = item.option
-            indexByOption[old]?.let { notifyItemChanged(it) }
-            notifyItemChanged(position)
+            updateSelectedOption(item.option)
             onSelected(item.option)
             holder.itemView.requestFocus()
         }
@@ -66,6 +63,8 @@ class DnsOptionAdapter(
         private val subtitle: TextView = itemView.findViewById(R.id.dns_option_subtitle)
         private val selectedStrokeWidthPx = UiUtils.dpToPx(2, itemView.resources)
         private val selectedStrokeColor = MaterialColors.getColor(card, androidx.appcompat.R.attr.colorPrimary)
+        private val defaultBackgroundColor = MaterialColors.getColor(card, com.google.android.material.R.attr.colorSurface, card.cardBackgroundColor.defaultColor)
+        private val selectedBackgroundColor = MaterialColors.layer(defaultBackgroundColor, selectedStrokeColor, 0.12f)
 
         fun bind(item: DnsOptionItem, isSelected: Boolean) {
             title.text = item.title
@@ -75,10 +74,12 @@ class DnsOptionAdapter(
                 subtitle.visibility = View.VISIBLE
                 subtitle.text = item.subtitle
             }
+            card.isActivated = isSelected
+            card.isSelected = isSelected
             card.strokeWidth = if (isSelected) selectedStrokeWidthPx else 0
             card.setStrokeColor(selectedStrokeColor)
+            card.setCardBackgroundColor(if (isSelected) selectedBackgroundColor else defaultBackgroundColor)
         }
     }
 }
-
 

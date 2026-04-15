@@ -14,7 +14,6 @@ class UpdateCheckInteractorTest {
             hasUpdate = true,
             currentBuild = 1,
             latestBuild = 2,
-            platform = "mobile",
             latestVersion = "1.0",
             name = "Release",
             changelog = "changes",

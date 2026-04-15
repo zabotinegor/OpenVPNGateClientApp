@@ -303,7 +303,6 @@ class AboutViewModelTest {
         hasUpdate = hasUpdate,
         currentBuild = 1L,
         latestBuild = 2L,
-        platform = "mobile",
         latestVersion = "1.1",
         name = "Release 1.1",
         changelog = "Changes",
@@ -315,6 +314,8 @@ class AboutViewModelTest {
     private fun sampleAsset() = AppUpdateAsset(
         id = 1,
         name = "app.apk",
+        platform = "mobile",
+        buildNumber = 2L,
         assetType = "apk-mobile",
         sizeBytes = 100,
         contentHash = "hash",
