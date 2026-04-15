@@ -58,7 +58,7 @@ jobs:
           echo "version_code_mobile=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           echo "version_code_tv=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
-          echo "build_marker_tag=v${VERSION}-tagbuild-auto(${BUILD_NUMBER})" >> $GITHUB_OUTPUT
+          echo "build_marker_tag=tagbuild-v${VERSION}-auto(${BUILD_NUMBER})" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"

@@ -64,6 +64,7 @@ class DefaultUpdateCheckRepository(
             cacheStore.get(
                 context = appContext,
                 currentBuild = currentBuild,
+                platform = platform,
                 releaseType = releaseType,
                 locale = preferredLocale,
                 sourceKey = sourceKey,
@@ -108,6 +109,7 @@ class DefaultUpdateCheckRepository(
                     cacheStore.put(
                         context = appContext,
                         currentBuild = currentBuild,
+                        platform = platform,
                         releaseType = releaseType,
                         locale = preferredLocale,
                         sourceKey = sourceKey,

@@ -12,13 +12,14 @@ object UpdateCheckCacheStore {
     fun get(
         context: Context,
         currentBuild: Long,
+        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String,
         cacheTtlMs: Long,
         nowEpochMs: Long = System.currentTimeMillis()
     ): AppUpdateInfo? {
-        val key = composeKey(currentBuild, releaseType, normalizeLocale(locale), sourceKey)
+        val key = composeKey(currentBuild, platform, releaseType, normalizeLocale(locale), sourceKey)
         val raw = prefs(context).getString(key, null) ?: return null
         val parsed = parse(raw) ?: return null
         val cachedAt = JSONObject(raw).optLong(KEY_CACHED_AT_MS, 0L)
@@ -29,6 +30,7 @@ object UpdateCheckCacheStore {
     fun put(
         context: Context,
         currentBuild: Long,
+        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String,
@@ -62,7 +64,7 @@ object UpdateCheckCacheStore {
             .toString()
 
         prefs(context).edit()
-            .putString(composeKey(currentBuild, releaseType, normalizeLocale(locale), sourceKey), json)
+            .putString(composeKey(currentBuild, platform, releaseType, normalizeLocale(locale), sourceKey), json)
             .apply()
     }
 
@@ -107,11 +109,12 @@ object UpdateCheckCacheStore {
 
     private fun composeKey(
         currentBuild: Long,
+        platform: String,
         releaseType: String,
         locale: String,
         sourceKey: String
     ): String =
-        "$KEY_PREFIX$currentBuild|${releaseType.lowercase()}|$locale|$sourceKey"
+        "$KEY_PREFIX$currentBuild|${platform.lowercase()}|${releaseType.lowercase()}|$locale|$sourceKey"
 
     private fun normalizeLocale(locale: String): String = locale.trim().replace('_', '-').lowercase()
 }
