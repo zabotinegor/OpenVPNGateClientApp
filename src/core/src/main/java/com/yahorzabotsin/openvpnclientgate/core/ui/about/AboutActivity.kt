@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
@@ -18,15 +19,23 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBind
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentAboutBinding
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.WebViewActivity
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.updates.buildUpdateDialogMessage
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
+import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
 import kotlinx.coroutines.launch
 import java.io.File
+import android.provider.Settings
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class AboutActivity : AppCompatActivity() {
     private lateinit var templateBinding: ActivityTemplateBinding
     private lateinit var bindingContent: ContentAboutBinding
     private val viewModel: AboutViewModel by viewModel()
+    private val appUpdateInstaller: AppUpdateInstaller by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,12 +51,13 @@ class AboutActivity : AppCompatActivity() {
         bindingContent.rowTelegram.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TELEGRAM)) }
         bindingContent.rowGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB)) }
         bindingContent.rowGithubEngine.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.GITHUB_ENGINE)) }
-        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PLAY)) }
+        bindingContent.rowPlay.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.STORE)) }
         bindingContent.rowPrivacy.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.PRIVACY)) }
         bindingContent.rowTerms.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.TERMS)) }
         bindingContent.rowLicense.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LICENSE)) }
         bindingContent.rowIcsGithub.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.ICS_GITHUB)) }
         bindingContent.rowLogs.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.LOGS)) }
+        bindingContent.rowCheckUpdates.setOnClickListener { viewModel.onAction(AboutAction.RowClick(AboutRowId.CHECK_UPDATES)) }
 
         bindingContent.rowWebsite.setOnLongClickListener {
             viewModel.onAction(AboutAction.RowLongClick(AboutRowId.WEBSITE)); true
@@ -65,7 +75,7 @@ class AboutActivity : AppCompatActivity() {
             viewModel.onAction(AboutAction.RowLongClick(AboutRowId.GITHUB_ENGINE)); true
         }
         bindingContent.rowPlay.setOnLongClickListener {
-            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PLAY)); true
+            viewModel.onAction(AboutAction.RowLongClick(AboutRowId.STORE)); true
         }
         bindingContent.rowPrivacy.setOnLongClickListener {
             viewModel.onAction(AboutAction.RowLongClick(AboutRowId.PRIVACY)); true
@@ -109,7 +119,7 @@ class AboutActivity : AppCompatActivity() {
         bindingContent.rowTelegram.isVisible = links.telegram.isNotBlank()
         bindingContent.rowGithub.isVisible = links.github.isNotBlank()
         bindingContent.rowGithubEngine.isVisible = links.githubEngine.isNotBlank()
-        bindingContent.rowPlay.isVisible = links.googlePlay.isNotBlank()
+        bindingContent.rowPlay.isVisible = links.androidStore.isNotBlank()
         bindingContent.rowPrivacy.isVisible = links.privacyPolicy.isNotBlank()
         bindingContent.rowTerms.isVisible = links.termsOfUse.isNotBlank()
         bindingContent.rowLicense.isVisible = links.gplv2.isNotBlank()
@@ -124,10 +134,11 @@ class AboutActivity : AppCompatActivity() {
         when (effect) {
             is AboutEffect.OpenUrl -> openUrl(effect.url)
             is AboutEffect.OpenEmail -> openEmail(effect.email)
-            is AboutEffect.OpenPlay -> openPlay(effect.webUrl)
+            is AboutEffect.OpenStore -> openStore(effect.webUrl)
             is AboutEffect.CopyToClipboard -> copyToClipboard(getString(effect.labelResId), effect.text)
             is AboutEffect.ShowToast -> showToast(effect.text, effect.duration)
             is AboutEffect.ShareLogArchive -> shareLogArchive(File(effect.filePath))
+            is AboutEffect.PromptUpdate -> showUpdateDialog(effect.update)
         }
     }
 
@@ -198,15 +209,9 @@ class AboutActivity : AppCompatActivity() {
         }
     }
 
-    private fun openPlay(webUrl: String) {
+    private fun openStore(webUrl: String) {
         if (webUrl.isBlank()) return
-        val marketUri = Uri.parse("market://details?id=$packageName")
-        val marketIntent = Intent(Intent.ACTION_VIEW, marketUri)
-        try {
-            startActivity(marketIntent)
-        } catch (_: ActivityNotFoundException) {
-            openUrl(webUrl)
-        }
+        openUrl(webUrl)
     }
 
     private fun shareLogArchive(file: File) {
@@ -221,6 +226,69 @@ class AboutActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(shareIntent, getString(R.string.about_share_logs)))
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, getString(R.string.about_share_not_available), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showUpdateDialog(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {
+        val message = buildUpdateDialogMessage(this, update.latestVersion)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.update_available_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.action_update) { _, _ -> startUpdateInstall(update) }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (update.changelog.isNotBlank()) {
+            dialog.setNeutralButton(R.string.update_whats_new) { _, _ ->
+                val intent = Intent(this, WebViewActivity::class.java).apply {
+                    putExtra(WebViewActivity.EXTRA_TITLE, getString(R.string.update_whats_new))
+                    putExtra(WebViewActivity.EXTRA_HTML, MarkdownRenderer.renderDocument(update.changelog))
+                }
+                startActivity(intent)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun startUpdateInstall(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {
+        val asset = update.asset ?: run {
+            Toast.makeText(this, getString(R.string.update_available_no_asset), Toast.LENGTH_LONG).show()
+            return
+        }
+        lifecycleScope.launch {
+            val progressDialog = UpdateInstallProgressDialog(this@AboutActivity)
+            progressDialog.show()
+            try {
+                when (val result = appUpdateInstaller.start(asset) { progress ->
+                    progressDialog.update(progress)
+                }) {
+                    AppUpdateInstallResult.Started ->
+                        Toast.makeText(this@AboutActivity, getString(R.string.update_install_started), Toast.LENGTH_SHORT).show()
+                    AppUpdateInstallResult.MissingInstallPermission -> {
+                        Toast.makeText(this@AboutActivity, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+                        openUnknownSourcesSettings()
+                    }
+                    is AppUpdateInstallResult.Failure ->
+                        Toast.makeText(
+                            this@AboutActivity,
+                            getString(R.string.update_install_failed_format, result.reason),
+                            Toast.LENGTH_LONG
+                        ).show()
+                }
+            } finally {
+                progressDialog.dismiss()
+            }
+        }
+    }
+
+    private fun openUnknownSourcesSettings() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+            data = Uri.parse("package:$packageName")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
         }
     }
 }

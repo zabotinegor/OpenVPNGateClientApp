@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import android.content.Context
 import android.content.res.ColorStateList
 import android.util.AttributeSet
+import androidx.appcompat.content.res.AppCompatResources
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.LayoutInflater
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -48,8 +49,16 @@ class ConnectionControlsView @JvmOverloads constructor(
     }
 
     init {
+        applyServerSelectionButtonAppearance()
         applyServerSelectionLabel(context.getString(R.string.current_country))
         setupClicks()
+    }
+
+    private fun applyServerSelectionButtonAppearance() {
+        val button = binding.serverSelectionContainer
+        button.backgroundTintList = AppCompatResources.getColorStateList(context, R.color.server_selection_background_tint)
+        button.strokeColor = AppCompatResources.getColorStateList(context, R.color.server_selection_stroke_color)
+        button.strokeWidth = resources.displayMetrics.density.toInt().coerceAtLeast(1)
     }
 
     private fun setupClicks() {

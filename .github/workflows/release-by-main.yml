@@ -17,6 +17,7 @@ jobs:
     env:
       ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_appReleaseType: release
       VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
       VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
       RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON: '["en","ru","pl"]'
@@ -63,20 +64,18 @@ jobs:
           fi
           LAST_USED_BUILD=$(git tag --list | sed -nE 's/.*-auto\(([0-9]+)\)$/\1/p' | sort -n | tail -n 1)
           LAST_USED_BUILD=${LAST_USED_BUILD:-0}
-          VERSION_CODE_MOBILE=$((LAST_USED_BUILD + 1))
-          VERSION_CODE_TV=$((LAST_USED_BUILD + 2))
-          TAG="v${VERSION}-auto(${VERSION_CODE_TV})"
+          BUILD_NUMBER=$((LAST_USED_BUILD + 1))
+          TAG="v${VERSION}-auto(${BUILD_NUMBER})"
           LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
           echo "==> App version: $VERSION"
           echo "==> Git tag: $TAG"
-          echo "==> App versionCode: mobile=${VERSION_CODE_MOBILE} tv=${VERSION_CODE_TV}"
+          echo "==> App versionCode: ${BUILD_NUMBER}"
           echo "==> Last used build number: ${LAST_USED_BUILD}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version_code_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
-          echo "version_code_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
-          echo "build_number_mobile=${VERSION_CODE_MOBILE}" >> $GITHUB_OUTPUT
-          echo "build_number_tv=${VERSION_CODE_TV}" >> $GITHUB_OUTPUT
+          echo "version_code_mobile=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "version_code_tv=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
           {
             echo 'last_commit<<EOF'
             echo "$LAST_COMMIT_MSG"
@@ -109,8 +108,7 @@ jobs:
         shell: bash
         run: |
           V=${{ steps.versioning.outputs.version }}
-          B_MOBILE=${{ steps.versioning.outputs.build_number_mobile }}
-          B_TV=${{ steps.versioning.outputs.build_number_tv }}
+          BUILD_NUMBER=${{ steps.versioning.outputs.build_number }}
           ./gradlew stageReleaseArtifacts \
             -PappVersionName="${{ steps.versioning.outputs.version }}" \
             -PappVersionCodeMobile="${{ steps.versioning.outputs.version_code_mobile }}" \
@@ -121,16 +119,16 @@ jobs:
           AAB_MOBILE=$(find build/staged/mobile -name '*.aab' | head -n1)
           AAB_TV=$(find build/staged/tv -name '*.aab' | head -n1)
           if [[ -n "$APK_MOBILE" ]]; then
-            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${B_MOBILE}.apk"
+            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${BUILD_NUMBER}.apk"
           fi
           if [[ -n "$APK_TV" ]]; then
-            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}_build${B_TV}.apk"
+            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}_build${BUILD_NUMBER}.apk"
           fi
           if [[ -n "$AAB_MOBILE" ]]; then
-            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${B_MOBILE}.aab"
+            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${BUILD_NUMBER}.aab"
           fi
           if [[ -n "$AAB_TV" ]]; then
-            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}_build${B_TV}.aab"
+            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}_build${BUILD_NUMBER}.aab"
           fi
         working-directory: ./src
 
@@ -162,10 +160,10 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number_mobile }}.apk
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number_tv }}.apk
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number_mobile }}.aab
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number_tv }}.aab
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.apk
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.apk
+            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.aab
+            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.aab
           token: ${{ secrets.GH_PAT }}
           tag: ${{ steps.versioning.outputs.tag }}
           name: "Release ${{ steps.versioning.outputs.tag }}"
@@ -181,8 +179,8 @@ jobs:
           replacesArtifacts: true
           prerelease: false
 
-      - name: Push mobile version release
-        id: push_mobile_version_release
+      - name: Push unified version release
+        id: push_version_release
         shell: bash
         env:
           LAST_COMMIT_MESSAGE: ${{ steps.versioning.outputs.last_commit }}
@@ -196,26 +194,34 @@ jobs:
 
           API_BASE="${VERSIONS_API_BASE_URL%/}"
           VERSION_NUMBER="${{ steps.versioning.outputs.version }}"
-          BUILD_NUMBER="${{ steps.versioning.outputs.build_number_mobile }}"
+          BUILD_NUMBER="${{ steps.versioning.outputs.build_number }}"
           RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
           CHANGELOG="${LAST_COMMIT_MESSAGE}"
           RELEASE_TYPE=0
           ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
           ASSET_MOBILE_AAB="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
+          ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
+          ASSET_TV_AAB="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
           ASSET_MOBILE_APK_PATH="output/${ASSET_MOBILE_APK}"
           ASSET_MOBILE_AAB_PATH="output/${ASSET_MOBILE_AAB}"
-          RELEASE_TITLE="Release mobile v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
+          ASSET_TV_APK_PATH="output/${ASSET_TV_APK}"
+          ASSET_TV_AAB_PATH="output/${ASSET_TV_AAB}"
+          RELEASE_TITLE="Release v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
 
-          if [[ ! -f "$ASSET_MOBILE_APK_PATH" || ! -f "$ASSET_MOBILE_AAB_PATH" ]]; then
-            echo "::error::Mobile artifacts not found: $ASSET_MOBILE_APK_PATH or $ASSET_MOBILE_AAB_PATH"
+          if [[ ! -f "$ASSET_MOBILE_APK_PATH" || ! -f "$ASSET_MOBILE_AAB_PATH" || ! -f "$ASSET_TV_APK_PATH" || ! -f "$ASSET_TV_AAB_PATH" ]]; then
+            echo "::error::Expected release artifacts are missing."
             exit 1
           fi
 
-          APK_SIZE=$(stat -c%s "$ASSET_MOBILE_APK_PATH")
-          AAB_SIZE=$(stat -c%s "$ASSET_MOBILE_AAB_PATH")
-          APK_HASH=$(sha256sum "$ASSET_MOBILE_APK_PATH" | awk '{print $1}')
-          AAB_HASH=$(sha256sum "$ASSET_MOBILE_AAB_PATH" | awk '{print $1}')
+          MOBILE_APK_SIZE=$(stat -c%s "$ASSET_MOBILE_APK_PATH")
+          MOBILE_AAB_SIZE=$(stat -c%s "$ASSET_MOBILE_AAB_PATH")
+          TV_APK_SIZE=$(stat -c%s "$ASSET_TV_APK_PATH")
+          TV_AAB_SIZE=$(stat -c%s "$ASSET_TV_AAB_PATH")
+          MOBILE_APK_HASH=$(sha256sum "$ASSET_MOBILE_APK_PATH" | awk '{print $1}')
+          MOBILE_AAB_HASH=$(sha256sum "$ASSET_MOBILE_AAB_PATH" | awk '{print $1}')
+          TV_APK_HASH=$(sha256sum "$ASSET_TV_APK_PATH" | awk '{print $1}')
+          TV_AAB_HASH=$(sha256sum "$ASSET_TV_AAB_PATH" | awk '{print $1}')
 
           payload=$(jq -n \
             --arg versionNumber "$VERSION_NUMBER" \
@@ -224,21 +230,28 @@ jobs:
             --argjson releaseType "$RELEASE_TYPE" \
             --arg changelog "$CHANGELOG" \
             --arg assetBaseUrl "$ASSET_BASE_URL" \
-            --arg apkName "$ASSET_MOBILE_APK" \
-            --arg aabName "$ASSET_MOBILE_AAB" \
-            --arg apkHash "$APK_HASH" \
-            --arg aabHash "$AAB_HASH" \
-            --argjson apkSize "$APK_SIZE" \
-            --argjson aabSize "$AAB_SIZE" \
+            --arg mobileApkName "$ASSET_MOBILE_APK" \
+            --arg mobileAabName "$ASSET_MOBILE_AAB" \
+            --arg tvApkName "$ASSET_TV_APK" \
+            --arg tvAabName "$ASSET_TV_AAB" \
+            --arg mobileApkHash "$MOBILE_APK_HASH" \
+            --arg mobileAabHash "$MOBILE_AAB_HASH" \
+            --arg tvApkHash "$TV_APK_HASH" \
+            --arg tvAabHash "$TV_AAB_HASH" \
+            --argjson mobileApkSize "$MOBILE_APK_SIZE" \
+            --argjson mobileAabSize "$MOBILE_AAB_SIZE" \
+            --argjson tvApkSize "$TV_APK_SIZE" \
+            --argjson tvAabSize "$TV_AAB_SIZE" \
             '{
               versionNumber:$versionNumber,
-              buildNumber:$buildNumber,
               name:$name,
               releaseType:$releaseType,
               changelog:$changelog,
               assets:[
-                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:$apkSize,contentHash:$apkHash},
-                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:$aabSize,contentHash:$aabHash}
+                {name:$mobileApkName,platform:0,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $mobileApkName),assetType:"apk",sizeBytes:$mobileApkSize,contentHash:$mobileApkHash},
+                {name:$mobileAabName,platform:0,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $mobileAabName),assetType:"aab",sizeBytes:$mobileAabSize,contentHash:$mobileAabHash},
+                {name:$tvApkName,platform:1,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $tvApkName),assetType:"apk",sizeBytes:$tvApkSize,contentHash:$tvApkHash},
+                {name:$tvAabName,platform:1,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $tvAabName),assetType:"aab",sizeBytes:$tvAabSize,contentHash:$tvAabHash}
               ]
             }')
 
@@ -250,7 +263,7 @@ jobs:
             --data "$payload")
 
           if [[ "$create_status" == "409" ]]; then
-            echo "::warning::Mobile version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
+            echo "::warning::Version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
             cat "$create_response"
             echo "created=false" >> "$GITHUB_OUTPUT"
             echo "version_id=" >> "$GITHUB_OUTPUT"
@@ -258,7 +271,7 @@ jobs:
           fi
 
           if [[ "$create_status" != "200" ]]; then
-            echo "::error::Failed to push mobile version. HTTP ${create_status}"
+            echo "::error::Failed to push version. HTTP ${create_status}"
             cat "$create_response"
             exit 1
           fi
@@ -273,14 +286,14 @@ jobs:
           echo "created=true" >> "$GITHUB_OUTPUT"
           echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Auto-translate mobile release notes
-        if: steps.push_mobile_version_release.outputs.created == 'true'
+      - name: Auto-translate release notes
+        if: steps.push_version_release.outputs.created == 'true'
         shell: bash
         run: |
           set -euo pipefail
 
           API_BASE="${VERSIONS_API_BASE_URL%/}"
-          VERSION_ID="${{ steps.push_mobile_version_release.outputs.version_id }}"
+          VERSION_ID="${{ steps.push_version_release.outputs.version_id }}"
           SOURCE_LOCALE="en"
 
           mapfile -t TARGET_LANGUAGES < <(jq -r '.[]' <<< '${{ env.RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON }}')
@@ -298,128 +311,6 @@ jobs:
 
             if [[ "$translate_status" != "200" ]]; then
               echo "::error::Auto-translate failed for '${language_code}'. HTTP ${translate_status}"
-              cat "$translate_response"
-              exit 1
-            fi
-          done
-
-      - name: Push tv version release
-        id: push_tv_version_release
-        shell: bash
-        env:
-          LAST_COMMIT_MESSAGE: ${{ steps.versioning.outputs.last_commit }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${VERSIONS_API_BASE_URL:-}" || -z "${VERSIONS_API_KEY:-}" ]]; then
-            echo "::error::VERSIONS_API_BASE_URL (repo variable) and VERSIONS_API_KEY (repo secret) must be configured."
-            exit 1
-          fi
-
-          API_BASE="${VERSIONS_API_BASE_URL%/}"
-          VERSION_NUMBER="${{ steps.versioning.outputs.version }}"
-          BUILD_NUMBER="${{ steps.versioning.outputs.build_number_tv }}"
-          RELEASE_TAG="${{ steps.versioning.outputs.tag }}"
-          CHANGELOG="${LAST_COMMIT_MESSAGE}"
-          RELEASE_TYPE=0
-          ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
-          ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
-          ASSET_TV_AAB="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
-          ASSET_TV_APK_PATH="output/${ASSET_TV_APK}"
-          ASSET_TV_AAB_PATH="output/${ASSET_TV_AAB}"
-          RELEASE_TITLE="Release tv v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
-
-          if [[ ! -f "$ASSET_TV_APK_PATH" || ! -f "$ASSET_TV_AAB_PATH" ]]; then
-            echo "::error::TV artifacts not found: $ASSET_TV_APK_PATH or $ASSET_TV_AAB_PATH"
-            exit 1
-          fi
-
-          APK_SIZE=$(stat -c%s "$ASSET_TV_APK_PATH")
-          AAB_SIZE=$(stat -c%s "$ASSET_TV_AAB_PATH")
-          APK_HASH=$(sha256sum "$ASSET_TV_APK_PATH" | awk '{print $1}')
-          AAB_HASH=$(sha256sum "$ASSET_TV_AAB_PATH" | awk '{print $1}')
-
-          payload=$(jq -n \
-            --arg versionNumber "$VERSION_NUMBER" \
-            --argjson buildNumber "$BUILD_NUMBER" \
-            --arg name "$RELEASE_TITLE" \
-            --argjson releaseType "$RELEASE_TYPE" \
-            --arg changelog "$CHANGELOG" \
-            --arg assetBaseUrl "$ASSET_BASE_URL" \
-            --arg apkName "$ASSET_TV_APK" \
-            --arg aabName "$ASSET_TV_AAB" \
-            --arg apkHash "$APK_HASH" \
-            --arg aabHash "$AAB_HASH" \
-            --argjson apkSize "$APK_SIZE" \
-            --argjson aabSize "$AAB_SIZE" \
-            '{
-              versionNumber:$versionNumber,
-              buildNumber:$buildNumber,
-              name:$name,
-              releaseType:$releaseType,
-              changelog:$changelog,
-              assets:[
-                {name:$apkName,downloadUrl:($assetBaseUrl + "/" + $apkName),assetType:"apk",sizeBytes:$apkSize,contentHash:$apkHash},
-                {name:$aabName,downloadUrl:($assetBaseUrl + "/" + $aabName),assetType:"aab",sizeBytes:$aabSize,contentHash:$aabHash}
-              ]
-            }')
-
-          create_response=$(mktemp)
-          create_status=$(curl -sS -o "$create_response" -w "%{http_code}" \
-            -X POST "${API_BASE}/api/v1/versions" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: ${VERSIONS_API_KEY}" \
-            --data "$payload")
-
-          if [[ "$create_status" == "409" ]]; then
-            echo "::warning::TV version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
-            cat "$create_response"
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            echo "version_id=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$create_status" != "200" ]]; then
-            echo "::error::Failed to push TV version. HTTP ${create_status}"
-            cat "$create_response"
-            exit 1
-          fi
-
-          VERSION_ID=$(jq -r '.data.id // empty' "$create_response")
-          if [[ -z "$VERSION_ID" ]]; then
-            echo "::error::TV version created but response does not contain data.id"
-            cat "$create_response"
-            exit 1
-          fi
-
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Auto-translate tv release notes
-        if: steps.push_tv_version_release.outputs.created == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          API_BASE="${VERSIONS_API_BASE_URL%/}"
-          VERSION_ID="${{ steps.push_tv_version_release.outputs.version_id }}"
-          SOURCE_LOCALE="en"
-
-          mapfile -t TARGET_LANGUAGES < <(jq -r '.[]' <<< '${{ env.RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON }}')
-          if [[ ${#TARGET_LANGUAGES[@]} -eq 0 ]]; then
-            echo "::warning::No auto-translate target languages configured."
-            exit 0
-          fi
-
-          for language_code in "${TARGET_LANGUAGES[@]}"; do
-            echo "Auto-translating TV release notes to '${language_code}' for versionId=${VERSION_ID}"
-            translate_response=$(mktemp)
-            translate_status=$(curl -sS -o "$translate_response" -w "%{http_code}" \
-              -X POST "${API_BASE}/api/v1/versions/${VERSION_ID}/localizations/${language_code}/auto-translate?sourceLocale=${SOURCE_LOCALE}" \
-              -H "X-API-Key: ${VERSIONS_API_KEY}")
-
-            if [[ "$translate_status" != "200" ]]; then
-              echo "::error::TV auto-translate failed for '${language_code}'. HTTP ${translate_status}"
               cat "$translate_response"
               exit 1
             fi

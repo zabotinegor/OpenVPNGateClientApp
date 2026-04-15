@@ -38,8 +38,8 @@ class WebViewActivity : AppCompatActivity() {
         val rawHtml = intent.getStringExtra(EXTRA_HTML)
         if (!rawHtml.isNullOrBlank()) {
             val wv = bindingContent.webview
-            configureWebView(wv, enableJavaScript = false)
-            wv.webViewClient = createSafeWebViewClient()
+            configureStaticHtmlWebView(wv)
+            wv.webViewClient = createStaticContentWebViewClient()
             wv.loadDataWithBaseURL(null, rawHtml, "text/html", "utf-8", null)
             return
         }
@@ -83,6 +83,17 @@ class WebViewActivity : AppCompatActivity() {
         }
     }
 
+    private fun configureStaticHtmlWebView(webView: WebView) {
+        configureWebView(webView, enableJavaScript = false)
+        webView.settings.apply {
+            domStorageEnabled = false
+            loadsImagesAutomatically = false
+            blockNetworkLoads = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            allowContentAccess = false
+        }
+    }
+
     private fun createSafeWebViewClient(): WebViewClient =
         object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -94,6 +105,25 @@ class WebViewActivity : AppCompatActivity() {
                     try {
                         startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
                     } catch (_: android.content.ActivityNotFoundException) { }
+                    true
+                }
+            }
+        }
+
+    private fun createStaticContentWebViewClient(): WebViewClient =
+        object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val uri = request?.url ?: return true
+                val scheme = uri.scheme?.lowercase()
+                if (scheme == "about" && uri.encodedPath == "blank") {
+                    return false
+                }
+                return if (scheme == "http" || scheme == "https") {
+                    try {
+                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                    } catch (_: android.content.ActivityNotFoundException) { }
+                    true
+                } else {
                     true
                 }
             }

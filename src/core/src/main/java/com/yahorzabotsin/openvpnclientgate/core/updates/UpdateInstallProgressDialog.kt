@@ -1,0 +1,74 @@
+package com.yahorzabotsin.openvpnclientgate.core.updates
+
+import android.app.Activity
+import android.text.format.Formatter
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
+import androidx.core.view.setPadding
+import com.yahorzabotsin.openvpnclientgate.core.R
+
+class UpdateInstallProgressDialog(
+    private val activity: Activity
+) {
+    private val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+        isIndeterminate = true
+        max = 100
+    }
+    private val progressText = TextView(activity).apply {
+        text = activity.getString(R.string.update_downloading_unknown, formatBytes(0))
+    }
+    private val dialog: AlertDialog = AlertDialog.Builder(activity)
+        .setTitle(R.string.action_update)
+        .setView(
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                val paddingPx = (48 * activity.resources.displayMetrics.density).toInt()
+                setPadding(paddingPx)
+                addView(progressBar)
+                addView(progressText)
+            }
+        )
+        .setCancelable(false)
+        .create()
+
+    fun show() {
+        if (!activity.isFinishing && !activity.isDestroyed) {
+            dialog.show()
+        }
+    }
+
+    fun update(progress: AppUpdateInstallProgress) {
+        activity.runOnUiThread {
+            val total = progress.totalBytes
+            if (progress.percent != null && total != null && total > 0) {
+                progressBar.isIndeterminate = false
+                progressBar.progress = progress.percent
+                progressText.text = activity.getString(
+                    R.string.update_downloading_progress,
+                    progress.percent,
+                    formatBytes(progress.downloadedBytes),
+                    formatBytes(total)
+                )
+            } else {
+                progressBar.isIndeterminate = true
+                progressText.text = activity.getString(
+                    R.string.update_downloading_unknown,
+                    formatBytes(progress.downloadedBytes)
+                )
+            }
+        }
+    }
+
+    fun dismiss() {
+        activity.runOnUiThread {
+            if (dialog.isShowing) {
+                dialog.dismiss()
+            }
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String = Formatter.formatFileSize(activity, bytes)
+}
+

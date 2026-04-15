@@ -2,13 +2,17 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.Manifest
 import android.app.Activity
+import androidx.appcompat.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.VpnService
+import android.provider.Settings
 import android.os.Bundle
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.view.View
+import android.view.Menu
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,12 +40,22 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsActivity
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
+import com.yahorzabotsin.openvpnclientgate.core.ui.updates.buildUpdateDialogMessage
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
+import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
+import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.ConnectionDetailsListener {
+    private companion object {
+        const val UPDATE_PROMPT_PREFS = "update_prompt_prefs"
+        const val KEY_LAST_PROMPT_TOKEN = "last_prompt_token"
+    }
 
     protected lateinit var binding: ActivityMainBinding
     protected lateinit var toolbarView: Toolbar
@@ -50,6 +64,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     private val connectionControlsUseCase: ConnectionControlsUseCase by inject()
     private val connectionControlsRuntime: ConnectionControlsRuntime by inject()
     private val connectionControlsSelectionStore: ConnectionControlsSelectionStore by inject()
+    private val appUpdateInstaller: AppUpdateInstaller by inject()
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainActivityCore"
     private val screenLogTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ScreenFlow"
     private val focusRestoringDrawerListener = object : DrawerLayout.SimpleDrawerListener() {
@@ -151,6 +166,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun onStart() {
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
+        viewModel.onAction(MainAction.RefreshUpdateAvailability)
         try {
             VpnManager.syncStatus(this)
         } catch (e: Exception) {
@@ -223,7 +239,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             binding.connectionDetails.detailsContainer?.visibility =
                 if (state.isDetailsVisible) View.VISIBLE else View.GONE
         }
-        binding.navView.menu.findItem(R.id.nav_whats_new)?.isVisible = state.whatsNew != null
+        applyMainMenuVisibility(binding.navView.menu, state)
         applySelectedServerIfNeeded(state.selectedServer)
     }
 
@@ -250,8 +266,24 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
+            is MainEffect.PromptUpdate -> {
+                val shouldShow = !effect.oneTimeOnly || shouldShowUpdatePromptOnce(effect.update)
+                AppLog.i(tag, "Prompt update requested: oneTimeOnly=${effect.oneTimeOnly}, shouldShow=$shouldShow")
+                if (shouldShow) {
+                    showUpdateDialog(effect.update)
+                }
+            }
             is MainEffect.ShowToast -> Toast.makeText(this, resolve(effect.text), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun shouldShowUpdatePromptOnce(update: MainAvailableUpdate): Boolean {
+        val prefs = getSharedPreferences(UPDATE_PROMPT_PREFS, MODE_PRIVATE)
+        return UpdatePromptDedup.shouldShowOnce(
+            prefs = prefs,
+            update = update,
+            keyLastPromptToken = KEY_LAST_PROMPT_TOKEN
+        )
     }
 
     private fun applySelectedServerIfNeeded(selection: MainSelectedServer?) {
@@ -280,6 +312,81 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 }
                 whatsNewActivityLauncher.launch(intent)
             }
+        }
+    }
+
+    private fun showUpdateDialog(update: MainAvailableUpdate) {
+        val message = buildUpdateDialogMessage(this, update.versionNumber)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.update_available_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.action_update) { _, _ ->
+                lifecycleScope.launch { installUpdate(update) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (update.changelog.isNotBlank()) {
+            dialog.setNeutralButton(R.string.update_whats_new) { _, _ ->
+                openUpdateChangelog(update)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun openUpdateChangelog(update: MainAvailableUpdate) {
+        val intent = Intent(this, WebViewActivity::class.java).apply {
+            putExtra(WebViewActivity.EXTRA_TITLE, getString(R.string.update_whats_new))
+            putExtra(WebViewActivity.EXTRA_HTML, MarkdownRenderer.renderDocument(update.changelog))
+        }
+        whatsNewActivityLauncher.launch(intent)
+    }
+
+    private suspend fun installUpdate(update: MainAvailableUpdate) {
+        val asset = AppUpdateAsset(
+            id = update.assetId,
+            name = update.assetName.ifBlank {
+                if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
+            },
+            platform = update.assetPlatform.ifBlank { "mobile" },
+            buildNumber = update.assetBuildNumber,
+            assetType = update.assetType.ifBlank { "apk" },
+            sizeBytes = update.assetSizeBytes,
+            contentHash = update.assetContentHash,
+            downloadProxyUrl = update.downloadProxyUrl
+        )
+        val progressDialog = UpdateInstallProgressDialog(this)
+        progressDialog.show()
+        try {
+            when (val result = appUpdateInstaller.start(asset) { progress ->
+                progressDialog.update(progress)
+            }) {
+                AppUpdateInstallResult.Started ->
+                    Toast.makeText(this@MainActivityCore, getString(R.string.update_install_started), Toast.LENGTH_SHORT).show()
+                AppUpdateInstallResult.MissingInstallPermission -> {
+                    Toast.makeText(this@MainActivityCore, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
+                    openUnknownSourcesSettings()
+                }
+                is AppUpdateInstallResult.Failure ->
+                    Toast.makeText(
+                        this@MainActivityCore,
+                        getString(R.string.update_install_failed_format, result.reason),
+                        Toast.LENGTH_LONG
+                    ).show()
+            }
+        } finally {
+            progressDialog.dismiss()
+        }
+    }
+
+    private fun openUnknownSourcesSettings() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+            data = android.net.Uri.parse("package:$packageName")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.update_install_permission_needed), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -329,6 +436,41 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     override fun updateStatus(text: String) {
         binding.connectionDetails.statusValue.text = text
     }
+}
+
+internal object UpdatePromptDedup {
+    fun shouldShowOnce(
+        prefs: android.content.SharedPreferences,
+        update: MainAvailableUpdate,
+        keyLastPromptToken: String
+    ): Boolean {
+        if (update.downloadProxyUrl.isBlank()) return false
+        // Prefer asset build for unified assets; fallback keeps legacy payload compatibility.
+        val token = "${update.assetBuildNumber ?: update.latestBuild}|${update.downloadProxyUrl}"
+        val lastToken = prefs.getString(keyLastPromptToken, null)
+        if (lastToken == token) return false
+        prefs.edit().putString(keyLastPromptToken, token).apply()
+        return true
+    }
+}
+
+internal data class MainMenuVisibility(
+    val showUpdate: Boolean,
+    val showWhatsNew: Boolean
+)
+
+internal fun resolveMainMenuVisibility(state: MainUiState): MainMenuVisibility {
+    val hasAvailableUpdate = state.availableUpdate != null
+    return MainMenuVisibility(
+        showUpdate = hasAvailableUpdate,
+        showWhatsNew = !hasAvailableUpdate && state.whatsNew != null
+    )
+}
+
+internal fun applyMainMenuVisibility(menu: Menu, state: MainUiState) {
+    val visibility = resolveMainMenuVisibility(state)
+    menu.findItem(R.id.nav_update)?.isVisible = visibility.showUpdate
+    menu.findItem(R.id.nav_whats_new)?.isVisible = visibility.showWhatsNew
 }
 
 

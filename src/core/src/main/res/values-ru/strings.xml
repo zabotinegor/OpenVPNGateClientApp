@@ -67,7 +67,7 @@
     <string name="about_telegram">Telegram</string>
     <string name="about_github">Исходный код</string>
     <string name="about_github_engine">Исходный код (движок)</string>
-    <string name="about_google_play">Google Play</string>
+    <string name="about_android_store">Android Store</string>
     <string name="about_privacy_policy">Политика конфиденциальности</string>
     <string name="about_terms_of_use">Условия использования</string>
     <string name="about_licenses">Лицензия GPLv2</string>
@@ -161,4 +161,19 @@
     <string name="settings_status_timer_hint">Таймаут (секунды, &gt; 0)</string>
     <string name="settings_status_timer_summary_format">%1$d с</string>
     <string name="ping_ms_format">%1$d мс</string>
+
+    <string name="about_check_updates">Проверить обновления</string>
+    <string name="action_update">Обновить</string>
+    <string name="update_available_title">Доступно обновление</string>
+    <string name="update_available_message">Доступно новое обновление.</string>
+    <string name="update_latest_version_format">Последняя версия: %1$s</string>
+    <string name="update_whats_new">Что нового</string>
+    <string name="update_install_started">Начата загрузка обновления</string>
+    <string name="update_install_permission_needed">Чтобы продолжить, разрешите установку из неизвестных источников</string>
+    <string name="update_install_failed_format">Ошибка обновления: %1$s</string>
+    <string name="update_downloading_progress">Загрузка обновления: %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_unknown">Загрузка обновления: %1$s</string>
+    <string name="update_up_to_date">У вас уже установлена актуальная версия</string>
+    <string name="update_available_no_asset">Обновление доступно, но пакет для загрузки еще не опубликован</string>
+    <string name="update_check_failed">Не удалось проверить обновления</string>
 </resources>

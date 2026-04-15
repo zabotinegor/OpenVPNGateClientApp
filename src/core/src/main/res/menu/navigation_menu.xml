@@ -20,5 +20,9 @@
             android:id="@+id/nav_whats_new"
             android:title="@string/menu_whats_new"
             android:visible="false" />
+        <item
+            android:id="@+id/nav_update"
+            android:title="@string/action_update"
+            android:visible="false" />
     </group>
 </menu>

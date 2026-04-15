@@ -8,7 +8,9 @@ import com.yahorzabotsin.openvpnclientgate.core.about.AboutLinksProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.ElapsedRealtimeProvider
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportInteractor
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -19,7 +21,8 @@ class AboutViewModel(
     private val infoProvider: AboutInfoProvider,
     private val linksProvider: AboutLinksProvider,
     private val logExportUseCase: LogExportInteractor,
-    private val elapsedRealtimeProvider: ElapsedRealtimeProvider
+    private val elapsedRealtimeProvider: ElapsedRealtimeProvider,
+    private val updateCheckInteractor: UpdateCheckInteractor
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AboutUiState())
@@ -56,11 +59,12 @@ class AboutViewModel(
             AboutRowId.TELEGRAM -> openUrl(state.value.links.telegram)
             AboutRowId.GITHUB -> openUrl(state.value.links.github)
             AboutRowId.GITHUB_ENGINE -> openUrl(state.value.links.githubEngine)
-            AboutRowId.PLAY -> openPlay(state.value.links.googlePlay)
+            AboutRowId.STORE -> openStore(state.value.links.androidStore)
             AboutRowId.PRIVACY -> openUrl(state.value.links.privacyPolicy)
             AboutRowId.TERMS -> openUrl(state.value.links.termsOfUse)
             AboutRowId.LICENSE -> openUrl(state.value.links.gplv2)
             AboutRowId.ICS_GITHUB -> openUrl(state.value.links.icsGithub)
+            AboutRowId.CHECK_UPDATES -> checkUpdatesManually()
         }
     }
 
@@ -73,11 +77,12 @@ class AboutViewModel(
             AboutRowId.TELEGRAM -> links.telegram to R.string.copy_label_link
             AboutRowId.GITHUB -> links.github to R.string.copy_label_link
             AboutRowId.GITHUB_ENGINE -> links.githubEngine to R.string.copy_label_link
-            AboutRowId.PLAY -> links.googlePlay to R.string.copy_label_link
+            AboutRowId.STORE -> links.androidStore to R.string.copy_label_link
             AboutRowId.PRIVACY -> links.privacyPolicy to R.string.copy_label_link
             AboutRowId.TERMS -> links.termsOfUse to R.string.copy_label_link
             AboutRowId.LICENSE -> links.gplv2 to R.string.copy_label_link
             AboutRowId.ICS_GITHUB -> links.icsGithub to R.string.copy_label_link
+            AboutRowId.CHECK_UPDATES -> "" to R.string.copy_label_link
             AboutRowId.LOGS -> "" to R.string.copy_label_link
         }
         if (value.isBlank()) return
@@ -101,10 +106,10 @@ class AboutViewModel(
         }
     }
 
-    private fun openPlay(webUrl: String) {
+    private fun openStore(webUrl: String) {
         if (webUrl.isBlank()) return
         viewModelScope.launch {
-            _effects.emit(AboutEffect.OpenPlay(webUrl))
+            _effects.emit(AboutEffect.OpenStore(webUrl))
         }
     }
 
@@ -133,6 +138,30 @@ class AboutViewModel(
                 }
             }
             _state.value = _state.value.copy(isExportingLogs = false)
+        }
+    }
+
+    private fun checkUpdatesManually() {
+        viewModelScope.launch {
+            try {
+                val update = updateCheckInteractor.check(forceRefresh = true)
+                if (update == null) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_check_failed), ToastDuration.LONG))
+                    return@launch
+                }
+                if (!update.hasUpdate) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_up_to_date), ToastDuration.SHORT))
+                    return@launch
+                }
+                if (update.asset == null || update.asset.downloadProxyUrl.isBlank()) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_available_no_asset), ToastDuration.LONG))
+                    return@launch
+                }
+                _effects.emit(AboutEffect.PromptUpdate(update))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_check_failed), ToastDuration.LONG))
+            }
         }
     }
 
