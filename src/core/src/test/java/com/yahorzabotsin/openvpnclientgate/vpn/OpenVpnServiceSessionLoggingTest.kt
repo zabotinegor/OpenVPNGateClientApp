@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServiceSessionLoggingTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
