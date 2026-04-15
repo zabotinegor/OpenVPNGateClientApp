@@ -24,7 +24,8 @@ class UpdateInstallProgressDialog(
         .setView(
             LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(48)
+                val paddingPx = (48 * activity.resources.displayMetrics.density).toInt()
+                setPadding(paddingPx)
                 addView(progressBar)
                 addView(progressText)
             }

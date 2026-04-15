@@ -341,7 +341,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
 
     private suspend fun installUpdate(update: MainAvailableUpdate) {
         val asset = AppUpdateAsset(
-            id = 0,
+            id = update.assetId,
             name = update.assetName.ifBlank {
                 if (update.versionNumber.isBlank()) "app-update.apk" else "app-update-${update.versionNumber}.apk"
             },

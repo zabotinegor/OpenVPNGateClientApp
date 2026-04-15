@@ -61,6 +61,10 @@ class DefaultAppUpdateInstaller(
         val fileName = sanitizeFileName(asset.name.ifBlank { "app-update.apk" })
         val apkFile = File(updatesDir, fileName)
 
+        if (asset.assetType != "apk") {
+            return@withContext AppUpdateInstallResult.Failure("Non-APK assets not supported")
+        }
+
         val request = Request.Builder().url(asset.downloadProxyUrl).get().build()
         runCatching {
             httpClient.newCall(request).execute().use { response ->
@@ -101,6 +105,7 @@ class DefaultAppUpdateInstaller(
                     }
                 }
                 if (asset.sizeBytes > 0 && downloadedBytes != asset.sizeBytes) {
+                    apkFile.delete()
                     return@runCatching AppUpdateInstallResult.Failure(
                         "Size mismatch: expected ${asset.sizeBytes}, got $downloadedBytes"
                     )
@@ -108,6 +113,7 @@ class DefaultAppUpdateInstaller(
 
                 val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
                 if (expectedHash != null && !actualHash.equals(expectedHash, ignoreCase = true)) {
+                    apkFile.delete()
                     return@runCatching AppUpdateInstallResult.Failure("Hash mismatch")
                 }
 

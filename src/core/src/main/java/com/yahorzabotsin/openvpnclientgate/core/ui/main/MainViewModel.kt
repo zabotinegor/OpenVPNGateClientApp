@@ -94,7 +94,7 @@ class MainViewModel(
     private fun loadUpdateAvailability() {
         viewModelScope.launch {
             try {
-                val update = updateCheckInteractor.check()
+                val update = updateCheckInteractor.check(forceRefresh = true)
                 if (update == null || !update.hasUpdate || update.asset?.downloadProxyUrl.isNullOrBlank()) {
                     logger.logUpdateUnavailable()
                     _state.value = _state.value.copy(availableUpdate = null)
@@ -107,6 +107,7 @@ class MainViewModel(
                     versionNumber = update.latestVersion ?: "",
                     name = update.name,
                     changelog = update.changelog,
+                    assetId = update.asset?.id ?: 0,
                     assetName = update.asset?.name.orEmpty(),
                     assetPlatform = update.asset?.platform.orEmpty(),
                     assetBuildNumber = update.asset?.buildNumber,

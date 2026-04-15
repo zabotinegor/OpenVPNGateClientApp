@@ -34,6 +34,7 @@ data class MainAvailableUpdate(
     val versionNumber: String,
     val name: String,
     val changelog: String,
+    val assetId: Int,
     val assetName: String,
     val assetPlatform: String,
     val assetBuildNumber: Long?,

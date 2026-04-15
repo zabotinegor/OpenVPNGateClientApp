@@ -10,6 +10,7 @@ import com.yahorzabotsin.openvpnclientgate.core.about.LogExportInteractor
 import com.yahorzabotsin.openvpnclientgate.core.about.LogExportResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -142,20 +143,25 @@ class AboutViewModel(
 
     private fun checkUpdatesManually() {
         viewModelScope.launch {
-            val update = updateCheckInteractor.check(forceRefresh = true)
-            if (update == null) {
+            try {
+                val update = updateCheckInteractor.check(forceRefresh = true)
+                if (update == null) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_check_failed), ToastDuration.LONG))
+                    return@launch
+                }
+                if (!update.hasUpdate) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_up_to_date), ToastDuration.SHORT))
+                    return@launch
+                }
+                if (update.asset == null || update.asset.downloadProxyUrl.isBlank()) {
+                    _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_available_no_asset), ToastDuration.LONG))
+                    return@launch
+                }
+                _effects.emit(AboutEffect.PromptUpdate(update))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_check_failed), ToastDuration.LONG))
-                return@launch
             }
-            if (!update.hasUpdate) {
-                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_up_to_date), ToastDuration.SHORT))
-                return@launch
-            }
-            if (update.asset == null || update.asset.downloadProxyUrl.isBlank()) {
-                _effects.emit(AboutEffect.ShowToast(UiText.Res(R.string.update_available_no_asset), ToastDuration.LONG))
-                return@launch
-            }
-            _effects.emit(AboutEffect.PromptUpdate(update))
         }
     }
 

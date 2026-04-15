@@ -66,6 +66,7 @@ object MarkdownRenderer {
 
     private fun isAllowedUrl(url: String): Boolean {
         val normalized = url.lowercase()
+        if (normalized.startsWith("//") || normalized.startsWith("\\")) return false
         return normalized.startsWith("https://") ||
             normalized.startsWith("/") ||
             normalized.startsWith("#")
