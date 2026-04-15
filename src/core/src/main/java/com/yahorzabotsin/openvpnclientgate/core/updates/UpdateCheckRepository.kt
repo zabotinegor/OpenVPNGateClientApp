@@ -33,7 +33,8 @@ class DefaultUpdateCheckRepository(
     private val appContext: Context,
     private val api: UpdateCheckApi,
     private val settingsStore: UserSettingsStore = UserSettingsStore,
-    private val cacheStore: UpdateCheckCacheStore = UpdateCheckCacheStore
+    private val cacheStore: UpdateCheckCacheStore = UpdateCheckCacheStore,
+    private val sourcesOverride: List<String>? = null
 ) : UpdateCheckRepository {
     private companion object {
         const val KEY_SUCCESS = "success"
@@ -206,10 +207,10 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun resolveTrustedUpdateSources(): List<String> {
-        return listOf(
+        return (sourcesOverride ?: listOf(
             ApiConstants.PRIMARY_SERVERS_URL,
             ApiConstants.FALLBACK_SERVERS_URL
-        ).map { it.trim() }
+        )).map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
     }

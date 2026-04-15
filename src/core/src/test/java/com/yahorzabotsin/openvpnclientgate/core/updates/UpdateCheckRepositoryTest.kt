@@ -150,12 +150,12 @@ class UpdateCheckRepositoryTest {
 
     @Test
     fun `checkForUpdate retries next source when first source fails`() = runTest {
-        val primaryHost = Uri.parse(BuildConfig.PRIMARY_SERVERS_URL).host.orEmpty()
-        val fallbackHost = Uri.parse(BuildConfig.FALLBACK_SERVERS_URL).host.orEmpty()
+        val primaryUrl = "https://update-primary.test/api/v1/servers/active"
+        val fallbackUrl = "https://update-fallback.test/api/v1/servers/active"
         val api = CapturingUpdateApi(
-            failUrlsContaining = listOf(primaryHost)
+            failUrlsContaining = listOf("update-primary.test")
         )
-        val repository = DefaultUpdateCheckRepository(context, api)
+        val repository = DefaultUpdateCheckRepository(context, api, sourcesOverride = listOf(primaryUrl, fallbackUrl))
         UserSettingsStore.save(
             context,
             UserSettings(
@@ -168,7 +168,7 @@ class UpdateCheckRepositoryTest {
 
         assertNotNull(result)
         assertEquals(true, api.callCount >= 2)
-        assertEquals(true, api.requestedUrls.any { Uri.parse(it).host == fallbackHost })
+        assertEquals(true, api.requestedUrls.any { Uri.parse(it).host == "update-fallback.test" })
     }
 
     @Test
