@@ -34,6 +34,28 @@
 - `app_name` is injected via Gradle `resValue`; do not duplicate it in shared string resources unless the build logic changes.
 - This project uses ViewBinding and Kotlin-based Android modules. Match the existing style instead of introducing a new UI or DI pattern.
 
+## OpenVPN Engine Update Workflow (Local AI Agents)
+- Context:
+  - Engine repository: `https://github.com/zabotinegor/OpenVPNGateClientEngine`.
+  - Engine fork source: `schwabe/ics-openvpn`.
+  - Integration intent: keep the engine changes minimal and preserve the library shape used by this app.
+  - Submodule declaration and target branch are defined in `.gitmodules`.
+- Required update flow:
+  1. Synchronize upstream branch from `schwabe/ics-openvpn` into `OpenVPNGateClientEngine` main.
+  2. Merge `main` into `OpenVPNClientApp-integration` branch in the engine repository.
+  3. Resolve conflicts minimally, preserving this repository's engine-as-library behavior.
+  4. In this client repository, initialize submodules and run app validation builds/tests from `src/`.
+  5. Update integration branches used by the app and update the active feature branch as needed.
+  6. Refresh markdown documentation when behavior, process, or constraints change.
+- Validation baseline after engine update:
+  - `./gradlew assembleDebugApp`
+  - `./gradlew testDebugUnitTestApp`
+  - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+- Safety constraints:
+  - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
+  - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
+  - Do not change release packaging defaults (`isMinifyEnabled = false`, `jniLibs.useLegacyPackaging = true`) unless explicitly required by the task.
+
 ## Cross-Repo Agent Sync (Mandatory)
 - Any change to the client agent files listed below MUST be synchronized to the paired server repository in the same work session.
 - Mandatory scope:

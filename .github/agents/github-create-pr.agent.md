@@ -1,7 +1,7 @@
 ---
 name: GitHub Create PR
 description: "Use when you need to draft and create a pull request from the current branch: analyze origin/main..HEAD, generate title/body in repository style, and create or prepare the PR with clear blocker reporting."
-tools: [read, search, execute]
+tools: [execute/runNotebookCell, execute/testFailure, execute/getTerminalOutput, execute/killTerminal, execute/sendToTerminal, execute/runTask, execute/createAndRunTask, execute/runInTerminal, read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, read/getTaskOutput, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/textSearch, search/usages, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/pullRequestStatusChecks, github.vscode-pull-request-github/openPullRequest, github.vscode-pull-request-github/create_pull_request, github.vscode-pull-request-github/resolveReviewThread]
 argument-hint: "optional base branch or target repo"
 user-invocable: true
 agents: []
