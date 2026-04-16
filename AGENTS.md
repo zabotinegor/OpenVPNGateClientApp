@@ -15,7 +15,7 @@
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
-- Release builds also need `src/keystore.properties` and the referenced keystore file.
+- Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
 - Before any build that touches resources or native code, initialize submodules: `git submodule update --init --recursive`.
 
 ## Architecture
@@ -33,6 +33,28 @@
 - If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation using the local path from `AGENTS.local.md` and keep client/server formats aligned.
 - `app_name` is injected via Gradle `resValue`; do not duplicate it in shared string resources unless the build logic changes.
 - This project uses ViewBinding and Kotlin-based Android modules. Match the existing style instead of introducing a new UI or DI pattern.
+
+## OpenVPN Engine Update Workflow (Local AI Agents)
+- Context:
+  - Engine repository: `https://github.com/zabotinegor/OpenVPNGateClientEngine`.
+  - Engine fork source: `schwabe/ics-openvpn`.
+  - Integration intent: keep the engine changes minimal and preserve the library shape used by this app.
+  - Submodule declaration and target branch are defined in `.gitmodules`.
+- Required update flow:
+  1. Synchronize upstream branch from `schwabe/ics-openvpn` into `OpenVPNGateClientEngine` main.
+  2. Merge `main` into `OpenVPNClientApp-integration` branch in the engine repository.
+  3. Resolve conflicts minimally, preserving this repository's engine-as-library behavior.
+  4. In this client repository, initialize submodules and run app validation builds/tests from `src/`.
+  5. Update integration branches used by the app and update the active feature branch as needed.
+  6. Refresh markdown documentation when behavior, process, or constraints change.
+- Validation baseline after engine update:
+  - `./gradlew assembleDebugApp`
+  - `./gradlew testDebugUnitTestApp`
+  - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+- Safety constraints:
+  - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
+  - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
+  - Do not change existing release packaging settings (`isMinifyEnabled`, `jniLibs.useLegacyPackaging`) unless explicitly required by the task.
 
 ## Cross-Repo Agent Sync (Mandatory)
 - Any change to the client agent files listed below MUST be synchronized to the paired server repository in the same work session.
@@ -54,7 +76,7 @@
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.
-- Release builds intentionally keep `isMinifyEnabled = false` and `jniLibs.useLegacyPackaging = true`; do not change these as cleanup without a concrete need.
+- Release builds intentionally keep current `isMinifyEnabled` and `jniLibs.useLegacyPackaging` settings; do not change these as cleanup without a concrete need.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
