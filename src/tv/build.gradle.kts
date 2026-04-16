@@ -37,6 +37,9 @@ android {
         missingDimensionStrategy("version", "full")
 
         resValue("string", "app_name", rootProject.extra.get("appName") as String)
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildFeatures {
@@ -45,12 +48,15 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (keystorePropertiesFile.isFile) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -62,6 +68,9 @@ android {
     }
     lint {
         checkReleaseBuilds = false
+    }
+    androidResources {
+        localeFilters += listOf("en", "pl", "ru")
     }
     packaging {
         jniLibs {
