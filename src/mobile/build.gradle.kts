@@ -11,6 +11,10 @@ if (keystorePropertiesFile.isFile) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+val isReleaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
+}
+
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.mobile"
     compileSdk = 36
@@ -46,8 +50,10 @@ android {
         resValue("string", "app_name", appName)
         // Title for engine notification is defined in core as "%1$s"; avoid duplication
         resValue("string", "channel_name_background", appName)
-        ndk {
-            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        if (isReleaseTaskRequested) {
+            ndk {
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+            }
         }
     }
 
@@ -74,8 +80,10 @@ android {
     lint {
         checkReleaseBuilds = false
     }
-    androidResources {
-        localeFilters += listOf("en", "pl", "ru")
+    if (isReleaseTaskRequested) {
+        androidResources {
+            localeFilters += listOf("en", "pl", "ru")
+        }
     }
     packaging {
         jniLibs {

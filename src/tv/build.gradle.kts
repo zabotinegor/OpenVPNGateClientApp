@@ -11,6 +11,10 @@ if (keystorePropertiesFile.isFile) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+val isReleaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
+}
+
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.tv"
     compileSdk = 36
@@ -37,8 +41,10 @@ android {
         missingDimensionStrategy("version", "full")
 
         resValue("string", "app_name", rootProject.extra.get("appName") as String)
-        ndk {
-            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        if (isReleaseTaskRequested) {
+            ndk {
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+            }
         }
     }
 
@@ -69,8 +75,10 @@ android {
     lint {
         checkReleaseBuilds = false
     }
-    androidResources {
-        localeFilters += listOf("en", "pl", "ru")
+    if (isReleaseTaskRequested) {
+        androidResources {
+            localeFilters += listOf("en", "pl", "ru")
+        }
     }
     packaging {
         jniLibs {

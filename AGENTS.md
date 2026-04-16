@@ -15,7 +15,7 @@
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
-- Release builds also need `src/keystore.properties` and the referenced keystore file.
+- Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
 - Before any build that touches resources or native code, initialize submodules: `git submodule update --init --recursive`.
 
 ## Architecture
@@ -54,7 +54,7 @@
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
-  - Do not change release packaging defaults (`isMinifyEnabled = false`, `jniLibs.useLegacyPackaging = true`) unless explicitly required by the task.
+  - Do not change existing release packaging settings (`isMinifyEnabled`, `jniLibs.useLegacyPackaging`) unless explicitly required by the task.
 
 ## Cross-Repo Agent Sync (Mandatory)
 - Any change to the client agent files listed below MUST be synchronized to the paired server repository in the same work session.
@@ -76,7 +76,7 @@
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.
-- Release builds intentionally keep `isMinifyEnabled = false` and `jniLibs.useLegacyPackaging = true`; do not change these as cleanup without a concrete need.
+- Release builds intentionally keep current `isMinifyEnabled` and `jniLibs.useLegacyPackaging` settings; do not change these as cleanup without a concrete need.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
