@@ -25,6 +25,19 @@ Create PRs in this order: inspect branch state, analyze `origin/main..HEAD`, dra
 7. Create PR via approved tooling (`gh pr create` preferred).
 8. Report title, body, and PR URL/number, or exact blocker.
 
+## Tool Selection Map (Mandatory)
+- Use `get_changed_files` first for quick branch sanity check.
+- Use `run_in_terminal` next for git-based branch and diff commands from step 3.
+- Use `run_in_terminal` deep diff per file only if summary output is insufficient.
+- Use `github-pull-request_create_pull_request` for PR creation.
+- Use `github-pull-request_issue_fetch` only after PR creation when metadata verification is required.
+
+## Efficiency Rules
+- Prefer git diff/log output over workspace-wide search tools when drafting PR content.
+- Avoid `search/textSearch`, `search/codebase`, and `search/usages` for normal create-PR flow.
+- Read source files only for ambiguous diffs or explicitly requested detail.
+- If `origin/main` is not available, use `origin/<default>` and state the fallback.
+
 ## Rules
 
 - Use factual diff-derived content, not assumptions.
