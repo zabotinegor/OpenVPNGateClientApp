@@ -56,21 +56,6 @@
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
   - Do not change existing release packaging settings (`isMinifyEnabled`, `jniLibs.useLegacyPackaging`) unless explicitly required by the task.
 
-## Cross-Repo Agent Sync (Mandatory)
-- Any change to the client agent files listed below MUST be synchronized to the paired server repository in the same work session.
-- Mandatory scope:
-  - `.github/agents/code-review.agent.md`
-  - `.github/agents/github-create-pr.agent.md`
-  - `.github/agents/github-pr-merger.agent.md`
-  - `.github/agents/github-review-comments.agent.md`
-- Skill packages for the same scope are also mandatory for synchronization:
-  - `.github/skills/code-review/**`
-  - `.github/skills/github-create-pr/**`
-  - `.github/skills/github-pr-merger/**`
-  - `.github/skills/github-review-comments/**`
-- No-delay rule: apply the equivalent server-side adaptation immediately after client-side edits, within the same session.
-- Consistency rule: keep intent, workflow steps, constraints, and output contracts aligned between client and server versions.
-
 ## Project-Specific Pitfalls
 - `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
