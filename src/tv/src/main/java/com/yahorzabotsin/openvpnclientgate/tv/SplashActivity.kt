@@ -2,8 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.tv
 
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Movie
 import android.os.Bundle
 import android.os.Handler
@@ -37,12 +35,12 @@ class SplashActivity : AppCompatActivity() {
 
         imageView = findViewById(R.id.splashGifView)
         val isDarkTheme = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        
-        // Apply color inversion for light theme
+
+        // For light theme, tint the GIF with the dark theme base color.
         if (!isDarkTheme) {
-            imageView?.colorFilter = createInvertColorFilter()
+            imageView?.setColorFilter(getColor(R.color.splash_gif_tint_color))
         }
-        
+
         val gifDurationMs = resolveGifDurationMs()
 
         Glide.with(this)
@@ -93,20 +91,6 @@ class SplashActivity : AppCompatActivity() {
         mainHandler.removeCallbacks(navigateRunnable)
         imageView = null
         super.onDestroy()
-    }
-
-    private fun createInvertColorFilter(): ColorMatrixColorFilter {
-        val colorMatrix = ColorMatrix()
-        val values = colorMatrix.array
-        // Invert RGB channels
-        values[0] = -1f
-        values[6] = -1f
-        values[12] = -1f
-        // Add offset to make inverted colors visible (0 + 255 = 255, 255 + (-255) = 0)
-        values[4] = 255f
-        values[9] = 255f
-        values[14] = 255f
-        return ColorMatrixColorFilter(colorMatrix)
     }
 
     private fun scheduleNavigation(delayMs: Long) {

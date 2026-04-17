@@ -10,6 +10,7 @@
     <color name="icon_color">#94A3B8</color>
     <color name="theme_color_secondary">#94A3B8</color>
     <color name="button_primary_background">#C9D4E2</color>
+    <color name="dark_base_background">#121212</color>
 
     <!-- Section: Splash -->
     <color name="splash_background_color">#F7F9FC</color>
