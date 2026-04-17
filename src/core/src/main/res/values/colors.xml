@@ -12,7 +12,7 @@
     <color name="button_primary_background">#C9D4E2</color>
 
     <!-- Section: Splash -->
-    <color name="splash_background_color">#1A1A1A</color>
+    <color name="splash_background_color">#F7F9FC</color>
 
     <!-- Section: Speedometer -->
     <color name="speedometer_arc_color">#C9D4E2</color>
