@@ -14,4 +14,9 @@
 
 # Keep Gson TypeToken metadata used for reflective generic resolution.
 -keep class com.google.gson.reflect.TypeToken { *; }
--keep class * extends com.google.gson.reflect.TypeToken
+-keep class * extends com.google.gson.reflect.TypeToken { *; }
+
+# Keep fields annotated with SerializedName for reflective Gson mapping.
+-keepclassmembers class * {
+	@com.google.gson.annotations.SerializedName <fields>;
+}
