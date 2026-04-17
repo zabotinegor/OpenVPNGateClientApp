@@ -54,7 +54,6 @@
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
-  - Do not change existing release packaging settings (`isMinifyEnabled`, `jniLibs.useLegacyPackaging`) unless explicitly required by the task.
 
 ## Project-Specific Pitfalls
 - `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.

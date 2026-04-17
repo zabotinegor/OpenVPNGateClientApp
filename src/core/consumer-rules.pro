@@ -16,11 +16,6 @@
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken { *; }
 
-# Keep fields annotated with SerializedName for reflective Gson mapping.
--keepclassmembers class * {
-	@com.google.gson.annotations.SerializedName <fields>;
-}
-
 # Keep DTO classes that use SerializedName annotations so reflective access
 # remains stable even when minification is enabled.
 -keepclasseswithmembers class * {
