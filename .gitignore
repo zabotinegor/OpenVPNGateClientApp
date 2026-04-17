@@ -50,3 +50,4 @@ src/.kotlin/errors/*.log
 .github/agents/*
 !.github/agents/agent-sync.agent.md
 .github/skills/**
+*.lnk
