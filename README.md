@@ -66,6 +66,9 @@ storeFile=keystore.jks
 
 Place `keystore.jks` next to `keystore.properties` (not tracked in git).
 
+If `src/keystore.properties` is missing, local `release` builds can still be produced as unsigned artifacts.
+Provide signing properties when you need signed release outputs for distribution.
+
 ## Media Assets
 `mobile` and `tv` run `copyAndRenameDrawables` before `preBuild`.
 The task copies assets from `media/Logos` or `media/Logo` into module resources.

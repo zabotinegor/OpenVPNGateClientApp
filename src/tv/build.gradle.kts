@@ -45,12 +45,19 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            ndk {
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
+                rootProject.file("proguard-optional-tls-dontwarn.pro")
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (keystorePropertiesFile.isFile) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -67,6 +74,12 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.androidResources.localeFilters.addAll(listOf("en", "pl", "ru"))
     }
 }
 

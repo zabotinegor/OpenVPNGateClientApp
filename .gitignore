@@ -46,5 +46,8 @@ servers.local.json
 src/.kotlin/
 src/.kotlin/errors/*.log
 
-# Ignore only helper note under src; keep workflows tracked
-src/.github/copilot-instructions.md
+# Keep only Agent Sync visible; hide other synced agents/skills
+.github/agents/*
+!.github/agents/agent-sync.agent.md
+.github/skills/**
+*.lnk

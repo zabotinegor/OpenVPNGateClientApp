@@ -95,6 +95,10 @@ jobs:
         run: ./gradlew :mobile:assembleDebug :tv:assembleDebug --stacktrace
         working-directory: ./src
 
+      - name: Build Release APKs (unsigned sanity check)
+        run: ./gradlew assembleReleaseApp --stacktrace
+        working-directory: ./src
+
       - name: Rename APKs with commit SHA
         run: |
           set -e

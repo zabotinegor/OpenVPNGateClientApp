@@ -15,7 +15,7 @@
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
-- Release builds also need `src/keystore.properties` and the referenced keystore file.
+- Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
 - Before any build that touches resources or native code, initialize submodules: `git submodule update --init --recursive`.
 
 ## Architecture
@@ -34,27 +34,34 @@
 - `app_name` is injected via Gradle `resValue`; do not duplicate it in shared string resources unless the build logic changes.
 - This project uses ViewBinding and Kotlin-based Android modules. Match the existing style instead of introducing a new UI or DI pattern.
 
-## Cross-Repo Agent Sync (Mandatory)
-- Any change to the client agent files listed below MUST be synchronized to the paired server repository in the same work session.
-- Mandatory scope:
-  - `.github/agents/code-review.agent.md`
-  - `.github/agents/github-create-pr.agent.md`
-  - `.github/agents/github-pr-merger.agent.md`
-  - `.github/agents/github-review-comments.agent.md`
-- Skill packages for the same scope are also mandatory for synchronization:
-  - `.github/skills/code-review/**`
-  - `.github/skills/github-create-pr/**`
-  - `.github/skills/github-pr-merger/**`
-  - `.github/skills/github-review-comments/**`
-- No-delay rule: apply the equivalent server-side adaptation immediately after client-side edits, within the same session.
-- Consistency rule: keep intent, workflow steps, constraints, and output contracts aligned between client and server versions.
+## OpenVPN Engine Update Workflow (Local AI Agents)
+- Context:
+  - Engine repository: `https://github.com/zabotinegor/OpenVPNGateClientEngine`.
+  - Engine fork source: `schwabe/ics-openvpn`.
+  - Integration intent: keep the engine changes minimal and preserve the library shape used by this app.
+  - Submodule declaration and target branch are defined in `.gitmodules`.
+- Required update flow:
+  1. Synchronize upstream branch from `schwabe/ics-openvpn` into `OpenVPNGateClientEngine` main.
+  2. Merge `main` into `OpenVPNClientApp-integration` branch in the engine repository.
+  3. Resolve conflicts minimally, preserving this repository's engine-as-library behavior.
+  4. In this client repository, initialize submodules and run app validation builds/tests from `src/`.
+  5. Update integration branches used by the app and update the active feature branch as needed.
+  6. Refresh markdown documentation when behavior, process, or constraints change.
+- Validation baseline after engine update:
+  - `./gradlew assembleDebugApp`
+  - `./gradlew testDebugUnitTestApp`
+  - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+- Safety constraints:
+  - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
+  - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
 
 ## Project-Specific Pitfalls
 - `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.
-- Release builds intentionally keep `isMinifyEnabled = false` and `jniLibs.useLegacyPackaging = true`; do not change these as cleanup without a concrete need.
+- Release build hardening is intentional: `src/mobile` `release` and `src/tv` `release` must keep `isMinifyEnabled=true` and `isShrinkResources=true`.
+- Preserve each module's current `jniLibs.useLegacyPackaging` setting; do not change these as cleanup without a concrete need.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
