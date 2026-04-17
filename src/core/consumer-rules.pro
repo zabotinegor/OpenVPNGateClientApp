@@ -20,3 +20,9 @@
 -keepclassmembers class * {
 	@com.google.gson.annotations.SerializedName <fields>;
 }
+
+# Keep DTO classes that use SerializedName annotations so reflective access
+# remains stable even when minification is enabled.
+-keepclasseswithmembers class * {
+	@com.google.gson.annotations.SerializedName <fields>;
+}

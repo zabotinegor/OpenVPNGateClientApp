@@ -11,10 +11,6 @@ if (keystorePropertiesFile.isFile) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
-val isReleaseTaskRequested = gradle.startParameter.taskNames.any {
-    it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
-}
-
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.tv"
     compileSdk = 36
@@ -41,11 +37,6 @@ android {
         missingDimensionStrategy("version", "full")
 
         resValue("string", "app_name", rootProject.extra.get("appName") as String)
-        if (isReleaseTaskRequested) {
-            ndk {
-                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
-            }
-        }
     }
 
     buildFeatures {
@@ -56,6 +47,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            ndk {
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -75,15 +69,16 @@ android {
     lint {
         checkReleaseBuilds = false
     }
-    if (isReleaseTaskRequested) {
-        androidResources {
-            localeFilters += listOf("en", "pl", "ru")
-        }
-    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.androidResources?.localeFilters?.addAll(listOf("en", "pl", "ru"))
     }
 }
 
