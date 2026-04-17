@@ -92,6 +92,7 @@ dependencies {
     implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.glide)
     implementation(libs.material)
     implementation(libs.timber)
     implementation(libs.androidx.activity)
