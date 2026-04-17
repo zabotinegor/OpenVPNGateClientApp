@@ -57,7 +57,8 @@ android {
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
+                rootProject.file("proguard-optional-tls-dontwarn.pro")
             )
             if (keystorePropertiesFile.isFile) {
                 signingConfig = signingConfigs.getByName("release")
@@ -83,7 +84,7 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
-        variant.androidResources?.localeFilters?.addAll(listOf("en", "pl", "ru"))
+        variant.androidResources.localeFilters.addAll(listOf("en", "pl", "ru"))
     }
 }
 

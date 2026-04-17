@@ -60,7 +60,8 @@
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.
-- Release builds intentionally keep current `isMinifyEnabled` and `jniLibs.useLegacyPackaging` settings; do not change these as cleanup without a concrete need.
+- Release build hardening is intentional: `src/mobile` `release` and `src/tv` `release` must keep `isMinifyEnabled=true` and `isShrinkResources=true`.
+- Preserve each module's current `jniLibs.useLegacyPackaging` setting; do not change these as cleanup without a concrete need.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
