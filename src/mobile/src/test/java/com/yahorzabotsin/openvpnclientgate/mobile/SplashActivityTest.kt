@@ -1,15 +1,12 @@
 package com.yahorzabotsin.openvpnclientgate.mobile
 
-import android.os.Looper
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadow.api.Shadow
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
@@ -19,7 +16,8 @@ class SplashActivityTest {
 
     @Before
     fun setUp() {
-        activity = SplashActivity()
+        activity = Robolectric.buildActivity(SplashActivity::class.java)
+            .get()
     }
 
     /**
@@ -84,18 +82,19 @@ class SplashActivityTest {
     // --- Reflection helpers ---
 
     private fun invokeScheduleNavigation(activity: SplashActivity, delayMs: Long) {
-        val method = SplashActivity::class.java
-            .getDeclaredMethod("scheduleNavigation", Long::class.javaPrimitiveType)
+        val method = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
+            .getDeclaredMethod("scheduleGifCompletion", Long::class.javaPrimitiveType)
         method.isAccessible = true
         try {
             method.invoke(activity, delayMs)
         } catch (e: Exception) {
-            throw RuntimeException("Failed to invoke scheduleNavigation", e)
+            throw RuntimeException("Failed to invoke scheduleGifCompletion", e)
         }
     }
 
     private fun invokeNavigateToMain(activity: SplashActivity) {
-        val method = SplashActivity::class.java.getDeclaredMethod("navigateToMain")
+        val method = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
+            .getDeclaredMethod("navigateToMain")
         method.isAccessible = true
         try {
             method.invoke(activity)
@@ -105,10 +104,11 @@ class SplashActivityTest {
     }
 
     private fun invokeResolveGifDurationMs(activity: SplashActivity): Long {
-        val method = SplashActivity::class.java.getDeclaredMethod("resolveGifDurationMs")
+        val method = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
+            .getDeclaredMethod("resolveGifDurationMs", Int::class.javaPrimitiveType)
         method.isAccessible = true
         return try {
-            method.invoke(activity) as Long
+            method.invoke(activity, 0) as Long
         } catch (e: Exception) {
             // If resource not found, we expect fallback
             3000L
@@ -116,13 +116,15 @@ class SplashActivityTest {
     }
 
     private fun getHasNavigated(activity: SplashActivity): Boolean {
-        val field = SplashActivity::class.java.getDeclaredField("hasNavigated")
+        val field = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
+            .getDeclaredField("hasNavigated")
         field.isAccessible = true
         return field.getBoolean(activity)
     }
 
     private fun getNavigateAtElapsedMs(activity: SplashActivity): Long {
-        val field = SplashActivity::class.java.getDeclaredField("navigateAtElapsedMs")
+        val field = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
+            .getDeclaredField("gifCompletedAtElapsedMs")
         field.isAccessible = true
         return field.getLong(activity)
     }

@@ -12,6 +12,7 @@ import android.widget.ProgressBar
 import androidx.annotation.ColorRes
 import androidx.annotation.RawRes
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -70,44 +71,46 @@ abstract class SplashActivityCore : AppCompatActivity() {
 
         // For light theme, tint the GIF with the dark theme base color.
         if (!isDarkTheme) {
-            imageView?.setColorFilter(getColor(splashGifTintColorRes))
+            imageView?.setColorFilter(ContextCompat.getColor(this, splashGifTintColorRes))
         }
 
         startServerPreload()
         val gifDurationMs = resolveGifDurationMs(splashGifRawRes)
 
-        Glide.with(this)
-            .asGif()
-            .load(splashGifRawRes)
-            .listener(object : RequestListener<GifDrawable> {
-                override fun onLoadFailed(
-                    e: GlideException?,
-                    model: Any?,
-                    target: Target<GifDrawable>,
-                    isFirstResource: Boolean
-                ): Boolean {
-                    if (e != null) {
-                        AppLog.w(tag, "Splash GIF load failed; continuing without GIF", e)
-                    } else {
-                        AppLog.w(tag, "Splash GIF load failed; continuing without GIF")
+        imageView?.let { view ->
+            Glide.with(this)
+                .asGif()
+                .load(splashGifRawRes)
+                .listener(object : RequestListener<GifDrawable> {
+                    override fun onLoadFailed(
+                        e: GlideException?,
+                        model: Any?,
+                        target: Target<GifDrawable>,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        if (e != null) {
+                            AppLog.w(tag, "Splash GIF load failed; continuing without GIF", e)
+                        } else {
+                            AppLog.w(tag, "Splash GIF load failed; continuing without GIF")
+                        }
+                        onGifCompleted()
+                        return false
                     }
-                    onGifCompleted()
-                    return false
-                }
 
-                override fun onResourceReady(
-                    resource: GifDrawable,
-                    model: Any,
-                    target: Target<GifDrawable>?,
-                    dataSource: DataSource,
-                    isFirstResource: Boolean
-                ): Boolean {
-                    resource.setLoopCount(1)
-                    scheduleGifCompletion(gifDurationMs)
-                    return false
-                }
-            })
-            .into(imageView!!)
+                    override fun onResourceReady(
+                        resource: GifDrawable,
+                        model: Any,
+                        target: Target<GifDrawable>?,
+                        dataSource: DataSource,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        resource.setLoopCount(1)
+                        scheduleGifCompletion(gifDurationMs)
+                        return false
+                    }
+                })
+                .into(view)
+        }
     }
 
     override fun onStart() {
@@ -201,9 +204,14 @@ abstract class SplashActivityCore : AppCompatActivity() {
     }
 
     private fun resolveGifDurationMs(@RawRes gifRes: Int): Long {
-        resources.openRawResource(gifRes).use { inputStream ->
-            val durationMs = Movie.decodeStream(inputStream)?.duration() ?: 0
-            return if (durationMs > 0) durationMs.toLong() else FALLBACK_GIF_DURATION_MS
+        return try {
+            resources.openRawResource(gifRes).use { inputStream ->
+                val durationMs = Movie.decodeStream(inputStream)?.duration() ?: 0
+                if (durationMs > 0) durationMs.toLong() else FALLBACK_GIF_DURATION_MS
+            }
+        } catch (e: android.content.res.Resources.NotFoundException) {
+            AppLog.w(tag, "GIF raw resource not found: $gifRes. Falling back to default splash duration.", e)
+            FALLBACK_GIF_DURATION_MS
         }
     }
 
