@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation("androidx.test:core:1.5.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.espresso.contrib)
