@@ -127,7 +127,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
     }
 
     override fun onStop() {
-        imageView?.let { Glide.with(it).clear(it) }
         mainHandler.removeCallbacks(gifCompleteRunnable)
         super.onStop()
     }

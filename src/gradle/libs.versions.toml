@@ -36,6 +36,7 @@ mpandroidchart = "v3.1.0"
 square-okhttp = "4.10.0"
 mockito-core = "4.8.1"
 robolectric = "4.10.2"
+androidx-test-core = "1.5.0"
 
 
 [libraries]
@@ -80,6 +81,7 @@ org-bouncycastle-bcprov-jdk15on = { group = "org.bouncycastle", name = "bcprov-j
 org-bouncycastle-bcpkix-jdk15on = { group = "org.bouncycastle", name = "bcpkix-jdk15on", version.ref = "bouncycastle" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito-core" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test-core" }
 
 
 [plugins]

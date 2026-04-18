@@ -107,12 +107,7 @@ class SplashActivityTest {
         val method = com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashActivityCore::class.java
             .getDeclaredMethod("resolveGifDurationMs", Int::class.javaPrimitiveType)
         method.isAccessible = true
-        return try {
-            method.invoke(activity, 0) as Long
-        } catch (e: Exception) {
-            // If resource not found, we expect fallback
-            3000L
-        }
+        return method.invoke(activity, 0) as Long
     }
 
     private fun getHasNavigated(activity: SplashActivity): Boolean {
