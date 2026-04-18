@@ -198,7 +198,10 @@ abstract class SplashActivityCore : AppCompatActivity() {
             return
         }
         hasNavigated = true
-        startActivity(createMainIntent())
+        val mainIntent = createMainIntent().apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(mainIntent)
         finish()
     }
 
