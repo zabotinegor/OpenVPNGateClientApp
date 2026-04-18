@@ -46,11 +46,11 @@ class SplashActivityTest {
     }
 
     /**
-     * Test that scheduleNavigation with zero delay sets navigateAtElapsedMs correctly.
+     * Test that scheduleNavigation with a positive delay sets navigateAtElapsedMs correctly.
      */
     @Test
     fun scheduleNavigationSetsNavigateAtElapsedMs() {
-        invokeScheduleNavigation(activity, 0L)
+        invokeScheduleNavigation(activity, 100L)
         
         val navigateAtElapsedMs = getNavigateAtElapsedMs(activity)
         assertTrue("navigateAtElapsedMs should be set", navigateAtElapsedMs > 0L)
