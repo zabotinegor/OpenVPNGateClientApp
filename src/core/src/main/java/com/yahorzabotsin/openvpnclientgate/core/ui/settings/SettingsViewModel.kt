@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
-    private val logger: SettingsLogger
+    private val logger: SettingsLogger,
+    private val scheduler: ServerRefreshScheduler
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -154,6 +156,7 @@ class SettingsViewModel(
         if (logicalChanged) {
             repository.saveCacheTtlMs(ttlMs!!)
             logger.logCacheTtlChanged(ttlMs)
+            runCatching { scheduler.schedulePeriodicRefresh() }
         }
     }
 

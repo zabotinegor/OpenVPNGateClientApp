@@ -5,6 +5,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,7 +38,8 @@ class SettingsViewModelTest {
         )
         val repo = FakeSettingsRepository(initial)
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         val state = vm.state.value
@@ -55,7 +57,8 @@ class SettingsViewModelTest {
     fun `language change saves and emits effects`() = runTest {
         val repo = FakeSettingsRepository(UserSettings())
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         val effects = mutableListOf<SettingsEffect>()
@@ -79,7 +82,8 @@ class SettingsViewModelTest {
     fun `cache ttl input validates and saves minutes`() = runTest {
         val repo = FakeSettingsRepository(UserSettings())
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCacheTtlInput("0"))
@@ -93,10 +97,28 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `cache ttl change triggers scheduler reschedule`() = runTest {
+        val repo = FakeSettingsRepository(UserSettings())
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
+        advanceUntilIdle()
+
+        assertEquals(0, scheduler.schedulePeriodicRefreshCallCount)
+
+        vm.onAction(SettingsAction.SetCacheTtlInput("30"))
+        advanceUntilIdle()
+
+        assertEquals(1, scheduler.schedulePeriodicRefreshCallCount)
+        assertEquals(30 * 60 * 1000L, repo.savedCacheTtlMs)
+    }
+
+    @Test
     fun `status timeout stores raw input when invalid`() = runTest {
         val repo = FakeSettingsRepository(UserSettings(statusStallTimeoutSeconds = 5))
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetStatusStallTimeoutInput("abc"))
@@ -111,7 +133,8 @@ class SettingsViewModelTest {
     fun `cache ttl stores raw input when invalid`() = runTest {
         val repo = FakeSettingsRepository(UserSettings(cacheTtlMs = 20 * 60 * 1000L))
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCacheTtlInput("0"))
@@ -128,7 +151,8 @@ class SettingsViewModelTest {
             UserSettings(serverSource = ServerSource.CUSTOM, customServerUrl = "https://example.com")
         )
         val logger = FakeSettingsLogger()
-        val vm = SettingsViewModel(repo, logger)
+        val scheduler = FakeServerRefreshScheduler()
+        val vm = SettingsViewModel(repo, logger, scheduler)
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com "))
@@ -233,6 +257,14 @@ class SettingsViewModelTest {
 
         override fun logCacheTtlChanged(ttlMs: Long) {
             cacheTtlMs = ttlMs
+        }
+    }
+
+    private class FakeServerRefreshScheduler : ServerRefreshScheduler {
+        var schedulePeriodicRefreshCallCount = 0
+
+        override fun schedulePeriodicRefresh() {
+            schedulePeriodicRefreshCallCount++
         }
     }
 }

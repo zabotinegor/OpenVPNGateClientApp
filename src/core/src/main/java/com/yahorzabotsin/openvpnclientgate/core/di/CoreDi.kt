@@ -139,7 +139,7 @@ val coreModule = module {
     single<CountryServersLogger> { DefaultCountryServersLogger() }
     viewModel { CountryServersViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
-    viewModel { SettingsViewModel(get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
     single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(androidContext(), get()) }
     single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
