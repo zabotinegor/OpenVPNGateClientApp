@@ -64,6 +64,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
 
 # Libraries required by OpenVPNEngine module
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidx-annotation" }
