@@ -20,7 +20,9 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.PeriodicWorkEnqueuer
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerCacheTtlProvider
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.SettingsServerCacheTtlProvider
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.WorkManagerPeriodicWorkEnqueuer
 import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
@@ -117,7 +119,8 @@ val coreModule = module {
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
     single { WorkManager.getInstance(androidContext()) }
     single<PeriodicWorkEnqueuer> { WorkManagerPeriodicWorkEnqueuer(get()) }
-    single<ServerRefreshScheduler> { DefaultServerRefreshScheduler(get()) }
+    single<ServerCacheTtlProvider> { SettingsServerCacheTtlProvider(androidContext()) }
+    single<ServerRefreshScheduler> { DefaultServerRefreshScheduler(get(), get()) }
 
     single<YearProvider> { SystemYearProvider() }
     single<AboutInfoProvider> { DefaultAboutInfoProvider(get(), get()) }

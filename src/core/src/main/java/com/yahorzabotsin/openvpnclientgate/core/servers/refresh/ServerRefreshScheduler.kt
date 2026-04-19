@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers.refresh
 
+import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -7,10 +8,22 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.util.concurrent.TimeUnit
 
 interface ServerRefreshScheduler {
     fun schedulePeriodicRefresh()
+}
+
+internal interface ServerCacheTtlProvider {
+    fun cacheTtlMs(): Long
+}
+
+internal class SettingsServerCacheTtlProvider(
+    private val appContext: Context,
+    private val settingsStore: UserSettingsStore = UserSettingsStore
+) : ServerCacheTtlProvider {
+    override fun cacheTtlMs(): Long = settingsStore.load(appContext).cacheTtlMs
 }
 
 internal interface PeriodicWorkEnqueuer {
@@ -34,17 +47,22 @@ internal class WorkManagerPeriodicWorkEnqueuer(
 }
 
 internal class DefaultServerRefreshScheduler(
-    private val workEnqueuer: PeriodicWorkEnqueuer
+    private val workEnqueuer: PeriodicWorkEnqueuer,
+    private val cacheTtlProvider: ServerCacheTtlProvider
 ) : ServerRefreshScheduler {
 
     override fun schedulePeriodicRefresh() {
+        val intervalMinutes = TimeUnit.MILLISECONDS
+            .toMinutes(cacheTtlProvider.cacheTtlMs())
+            .coerceAtLeast(MIN_PERIODIC_INTERVAL_MINUTES)
+
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val request = PeriodicWorkRequestBuilder<ServerRefreshWorker>(
-            REFRESH_REPEAT_INTERVAL_HOURS,
-            TimeUnit.HOURS
+            intervalMinutes,
+            TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .setBackoffCriteria(
@@ -57,7 +75,7 @@ internal class DefaultServerRefreshScheduler(
 
         workEnqueuer.enqueueUniquePeriodicWork(
             UNIQUE_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
     }
@@ -65,7 +83,8 @@ internal class DefaultServerRefreshScheduler(
     companion object {
         const val UNIQUE_WORK_NAME = "server-list-periodic-refresh"
         const val WORK_TAG = "server-list-refresh"
-        const val REFRESH_REPEAT_INTERVAL_HOURS = 6L
+        val MIN_PERIODIC_INTERVAL_MINUTES =
+            TimeUnit.MILLISECONDS.toMinutes(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS)
         const val REFRESH_BACKOFF_MINUTES = 30L
     }
 }
