@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.library)
@@ -34,6 +35,19 @@ fun loadLocalServersConfig(): Map<String, String> {
     }
 }
 
+fun isPlaceholderServerUrl(value: String?): Boolean {
+    val normalized = value?.trim().orEmpty()
+    if (normalized.isBlank()) return false
+    val host = runCatching { URI(normalized).host?.lowercase() }.getOrNull()
+    return host == "placeholder"
+}
+
+fun firstUsableServerUrl(vararg candidates: String?): String? {
+    return candidates
+        .mapNotNull { it?.trim() }
+        .firstOrNull { it.isNotBlank() && !isPlaceholderServerUrl(it) }
+}
+
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.core"
     compileSdk = 36
@@ -53,14 +67,16 @@ android {
 
         val localConfig = loadLocalServersConfig()
 
-        val primaryServersUrl: String? =
-            (project.findProperty("PRIMARY_SERVERS_URL") as String?)
-                ?: System.getenv("PRIMARY_SERVERS_URL")
-                ?: localConfig["PRIMARY_SERVERS_URL"]
-        val fallbackServersUrl: String? =
-            (project.findProperty("FALLBACK_SERVERS_URL") as String?)
-                ?: System.getenv("FALLBACK_SERVERS_URL")
-                ?: localConfig["FALLBACK_SERVERS_URL"]
+        val primaryServersUrl: String? = firstUsableServerUrl(
+            project.findProperty("PRIMARY_SERVERS_URL") as String?,
+            System.getenv("PRIMARY_SERVERS_URL"),
+            localConfig["PRIMARY_SERVERS_URL"]
+        )
+        val fallbackServersUrl: String? = firstUsableServerUrl(
+            project.findProperty("FALLBACK_SERVERS_URL") as String?,
+            System.getenv("FALLBACK_SERVERS_URL"),
+            localConfig["FALLBACK_SERVERS_URL"]
+        )
         val appReleaseType: String =
             ((project.findProperty("appReleaseType") as String?)
                 ?: System.getenv("APP_RELEASE_TYPE")
@@ -69,10 +85,10 @@ android {
                 .lowercase()
 
         require(!primaryServersUrl.isNullOrBlank()) {
-            "PRIMARY_SERVERS_URL is not set. Provide it via Gradle property PRIMARY_SERVERS_URL or env var PRIMARY_SERVERS_URL."
+            "PRIMARY_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property PRIMARY_SERVERS_URL, env var PRIMARY_SERVERS_URL, or servers.local.json."
         }
         require(!fallbackServersUrl.isNullOrBlank()) {
-            "FALLBACK_SERVERS_URL is not set. Provide it via Gradle property FALLBACK_SERVERS_URL or env var FALLBACK_SERVERS_URL."
+            "FALLBACK_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property FALLBACK_SERVERS_URL, env var FALLBACK_SERVERS_URL, or servers.local.json."
         }
         require(appReleaseType == "release" || appReleaseType == "beta") {
             "APP_RELEASE_TYPE/appReleaseType must be either 'release' or 'beta'."

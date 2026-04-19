@@ -6,6 +6,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
+import android.net.Uri
 import java.util.Locale
 
 data class UserSettings(
@@ -121,10 +122,24 @@ object UserSettingsStore {
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
-    fun resolveServerUrls(settings: UserSettings): List<String> = when (settings.serverSource) {
-        ServerSource.DEFAULT -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
-        ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
-        ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+    fun resolveServerUrls(settings: UserSettings): List<String> {
+        val rawUrls = when (settings.serverSource) {
+            ServerSource.DEFAULT -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
+            ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
+            ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+        }
+        return rawUrls.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filter { isUsableServerUrl(it) }
+    }
+
+    private fun isUsableServerUrl(url: String): Boolean {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        if (scheme != "https") return false
+        if (host == "placeholder") return false
+        return true
     }
 }
 
