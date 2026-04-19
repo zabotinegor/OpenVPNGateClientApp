@@ -131,7 +131,9 @@ abstract class SplashActivityCore : AppCompatActivity() {
         serverPreloadJob?.cancel()
         serverPreloadJob = lifecycleScope.launch {
             try {
-                val cacheOnly = connectionStateProvider.isConnected()
+                val cacheOnly = false
+                val isConnected = connectionStateProvider.isConnected()
+                AppLog.i(tag, "Starting server preload. vpn_connected=$isConnected, cache_only=$cacheOnly")
                 withTimeout(SERVER_PRELOAD_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) {
                         preloadInteractor.preloadServers(cacheOnly = cacheOnly)

@@ -18,6 +18,10 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInterac
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.PeriodicWorkEnqueuer
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.WorkManagerPeriodicWorkEnqueuer
 import com.yahorzabotsin.openvpnclientgate.core.settings.DefaultSettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsSettingsRepository
@@ -67,6 +71,7 @@ import com.yahorzabotsin.openvpnclientgate.core.versions.VersionsApi
 import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
+import androidx.work.WorkManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -110,6 +115,9 @@ val coreModule = module {
     single { ServerRepository(get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
+    single { WorkManager.getInstance(androidContext()) }
+    single<PeriodicWorkEnqueuer> { WorkManagerPeriodicWorkEnqueuer(get()) }
+    single<ServerRefreshScheduler> { DefaultServerRefreshScheduler(get()) }
 
     single<YearProvider> { SystemYearProvider() }
     single<AboutInfoProvider> { DefaultAboutInfoProvider(get(), get()) }

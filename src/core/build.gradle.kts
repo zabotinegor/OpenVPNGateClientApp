@@ -135,6 +135,7 @@ dependencies {
     implementation(libs.retrofit.converter.scalars)
     implementation(libs.glide)
     implementation(libs.koin.android)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.timber)
