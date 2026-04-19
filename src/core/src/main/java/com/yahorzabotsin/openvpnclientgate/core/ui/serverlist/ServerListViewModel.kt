@@ -131,24 +131,16 @@ class ServerListViewModel(
         _state.value = block(_state.value).derived()
     }
 
-    private fun ServerListUiState.derived(): ServerListUiState =
-        copy(
-            isRefreshEnabled = !isLoading && !ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected),
-            showRefreshHint = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
-        ).also {
-            if (!isLoading) {
-                logDebug(
-                    tag,
-                    "Derived refresh UI state. vpn_connected=$isVpnConnected, refresh_enabled=${it.isRefreshEnabled}, show_hint=${it.showRefreshHint}"
-                )
-            }
-        }
+    private fun ServerListUiState.derived(): ServerListUiState {
+        val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
+        return copy(
+            isRefreshEnabled = !isLoading && !cacheOnly,
+            showRefreshHint = cacheOnly
+        )
+    }
 
     private fun logInfo(message: String) {
         runCatching { AppLog.i(tag, message) }
     }
 
-    private fun logDebug(logTag: String, message: String) {
-        runCatching { AppLog.d(logTag, message) }
-    }
 }

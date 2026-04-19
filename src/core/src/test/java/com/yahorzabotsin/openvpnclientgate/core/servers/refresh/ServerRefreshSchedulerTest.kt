@@ -33,6 +33,13 @@ class ServerRefreshSchedulerTest {
         assertEquals(ServerRefreshWorker::class.java.name, request.workSpec.workerClassName)
         assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
         assertEquals(TimeUnit.MINUTES.toMillis(20), request.workSpec.intervalDuration)
+        assertEquals(
+            DefaultServerRefreshScheduler.WORKER_ADDITIONAL_RETRY_COUNT,
+            request.workSpec.input.getInt(
+                ServerRefreshWorker.KEY_ADDITIONAL_RETRY_COUNT,
+                -1
+            )
+        )
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers.refresh
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import kotlinx.coroutines.CancellationException
@@ -21,23 +22,49 @@ class ServerRefreshWorker(
             return Result.retry()
         }
 
-        return try {
-            repository.getServers(
-                context = applicationContext,
-                forceRefresh = false,
-                cacheOnly = false
-            )
-            AppLog.i(TAG, "Periodic server refresh completed")
-            Result.success()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.w(TAG, "Periodic server refresh failed", e)
-            Result.retry()
+        val additionalRetryCount = inputData
+            .getInt(KEY_ADDITIONAL_RETRY_COUNT, DEFAULT_ADDITIONAL_RETRY_COUNT)
+            .coerceAtLeast(0)
+        val attempts = additionalRetryCount + 1
+
+        var lastError: Exception? = null
+        repeat(attempts) { attemptIndex ->
+            try {
+                repository.getServers(
+                    context = applicationContext,
+                    forceRefresh = true,
+                    cacheOnly = false
+                )
+                AppLog.i(TAG, "Periodic server refresh completed")
+                return Result.success()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+                if (attemptIndex < attempts - 1) {
+                    AppLog.w(
+                        TAG,
+                        "Periodic server refresh attempt ${attemptIndex + 1}/$attempts failed, retrying",
+                        e
+                    )
+                }
+            }
         }
+
+        if (lastError != null) {
+            AppLog.w(TAG, "Periodic server refresh failed after attempts=$attempts", lastError)
+        } else {
+            AppLog.w(TAG, "Periodic server refresh failed after attempts=$attempts")
+        }
+        return Result.retry()
     }
 
-    private companion object {
+    companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerRefreshWorker"
+        const val KEY_ADDITIONAL_RETRY_COUNT = "server_refresh_additional_retry_count"
+        const val DEFAULT_ADDITIONAL_RETRY_COUNT = 2
+
+        fun retryInputData(additionalRetryCount: Int) =
+            workDataOf(KEY_ADDITIONAL_RETRY_COUNT to additionalRetryCount)
     }
 }

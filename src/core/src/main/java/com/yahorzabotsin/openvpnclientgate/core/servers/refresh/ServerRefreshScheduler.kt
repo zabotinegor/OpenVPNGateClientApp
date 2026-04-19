@@ -71,6 +71,11 @@ internal class DefaultServerRefreshScheduler(
             intervalMinutes,
             TimeUnit.MINUTES
         )
+            .setInputData(
+                ServerRefreshWorker.retryInputData(
+                    additionalRetryCount = WORKER_ADDITIONAL_RETRY_COUNT
+                )
+            )
             .setConstraints(constraints)
             .setBackoffCriteria(
                 BackoffPolicy.EXPONENTIAL,
@@ -101,5 +106,6 @@ internal class DefaultServerRefreshScheduler(
         val MIN_PERIODIC_INTERVAL_MINUTES =
             TimeUnit.MILLISECONDS.toMinutes(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS)
         const val REFRESH_BACKOFF_MINUTES = 30L
+        const val WORKER_ADDITIONAL_RETRY_COUNT = 2
     }
 }

@@ -157,6 +157,13 @@ class SettingsViewModel(
             repository.saveCacheTtlMs(ttlMs!!)
             logger.logCacheTtlChanged(ttlMs)
             runCatching { scheduler.schedulePeriodicRefresh() }
+                .onFailure {
+                    com.yahorzabotsin.openvpnclientgate.core.logging.AppLog.w(
+                        "SettingsViewModel",
+                        "Failed to reschedule periodic refresh",
+                        it
+                    )
+                }
         }
     }
 

@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers.refresh
 
 import android.content.Context
+import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
@@ -16,7 +17,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -78,7 +78,28 @@ class ServerRefreshWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.retry(), result)
-        assertTrue(api.callCount >= 1)
+        assertEquals((ServerRefreshWorker.DEFAULT_ADDITIONAL_RETRY_COUNT + 1) * 2, api.callCount)
+    }
+
+    @Test
+    fun `doWork supports configurable additional retry count`() = runBlocking {
+        val api = FixedApi.Failure(IOException("network down"))
+        val repository = ServerRepository(api)
+
+        startKoin {
+            modules(module {
+                single { repository }
+            })
+        }
+
+        val worker = createWorker(
+            inputData = ServerRefreshWorker.retryInputData(additionalRetryCount = 0)
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(2, api.callCount)
     }
 
     @Test
@@ -91,8 +112,10 @@ class ServerRefreshWorkerTest {
         assertEquals(ListenableWorker.Result.retry(), result)
     }
 
-    private fun createWorker(): ServerRefreshWorker {
-        return TestListenableWorkerBuilder<ServerRefreshWorker>(context).build()
+    private fun createWorker(inputData: Data = Data.EMPTY): ServerRefreshWorker {
+        return TestListenableWorkerBuilder<ServerRefreshWorker>(context)
+            .setInputData(inputData)
+            .build()
     }
 
     private fun clearServerState() {
