@@ -106,7 +106,35 @@ class ServerRepository(
         withContext(Dispatchers.IO) {
             val settings = settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
-            require(urls.isNotEmpty()) { "No server URLs configured" }
+
+            if (urls.isEmpty()) {
+                val now = System.currentTimeMillis()
+                val fallbackCache = readLastCache(context)
+                if (cacheOnly) {
+                    val cacheForRead = fallbackCache
+                        ?: throw IOException("Server cache is empty while VPN is connected")
+                    val servers = parseServers(cacheForRead.file)
+                    AppLog.w(
+                        TAG,
+                        "No usable server URLs; using last cache in cache-only mode. age=${now - cacheForRead.ts} ms, cache_key=${cacheForRead.key.take(8)}"
+                    )
+                    saveLastCacheKey(context, cacheForRead.key)
+                    return@withContext servers
+                }
+
+                fallbackCache?.let {
+                    val servers = parseServers(it.file)
+                    AppLog.w(
+                        TAG,
+                        "No usable server URLs configured; using last cached servers. age=${now - it.ts} ms, cache_key=${it.key.take(8)}"
+                    )
+                    saveLastCacheKey(context, it.key)
+                    return@withContext servers
+                }
+
+                AppLog.w(TAG, "No usable server URLs configured and cache is empty; returning empty server list")
+                return@withContext emptyList()
+            }
 
             val cacheKey = cacheKey(urls)
             val cached = readCache(context, cacheKey)

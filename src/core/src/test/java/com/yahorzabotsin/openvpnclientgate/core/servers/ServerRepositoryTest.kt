@@ -406,5 +406,23 @@ class ServerRepositoryTest {
         assertEquals("cached-by-default", cacheOnly.single().name)
         assertEquals(1, api.callCount)
     }
+
+    @Test
+    fun returns_empty_without_network_when_only_placeholder_custom_url_configured() = runBlocking {
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://placeholder/api/v1/servers/active"
+            )
+        )
+
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("unused"))) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val loaded = repo.getServers(context, forceRefresh = true)
+        assertTrue(loaded.isEmpty())
+        assertEquals(0, api.callCount)
+    }
 }
 

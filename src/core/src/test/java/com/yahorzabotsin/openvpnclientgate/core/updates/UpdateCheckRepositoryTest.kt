@@ -172,6 +172,43 @@ class UpdateCheckRepositoryTest {
     }
 
     @Test
+    fun `checkForUpdate ignores placeholder sources and uses first valid source`() = runTest {
+        val api = CapturingUpdateApi()
+        val repository = DefaultUpdateCheckRepository(
+            context,
+            api,
+            sourcesOverride = listOf(
+                "https://placeholder/api/v1/servers/active",
+                "https://valid-updates.example/api/v1/servers/active"
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNotNull(result)
+        assertEquals(1, api.callCount)
+        assertEquals("valid-updates.example", Uri.parse(api.requestedUrls.single()).host)
+    }
+
+    @Test
+    fun `checkForUpdate returns null when all sources are placeholders`() = runTest {
+        val api = CapturingUpdateApi()
+        val repository = DefaultUpdateCheckRepository(
+            context,
+            api,
+            sourcesOverride = listOf(
+                "https://placeholder/api/v1/servers/active",
+                "https://placeholder/api/v1/servers/active"
+            )
+        )
+
+        val result = repository.checkForUpdate(forceRefresh = true)
+
+        assertNull(result)
+        assertEquals(0, api.callCount)
+    }
+
+    @Test
     fun `checkForUpdate falls back to v1 when v2 endpoint fails`() = runTest {
         val api = CapturingUpdateApi(
             failUrlsContaining = listOf("/api/v2/versions/check-update")

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_gif_tint_color">@color/dark_base_background</color>
+</resources>
