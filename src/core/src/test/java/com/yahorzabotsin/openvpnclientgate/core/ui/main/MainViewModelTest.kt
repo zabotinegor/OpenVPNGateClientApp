@@ -32,7 +32,7 @@ class MainViewModelTest {
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
 
     @Test
-    fun `load initial selection updates state with cache only from connection state`() = runTest {
+    fun `load initial selection updates state with api refresh when vpn connected`() = runTest {
         val interactor = FakeMainSelectionInteractor(
             initialSelection = InitialSelection(
                 country = "France",
@@ -50,7 +50,7 @@ class MainViewModelTest {
         viewModel.onAction(MainAction.LoadInitialSelection)
         advanceUntilIdle()
 
-        assertTrue(interactor.lastCacheOnly == true)
+        assertTrue(interactor.lastCacheOnly == false)
         val selected = viewModel.state.value.selectedServer
         assertEquals("France", selected?.country)
         assertEquals("config", selected?.config)

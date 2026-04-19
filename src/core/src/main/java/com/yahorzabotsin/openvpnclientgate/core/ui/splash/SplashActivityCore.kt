@@ -22,6 +22,7 @@ import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -131,7 +132,9 @@ abstract class SplashActivityCore : AppCompatActivity() {
         serverPreloadJob?.cancel()
         serverPreloadJob = lifecycleScope.launch {
             try {
-                val cacheOnly = connectionStateProvider.isConnected()
+                val isConnected = connectionStateProvider.isConnected()
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
+                AppLog.i(tag, "Starting server preload. vpn_connected=$isConnected, cache_only=$cacheOnly")
                 withTimeout(SERVER_PRELOAD_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) {
                         preloadInteractor.preloadServers(cacheOnly = cacheOnly)

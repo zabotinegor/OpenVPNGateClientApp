@@ -7,6 +7,7 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.AppDebugTree
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppReleaseTree
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.GlobalPreferences
 import org.koin.android.ext.koin.androidContext
@@ -33,7 +34,17 @@ class CoreApp : Application() {
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
+            schedulePeriodicServerRefresh()
             AppLog.d(TAG, "Skipping OpenVpnService auto-start in Application")
+        }
+    }
+
+    private fun schedulePeriodicServerRefresh() {
+        runCatching {
+            GlobalContext.get().get<ServerRefreshScheduler>().schedulePeriodicRefresh()
+            AppLog.i(TAG, "Periodic server refresh scheduling ensured")
+        }.onFailure {
+            AppLog.w(TAG, "Failed to schedule periodic server refresh", it)
         }
     }
 
