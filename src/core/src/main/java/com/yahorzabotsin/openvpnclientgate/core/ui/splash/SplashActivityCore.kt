@@ -2,11 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.splash
 
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Movie
+import android.graphics.drawable.Drawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import android.widget.ImageView
 import android.widget.ProgressBar
 import androidx.annotation.ColorRes
@@ -16,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.vectordrawable.graphics.drawable.Animatable2Compat
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.GlideException
@@ -38,11 +36,9 @@ abstract class SplashActivityCore : AppCompatActivity() {
     private val preloadInteractor: SplashServerPreloadInteractor by inject()
     private val connectionStateProvider: VpnConnectionStateProvider by inject()
 
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var imageView: ImageView? = null
     private var spinner: ProgressBar? = null
     private var hasNavigated = false
-    private var gifCompletedAtElapsedMs = 0L
     private var isGifCompleted = false
     private var isServerPreloadCompleted = false
     private var isReadyToNavigate = false
@@ -55,10 +51,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
     protected abstract val splashGifTintColorRes: Int
 
     protected abstract fun createMainIntent(): Intent
-
-    private val gifCompleteRunnable = Runnable {
-        onGifCompleted()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +67,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
         }
 
         startServerPreload()
-        val gifDurationMs = resolveGifDurationMs(splashGifRawRes)
 
         imageView?.let { view ->
             Glide.with(this)
@@ -105,7 +96,11 @@ abstract class SplashActivityCore : AppCompatActivity() {
                         isFirstResource: Boolean
                     ): Boolean {
                         resource.setLoopCount(1)
-                        scheduleGifCompletion(gifDurationMs)
+                        resource.registerAnimationCallback(object : Animatable2Compat.AnimationCallback() {
+                            override fun onAnimationEnd(drawable: Drawable?) {
+                                onGifCompleted()
+                            }
+                        })
                         return false
                     }
                 })
@@ -117,23 +112,11 @@ abstract class SplashActivityCore : AppCompatActivity() {
         super.onStart()
         if (isReadyToNavigate) {
             navigateToMain()
-            return
         }
-        if (!isGifCompleted && gifCompletedAtElapsedMs > 0L) {
-            val remainingDelayMs = (gifCompletedAtElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-            mainHandler.removeCallbacks(gifCompleteRunnable)
-            mainHandler.postDelayed(gifCompleteRunnable, remainingDelayMs)
-        }
-    }
-
-    override fun onStop() {
-        mainHandler.removeCallbacks(gifCompleteRunnable)
-        super.onStop()
     }
 
     override fun onDestroy() {
         serverPreloadJob?.cancel()
-        mainHandler.removeCallbacks(gifCompleteRunnable)
         imageView = null
         spinner = null
         super.onDestroy()
@@ -168,7 +151,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
     private fun onGifCompleted() {
         if (isGifCompleted) return
         isGifCompleted = true
-        gifCompletedAtElapsedMs = 0L
         if (isServerPreloadCompleted) {
             markReadyToNavigate()
         } else {
@@ -185,14 +167,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
         }
     }
 
-    private fun scheduleGifCompletion(delayMs: Long) {
-        gifCompletedAtElapsedMs = SystemClock.elapsedRealtime() + delayMs
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-            mainHandler.removeCallbacks(gifCompleteRunnable)
-            mainHandler.postDelayed(gifCompleteRunnable, delayMs)
-        }
-    }
-
     private fun navigateToMain() {
         if (hasNavigated) {
             return
@@ -203,21 +177,5 @@ abstract class SplashActivityCore : AppCompatActivity() {
         }
         startActivity(mainIntent)
         finish()
-    }
-
-    private fun resolveGifDurationMs(@RawRes gifRes: Int): Long {
-        return try {
-            resources.openRawResource(gifRes).use { inputStream ->
-                val durationMs = Movie.decodeStream(inputStream)?.duration() ?: 0
-                if (durationMs > 0) durationMs.toLong() else FALLBACK_GIF_DURATION_MS
-            }
-        } catch (e: android.content.res.Resources.NotFoundException) {
-            AppLog.w(tag, "GIF raw resource not found: $gifRes. Falling back to default splash duration.", e)
-            FALLBACK_GIF_DURATION_MS
-        }
-    }
-
-    companion object {
-        private const val FALLBACK_GIF_DURATION_MS = 3_000L
     }
 }

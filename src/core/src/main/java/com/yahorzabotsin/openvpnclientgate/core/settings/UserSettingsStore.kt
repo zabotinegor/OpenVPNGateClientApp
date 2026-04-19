@@ -133,7 +133,7 @@ object UserSettingsStore {
             .filter { isUsableServerUrl(it) }
     }
 
-    private fun isUsableServerUrl(url: String): Boolean {
+    fun isUsableServerUrl(url: String): Boolean {
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
         val scheme = uri.scheme?.lowercase() ?: return false
         val host = uri.host?.lowercase() ?: return false

@@ -45,7 +45,15 @@ fun isPlaceholderServerUrl(value: String?): Boolean {
 fun firstUsableServerUrl(vararg candidates: String?): String? {
     return candidates
         .mapNotNull { it?.trim() }
-        .firstOrNull { it.isNotBlank() && !isPlaceholderServerUrl(it) }
+        .firstOrNull { url ->
+            if (url.isBlank()) return@firstOrNull false
+            if (isPlaceholderServerUrl(url)) return@firstOrNull false
+            val scheme = runCatching { URI(url).scheme?.lowercase() }.getOrNull()
+            if (scheme != "https") error(
+                "Server URL must use HTTPS scheme, got: $url"
+            )
+            true
+        }
 }
 
 android {

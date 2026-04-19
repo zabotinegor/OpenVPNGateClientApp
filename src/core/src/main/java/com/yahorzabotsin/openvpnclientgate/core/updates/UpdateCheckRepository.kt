@@ -211,17 +211,8 @@ class DefaultUpdateCheckRepository(
             ApiConstants.FALLBACK_SERVERS_URL
         )).map { it.trim() }
             .filter { it.isNotBlank() }
-            .filter { isUsableServerUrl(it) }
+            .filter { settingsStore.isUsableServerUrl(it) }
             .distinct()
-    }
-
-    private fun isUsableServerUrl(url: String): Boolean {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
-        val scheme = uri.scheme?.lowercase() ?: return false
-        val host = uri.host?.lowercase() ?: return false
-        if (scheme != "https") return false
-        if (host == "placeholder") return false
-        return true
     }
 
     private fun parseCheckUpdate(rawJson: String): AppUpdateInfo? {
