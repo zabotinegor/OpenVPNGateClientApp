@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
@@ -23,6 +24,8 @@ class MainViewModel(
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: MainLogger
 ) : ViewModel() {
+
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "MainViewModel"
 
     private val _state = MutableStateFlow(MainUiState())
     val state = _state.asStateFlow()
@@ -51,9 +54,9 @@ class MainViewModel(
         loadUpdateAvailability()
         viewModelScope.launch {
             try {
-                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(
-                    connectionStateProvider.isConnected()
-                )
+                val vpnConnected = connectionStateProvider.isConnected()
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
+                logInfo("Initial selection load mode resolved. vpn_connected=$vpnConnected, cache_only=$cacheOnly")
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
                 logger.logInitialSelectionLoaded(selection)
                 updateSelectedServer(
@@ -294,5 +297,9 @@ class MainViewModel(
 
     private fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
         _state.value = _state.value.copy(isDetailsVisible = !isInMultiWindowMode)
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { AppLog.i(tag, message) }
     }
 }

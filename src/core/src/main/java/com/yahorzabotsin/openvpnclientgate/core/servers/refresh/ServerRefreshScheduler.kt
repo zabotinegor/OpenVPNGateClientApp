@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.util.concurrent.TimeUnit
 
@@ -51,10 +52,16 @@ internal class DefaultServerRefreshScheduler(
     private val cacheTtlProvider: ServerCacheTtlProvider
 ) : ServerRefreshScheduler {
 
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerRefreshScheduler"
+
     override fun schedulePeriodicRefresh() {
-        val intervalMinutes = TimeUnit.MILLISECONDS
-            .toMinutes(cacheTtlProvider.cacheTtlMs())
+        val rawTtlMs = cacheTtlProvider.cacheTtlMs()
+        val rawIntervalMinutes = TimeUnit.MILLISECONDS.toMinutes(rawTtlMs)
+        val intervalMinutes = rawIntervalMinutes
             .coerceAtLeast(MIN_PERIODIC_INTERVAL_MINUTES)
+        val clamped = intervalMinutes != rawIntervalMinutes
+
+        logInfo("Preparing periodic server refresh schedule. ttl_ms=$rawTtlMs, interval_min=$intervalMinutes, clamped_to_min=$clamped")
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -78,6 +85,14 @@ internal class DefaultServerRefreshScheduler(
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
+
+        logInfo(
+            "Periodic server refresh scheduled. work=$UNIQUE_WORK_NAME, policy=${ExistingPeriodicWorkPolicy.UPDATE}, interval_min=$intervalMinutes, backoff_min=$REFRESH_BACKOFF_MINUTES"
+        )
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { AppLog.i(tag, message) }
     }
 
     companion object {

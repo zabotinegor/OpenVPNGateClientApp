@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
@@ -22,6 +23,8 @@ class ServerListViewModel(
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: ServerListLogger
 ) : ViewModel() {
+
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListViewModel"
 
     private val _state = MutableStateFlow(
         ServerListUiState(isVpnConnected = connectionStateProvider.isConnected()).derived()
@@ -62,9 +65,9 @@ class ServerListViewModel(
         viewModelScope.launch {
             updateState { it.copy(isLoading = true) }
             try {
-                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(
-                    _state.value.isVpnConnected
-                )
+                val vpnConnected = _state.value.isVpnConnected
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
+                logInfo("Loading servers. force_refresh=$forceRefresh, vpn_connected=$vpnConnected, cache_only=$cacheOnly")
                 val loaded = interactor.getServers(forceRefresh, cacheOnly)
                 servers = loaded
                 logger.logLoadSuccess(loaded.size)
@@ -132,5 +135,20 @@ class ServerListViewModel(
         copy(
             isRefreshEnabled = !isLoading && !ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected),
             showRefreshHint = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
-        )
+        ).also {
+            if (!isLoading) {
+                logDebug(
+                    tag,
+                    "Derived refresh UI state. vpn_connected=$isVpnConnected, refresh_enabled=${it.isRefreshEnabled}, show_hint=${it.showRefreshHint}"
+                )
+            }
+        }
+
+    private fun logInfo(message: String) {
+        runCatching { AppLog.i(tag, message) }
+    }
+
+    private fun logDebug(logTag: String, message: String) {
+        runCatching { AppLog.d(logTag, message) }
+    }
 }

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
@@ -19,6 +20,8 @@ class CountryServersViewModel(
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: CountryServersLogger
 ) : ViewModel() {
+
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
 
     private val _state = MutableStateFlow(CountryServersUiState())
     val state = _state.asStateFlow()
@@ -54,11 +57,12 @@ class CountryServersViewModel(
         viewModelScope.launch {
             updateState { it.copy(isLoading = true) }
             try {
+                val vpnConnected = connectionStateProvider.isConnected()
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
+                logInfo("Loading country servers. country=$countryName, vpn_connected=$vpnConnected, cache_only=$cacheOnly")
                 val loaded = interactor.getServersForCountry(
                     countryName = countryName,
-                    cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(
-                        connectionStateProvider.isConnected()
-                    )
+                    cacheOnly = cacheOnly
                 )
                 if (loaded.isEmpty()) {
                     logger.logNoServers(countryName)
@@ -106,5 +110,9 @@ class CountryServersViewModel(
 
     private fun updateState(block: (CountryServersUiState) -> CountryServersUiState) {
         _state.value = block(_state.value)
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { AppLog.i(tag, message) }
     }
 }
