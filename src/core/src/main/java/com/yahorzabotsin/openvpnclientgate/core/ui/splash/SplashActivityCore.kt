@@ -10,6 +10,7 @@ import androidx.annotation.ColorRes
 import androidx.annotation.RawRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -26,8 +27,10 @@ import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.koin.android.ext.android.inject
 
 abstract class SplashActivityCore : AppCompatActivity() {
@@ -43,6 +46,10 @@ abstract class SplashActivityCore : AppCompatActivity() {
     private var isServerPreloadCompleted = false
     private var isReadyToNavigate = false
     private var serverPreloadJob: Job? = null
+
+    private companion object {
+        private const val SERVER_PRELOAD_TIMEOUT_MS = 12_000L
+    }
 
     @get:RawRes
     protected abstract val splashGifRawRes: Int
@@ -60,11 +67,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
         spinner = findViewById(R.id.splashLoadingSpinner)
         val isDarkTheme =
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-
-        // For light theme, tint the GIF with the dark theme base color.
-        if (!isDarkTheme) {
-            imageView?.setColorFilter(ContextCompat.getColor(this, splashGifTintColorRes))
-        }
 
         startServerPreload()
 
@@ -95,6 +97,12 @@ abstract class SplashActivityCore : AppCompatActivity() {
                         dataSource: DataSource,
                         isFirstResource: Boolean
                     ): Boolean {
+                        if (!isDarkTheme) {
+                            DrawableCompat.setTint(
+                                resource,
+                                ContextCompat.getColor(this@SplashActivityCore, splashGifTintColorRes)
+                            )
+                        }
                         resource.setLoopCount(1)
                         resource.registerAnimationCallback(object : Animatable2Compat.AnimationCallback() {
                             override fun onAnimationEnd(drawable: Drawable?) {
@@ -127,9 +135,16 @@ abstract class SplashActivityCore : AppCompatActivity() {
         serverPreloadJob = lifecycleScope.launch {
             try {
                 val cacheOnly = connectionStateProvider.isConnected()
-                withContext(Dispatchers.IO) {
-                    preloadInteractor.preloadServers(cacheOnly = cacheOnly)
+                withTimeout(SERVER_PRELOAD_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        preloadInteractor.preloadServers(cacheOnly = cacheOnly)
+                    }
                 }
+            } catch (e: TimeoutCancellationException) {
+                AppLog.w(
+                    tag,
+                    "Server preload timed out after ${SERVER_PRELOAD_TIMEOUT_MS} ms; continuing startup"
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
