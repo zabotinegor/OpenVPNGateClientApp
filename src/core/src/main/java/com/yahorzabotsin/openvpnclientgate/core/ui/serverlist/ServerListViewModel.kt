@@ -3,9 +3,11 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
@@ -21,6 +23,8 @@ class ServerListViewModel(
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: ServerListLogger
 ) : ViewModel() {
+
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListViewModel"
 
     private val _state = MutableStateFlow(
         ServerListUiState(isVpnConnected = connectionStateProvider.isConnected()).derived()
@@ -61,7 +65,9 @@ class ServerListViewModel(
         viewModelScope.launch {
             updateState { it.copy(isLoading = true) }
             try {
-                val cacheOnly = _state.value.isVpnConnected
+                val vpnConnected = _state.value.isVpnConnected
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
+                logInfo("Loading servers. force_refresh=$forceRefresh, vpn_connected=$vpnConnected, cache_only=$cacheOnly")
                 val loaded = interactor.getServers(forceRefresh, cacheOnly)
                 servers = loaded
                 logger.logLoadSuccess(loaded.size)
@@ -125,9 +131,16 @@ class ServerListViewModel(
         _state.value = block(_state.value).derived()
     }
 
-    private fun ServerListUiState.derived(): ServerListUiState =
-        copy(
-            isRefreshEnabled = !isLoading && !isVpnConnected,
-            showRefreshHint = isVpnConnected
+    private fun ServerListUiState.derived(): ServerListUiState {
+        val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
+        return copy(
+            isRefreshEnabled = !isLoading && !cacheOnly,
+            showRefreshHint = cacheOnly
         )
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { AppLog.i(tag, message) }
+    }
+
 }
