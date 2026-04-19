@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
@@ -61,7 +62,9 @@ class ServerListViewModel(
         viewModelScope.launch {
             updateState { it.copy(isLoading = true) }
             try {
-                val cacheOnly = _state.value.isVpnConnected
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(
+                    _state.value.isVpnConnected
+                )
                 val loaded = interactor.getServers(forceRefresh, cacheOnly)
                 servers = loaded
                 logger.logLoadSuccess(loaded.size)
@@ -127,7 +130,7 @@ class ServerListViewModel(
 
     private fun ServerListUiState.derived(): ServerListUiState =
         copy(
-            isRefreshEnabled = !isLoading && !isVpnConnected,
-            showRefreshHint = isVpnConnected
+            isRefreshEnabled = !isLoading && !ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected),
+            showRefreshHint = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
         )
 }

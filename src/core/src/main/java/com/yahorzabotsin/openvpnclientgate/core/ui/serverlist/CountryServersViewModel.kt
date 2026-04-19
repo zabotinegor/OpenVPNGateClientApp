@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -55,7 +56,9 @@ class CountryServersViewModel(
             try {
                 val loaded = interactor.getServersForCountry(
                     countryName = countryName,
-                    cacheOnly = connectionStateProvider.isConnected()
+                    cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(
+                        connectionStateProvider.isConnected()
+                    )
                 )
                 if (loaded.isEmpty()) {
                     logger.logNoServers(countryName)
