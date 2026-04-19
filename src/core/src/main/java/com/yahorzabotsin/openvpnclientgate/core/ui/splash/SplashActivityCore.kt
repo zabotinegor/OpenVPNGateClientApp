@@ -10,7 +10,6 @@ import androidx.annotation.ColorRes
 import androidx.annotation.RawRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -68,6 +67,10 @@ abstract class SplashActivityCore : AppCompatActivity() {
         val isDarkTheme =
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
+        if (!isDarkTheme) {
+            imageView?.setColorFilter(ContextCompat.getColor(this, splashGifTintColorRes))
+        }
+
         startServerPreload()
 
         imageView?.let { view ->
@@ -97,12 +100,6 @@ abstract class SplashActivityCore : AppCompatActivity() {
                         dataSource: DataSource,
                         isFirstResource: Boolean
                     ): Boolean {
-                        if (!isDarkTheme) {
-                            DrawableCompat.setTint(
-                                resource,
-                                ContextCompat.getColor(this@SplashActivityCore, splashGifTintColorRes)
-                            )
-                        }
                         resource.setLoopCount(1)
                         resource.registerAnimationCallback(object : Animatable2Compat.AnimationCallback() {
                             override fun onAnimationEnd(drawable: Drawable?) {
