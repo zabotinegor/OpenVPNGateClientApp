@@ -23,7 +23,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 
 class ConnectionControlsView @JvmOverloads constructor(
     context: Context,
@@ -137,7 +137,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 SelectedCountryVersionSignal.version
-                    .drop(1)
+                    .filter { it > 0L }
                     .collect {
                         updateServerPosition()
                         syncSelectedServerIpFromStore()

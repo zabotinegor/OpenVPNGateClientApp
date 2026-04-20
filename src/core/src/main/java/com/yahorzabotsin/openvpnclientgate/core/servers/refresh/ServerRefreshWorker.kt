@@ -46,6 +46,9 @@ class ServerRefreshWorker(
                     runCatching {
                         selectedCountrySync.syncAfterRefresh(freshServers)
                     }.onFailure { syncError ->
+                        if (syncError is CancellationException) {
+                            throw syncError
+                        }
                         AppLog.w(TAG, "Selected country sync failed after refresh", syncError)
                     }
                 }
