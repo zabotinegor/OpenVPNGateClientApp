@@ -140,6 +140,7 @@ class ConnectionControlsView @JvmOverloads constructor(
                     .drop(1)
                     .collect {
                         updateServerPosition()
+                        syncSelectedServerIpFromStore()
                     }
             }
         }
