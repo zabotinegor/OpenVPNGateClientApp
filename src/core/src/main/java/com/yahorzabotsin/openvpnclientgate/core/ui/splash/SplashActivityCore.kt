@@ -2,7 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.splash
 
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.widget.ImageView
 import android.widget.ProgressBar
@@ -13,13 +12,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.vectordrawable.graphics.drawable.Animatable2Compat
-import com.bumptech.glide.Glide
-import com.bumptech.glide.load.DataSource
-import com.bumptech.glide.load.engine.GlideException
-import com.bumptech.glide.load.resource.gif.GifDrawable
-import com.bumptech.glide.request.RequestListener
-import com.bumptech.glide.request.target.Target
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
@@ -32,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.koin.android.ext.android.inject
+import pl.droidsonroids.gif.GifDrawable
 
 abstract class SplashActivityCore : AppCompatActivity() {
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "SplashActivityCore"
@@ -46,6 +39,7 @@ abstract class SplashActivityCore : AppCompatActivity() {
     private var isServerPreloadCompleted = false
     private var isReadyToNavigate = false
     private var serverPreloadJob: Job? = null
+    private var splashGifDrawable: GifDrawable? = null
 
     private companion object {
         private const val SERVER_PRELOAD_TIMEOUT_MS = 12_000L
@@ -73,44 +67,28 @@ abstract class SplashActivityCore : AppCompatActivity() {
         }
 
         startServerPreload()
+        loadSplashGif()
+    }
 
-        imageView?.let { view ->
-            Glide.with(this)
-                .asGif()
-                .load(splashGifRawRes)
-                .listener(object : RequestListener<GifDrawable> {
-                    override fun onLoadFailed(
-                        e: GlideException?,
-                        model: Any?,
-                        target: Target<GifDrawable>,
-                        isFirstResource: Boolean
-                    ): Boolean {
-                        if (e != null) {
-                            AppLog.w(tag, "Splash GIF load failed; continuing without GIF", e)
-                        } else {
-                            AppLog.w(tag, "Splash GIF load failed; continuing without GIF")
-                        }
-                        onGifCompleted()
-                        return false
-                    }
-
-                    override fun onResourceReady(
-                        resource: GifDrawable,
-                        model: Any,
-                        target: Target<GifDrawable>?,
-                        dataSource: DataSource,
-                        isFirstResource: Boolean
-                    ): Boolean {
-                        resource.setLoopCount(1)
-                        resource.registerAnimationCallback(object : Animatable2Compat.AnimationCallback() {
-                            override fun onAnimationEnd(drawable: Drawable?) {
-                                onGifCompleted()
-                            }
-                        })
-                        return false
-                    }
-                })
-                .into(view)
+    private fun loadSplashGif() {
+        val view = imageView ?: run {
+            onGifCompleted()
+            return
+        }
+        try {
+            val gifDrawable = GifDrawable(resources, splashGifRawRes).apply {
+                setLoopCount(1)
+                setSpeed(1.5f)
+                addAnimationListener { _ ->
+                    runOnUiThread { onGifCompleted() }
+                }
+            }
+            splashGifDrawable = gifDrawable
+            view.setImageDrawable(gifDrawable)
+            gifDrawable.start()
+        } catch (e: Exception) {
+            AppLog.w(tag, "Splash GIF load failed; continuing without GIF", e)
+            onGifCompleted()
         }
     }
 
@@ -123,6 +101,9 @@ abstract class SplashActivityCore : AppCompatActivity() {
 
     override fun onDestroy() {
         serverPreloadJob?.cancel()
+        splashGifDrawable?.stop()
+        splashGifDrawable?.recycle()
+        splashGifDrawable = null
         imageView = null
         spinner = null
         super.onDestroy()
@@ -194,3 +175,4 @@ abstract class SplashActivityCore : AppCompatActivity() {
         finish()
     }
 }
+
