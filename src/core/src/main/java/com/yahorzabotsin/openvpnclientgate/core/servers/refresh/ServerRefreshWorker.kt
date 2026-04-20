@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
 import kotlinx.coroutines.CancellationException
 import org.koin.core.context.GlobalContext
 
@@ -21,6 +22,12 @@ class ServerRefreshWorker(
             AppLog.w(TAG, "Periodic refresh failed to resolve dependencies", error)
             return Result.retry()
         }
+        val selectedCountrySync = runCatching {
+            GlobalContext.get().get<SelectedCountryServerSync>()
+        }.getOrElse { error ->
+            AppLog.w(TAG, "Selected country sync dependency is unavailable; refresh will continue without sync", error)
+            null
+        }
 
         val additionalRetryCount = inputData
             .getInt(KEY_ADDITIONAL_RETRY_COUNT, DEFAULT_ADDITIONAL_RETRY_COUNT)
@@ -30,11 +37,18 @@ class ServerRefreshWorker(
         var lastError: Exception? = null
         repeat(attempts) { attemptIndex ->
             try {
-                repository.getServers(
+                val freshServers = repository.getServers(
                     context = applicationContext,
                     forceRefresh = true,
                     cacheOnly = false
                 )
+                if (selectedCountrySync != null) {
+                    runCatching {
+                        selectedCountrySync.syncAfterRefresh(freshServers)
+                    }.onFailure { syncError ->
+                        AppLog.w(TAG, "Selected country sync failed after refresh", syncError)
+                    }
+                }
                 AppLog.i(TAG, "Periodic server refresh completed")
                 return Result.success()
             } catch (e: CancellationException) {

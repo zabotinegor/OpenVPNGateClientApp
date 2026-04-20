@@ -197,5 +197,62 @@ class SelectedCountryStoreTest {
         assertEquals("config1", stored[0].config)
         assertEquals("AA", stored[0].countryCode)
     }
+
+    @Test
+    fun saveSelectionPreservingIndex_preserves_current_server_and_bumps_version() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val initial = listOf(
+            server(name = "srv-1", city = "City1", country = Country("CountryA", "AA"), config = "config1", lineIndex = 1, ip = "10.0.0.1"),
+            server(name = "srv-2", city = "City2", country = Country("CountryA", "AA"), config = "config2", lineIndex = 2, ip = "10.0.0.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", initial)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        val refreshed = listOf(
+            server(name = "srv-x", city = "CityX", country = Country("CountryA", "AA"), config = "configX", lineIndex = 3, ip = "10.0.0.9"),
+            server(name = "srv-2", city = "City2-new", country = Country("CountryA", "AA"), config = "config2", lineIndex = 4, ip = "10.0.0.2"),
+            server(name = "srv-3", city = "City3", country = Country("CountryA", "AA"), config = "config3", lineIndex = 5, ip = "10.0.0.3")
+        )
+
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "CountryA", refreshed)
+
+        val current = SelectedCountryStore.currentServer(ctx)
+        assertNotNull(current)
+        assertEquals("config2", current!!.config)
+        assertEquals("10.0.0.2", current.ip)
+        assertEquals(3, SelectedCountryStore.getServers(ctx).size)
+        assertEquals((2 to 3), SelectedCountryStore.getCurrentPosition(ctx))
+        assertTrue(SelectedCountryVersionSignal.version.value > versionBefore)
+    }
+
+    @Test
+    fun saveSelectionPreservingIndex_ignores_other_country() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val initial = listOf(
+            server(name = "srv-1", city = "City1", country = Country("CountryA"), config = "config1", lineIndex = 1, ip = "10.0.0.1"),
+            server(name = "srv-2", city = "City2", country = Country("CountryA"), config = "config2", lineIndex = 2, ip = "10.0.0.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", initial)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        val otherCountryServers = listOf(
+            server(name = "srv-3", city = "City3", country = Country("CountryB"), config = "config3", lineIndex = 3, ip = "10.0.1.3")
+        )
+
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "CountryB", otherCountryServers)
+
+        assertEquals("CountryA", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(2, SelectedCountryStore.getServers(ctx).size)
+        assertEquals((2 to 2), SelectedCountryStore.getCurrentPosition(ctx))
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
 }
 

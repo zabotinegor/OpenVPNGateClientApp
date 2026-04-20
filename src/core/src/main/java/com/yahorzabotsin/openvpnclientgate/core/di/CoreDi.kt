@@ -17,6 +17,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInt
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.PeriodicWorkEnqueuer
@@ -115,6 +116,7 @@ val coreModule = module {
     single<AppUpdateInstaller> { DefaultAppUpdateInstaller(androidContext(), get()) }
 
     single { ServerRepository(get()) }
+    single { SelectedCountryServerSync(androidContext(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
     single { WorkManager.getInstance(androidContext()) }

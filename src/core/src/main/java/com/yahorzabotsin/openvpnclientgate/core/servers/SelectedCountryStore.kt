@@ -58,6 +58,31 @@ object SelectedCountryStore {
             .apply()
     }
 
+    fun saveSelectionPreservingIndex(ctx: Context, country: String, servers: List<Server>) {
+        val selectedCountry = getSelectedCountry(ctx)
+        if (selectedCountry != country) return
+
+        val previousCurrent = currentServer(ctx)
+        val previousCount = getServers(ctx).size
+
+        saveSelection(ctx, country, servers)
+
+        if (previousCurrent != null) {
+            ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)
+        }
+
+        val newCount = getServers(ctx).size
+        val restoredCurrent = currentServer(ctx)
+        val currentRestored = previousCurrent != null && restoredCurrent != null &&
+            restoredCurrent.config == previousCurrent.config &&
+            restoredCurrent.ip == previousCurrent.ip
+        AppLog.i(
+            TAG,
+            "saveSelectionPreservingIndex: country=$country, count=$previousCount->$newCount, current_restored=$currentRestored"
+        )
+        SelectedCountryVersionSignal.bump()
+    }
+
     fun getSelectedCountry(ctx: Context): String? = prefs(ctx).getString(KEY_COUNTRY, null)
 
     fun getServers(ctx: Context): List<StoredServer> {
