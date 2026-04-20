@@ -326,6 +326,40 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun loadConfigs_prefers_last_cache_key_when_primary_file_exists_but_is_stale_snapshot() = runBlocking {
+        val initial = makeServer("initial", lineIndex = 1).copy(configData = "cfg-default")
+        val firstApi = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val firstRepo = ServerRepository(firstApi, UserSettingsStore)
+
+        val firstServers = firstRepo.getServers(context, forceRefresh = true)
+        assertEquals("initial", firstServers.single().name)
+        assertEquals("cfg-default", firstRepo.loadConfigs(context, firstServers)[1])
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://custom.example/servers.csv"
+            )
+        )
+
+        val customServer = makeServer("custom", lineIndex = 1).copy(configData = "cfg-custom")
+        val secondApi = SequenceApi(listOf({ sampleCsv(listOf(customServer)) }))
+        val secondRepo = ServerRepository(secondApi, UserSettingsStore)
+
+        val customServers = secondRepo.getServers(context, forceRefresh = true)
+        assertEquals("custom", customServers.single().name)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(serverSource = ServerSource.DEFAULT)
+        )
+
+        val configs = secondRepo.loadConfigs(context, customServers)
+        assertEquals("cfg-custom", configs[1])
+    }
+
+    @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
         val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
         val repo = ServerRepository(api, UserSettingsStore)

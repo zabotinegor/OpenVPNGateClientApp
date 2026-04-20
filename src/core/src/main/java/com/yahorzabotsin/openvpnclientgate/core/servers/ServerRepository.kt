@@ -276,8 +276,8 @@ class ServerRepository(
             val lastKey = prefs.getString(KEY_LAST_CACHE, null)
             val lastFile = lastKey?.let { cacheFile(context, it) }
             val file = when {
-                primaryFile.exists() -> primaryFile
                 lastFile?.exists() == true -> lastFile
+                primaryFile.exists() -> primaryFile
                 else -> return@withContext emptyMap()
             }
 
