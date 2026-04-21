@@ -211,6 +211,7 @@ class DefaultUpdateCheckRepository(
             ApiConstants.FALLBACK_SERVERS_URL
         )).map { it.trim() }
             .filter { it.isNotBlank() }
+            .filter { settingsStore.isUsableServerUrl(it) }
             .distinct()
     }
 

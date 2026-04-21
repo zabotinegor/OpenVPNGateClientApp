@@ -18,10 +18,12 @@ import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ViewConnectionControlsBinding
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 
 class ConnectionControlsView @JvmOverloads constructor(
     context: Context,
@@ -130,6 +132,16 @@ class ConnectionControlsView @JvmOverloads constructor(
                     updateButtonState(state)
                     syncSelectedServerIpFromStore()
                 }
+            }
+        }
+        lifecycleOwner.launchLogged(TAG) {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                SelectedCountryVersionSignal.version
+                    .filter { it > 0L }
+                    .collect {
+                        updateServerPosition()
+                        syncSelectedServerIpFromStore()
+                    }
             }
         }
         lifecycleOwner.launchLogged(TAG) {

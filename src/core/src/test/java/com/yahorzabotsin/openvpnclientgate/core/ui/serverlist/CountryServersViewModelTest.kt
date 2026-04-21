@@ -69,7 +69,7 @@ class CountryServersViewModelTest {
         vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
         advanceUntilIdle()
 
-        assertEquals(true, interactor.lastCacheOnly)
+        assertEquals(false, interactor.lastCacheOnly)
         assertEquals(2, vm.state.value.servers.size)
         assertTrue(effects.first() is CountryServersEffect.FocusFirstItem)
         job.cancel()

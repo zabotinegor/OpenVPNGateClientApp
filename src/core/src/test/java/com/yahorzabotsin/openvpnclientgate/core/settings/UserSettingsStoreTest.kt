@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.settings
 import android.content.Context
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,6 +61,30 @@ class UserSettingsStoreTest {
 
         val settings = UserSettingsStore.load(context)
         assertEquals(DnsOption.QUAD9, settings.dnsOption)
+    }
+
+    @Test
+    fun resolve_server_urls_filters_placeholder_for_custom_source() {
+        val urls = UserSettingsStore.resolveServerUrls(
+            UserSettings(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://placeholder/api/v1/servers/active"
+            )
+        )
+
+        assertTrue(urls.isEmpty())
+    }
+
+    @Test
+    fun resolve_server_urls_filters_non_https_for_custom_source() {
+        val urls = UserSettingsStore.resolveServerUrls(
+            UserSettings(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "http://example.com/api/v1/servers/active"
+            )
+        )
+
+        assertTrue(urls.isEmpty())
     }
 }
 

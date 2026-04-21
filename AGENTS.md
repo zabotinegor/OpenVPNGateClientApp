@@ -63,6 +63,15 @@
 - Release build hardening is intentional: `src/mobile` `release` and `src/tv` `release` must keep `isMinifyEnabled=true` and `isShrinkResources=true`.
 - Preserve each module's current `jniLibs.useLegacyPackaging` setting; do not change these as cleanup without a concrete need.
 
+## Agent Documentation Governance
+- Keep AI-agent governance docs synchronized when workflow instructions change:
+  - .github/AGENTS-REGISTRY.md
+  - .github/FRONTMATTER-SCHEMA.md
+- Keep local overlays aligned with global docs while preserving local-only constraints:
+  - README.local.md
+  - AGENTS.local.md
+- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
 - `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
@@ -73,6 +82,8 @@
 - `src/build.gradle.kts` for aggregate app tasks.
 - `src/core/build.gradle.kts` for required build configuration and generated `BuildConfig` fields.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/di/CoreDi.kt` for DI wiring.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashActivityCore.kt` for the shared splash/startup flow.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` for startup preload behavior.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 

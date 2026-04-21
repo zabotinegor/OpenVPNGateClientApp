@@ -2,10 +2,13 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -14,8 +17,11 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
-    private val logger: SettingsLogger
+    private val logger: SettingsLogger,
+    private val scheduler: ServerRefreshScheduler
 ) : ViewModel() {
+
+    private val tag = LogTags.APP + ':' + "SettingsViewModel"
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state = _state.asStateFlow()
@@ -154,6 +160,10 @@ class SettingsViewModel(
         if (logicalChanged) {
             repository.saveCacheTtlMs(ttlMs!!)
             logger.logCacheTtlChanged(ttlMs)
+            runCatching { scheduler.schedulePeriodicRefresh() }
+                .onFailure {
+                    AppLog.w(tag, "Failed to reschedule periodic refresh", it)
+                }
         }
     }
 

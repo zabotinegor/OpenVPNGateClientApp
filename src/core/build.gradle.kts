@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.library)
@@ -34,6 +35,27 @@ fun loadLocalServersConfig(): Map<String, String> {
     }
 }
 
+fun isPlaceholderServerUrl(value: String?): Boolean {
+    val normalized = value?.trim().orEmpty()
+    if (normalized.isBlank()) return false
+    val host = runCatching { URI(normalized).host?.lowercase() }.getOrNull()
+    return host == "placeholder"
+}
+
+fun firstUsableServerUrl(vararg candidates: String?): String? {
+    return candidates
+        .mapNotNull { it?.trim() }
+        .firstOrNull { url ->
+            if (url.isBlank()) return@firstOrNull false
+            if (isPlaceholderServerUrl(url)) return@firstOrNull false
+            val scheme = runCatching { URI(url).scheme?.lowercase() }.getOrNull()
+            if (scheme != "https") error(
+                "Server URL must use HTTPS scheme, got: $url"
+            )
+            true
+        }
+}
+
 android {
     namespace = "${rootProject.extra.get("basePackageName")}.core"
     compileSdk = 36
@@ -53,14 +75,16 @@ android {
 
         val localConfig = loadLocalServersConfig()
 
-        val primaryServersUrl: String? =
-            (project.findProperty("PRIMARY_SERVERS_URL") as String?)
-                ?: System.getenv("PRIMARY_SERVERS_URL")
-                ?: localConfig["PRIMARY_SERVERS_URL"]
-        val fallbackServersUrl: String? =
-            (project.findProperty("FALLBACK_SERVERS_URL") as String?)
-                ?: System.getenv("FALLBACK_SERVERS_URL")
-                ?: localConfig["FALLBACK_SERVERS_URL"]
+        val primaryServersUrl: String? = firstUsableServerUrl(
+            project.findProperty("PRIMARY_SERVERS_URL") as String?,
+            System.getenv("PRIMARY_SERVERS_URL"),
+            localConfig["PRIMARY_SERVERS_URL"]
+        )
+        val fallbackServersUrl: String? = firstUsableServerUrl(
+            project.findProperty("FALLBACK_SERVERS_URL") as String?,
+            System.getenv("FALLBACK_SERVERS_URL"),
+            localConfig["FALLBACK_SERVERS_URL"]
+        )
         val appReleaseType: String =
             ((project.findProperty("appReleaseType") as String?)
                 ?: System.getenv("APP_RELEASE_TYPE")
@@ -69,10 +93,10 @@ android {
                 .lowercase()
 
         require(!primaryServersUrl.isNullOrBlank()) {
-            "PRIMARY_SERVERS_URL is not set. Provide it via Gradle property PRIMARY_SERVERS_URL or env var PRIMARY_SERVERS_URL."
+            "PRIMARY_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property PRIMARY_SERVERS_URL, env var PRIMARY_SERVERS_URL, or servers.local.json."
         }
         require(!fallbackServersUrl.isNullOrBlank()) {
-            "FALLBACK_SERVERS_URL is not set. Provide it via Gradle property FALLBACK_SERVERS_URL or env var FALLBACK_SERVERS_URL."
+            "FALLBACK_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property FALLBACK_SERVERS_URL, env var FALLBACK_SERVERS_URL, or servers.local.json."
         }
         require(appReleaseType == "release" || appReleaseType == "beta") {
             "APP_RELEASE_TYPE/appReleaseType must be either 'release' or 'beta'."
@@ -109,7 +133,10 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.retrofit.converter.scalars)
+    implementation(libs.android.gif.drawable)
     implementation(libs.koin.android)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.timber)
     implementation(libs.commonmark)
@@ -118,7 +145,8 @@ dependencies {
     testImplementation(libs.koin.test)
     testImplementation(libs.koin.test.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation("androidx.test:core:1.5.0")
+    testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

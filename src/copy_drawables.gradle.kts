@@ -3,16 +3,24 @@ import java.io.File
 tasks.register("copyAndRenameDrawables") {
     doLast {
         val repoRoot = rootProject.rootDir.parentFile
-        val sourceDirs = listOf(
+        val logoSourceDirs = listOf(
             File(repoRoot, "media/Logos"),
             File(repoRoot, "media/Logo")
         )
-        val sourceDir = sourceDirs.firstOrNull { it.exists() }
+        val logoSourceDir = logoSourceDirs.firstOrNull { it.exists() }
+        val videoSourceDir = File(repoRoot, "media/Video")
 
-        if (sourceDir == null) {
+        if (logoSourceDir == null) {
             throw GradleException(
                 "Source media directory not found. Ensure 'media' submodule is cloned:\n" +
                         "  git submodule update --init --recursive"
+            )
+        }
+
+        if (!videoSourceDir.exists()) {
+            throw GradleException(
+                "Source media video directory not found. Ensure 'media' submodule is up to date:\n" +
+                        "  git submodule update --init --recursive --remote media"
             )
         }
 
@@ -34,7 +42,7 @@ tasks.register("copyAndRenameDrawables") {
 
         imageMappings.forEach { (destination, candidates) ->
             val sourceFile = candidates
-                .map { File(sourceDir, it) }
+                .map { File(logoSourceDir, it) }
                 .firstOrNull { it.exists() }
 
             if (sourceFile != null) {
@@ -48,9 +56,25 @@ tasks.register("copyAndRenameDrawables") {
             }
         }
 
+        val splashGifSourceName = if (project.name.equals("tv", ignoreCase = true)) {
+            "Logo text in right.gif"
+        } else {
+            "Logo text in bottom.gif"
+        }
+        val splashGifSource = File(videoSourceDir, splashGifSourceName)
+        if (splashGifSource.exists()) {
+            val splashGifDestination = File(project.projectDir, "src/main/res/raw/splash_intro.gif")
+            splashGifDestination.parentFile.mkdirs()
+            splashGifSource.copyTo(splashGifDestination, overwrite = true)
+            println("Copied ${splashGifSource.name} to $splashGifDestination")
+        } else {
+            println("Source file not found for splash intro GIF: ${splashGifSource.absolutePath}")
+            missing = true
+        }
+
         if (missing) {
             throw GradleException(
-                "Required media files are missing. Ensure the 'media' submodule is cloned and contains appicon_GP_512x512.png (or appicon.png) and appbanner_GP_1280x720.png (or appdesc_GP_1024x500.png/logo_with_text_1536x1024.png)."
+                "Required media files are missing. Ensure the 'media' submodule is cloned and updated, then verify icon/banner assets in media/Logo and splash GIF assets in media/Video."
             )
         }
     }

@@ -14,6 +14,7 @@ The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two lau
 - `src/core` - shared UI, networking, settings, VPN orchestration.
 - `src/mobile` - phone/tablet launcher.
 - `src/tv` - Android TV launcher.
+- Splash/startup flow is centralized in `src/core` (`SplashActivityCore` + `SplashServerPreloadInteractor`), while `mobile` and `tv` keep thin launcher wrappers.
 - `src/openVpnEngine` -> `src/external/OpenVPNEngine/main` (git submodule).
 - `media` - private media submodule used for app icon/banner assets.
 
@@ -115,6 +116,9 @@ cd src
 ```
 
 ## Runtime Behavior (from current code)
+- App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
+- If preload outlives GIF playback, splash shows a loading spinner until preload completes.
+- If preload fails, startup still continues to main screen; fallback is logged as a warning.
 - Server source modes in settings:
   - `DEFAULT`: primary then fallback URL
   - `VPNGATE`: fallback URL only
@@ -127,7 +131,15 @@ cd src
 
 ## Logging and Diagnostics
 - Screen flow logs and VPN session logs are written via app logging trees.
+- Startup fallback paths (for example, splash preload or splash GIF load failures) are recorded as warning-level logs.
 - About screen supports exporting recent logcat archive for diagnostics.
+
+## AI Agent Documentation
+- [AGENTS.md](AGENTS.md): repository-level operational rules for coding agents.
+- [AGENTS.local.md](AGENTS.local.md): local-only backend and environment overrides (do not commit).
+- [README.local.md](README.local.md): local documentation overlay for machine-specific notes.
+- [.github/AGENTS-REGISTRY.md](.github/AGENTS-REGISTRY.md): source-of-truth mapping between agents and skills.
+- [.github/FRONTMATTER-SCHEMA.md](.github/FRONTMATTER-SCHEMA.md): frontmatter contract for .agent.md and SKILL.md files.
 
 ## Legal and Privacy
 Canonical documents:
@@ -139,4 +151,5 @@ The app links to hosted canonical pages and local copies are kept in sync for re
 ## Licensing
 This project, including the bundled `ics-openvpn` fork, is distributed under GPL-2.0-only.
 Review `LICENSE` and upstream notices in `src/external/OpenVPNEngine/doc/LICENSE.txt` before redistribution.
+
 

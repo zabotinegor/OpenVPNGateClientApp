@@ -1,9 +1,13 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody
@@ -17,6 +21,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.IOException
 import java.net.UnknownHostException
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
@@ -35,6 +42,29 @@ class ServerRepositoryTest {
             val block = responses.getOrElse(idx) { { throw IOException("No more responses") } }
             val body = block()
             return body.toResponseBody("text/plain".toMediaTypeOrNull())
+        }
+    }
+
+    private class CacheDirOverrideContext(
+        base: Context,
+        private val overrideCacheDir: java.io.File
+    ) : ContextWrapper(base) {
+        override fun getCacheDir(): java.io.File = overrideCacheDir
+    }
+
+    private class BarrierApi(
+        private val expectedCalls: Int,
+        private val responseBody: String
+    ) : VpnServersApi {
+        private val barrier = CyclicBarrier(expectedCalls)
+        private val _callCount = AtomicInteger(0)
+        val callCount: Int
+            get() = _callCount.get()
+
+        override suspend fun getServers(url: String): ResponseBody {
+            _callCount.incrementAndGet()
+            barrier.await(5, TimeUnit.SECONDS)
+            return responseBody.toResponseBody("text/plain".toMediaTypeOrNull())
         }
     }
 
@@ -326,6 +356,40 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun loadConfigs_prefers_last_cache_key_when_primary_file_exists_but_is_stale_snapshot() = runBlocking {
+        val initial = makeServer("initial", lineIndex = 1).copy(configData = "cfg-default")
+        val firstApi = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
+        val firstRepo = ServerRepository(firstApi, UserSettingsStore)
+
+        val firstServers = firstRepo.getServers(context, forceRefresh = true)
+        assertEquals("initial", firstServers.single().name)
+        assertEquals("cfg-default", firstRepo.loadConfigs(context, firstServers)[1])
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://custom.example/servers.csv"
+            )
+        )
+
+        val customServer = makeServer("custom", lineIndex = 1).copy(configData = "cfg-custom")
+        val secondApi = SequenceApi(listOf({ sampleCsv(listOf(customServer)) }))
+        val secondRepo = ServerRepository(secondApi, UserSettingsStore)
+
+        val customServers = secondRepo.getServers(context, forceRefresh = true)
+        assertEquals("custom", customServers.single().name)
+
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(serverSource = ServerSource.DEFAULT)
+        )
+
+        val configs = secondRepo.loadConfigs(context, customServers)
+        assertEquals("cfg-custom", configs[1])
+    }
+
+    @Test
     fun throws_when_both_primary_and_fallback_fail() = runBlocking {
         val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
         val repo = ServerRepository(api, UserSettingsStore)
@@ -385,6 +449,33 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun throws_ioexception_when_cache_write_fails_without_filenotfound_parse_crash() = runBlocking {
+        val invalidCacheRoot = java.io.File(context.cacheDir, "cache-root-as-file")
+        if (invalidCacheRoot.exists()) {
+            if (invalidCacheRoot.isDirectory) {
+                invalidCacheRoot.deleteRecursively()
+            } else {
+                invalidCacheRoot.delete()
+            }
+        }
+        invalidCacheRoot.writeText("not-a-directory")
+
+        val brokenContext = CacheDirOverrideContext(context, invalidCacheRoot)
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("srv-broken-cache"))) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        try {
+            repo.getServers(brokenContext, forceRefresh = true)
+            fail("Expected IOException when cache directory is invalid")
+        } catch (e: IOException) {
+            assertTrue(e !is java.io.FileNotFoundException)
+            assertTrue((e.message ?: "").contains("cache write failed"))
+        } finally {
+            invalidCacheRoot.delete()
+        }
+    }
+
+    @Test
     fun cache_only_uses_last_cache_key_when_current_key_missing() = runBlocking {
         val initial = makeServer("cached-by-default")
         val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
@@ -405,6 +496,42 @@ class ServerRepositoryTest {
         val cacheOnly = repo.getServers(context, cacheOnly = true)
         assertEquals("cached-by-default", cacheOnly.single().name)
         assertEquals(1, api.callCount)
+    }
+
+    @Test
+    fun returns_empty_without_network_when_only_placeholder_custom_url_configured() = runBlocking {
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://placeholder/api/v1/servers/active"
+            )
+        )
+
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("unused"))) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val loaded = repo.getServers(context, forceRefresh = true)
+        assertTrue(loaded.isEmpty())
+        assertEquals(0, api.callCount)
+    }
+
+    @Test
+    fun parallel_force_refresh_same_key_does_not_fail_cache_write() = runBlocking {
+        val parallelCalls = 8
+        val payload = sampleCsv(listOf(makeServer("parallel")))
+        val api = BarrierApi(parallelCalls, payload)
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val results = coroutineScope {
+            (1..parallelCalls).map {
+                async { repo.getServers(context, forceRefresh = true) }
+            }.awaitAll()
+        }
+
+        assertEquals(parallelCalls, results.size)
+        assertTrue(results.all { it.singleOrNull()?.name == "parallel" })
+        assertEquals(parallelCalls, api.callCount)
     }
 }
 

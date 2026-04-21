@@ -12,6 +12,7 @@ import java.io.FileReader
 import java.io.IOException
 import java.security.MessageDigest
 import java.io.Reader
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,7 @@ class ServerRepository(
         private const val KEY_LAST_CACHE = "last_cache_key"
         private const val CACHE_FILE_PREFIX = "servers_"
         private const val CACHE_FILE_SUFFIX = ".csv"
+        private val cacheWriteLocks = ConcurrentHashMap<String, Any>()
         private fun cacheKey(urls: List<String>): String {
             val joined = urls.joinToString("|")
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
@@ -56,7 +58,7 @@ class ServerRepository(
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
         val file = cacheFile(context, key)
-        if (ts <= 0 || !file.exists()) return null
+        if (ts <= 0 || !file.isFile) return null
         return file to ts
     }
 
@@ -66,33 +68,49 @@ class ServerRepository(
         if (!excludingKey.isNullOrBlank() && key == excludingKey) return null
         val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
         val file = cacheFile(context, key)
-        if (ts <= 0L || !file.exists()) return null
+        if (ts <= 0L || !file.isFile) return null
         return CacheEntry(key, file, ts)
     }
 
-    private fun writeCache(context: Context, key: String, body: ResponseBody) {
+    private fun writeCache(context: Context, key: String, body: ResponseBody): Boolean {
         val file = cacheFile(context, key)
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        runCatching {
-            body.use { response ->
-                tmp.outputStream().use { out ->
-                    response.byteStream().use { input ->
-                        input.copyTo(out)
+        val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.${Thread.currentThread().id}.tmp")
+        val lock = cacheWriteLocks.getOrPut(key) { Any() }
+        return runCatching {
+synchronized(lock) {
+                file.parentFile?.mkdirs()
+                body.use { response ->
+                    tmp.outputStream().use { out ->
+                        response.byteStream().use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                }
+                if (!tmp.renameTo(file)) {
+                    runCatching {
+                        tmp.copyTo(file, overwrite = true)
+                        tmp.delete()
+                    }.getOrElse { copyError ->
+                        // Another concurrent writer may have already published the final cache file.
+                        if (file.isFile && file.length() > 0L) {
+                            AppLog.d(TAG, "Cache file was published concurrently; using existing file")
+                        } else {
+                            throw IOException("Failed to move temp cache to final file", copyError)
+                        }
                     }
                 }
             }
-            if (file.exists()) file.delete()
-            if (!tmp.renameTo(file)) {
-                tmp.delete()
-                throw IOException("Failed to move temp cache to final file")
-            }
+            true
         }.onSuccess {
             context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
                 .edit()
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
                 .putString(KEY_LAST_CACHE, key)
                 .apply()
-        }.onFailure { AppLog.w(TAG, "Failed to write cache file", it) }
+        }.onFailure {
+            tmp.delete()
+            AppLog.w(TAG, "Failed to write cache file", it)
+        }.getOrDefault(false)
     }
 
     private fun saveLastCacheKey(context: Context, key: String) {
@@ -106,7 +124,35 @@ class ServerRepository(
         withContext(Dispatchers.IO) {
             val settings = settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
-            require(urls.isNotEmpty()) { "No server URLs configured" }
+
+            if (urls.isEmpty()) {
+                val now = System.currentTimeMillis()
+                val fallbackCache = readLastCache(context)
+                if (cacheOnly) {
+                    val cacheForRead = fallbackCache
+                        ?: throw IOException("Server cache is empty while VPN is connected")
+                    val servers = parseServers(cacheForRead.file)
+                    AppLog.w(
+                        TAG,
+                        "No usable server URLs; using last cache in cache-only mode. age=${now - cacheForRead.ts} ms, cache_key=${cacheForRead.key.take(8)}"
+                    )
+                    saveLastCacheKey(context, cacheForRead.key)
+                    return@withContext servers
+                }
+
+                fallbackCache?.let {
+                    val servers = parseServers(it.file)
+                    AppLog.w(
+                        TAG,
+                        "No usable server URLs configured; using last cached servers. age=${now - it.ts} ms, cache_key=${it.key.take(8)}"
+                    )
+                    saveLastCacheKey(context, it.key)
+                    return@withContext servers
+                }
+
+                AppLog.w(TAG, "No usable server URLs configured and cache is empty; returning empty server list")
+                return@withContext emptyList()
+            }
 
             val cacheKey = cacheKey(urls)
             val cached = readCache(context, cacheKey)
@@ -155,9 +201,12 @@ class ServerRepository(
             }
 
             if (response != null) {
-                writeCache(context, cacheKey, response)
-                parsedResponse = parseServers(cacheFile(context, cacheKey))
-                AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+                if (writeCache(context, cacheKey, response)) {
+                    parsedResponse = parseServers(cacheFile(context, cacheKey))
+                    AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+                } else {
+                    lastError = IOException("Server response received but cache write failed")
+                }
             }
 
             val fallbackCache = cached?.let { CacheEntry(cacheKey, it.first, it.second) } ?: lastCached
@@ -248,8 +297,8 @@ class ServerRepository(
             val lastKey = prefs.getString(KEY_LAST_CACHE, null)
             val lastFile = lastKey?.let { cacheFile(context, it) }
             val file = when {
-                primaryFile.exists() -> primaryFile
                 lastFile?.exists() == true -> lastFile
+                primaryFile.exists() -> primaryFile
                 else -> return@withContext emptyMap()
             }
 
