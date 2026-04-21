@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -36,6 +37,13 @@ class ServerRepositoryTest {
             val body = block()
             return body.toResponseBody("text/plain".toMediaTypeOrNull())
         }
+    }
+
+    private class CacheDirOverrideContext(
+        base: Context,
+        private val overrideCacheDir: java.io.File
+    ) : ContextWrapper(base) {
+        override fun getCacheDir(): java.io.File = overrideCacheDir
     }
 
     @Before
@@ -416,6 +424,33 @@ class ServerRepositoryTest {
         val loaded = repoWithFailingApi.getServers(context, forceRefresh = true)
         assertEquals("cached-by-default", loaded.single().name)
         assertEquals(1, failingApi.callCount)
+    }
+
+    @Test
+    fun throws_ioexception_when_cache_write_fails_without_filenotfound_parse_crash() = runBlocking {
+        val invalidCacheRoot = java.io.File(context.cacheDir, "cache-root-as-file")
+        if (invalidCacheRoot.exists()) {
+            if (invalidCacheRoot.isDirectory) {
+                invalidCacheRoot.deleteRecursively()
+            } else {
+                invalidCacheRoot.delete()
+            }
+        }
+        invalidCacheRoot.writeText("not-a-directory")
+
+        val brokenContext = CacheDirOverrideContext(context, invalidCacheRoot)
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("srv-broken-cache"))) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        try {
+            repo.getServers(brokenContext, forceRefresh = true)
+            fail("Expected IOException when cache directory is invalid")
+        } catch (e: IOException) {
+            assertTrue(e !is java.io.FileNotFoundException)
+            assertTrue((e.message ?: "").contains("cache write failed"))
+        } finally {
+            invalidCacheRoot.delete()
+        }
     }
 
     @Test

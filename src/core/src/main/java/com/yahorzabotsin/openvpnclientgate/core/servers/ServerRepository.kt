@@ -56,7 +56,7 @@ class ServerRepository(
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
         val file = cacheFile(context, key)
-        if (ts <= 0 || !file.exists()) return null
+        if (ts <= 0 || !file.isFile) return null
         return file to ts
     }
 
@@ -66,14 +66,14 @@ class ServerRepository(
         if (!excludingKey.isNullOrBlank() && key == excludingKey) return null
         val ts = prefs.getLong(KEY_PREFIX_TS + key, -1L)
         val file = cacheFile(context, key)
-        if (ts <= 0L || !file.exists()) return null
+        if (ts <= 0L || !file.isFile) return null
         return CacheEntry(key, file, ts)
     }
 
-    private fun writeCache(context: Context, key: String, body: ResponseBody) {
+    private fun writeCache(context: Context, key: String, body: ResponseBody): Boolean {
         val file = cacheFile(context, key)
         val tmp = File(file.parentFile, "${file.name}.tmp")
-        runCatching {
+        return runCatching {
             body.use { response ->
                 tmp.outputStream().use { out ->
                     response.byteStream().use { input ->
@@ -83,16 +83,24 @@ class ServerRepository(
             }
             if (file.exists()) file.delete()
             if (!tmp.renameTo(file)) {
+                runCatching {
+                    tmp.copyTo(file, overwrite = true)
+                }.getOrElse { copyError ->
+                    throw IOException("Failed to move temp cache to final file", copyError)
+                }
                 tmp.delete()
-                throw IOException("Failed to move temp cache to final file")
             }
+            true
         }.onSuccess {
             context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
                 .edit()
                 .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
                 .putString(KEY_LAST_CACHE, key)
                 .apply()
-        }.onFailure { AppLog.w(TAG, "Failed to write cache file", it) }
+        }.onFailure {
+            tmp.delete()
+            AppLog.w(TAG, "Failed to write cache file", it)
+        }.getOrDefault(false)
     }
 
     private fun saveLastCacheKey(context: Context, key: String) {
@@ -183,9 +191,12 @@ class ServerRepository(
             }
 
             if (response != null) {
-                writeCache(context, cacheKey, response)
-                parsedResponse = parseServers(cacheFile(context, cacheKey))
-                AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+                if (writeCache(context, cacheKey, response)) {
+                    parsedResponse = parseServers(cacheFile(context, cacheKey))
+                    AppLog.d(TAG, "Server response cached. items=${parsedResponse?.size ?: -1}, cache_key=${cacheKey.take(8)}, ttl_ms=$ttlMs")
+                } else {
+                    lastError = IOException("Server response received but cache write failed")
+                }
             }
 
             val fallbackCache = cached?.let { CacheEntry(cacheKey, it.first, it.second) } ?: lastCached
