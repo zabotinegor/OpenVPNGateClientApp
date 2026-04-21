@@ -134,6 +134,13 @@ cd src
 - Startup fallback paths (for example, splash preload or splash GIF load failures) are recorded as warning-level logs.
 - About screen supports exporting recent logcat archive for diagnostics.
 
+## AI Agent Documentation
+- [AGENTS.md](AGENTS.md): repository-level operational rules for coding agents.
+- [AGENTS.local.md](AGENTS.local.md): local-only backend and environment overrides (do not commit).
+- [README.local.md](README.local.md): local documentation overlay for machine-specific notes.
+- [.github/AGENTS-REGISTRY.md](.github/AGENTS-REGISTRY.md): source-of-truth mapping between agents and skills.
+- [.github/FRONTMATTER-SCHEMA.md](.github/FRONTMATTER-SCHEMA.md): frontmatter contract for .agent.md and SKILL.md files.
+
 ## Legal and Privacy
 Canonical documents:
 - [PRIVACY_POLICY.md](PRIVACY_POLICY.md)
@@ -144,4 +151,5 @@ The app links to hosted canonical pages and local copies are kept in sync for re
 ## Licensing
 This project, including the bundled `ics-openvpn` fork, is distributed under GPL-2.0-only.
 Review `LICENSE` and upstream notices in `src/external/OpenVPNEngine/doc/LICENSE.txt` before redistribution.
+
 
