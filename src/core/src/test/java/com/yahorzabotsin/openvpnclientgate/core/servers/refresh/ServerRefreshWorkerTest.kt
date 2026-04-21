@@ -66,7 +66,7 @@ class ServerRefreshWorkerTest {
     }
 
     @Test
-    fun `doWork returns retry when repository refresh throws`() = runBlocking {
+    fun `doWork returns success when repository refresh exhausts internal retries`() = runBlocking {
         val api = FixedApi.Failure(IOException("network down"))
         val repository = ServerRepository(api)
 
@@ -80,7 +80,7 @@ class ServerRefreshWorkerTest {
 
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(ListenableWorker.Result.success(), result)
         assertEquals((ServerRefreshWorker.DEFAULT_ADDITIONAL_RETRY_COUNT + 1) * 2, api.callCount)
     }
 
@@ -101,7 +101,7 @@ class ServerRefreshWorkerTest {
 
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(ListenableWorker.Result.success(), result)
         assertEquals(2, api.callCount)
     }
 

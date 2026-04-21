@@ -73,7 +73,7 @@ class ServerRefreshWorker(
         } else {
             AppLog.w(TAG, "Periodic server refresh failed after attempts=$attempts")
         }
-        return Result.retry()
+        return Result.success()
     }
 
     companion object {
