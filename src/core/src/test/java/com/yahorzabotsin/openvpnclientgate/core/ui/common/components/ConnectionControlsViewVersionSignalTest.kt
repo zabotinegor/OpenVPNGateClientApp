@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
+package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.app.Application
 import android.content.Context

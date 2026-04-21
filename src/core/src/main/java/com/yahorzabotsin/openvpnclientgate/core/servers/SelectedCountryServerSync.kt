@@ -26,8 +26,16 @@ class SelectedCountryServerSync(
             return
         }
 
-        val resolved = countryServers.map { server ->
-            server.copy(configData = configs[server.lineIndex].orEmpty())
+        val resolved = countryServers.mapNotNull { server ->
+            configs[server.lineIndex]
+                ?.takeIf { it.isNotBlank() }
+                ?.let { config ->
+                    server.copy(configData = config)
+                }
+        }
+        if (resolved.isEmpty()) {
+            AppLog.w(tag, "Skipping selected country sync: no valid server configs resolved")
+            return
         }
 
         SelectedCountryStore.saveSelectionPreservingIndex(

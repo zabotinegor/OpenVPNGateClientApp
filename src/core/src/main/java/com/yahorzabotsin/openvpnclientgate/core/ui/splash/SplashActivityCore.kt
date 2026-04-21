@@ -17,11 +17,9 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.koin.android.ext.android.inject
 import pl.droidsonroids.gif.GifDrawable
@@ -117,9 +115,7 @@ abstract class SplashActivityCore : AppCompatActivity() {
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
                 AppLog.i(tag, "Starting server preload. vpn_connected=$isConnected, cache_only=$cacheOnly")
                 withTimeout(SERVER_PRELOAD_TIMEOUT_MS) {
-                    withContext(Dispatchers.IO) {
-                        preloadInteractor.preloadServers(cacheOnly = cacheOnly)
-                    }
+                    preloadInteractor.preloadServers(cacheOnly = cacheOnly)
                 }
             } catch (e: TimeoutCancellationException) {
                 AppLog.w(
