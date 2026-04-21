@@ -5,6 +5,9 @@ import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody
@@ -18,6 +21,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.IOException
 import java.net.UnknownHostException
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 class ServerRepositoryTest {
@@ -44,6 +50,22 @@ class ServerRepositoryTest {
         private val overrideCacheDir: java.io.File
     ) : ContextWrapper(base) {
         override fun getCacheDir(): java.io.File = overrideCacheDir
+    }
+
+    private class BarrierApi(
+        private val expectedCalls: Int,
+        private val responseBody: String
+    ) : VpnServersApi {
+        private val barrier = CyclicBarrier(expectedCalls)
+        private val _callCount = AtomicInteger(0)
+        val callCount: Int
+            get() = _callCount.get()
+
+        override suspend fun getServers(url: String): ResponseBody {
+            _callCount.incrementAndGet()
+            barrier.await(5, TimeUnit.SECONDS)
+            return responseBody.toResponseBody("text/plain".toMediaTypeOrNull())
+        }
     }
 
     @Before
@@ -492,6 +514,24 @@ class ServerRepositoryTest {
         val loaded = repo.getServers(context, forceRefresh = true)
         assertTrue(loaded.isEmpty())
         assertEquals(0, api.callCount)
+    }
+
+    @Test
+    fun parallel_force_refresh_same_key_does_not_fail_cache_write() = runBlocking {
+        val parallelCalls = 8
+        val payload = sampleCsv(listOf(makeServer("parallel")))
+        val api = BarrierApi(parallelCalls, payload)
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val results = coroutineScope {
+            (1..parallelCalls).map {
+                async { repo.getServers(context, forceRefresh = true) }
+            }.awaitAll()
+        }
+
+        assertEquals(parallelCalls, results.size)
+        assertTrue(results.all { it.singleOrNull()?.name == "parallel" })
+        assertEquals(parallelCalls, api.callCount)
     }
 }
 

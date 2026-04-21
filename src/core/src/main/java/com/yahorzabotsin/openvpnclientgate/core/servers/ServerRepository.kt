@@ -12,6 +12,7 @@ import java.io.FileReader
 import java.io.IOException
 import java.security.MessageDigest
 import java.io.Reader
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,7 @@ class ServerRepository(
         private const val KEY_LAST_CACHE = "last_cache_key"
         private const val CACHE_FILE_PREFIX = "servers_"
         private const val CACHE_FILE_SUFFIX = ".csv"
+        private val cacheWriteLocks = ConcurrentHashMap<String, Any>()
         private fun cacheKey(urls: List<String>): String {
             val joined = urls.joinToString("|")
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
@@ -72,23 +74,31 @@ class ServerRepository(
 
     private fun writeCache(context: Context, key: String, body: ResponseBody): Boolean {
         val file = cacheFile(context, key)
-        val tmp = File(file.parentFile, "${file.name}.tmp")
+        val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.${Thread.currentThread().id}.tmp")
+        val lock = cacheWriteLocks.getOrPut(key) { Any() }
         return runCatching {
-            body.use { response ->
-                tmp.outputStream().use { out ->
-                    response.byteStream().use { input ->
-                        input.copyTo(out)
+synchronized(lock) {
+                file.parentFile?.mkdirs()
+                body.use { response ->
+                    tmp.outputStream().use { out ->
+                        response.byteStream().use { input ->
+                            input.copyTo(out)
+                        }
                     }
                 }
-            }
-            if (file.exists()) file.delete()
-            if (!tmp.renameTo(file)) {
-                runCatching {
-                    tmp.copyTo(file, overwrite = true)
-                }.getOrElse { copyError ->
-                    throw IOException("Failed to move temp cache to final file", copyError)
+                if (!tmp.renameTo(file)) {
+                    runCatching {
+                        tmp.copyTo(file, overwrite = true)
+                        tmp.delete()
+                    }.getOrElse { copyError ->
+                        // Another concurrent writer may have already published the final cache file.
+                        if (file.isFile && file.length() > 0L) {
+                            AppLog.d(TAG, "Cache file was published concurrently; using existing file")
+                        } else {
+                            throw IOException("Failed to move temp cache to final file", copyError)
+                        }
+                    }
                 }
-                tmp.delete()
             }
             true
         }.onSuccess {
