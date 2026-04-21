@@ -1,0 +1,36 @@
+package com.yahorzabotsin.openvpnclientgate.core.servers
+
+import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+
+class SelectedCountryServerSync(
+    private val appContext: Context,
+    private val serverRepository: ServerRepository
+) {
+
+    private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "SelectedCountryServerSync"
+
+    suspend fun syncAfterRefresh(freshServers: List<Server>) {
+        val selectedCountry = SelectedCountryStore.getSelectedCountry(appContext)
+        if (selectedCountry.isNullOrBlank()) return
+
+        val countryServers = freshServers.filter { it.country.name == selectedCountry }
+        if (countryServers.isEmpty()) {
+            AppLog.w(tag, "Skipping selected country sync: country not found in fresh list")
+            return
+        }
+
+        val configs = serverRepository.loadConfigs(appContext, countryServers)
+        val resolved = countryServers.map { server ->
+            server.copy(configData = configs[server.lineIndex].orEmpty())
+        }
+
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx = appContext,
+            country = selectedCountry,
+            servers = resolved
+        )
+
+        AppLog.i(tag, "Selected country sync completed. country=$selectedCountry, servers=${resolved.size}")
+    }
+}
