@@ -2,6 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
@@ -18,6 +20,8 @@ class SettingsViewModel(
     private val logger: SettingsLogger,
     private val scheduler: ServerRefreshScheduler
 ) : ViewModel() {
+
+    private val tag = LogTags.APP + ':' + "SettingsViewModel"
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state = _state.asStateFlow()
@@ -158,11 +162,7 @@ class SettingsViewModel(
             logger.logCacheTtlChanged(ttlMs)
             runCatching { scheduler.schedulePeriodicRefresh() }
                 .onFailure {
-                    com.yahorzabotsin.openvpnclientgate.core.logging.AppLog.w(
-                        "SettingsViewModel",
-                        "Failed to reschedule periodic refresh",
-                        it
-                    )
+                    AppLog.w(tag, "Failed to reschedule periodic refresh", it)
                 }
         }
     }

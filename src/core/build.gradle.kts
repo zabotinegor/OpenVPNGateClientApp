@@ -133,7 +133,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.retrofit.converter.scalars)
-    implementation(libs.glide)
     implementation(libs.android.gif.drawable)
     implementation(libs.koin.android)
     implementation(libs.androidx.work.runtime.ktx)
@@ -147,7 +146,7 @@ dependencies {
     testImplementation(libs.koin.test.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.work.testing)
-    testImplementation("androidx.test:core:1.5.0")
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

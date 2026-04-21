@@ -21,6 +21,11 @@ class SelectedCountryServerSync(
         }
 
         val configs = serverRepository.loadConfigs(appContext, countryServers)
+        if (configs.isEmpty()) {
+            AppLog.w(tag, "Skipping selected country sync: configs could not be loaded")
+            return
+        }
+
         val resolved = countryServers.map { server ->
             server.copy(configData = configs[server.lineIndex].orEmpty())
         }
