@@ -4,11 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -18,7 +22,9 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val repository: SettingsRepository,
     private val logger: SettingsLogger,
-    private val scheduler: ServerRefreshScheduler
+    private val scheduler: ServerRefreshScheduler,
+    private val serverSyncCoordinator: ServerSelectionSyncCoordinator,
+    private val connectionStateProvider: VpnConnectionStateProvider
 ) : ViewModel() {
 
     private val tag = LogTags.APP + ':' + "SettingsViewModel"
@@ -90,6 +96,11 @@ class SettingsViewModel(
         _state.value = _state.value.copy(serverSource = source)
         repository.saveServerSource(source)
         logger.logServerSourceChanged(old, source)
+        triggerServerSync(
+            forceRefresh = true,
+            clearCacheBeforeRefresh = true,
+            reason = "server source changed"
+        )
     }
 
     private fun onCustomServerUrlChanged(value: String) {
@@ -105,6 +116,11 @@ class SettingsViewModel(
 
         repository.saveCustomServerUrl(newTrimmed)
         logger.logCustomServerUrlChanged(newTrimmed)
+        triggerServerSync(
+            forceRefresh = true,
+            clearCacheBeforeRefresh = false,
+            reason = "custom server URL changed"
+        )
     }
 
     private fun onAutoSwitchChanged(enabled: Boolean) {
@@ -171,6 +187,27 @@ class SettingsViewModel(
         viewModelScope.launch {
             effects.forEach { effect ->
                 _effects.emit(effect)
+            }
+        }
+    }
+
+    private fun triggerServerSync(
+        forceRefresh: Boolean,
+        clearCacheBeforeRefresh: Boolean,
+        reason: String
+    ) {
+        viewModelScope.launch {
+            val isConnected = connectionStateProvider.isConnected()
+            val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
+            runCatching {
+                serverSyncCoordinator.sync(
+                    forceRefresh = forceRefresh,
+                    cacheOnly = cacheOnly,
+                    clearCacheBeforeRefresh = clearCacheBeforeRefresh
+                )
+            }.onFailure {
+                if (it is CancellationException) throw it
+                AppLog.w(tag, "Server sync failed after settings change: $reason", it)
             }
         }
     }

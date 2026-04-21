@@ -120,6 +120,25 @@ synchronized(lock) {
             .apply()
     }
 
+    fun clearServerCache(context: Context) {
+        context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+        context.cacheDir
+            .listFiles()
+            ?.asSequence()
+            ?.filter { file ->
+                file.isFile &&
+                    file.name.startsWith(CACHE_FILE_PREFIX) &&
+                    file.name.endsWith(CACHE_FILE_SUFFIX)
+            }
+            ?.forEach { file ->
+                runCatching { file.delete() }
+            }
+        AppLog.i(TAG, "Server cache cleared")
+    }
+
     suspend fun getServers(context: Context, forceRefresh: Boolean = false, cacheOnly: Boolean = false): List<Server> =
         withContext(Dispatchers.IO) {
             val settings = settingsStore.load(context)

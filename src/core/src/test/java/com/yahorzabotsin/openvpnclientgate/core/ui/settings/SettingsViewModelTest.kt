@@ -5,10 +5,17 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.SettingsRepository
 import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
+import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
+import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -39,7 +46,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(initial)
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         val state = vm.state.value
@@ -58,7 +66,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(UserSettings())
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         val effects = mutableListOf<SettingsEffect>()
@@ -83,7 +92,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(UserSettings())
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCacheTtlInput("0"))
@@ -101,7 +111,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(UserSettings())
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         assertEquals(0, scheduler.schedulePeriodicRefreshCallCount)
@@ -118,7 +129,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(UserSettings(statusStallTimeoutSeconds = 5))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetStatusStallTimeoutInput("abc"))
@@ -134,7 +146,8 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(UserSettings(cacheTtlMs = 20 * 60 * 1000L))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCacheTtlInput("0"))
@@ -152,7 +165,8 @@ class SettingsViewModelTest {
         )
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
-        val vm = SettingsViewModel(repo, logger, scheduler)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
         advanceUntilIdle()
 
         vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com "))
@@ -166,6 +180,49 @@ class SettingsViewModelTest {
 
         assertEquals("https://example.com/a ", vm.state.value.customServerUrl)
         assertEquals("https://example.com/a", repo.savedCustomServerUrl)
+        assertEquals(1, syncCoordinator.callCount)
+    }
+
+    @Test
+    fun `server source change triggers forced sync with cache reset`() = runTest {
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT))
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
+        advanceUntilIdle()
+
+        vm.onAction(SettingsAction.SelectServerSource(ServerSource.VPNGATE))
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+        assertEquals(true, syncCoordinator.lastForceRefresh)
+        assertEquals(true, syncCoordinator.lastClearCacheBeforeRefresh)
+    }
+
+    @Test
+    fun `server source change uses cache only when vpn is connected`() = runTest {
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT))
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(
+            repo,
+            logger,
+            scheduler,
+            syncCoordinator,
+            FakeConnectionProvider(ConnectionState.CONNECTED)
+        )
+        advanceUntilIdle()
+
+        vm.onAction(SettingsAction.SelectServerSource(ServerSource.VPNGATE))
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+        assertEquals(
+            ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(true),
+            syncCoordinator.lastCacheOnly
+        )
     }
 
     private class FakeSettingsRepository(initial: UserSettings) : SettingsRepository {
@@ -266,5 +323,30 @@ class SettingsViewModelTest {
         override fun schedulePeriodicRefresh() {
             schedulePeriodicRefreshCallCount++
         }
+    }
+
+    private class FakeServerSelectionSyncCoordinator : ServerSelectionSyncCoordinator {
+        var callCount = 0
+        var lastForceRefresh: Boolean? = null
+        var lastCacheOnly: Boolean? = null
+        var lastClearCacheBeforeRefresh: Boolean? = null
+
+        override suspend fun sync(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean,
+            clearCacheBeforeRefresh: Boolean
+        ): List<Server> {
+            callCount += 1
+            lastForceRefresh = forceRefresh
+            lastCacheOnly = cacheOnly
+            lastClearCacheBeforeRefresh = clearCacheBeforeRefresh
+            return emptyList()
+        }
+    }
+
+    private class FakeConnectionProvider(initial: ConnectionState = ConnectionState.DISCONNECTED) : VpnConnectionStateProvider {
+        private val flow = MutableStateFlow(initial)
+        override val state: StateFlow<ConnectionState> = flow
+        override fun isConnected(): Boolean = flow.value == ConnectionState.CONNECTED
     }
 }

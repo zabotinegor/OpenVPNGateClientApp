@@ -74,7 +74,9 @@
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
+- `src/docs` for technical implementation notes used by contributors and AI agents.
 - `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
+- `src/docs/server-sync-flow.md` for server-list synchronization triggers, guard conditions, and coordinator reuse guidance.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
@@ -85,6 +87,9 @@
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashActivityCore.kt` for the shared splash/startup flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` for startup preload behavior.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt` for the shared server-list synchronization entrypoint used by splash, main foreground, settings changes, and periodic refresh.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` for periodic sync execution that reuses the shared coordinator.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for source/custom URL changes that trigger forced server sync.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 
 ## When Extending Instructions

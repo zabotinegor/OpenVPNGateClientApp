@@ -167,6 +167,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
         viewModel.onAction(MainAction.RefreshUpdateAvailability)
+        viewModel.onAction(MainAction.SyncServersForForeground)
         try {
             VpnManager.syncStatus(this)
         } catch (e: Exception) {

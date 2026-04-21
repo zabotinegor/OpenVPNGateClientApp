@@ -1,6 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
@@ -167,6 +169,43 @@ class MainViewModelTest {
 
         assertEquals(0, versionReleaseInteractor.callCount)
         assertEquals(1, updateCheckInteractor.callCount)
+    }
+
+    @Test
+    fun `foreground sync action calls server sync coordinator`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+        assertEquals(false, syncCoordinator.lastForceRefresh)
+    }
+
+    @Test
+    fun `foreground sync action is debounced for consecutive calls`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+    }
+    @Test
+    fun `load initial selection debounces immediate foreground sync`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
     }
 
     @Test
@@ -494,6 +533,7 @@ class MainViewModelTest {
 
     private fun createViewModel(
         selectionInteractor: MainSelectionInteractor = FakeMainSelectionInteractor(),
+        serverSyncCoordinator: ServerSelectionSyncCoordinator = FakeServerSelectionSyncCoordinator(),
         versionReleaseInteractor: VersionReleaseInteractor = FakeVersionReleaseInteractor(),
         updateCheckInteractor: UpdateCheckInteractor = FakeUpdateCheckInteractor(),
         connectionInteractor: MainConnectionInteractor = FakeMainConnectionInteractor(),
@@ -502,6 +542,7 @@ class MainViewModelTest {
     ): MainViewModel {
         return MainViewModel(
             selectionInteractor = selectionInteractor,
+            serverSyncCoordinator = serverSyncCoordinator,
             versionReleaseInteractor = versionReleaseInteractor,
             updateCheckInteractor = updateCheckInteractor,
             connectionInteractor = connectionInteractor,
@@ -595,6 +636,21 @@ class MainViewModelTest {
         override fun logUpdateLoadError(error: Exception) = Unit
         override fun logServerSelectionApplied(selection: SelectedServerResult) = Unit
         override fun logIncompleteServerSelection(selection: SelectedServerResult) = Unit
+    }
+
+    private class FakeServerSelectionSyncCoordinator : ServerSelectionSyncCoordinator {
+        var callCount: Int = 0
+        var lastForceRefresh: Boolean? = null
+
+        override suspend fun sync(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean,
+            clearCacheBeforeRefresh: Boolean
+        ): List<Server> {
+            callCount += 1
+            lastForceRefresh = forceRefresh
+            return emptyList()
+        }
     }
 
     private fun sampleRelease() = LatestReleaseInfo(

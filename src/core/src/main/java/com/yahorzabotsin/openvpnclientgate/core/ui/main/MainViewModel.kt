@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val selectionInteractor: MainSelectionInteractor,
+    private val serverSyncCoordinator: ServerSelectionSyncCoordinator,
     private val versionReleaseInteractor: VersionReleaseInteractor,
     private val updateCheckInteractor: UpdateCheckInteractor,
     private val connectionInteractor: MainConnectionInteractor,
@@ -33,11 +35,13 @@ class MainViewModel(
     private val _effects = Channel<MainEffect>(capacity = Channel.BUFFERED)
     val effects = _effects.receiveAsFlow()
     private var updatePromptShown = false
+    private var lastForegroundSyncAttemptAtMs = 0L
 
     fun onAction(action: MainAction) {
         when (action) {
             MainAction.LoadInitialSelection -> loadInitialSelection()
             MainAction.RefreshUpdateAvailability -> loadUpdateAvailability()
+            MainAction.SyncServersForForeground -> syncServersForForegroundIfDue()
             is MainAction.NavigationItemSelected -> onNavigationItemSelected(action.itemId)
             MainAction.OpenServerListFromConnectionControls -> onOpenServerListFromConnectionControls()
             is MainAction.ConnectionButtonClicked -> onConnectionButtonClicked(
@@ -57,6 +61,12 @@ class MainViewModel(
                 val vpnConnected = connectionStateProvider.isConnected()
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
                 logInfo("Initial selection load mode resolved. vpn_connected=$vpnConnected, cache_only=$cacheOnly")
+                serverSyncCoordinator.sync(
+                    forceRefresh = false,
+                    cacheOnly = cacheOnly,
+                    clearCacheBeforeRefresh = false
+                )
+                lastForegroundSyncAttemptAtMs = System.currentTimeMillis()
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
                 logger.logInitialSelectionLoaded(selection)
                 updateSelectedServer(
@@ -69,6 +79,29 @@ class MainViewModel(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 logger.logInitialSelectionError(e)
+            }
+        }
+    }
+
+    private fun syncServersForForegroundIfDue() {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            if (now - lastForegroundSyncAttemptAtMs < FOREGROUND_SYNC_DEBOUNCE_MS) {
+                return@launch
+            }
+            lastForegroundSyncAttemptAtMs = now
+
+            try {
+                val vpnConnected = connectionStateProvider.isConnected()
+                val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
+                serverSyncCoordinator.sync(
+                    forceRefresh = false,
+                    cacheOnly = cacheOnly,
+                    clearCacheBeforeRefresh = false
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                AppLog.w(tag, "Foreground server sync failed", e)
             }
         }
     }
@@ -301,5 +334,9 @@ class MainViewModel(
 
     private fun logInfo(message: String) {
         runCatching { AppLog.i(tag, message) }
+    }
+
+    private companion object {
+        const val FOREGROUND_SYNC_DEBOUNCE_MS = 20_000L
     }
 }

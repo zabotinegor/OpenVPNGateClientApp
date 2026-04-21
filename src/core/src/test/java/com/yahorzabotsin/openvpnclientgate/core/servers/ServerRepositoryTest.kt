@@ -533,5 +533,25 @@ class ServerRepositoryTest {
         assertTrue(results.all { it.singleOrNull()?.name == "parallel" })
         assertEquals(parallelCalls, api.callCount)
     }
+
+    @Test
+    fun clear_server_cache_removes_cached_files_and_metadata() = runBlocking {
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("cached"))) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        repo.getServers(context, forceRefresh = true)
+
+        val prefsBefore = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
+        val cacheFilesBefore = context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") } ?: emptyList()
+        assertTrue(prefsBefore.all.isNotEmpty())
+        assertTrue(cacheFilesBefore.isNotEmpty())
+
+        repo.clearServerCache(context)
+
+        val prefsAfter = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
+        val cacheFilesAfter = context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") } ?: emptyList()
+        assertTrue(prefsAfter.all.isEmpty())
+        assertTrue(cacheFilesAfter.isEmpty())
+    }
 }
 

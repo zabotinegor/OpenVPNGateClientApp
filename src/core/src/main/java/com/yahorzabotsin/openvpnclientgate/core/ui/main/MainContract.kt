@@ -48,6 +48,7 @@ data class MainAvailableUpdate(
 sealed interface MainAction {
     data object LoadInitialSelection : MainAction
     data object RefreshUpdateAvailability : MainAction
+    data object SyncServersForForeground : MainAction
     data class NavigationItemSelected(val itemId: Int) : MainAction
     data object OpenServerListFromConnectionControls : MainAction
     data class ConnectionButtonClicked(
