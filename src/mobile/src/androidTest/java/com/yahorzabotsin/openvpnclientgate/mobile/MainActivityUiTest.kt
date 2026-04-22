@@ -6,6 +6,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.pressBackUnconditionally
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.NoMatchingViewException
+import androidx.test.espresso.PerformException
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.contrib.DrawerActions
 import androidx.test.espresso.contrib.DrawerMatchers
@@ -30,6 +31,18 @@ class MainActivityUiTest {
         }
     }
 
+    private fun openDrawerReliably() {
+        try {
+            onView(withId(R.id.drawer_layout)).perform(DrawerActions.open())
+            onView(withId(R.id.drawer_layout)).check(matches(DrawerMatchers.isOpen()))
+        } catch (e: RuntimeException) {
+            if (e !is NoMatchingViewException && e !is PerformException) throw e
+            dismissUpdatePromptIfVisible()
+            onView(withId(R.id.drawer_layout)).perform(DrawerActions.open())
+            onView(withId(R.id.drawer_layout)).check(matches(DrawerMatchers.isOpen()))
+        }
+    }
+
     @Test
     fun openDrawer_and_clickServerItem_opensServerList() {
         val launchIntent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
@@ -39,8 +52,7 @@ class MainActivityUiTest {
             dismissUpdatePromptIfVisible()
 
             // Open the navigation drawer
-            onView(withId(R.id.drawer_layout)).perform(DrawerActions.open())
-            onView(withId(R.id.drawer_layout)).check(matches(DrawerMatchers.isOpen()))
+            openDrawerReliably()
 
             // Click on the first menu item (Server)
             onView(withId(R.id.nav_view)).perform(NavigationViewActions.navigateTo(R.id.nav_server))

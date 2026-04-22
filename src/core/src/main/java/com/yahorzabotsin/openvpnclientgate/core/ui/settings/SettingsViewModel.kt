@@ -96,6 +96,8 @@ class SettingsViewModel(
 
     private fun onServerSourceSelected(source: ServerSource) {
         if (_state.value.serverSource == source) return
+        customUrlSyncJob?.cancel()
+        customUrlSyncJob = null
         val old = _state.value.serverSource
         _state.value = _state.value.copy(serverSource = source)
         repository.saveServerSource(source)

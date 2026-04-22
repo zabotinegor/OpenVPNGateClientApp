@@ -72,7 +72,7 @@
   - README.local.md
   - AGENTS.local.md
 - For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
-- Android device E2E test catalog lives in `.github/testing/android-device-e2e/` and is NOT agent-sync-managed. Do not move it into `.github/skills/` without updating the sync exclusion.
+- Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
@@ -84,7 +84,7 @@
 
 ## Useful Starting Points
 - `src/build.gradle.kts` for aggregate app tasks (including `connectedDebugAndroidTestApp` for device instrumented tests).
-- `.github/testing/android-device-e2e/index.md` for the Android real-device E2E test catalog (cases, suites, specs, behavior models).
+- `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt` for Android mobile smoke suite identifiers used by device E2E execution.
 - `src/core/build.gradle.kts` for required build configuration and generated `BuildConfig` fields.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/di/CoreDi.kt` for DI wiring.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashActivityCore.kt` for the shared splash/startup flow.

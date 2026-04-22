@@ -107,9 +107,10 @@ class ServerRepository(
                     .apply()
             }
             true
-        }.onFailure {
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
             tmp.delete()
-            AppLog.w(TAG, "Failed to write cache file", it)
+            AppLog.w(TAG, "Failed to write cache file", error)
         }.getOrDefault(false)
     }
 
@@ -136,6 +137,9 @@ class ServerRepository(
                 }
                 ?.forEach { file ->
                     runCatching { file.delete() }
+                        .onFailure { deleteError ->
+                            AppLog.w(TAG, "Failed to delete cache file: ${file.path}", deleteError)
+                        }
                 }
             AppLog.i(TAG, "Server cache cleared")
         }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -563,7 +564,7 @@ class ServerRepositoryTest {
     }
 
     @Test
-    fun clear_server_cache_waits_for_inflight_cache_mutation_lock() = runBlocking {
+    fun clear_server_cache_waits_for_inflight_cache_mutation_lock() = runTest {
         val mutex = Mutex()
         val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("cached"))) }))
         val repo = ServerRepository(

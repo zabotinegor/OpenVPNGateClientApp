@@ -6,6 +6,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.pressBackUnconditionally
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.NoMatchingViewException
+import androidx.test.espresso.PerformException
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.contrib.DrawerActions
 import androidx.test.espresso.contrib.DrawerMatchers
@@ -26,7 +27,7 @@ import org.junit.runner.RunWith
  * triggering a real VPN connection. All cases run on a single connected device
  * via standard Espresso instrumentation (no mocking required).
  *
- * Referenced from: .github/testing/android-device-e2e/suites/SUITE-ANDROID-MOBILE-SMOKE.md
+ * Suite catalog identifier: E2E-ANDROID-MOBILE-SMOKE
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -44,7 +45,8 @@ class MainActivitySmokeTest {
         try {
             onView(withId(R.id.drawer_layout)).perform(DrawerActions.open())
             onView(withId(R.id.nav_view)).check(matches(isDisplayed()))
-        } catch (_: NoMatchingViewException) {
+        } catch (e: RuntimeException) {
+            if (e !is NoMatchingViewException && e !is PerformException) throw e
             dismissUpdatePromptIfVisible()
             onView(withId(R.id.drawer_layout)).perform(DrawerActions.open())
             onView(withId(R.id.nav_view)).check(matches(isDisplayed()))
