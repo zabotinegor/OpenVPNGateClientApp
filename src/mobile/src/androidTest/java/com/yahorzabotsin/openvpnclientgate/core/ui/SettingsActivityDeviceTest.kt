@@ -4,6 +4,8 @@ import android.content.Context
 import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.material.textfield.TextInputEditText
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -13,12 +15,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
-class SettingsActivityTest {
+@RunWith(AndroidJUnit4::class)
+class SettingsActivityDeviceTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
@@ -34,7 +33,6 @@ class SettingsActivityTest {
 
     @Test
     fun loadsSavedCacheTtlIntoInput() {
-        // Save custom TTL and open activity
         UserSettingsStore.saveCacheTtlMs(context, 15 * 60 * 1000L)
 
         ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
@@ -53,9 +51,11 @@ class SettingsActivityTest {
                 val root = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
                 val cacheInput = root.findViewById<TextInputEditText>(R.id.cache_input)
                 cacheInput.setText("25")
-                cacheInput.clearFocus() // trigger text watcher
+                cacheInput.clearFocus()
             }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
+
         val saved = UserSettingsStore.load(context).cacheTtlMs
         assertEquals(25 * 60 * 1000L, saved)
     }
@@ -69,7 +69,9 @@ class SettingsActivityTest {
                 cacheInput.setText("0")
                 cacheInput.clearFocus()
             }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
+
         val saved = UserSettingsStore.load(context).cacheTtlMs
         assertEquals(UserSettingsStore.DEFAULT_CACHE_TTL_MS, saved)
     }
@@ -96,7 +98,9 @@ class SettingsActivityTest {
                 statusInput.setText("9")
                 statusInput.clearFocus()
             }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
+
         val saved = UserSettingsStore.load(context).statusStallTimeoutSeconds
         assertEquals(9, saved)
     }
@@ -110,9 +114,10 @@ class SettingsActivityTest {
                 statusInput.setText("0")
                 statusInput.clearFocus()
             }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
+
         val saved = UserSettingsStore.load(context).statusStallTimeoutSeconds
         assertEquals(UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS, saved)
     }
 }
-
