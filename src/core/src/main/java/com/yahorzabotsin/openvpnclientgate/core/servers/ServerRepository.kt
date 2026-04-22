@@ -78,6 +78,9 @@ class ServerRepository(
         val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.${Thread.currentThread().id}.tmp")
         return runCatching {
             cacheMutationMutex.withLock {
+                val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                val previousTs = prefs.getLong(KEY_PREFIX_TS + key, -1L)
+                var publishedNewCache = true
                 file.parentFile?.mkdirs()
                 body.use { response ->
                     tmp.outputStream().use { out ->
@@ -93,6 +96,8 @@ class ServerRepository(
                     }.getOrElse { copyError ->
                         // Another concurrent writer may have already published the final cache file.
                         if (file.isFile && file.length() > 0L) {
+                            tmp.delete()
+                            publishedNewCache = false
                             AppLog.d(TAG, "Cache file was published concurrently; using existing file")
                         } else {
                             throw IOException("Failed to move temp cache to final file", copyError)
@@ -100,9 +105,12 @@ class ServerRepository(
                     }
                 }
 
-                context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                prefs
                     .edit()
-                    .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
+                    .putLong(
+                        KEY_PREFIX_TS + key,
+                        if (publishedNewCache || previousTs <= 0L) System.currentTimeMillis() else previousTs
+                    )
                     .putString(KEY_LAST_CACHE, key)
                     .apply()
             }
@@ -129,7 +137,7 @@ class ServerRepository(
             context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
                 .edit()
                 .clear()
-                .apply()
+                .commit()
             context.cacheDir
                 .listFiles()
                 ?.asSequence()
