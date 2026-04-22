@@ -12,10 +12,11 @@ import java.io.FileReader
 import java.io.IOException
 import java.security.MessageDigest
 import java.io.Reader
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.ResponseBody
 import retrofit2.http.GET
 import retrofit2.http.Url
@@ -27,7 +28,8 @@ interface VpnServersApi {
 
 class ServerRepository(
     internal val api: VpnServersApi,
-    private val settingsStore: UserSettingsStore = UserSettingsStore
+    private val settingsStore: UserSettingsStore = UserSettingsStore,
+    private val cacheMutationMutex: Mutex = Mutex()
 ) {
 
     private companion object {
@@ -37,7 +39,6 @@ class ServerRepository(
         private const val KEY_LAST_CACHE = "last_cache_key"
         private const val CACHE_FILE_PREFIX = "servers_"
         private const val CACHE_FILE_SUFFIX = ".csv"
-        private val cacheWriteLocks = ConcurrentHashMap<String, Any>()
         private fun cacheKey(urls: List<String>): String {
             val joined = urls.joinToString("|")
             val digest = MessageDigest.getInstance("SHA-256").digest(joined.toByteArray())
@@ -72,12 +73,11 @@ class ServerRepository(
         return CacheEntry(key, file, ts)
     }
 
-    private fun writeCache(context: Context, key: String, body: ResponseBody): Boolean {
+    private suspend fun writeCache(context: Context, key: String, body: ResponseBody): Boolean {
         val file = cacheFile(context, key)
         val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.${Thread.currentThread().id}.tmp")
-        val lock = cacheWriteLocks.getOrPut(key) { Any() }
         return runCatching {
-synchronized(lock) {
+            cacheMutationMutex.withLock {
                 file.parentFile?.mkdirs()
                 body.use { response ->
                     tmp.outputStream().use { out ->
@@ -99,14 +99,14 @@ synchronized(lock) {
                         }
                     }
                 }
+
+                context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
+                    .putString(KEY_LAST_CACHE, key)
+                    .apply()
             }
             true
-        }.onSuccess {
-            context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-                .edit()
-                .putLong(KEY_PREFIX_TS + key, System.currentTimeMillis())
-                .putString(KEY_LAST_CACHE, key)
-                .apply()
         }.onFailure {
             tmp.delete()
             AppLog.w(TAG, "Failed to write cache file", it)
@@ -120,23 +120,25 @@ synchronized(lock) {
             .apply()
     }
 
-    fun clearServerCache(context: Context) {
-        context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
-        context.cacheDir
-            .listFiles()
-            ?.asSequence()
-            ?.filter { file ->
-                file.isFile &&
-                    file.name.startsWith(CACHE_FILE_PREFIX) &&
-                    file.name.endsWith(CACHE_FILE_SUFFIX)
-            }
-            ?.forEach { file ->
-                runCatching { file.delete() }
-            }
-        AppLog.i(TAG, "Server cache cleared")
+    suspend fun clearServerCache(context: Context) = withContext(Dispatchers.IO) {
+        cacheMutationMutex.withLock {
+            context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                .edit()
+                .clear()
+                .apply()
+            context.cacheDir
+                .listFiles()
+                ?.asSequence()
+                ?.filter { file ->
+                    file.isFile &&
+                        file.name.startsWith(CACHE_FILE_PREFIX) &&
+                        (file.name.endsWith(CACHE_FILE_SUFFIX) || file.name.endsWith(".tmp"))
+                }
+                ?.forEach { file ->
+                    runCatching { file.delete() }
+                }
+            AppLog.i(TAG, "Server cache cleared")
+        }
     }
 
     suspend fun getServers(context: Context, forceRefresh: Boolean = false, cacheOnly: Boolean = false): List<Server> =

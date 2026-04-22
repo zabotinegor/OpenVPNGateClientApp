@@ -8,7 +8,10 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -546,12 +549,44 @@ class ServerRepositoryTest {
         assertTrue(prefsBefore.all.isNotEmpty())
         assertTrue(cacheFilesBefore.isNotEmpty())
 
+        val staleTmp = java.io.File(context.cacheDir, "servers_manual_stale.csv.123.tmp")
+        staleTmp.writeText("stale")
+        assertTrue(staleTmp.exists())
+
         repo.clearServerCache(context)
 
         val prefsAfter = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
         val cacheFilesAfter = context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") } ?: emptyList()
         assertTrue(prefsAfter.all.isEmpty())
         assertTrue(cacheFilesAfter.isEmpty())
+        assertTrue(!staleTmp.exists())
+    }
+
+    @Test
+    fun clear_server_cache_waits_for_inflight_cache_mutation_lock() = runBlocking {
+        val mutex = Mutex()
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("cached"))) }))
+        val repo = ServerRepository(
+            api = api,
+            settingsStore = UserSettingsStore,
+            cacheMutationMutex = mutex
+        )
+
+        val lockHolder = async {
+            mutex.withLock {
+                delay(200)
+            }
+        }
+
+        val clearDeferred = async {
+            repo.clearServerCache(context)
+        }
+
+        delay(75)
+        assertTrue("clearServerCache should wait for cache mutation lock", !clearDeferred.isCompleted)
+
+        lockHolder.await()
+        clearDeferred.await()
     }
 }
 
