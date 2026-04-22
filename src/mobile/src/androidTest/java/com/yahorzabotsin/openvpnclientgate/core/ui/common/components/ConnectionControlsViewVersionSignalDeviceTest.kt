@@ -2,70 +2,62 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.app.Application
 import android.content.Context
-import android.os.Looper
 import android.view.ContextThemeWrapper
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
-import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
-import de.blinkt.openvpn.core.ConnectionStatus
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
-class ConnectionControlsViewVersionSignalTest {
+@RunWith(AndroidJUnit4::class)
+class ConnectionControlsViewVersionSignalDeviceTest {
 
     @Test
-    fun `selected country signal updates server position on active lifecycle`() {
+    fun selectedCountrySignalUpdatesServerPositionOnActiveLifecycle() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val context = ContextThemeWrapper(app, R.style.Theme_OpenVPNClientGate_Base)
-        val view = ConnectionControlsView(context)
-
-        val runtime = FakeRuntime()
+        val runtime = DefaultConnectionControlsRuntime()
         val store = FakeSelectionStore(position = 1 to 2)
         val listener = FakeDetailsListener()
         val lifecycleOwner = TestLifecycleOwner()
 
-        view.setDependencies(
-            presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase()),
-            runtime = runtime,
-            selectionStore = store
-        )
-        view.setConnectionDetailsListener(listener)
-        view.setLifecycleOwner(lifecycleOwner)
-        lifecycleOwner.moveTo(Lifecycle.State.STARTED)
-
-        view.setServer(country = "Country", countryCode = "CC", ip = null)
-        shadowOf(Looper.getMainLooper()).idle()
+        lateinit var view: ConnectionControlsView
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            view = ConnectionControlsView(context)
+            view.setDependencies(
+                presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase()),
+                runtime = runtime,
+                selectionStore = store
+            )
+            view.setConnectionDetailsListener(listener)
+            view.setLifecycleOwner(lifecycleOwner)
+            lifecycleOwner.moveTo(Lifecycle.State.STARTED)
+            view.setServer(country = "Country", countryCode = "CC", ip = null)
+        }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         assertEquals("1/2", listener.lastCity)
 
         store.position = 2 to 2
         SelectedCountryVersionSignal.bump()
-        shadowOf(Looper.getMainLooper()).idle()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
         assertEquals("2/2", listener.lastCity)
 
-        lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+        }
     }
 
     private class TestLifecycleOwner : LifecycleOwner {
         private val registry = LifecycleRegistry(this)
-
-        init {
-            registry.currentState = Lifecycle.State.CREATED
-        }
 
         override val lifecycle: Lifecycle
             get() = registry
@@ -73,17 +65,6 @@ class ConnectionControlsViewVersionSignalTest {
         fun moveTo(state: Lifecycle.State) {
             registry.currentState = state
         }
-    }
-
-    private class FakeRuntime : ConnectionControlsRuntime {
-        override val state: StateFlow<ConnectionState> = MutableStateFlow(ConnectionState.DISCONNECTED)
-        override val engineLevel: StateFlow<ConnectionStatus?> = MutableStateFlow(null)
-        override val engineDetail: StateFlow<String?> = MutableStateFlow(null)
-        override val reconnectingHint: StateFlow<Boolean> = MutableStateFlow(false)
-        override val remainingSeconds: StateFlow<Int?> = MutableStateFlow(null)
-        override val connectionStartTimeMs: StateFlow<Long?> = MutableStateFlow(null)
-        override val downloadedBytes: StateFlow<Long> = MutableStateFlow(0L)
-        override val uploadedBytes: StateFlow<Long> = MutableStateFlow(0L)
     }
 
     private class FakeSelectionStore(

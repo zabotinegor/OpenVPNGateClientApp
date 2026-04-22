@@ -1,21 +1,19 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.splash
 
-import android.content.Context
-import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 
 interface SplashServerPreloadInteractor {
     suspend fun preloadServers(cacheOnly: Boolean)
 }
 
 class DefaultSplashServerPreloadInteractor(
-    private val appContext: Context,
-    private val serverRepository: ServerRepository
+    private val serverSyncCoordinator: ServerSelectionSyncCoordinator
 ) : SplashServerPreloadInteractor {
     override suspend fun preloadServers(cacheOnly: Boolean) {
-        serverRepository.getServers(
-            context = appContext,
+        serverSyncCoordinator.sync(
             forceRefresh = false,
-            cacheOnly = cacheOnly
+            cacheOnly = cacheOnly,
+            clearCacheBeforeRefresh = false
         )
     }
 }

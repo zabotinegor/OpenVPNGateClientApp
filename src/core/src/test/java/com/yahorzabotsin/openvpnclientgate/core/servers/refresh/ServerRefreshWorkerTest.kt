@@ -5,6 +5,7 @@ import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
@@ -50,10 +51,14 @@ class ServerRefreshWorkerTest {
     fun `doWork returns success when repository refresh succeeds`() = runBlocking {
         val api = FixedApi.Success(sampleCsv(listOf(makeServer("srv-refresh"))))
         val repository = ServerRepository(api)
+        val selectedCountrySync = SelectedCountryServerSync(context, repository)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
 
         startKoin {
             modules(module {
-                single { repository }
+                single<com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator> {
+                    syncCoordinator
+                }
             })
         }
 
@@ -69,10 +74,14 @@ class ServerRefreshWorkerTest {
     fun `doWork returns success when repository refresh exhausts internal retries`() = runBlocking {
         val api = FixedApi.Failure(IOException("network down"))
         val repository = ServerRepository(api)
+        val selectedCountrySync = SelectedCountryServerSync(context, repository)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
 
         startKoin {
             modules(module {
-                single { repository }
+                single<com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator> {
+                    syncCoordinator
+                }
             })
         }
 
@@ -88,10 +97,14 @@ class ServerRefreshWorkerTest {
     fun `doWork supports configurable additional retry count`() = runBlocking {
         val api = FixedApi.Failure(IOException("network down"))
         val repository = ServerRepository(api)
+        val selectedCountrySync = SelectedCountryServerSync(context, repository)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
 
         startKoin {
             modules(module {
-                single { repository }
+                single<com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator> {
+                    syncCoordinator
+                }
             })
         }
 
@@ -125,6 +138,7 @@ class ServerRefreshWorkerTest {
         val api = FixedApi.Success(sampleCsv(servers))
         val repository = ServerRepository(api)
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
 
         SelectedCountryStore.saveSelection(
             context,
@@ -138,8 +152,9 @@ class ServerRefreshWorkerTest {
 
         startKoin {
             modules(module {
-                single { repository }
-                single { selectedCountrySync }
+                single<com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator> {
+                    syncCoordinator
+                }
             })
         }
 

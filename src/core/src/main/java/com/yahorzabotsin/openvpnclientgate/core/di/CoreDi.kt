@@ -15,8 +15,10 @@ import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepositor
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
@@ -117,6 +119,7 @@ val coreModule = module {
 
     single { ServerRepository(get()) }
     single { SelectedCountryServerSync(androidContext(), get()) }
+    single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
     single { WorkManager.getInstance(androidContext()) }
@@ -141,13 +144,13 @@ val coreModule = module {
     single<CountryServersLogger> { DefaultCountryServersLogger() }
     viewModel { CountryServersViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
-    viewModel { SettingsViewModel(get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
-    single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(androidContext(), get()) }
+    single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(get()) }
     single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
     single<MainLogger> { DefaultMainLogger() }
     single { ConnectionControlsUseCase() }
     single<ConnectionControlsRuntime> { DefaultConnectionControlsRuntime() }
     single<ConnectionControlsSelectionStore> { DefaultConnectionControlsSelectionStore() }
-    viewModel { MainViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { MainViewModel(get(), get(), get(), get(), get(), get(), get()) }
 }

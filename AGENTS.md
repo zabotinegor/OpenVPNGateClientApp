@@ -13,6 +13,7 @@
 - Prefer the aggregate tasks defined in `src/build.gradle.kts`:
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
+  - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
@@ -71,20 +72,27 @@
   - README.local.md
   - AGENTS.local.md
 - For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+- Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
+- `src/docs` for technical implementation notes used by contributors and AI agents.
 - `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
+- `src/docs/server-sync-flow.md` for server-list synchronization triggers, guard conditions, and coordinator reuse guidance.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
 ## Useful Starting Points
-- `src/build.gradle.kts` for aggregate app tasks.
+- `src/build.gradle.kts` for aggregate app tasks (including `connectedDebugAndroidTestApp` for device instrumented tests).
+- `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt` for Android mobile smoke suite identifiers used by device E2E execution.
 - `src/core/build.gradle.kts` for required build configuration and generated `BuildConfig` fields.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/di/CoreDi.kt` for DI wiring.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashActivityCore.kt` for the shared splash/startup flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` for startup preload behavior.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt` for the shared server-list synchronization entrypoint used by splash, main foreground, settings changes, and periodic refresh.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` for periodic sync execution that reuses the shared coordinator.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for source/custom URL changes that trigger forced server sync.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 
 ## When Extending Instructions
