@@ -27,7 +27,10 @@ class DefaultServerSelectionSyncCoordinator(
     ): List<Server> {
         if (clearCacheBeforeRefresh) {
             runCatching { serverRepository.clearServerCache(appContext) }
-                .onFailure { AppLog.w(tag, "Failed to clear server cache before sync", it) }
+                .onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.w(tag, "Failed to clear server cache before sync", e)
+                }
         }
 
         val servers = serverRepository.getServers(

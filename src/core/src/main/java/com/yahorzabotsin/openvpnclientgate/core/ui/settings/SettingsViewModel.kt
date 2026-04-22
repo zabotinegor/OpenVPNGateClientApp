@@ -100,11 +100,13 @@ class SettingsViewModel(
         _state.value = _state.value.copy(serverSource = source)
         repository.saveServerSource(source)
         logger.logServerSourceChanged(old, source)
-        triggerServerSync(
-            forceRefresh = true,
-            clearCacheBeforeRefresh = true,
-            reason = "server source changed"
-        )
+        viewModelScope.launch {
+            triggerServerSync(
+                forceRefresh = true,
+                clearCacheBeforeRefresh = true,
+                reason = "server source changed"
+            )
+        }
     }
 
     private fun onCustomServerUrlChanged(value: String) {
@@ -203,24 +205,22 @@ class SettingsViewModel(
         }
     }
 
-    private fun triggerServerSync(
+    private suspend fun triggerServerSync(
         forceRefresh: Boolean,
         clearCacheBeforeRefresh: Boolean,
         reason: String
     ) {
-        viewModelScope.launch {
-            val isConnected = connectionStateProvider.isConnected()
-            val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
-            runCatching {
-                serverSyncCoordinator.sync(
-                    forceRefresh = forceRefresh,
-                    cacheOnly = cacheOnly,
-                    clearCacheBeforeRefresh = clearCacheBeforeRefresh
-                )
-            }.onFailure {
-                if (it is CancellationException) throw it
-                AppLog.w(tag, "Server sync failed after settings change: $reason", it)
-            }
+        val isConnected = connectionStateProvider.isConnected()
+        val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
+        runCatching {
+            serverSyncCoordinator.sync(
+                forceRefresh = forceRefresh,
+                cacheOnly = cacheOnly,
+                clearCacheBeforeRefresh = clearCacheBeforeRefresh
+            )
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.w(tag, "Server sync failed after settings change: $reason", it)
         }
     }
 }

@@ -99,14 +99,28 @@ class MainViewModel(
             try {
                 val vpnConnected = connectionStateProvider.isConnected()
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
-                serverSyncCoordinator.sync(
-                    forceRefresh = false,
-                    cacheOnly = cacheOnly,
-                    clearCacheBeforeRefresh = false
+                runCatching {
+                    serverSyncCoordinator.sync(
+                        forceRefresh = false,
+                        cacheOnly = cacheOnly,
+                        clearCacheBeforeRefresh = false
+                    )
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.w(tag, "Foreground server sync failed", e)
+                }
+                val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly)
+                    ?: return@launch
+                updateSelectedServer(
+                    country = selection.country,
+                    countryCode = selection.countryCode,
+                    config = selection.config,
+                    ip = selection.ip,
+                    fromUserSelection = false
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                AppLog.w(tag, "Foreground server sync failed", e)
+                AppLog.w(tag, "Foreground server state refresh failed", e)
             }
         }
     }
