@@ -13,6 +13,7 @@
 - Prefer the aggregate tasks defined in `src/build.gradle.kts`:
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
+  - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
@@ -71,6 +72,7 @@
   - README.local.md
   - AGENTS.local.md
 - For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+- Android device E2E test catalog lives in `.github/testing/android-device-e2e/` and is NOT agent-sync-managed. Do not move it into `.github/skills/` without updating the sync exclusion.
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
@@ -81,7 +83,8 @@
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
 ## Useful Starting Points
-- `src/build.gradle.kts` for aggregate app tasks.
+- `src/build.gradle.kts` for aggregate app tasks (including `connectedDebugAndroidTestApp` for device instrumented tests).
+- `.github/testing/android-device-e2e/index.md` for the Android real-device E2E test catalog (cases, suites, specs, behavior models).
 - `src/core/build.gradle.kts` for required build configuration and generated `BuildConfig` fields.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/di/CoreDi.kt` for DI wiring.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashActivityCore.kt` for the shared splash/startup flow.

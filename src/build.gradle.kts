@@ -59,6 +59,12 @@ tasks.register("testDebugUnitTestApp") {
     dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest", ":tv:testDebugUnitTest")
 }
 
+// Runs instrumented (on-device) tests for all modules that have them.
+// Requires a connected ADB device or emulator. TV is excluded until test sources are added.
+tasks.register("connectedDebugAndroidTestApp") {
+    dependsOn(":core:connectedDebugAndroidTest", ":mobile:connectedDebugAndroidTest")
+}
+
 tasks.register<Copy>("stageReleaseArtifacts") {
     dependsOn("assembleReleaseApp", "bundleReleaseApp")
     val mobileBuildDir = project(":mobile").layout.buildDirectory
