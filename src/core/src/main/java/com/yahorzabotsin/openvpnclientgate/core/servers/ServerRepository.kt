@@ -108,7 +108,10 @@ class ServerRepository(
             }
             true
         }.onFailure { error ->
-            if (error is CancellationException) throw error
+            if (error is CancellationException) {
+                tmp.delete()
+                throw error
+            }
             tmp.delete()
             AppLog.w(TAG, "Failed to write cache file", error)
         }.getOrDefault(false)
@@ -136,7 +139,11 @@ class ServerRepository(
                         (file.name.endsWith(CACHE_FILE_SUFFIX) || file.name.endsWith(".tmp"))
                 }
                 ?.forEach { file ->
-                    runCatching { file.delete() }
+                    runCatching {
+                        if (!file.delete()) {
+                            AppLog.w(TAG, "Failed to delete cache file: ${file.path}")
+                        }
+                    }
                         .onFailure { deleteError ->
                             AppLog.w(TAG, "Failed to delete cache file: ${file.path}", deleteError)
                         }
