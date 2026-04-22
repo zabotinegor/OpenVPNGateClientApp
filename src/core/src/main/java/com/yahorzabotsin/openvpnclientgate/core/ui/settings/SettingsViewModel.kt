@@ -13,6 +13,8 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -28,6 +30,8 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     private val tag = LogTags.APP + ':' + "SettingsViewModel"
+
+    private var customUrlSyncJob: Job? = null
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state = _state.asStateFlow()
@@ -116,11 +120,19 @@ class SettingsViewModel(
 
         repository.saveCustomServerUrl(newTrimmed)
         logger.logCustomServerUrlChanged(newTrimmed)
-        triggerServerSync(
-            forceRefresh = true,
-            clearCacheBeforeRefresh = false,
-            reason = "custom server URL changed"
-        )
+        customUrlSyncJob?.cancel()
+        customUrlSyncJob = viewModelScope.launch {
+            delay(CUSTOM_URL_SYNC_DEBOUNCE_MS)
+            triggerServerSync(
+                forceRefresh = true,
+                clearCacheBeforeRefresh = false,
+                reason = "custom server URL changed"
+            )
+        }
+    }
+
+    companion object {
+        private const val CUSTOM_URL_SYNC_DEBOUNCE_MS = 1_000L
     }
 
     private fun onAutoSwitchChanged(enabled: Boolean) {

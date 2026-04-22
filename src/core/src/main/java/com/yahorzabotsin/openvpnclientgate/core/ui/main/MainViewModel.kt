@@ -61,12 +61,17 @@ class MainViewModel(
                 val vpnConnected = connectionStateProvider.isConnected()
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
                 logInfo("Initial selection load mode resolved. vpn_connected=$vpnConnected, cache_only=$cacheOnly")
-                serverSyncCoordinator.sync(
-                    forceRefresh = false,
-                    cacheOnly = cacheOnly,
-                    clearCacheBeforeRefresh = false
-                )
                 lastForegroundSyncAttemptAtMs = System.currentTimeMillis()
+                runCatching {
+                    serverSyncCoordinator.sync(
+                        forceRefresh = false,
+                        cacheOnly = cacheOnly,
+                        clearCacheBeforeRefresh = false
+                    )
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.w(tag, "Startup server sync failed, loading from cache", e)
+                }
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
                 logger.logInitialSelectionLoaded(selection)
                 updateSelectedServer(
