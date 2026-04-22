@@ -107,7 +107,7 @@ class SettingsViewModel(
         serverSourceSyncJob = viewModelScope.launch {
             triggerServerSync(
                 forceRefresh = true,
-                clearCacheBeforeRefresh = true,
+                clearCacheBeforeRefresh = false,
                 reason = "server source changed"
             )
         }

@@ -184,7 +184,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `server source change triggers forced sync with cache reset`() = runTest {
+    fun `server source change triggers forced sync without pre-clear`() = runTest {
         val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
@@ -197,7 +197,7 @@ class SettingsViewModelTest {
 
         assertEquals(1, syncCoordinator.callCount)
         assertEquals(true, syncCoordinator.lastForceRefresh)
-        assertEquals(true, syncCoordinator.lastClearCacheBeforeRefresh)
+        assertEquals(false, syncCoordinator.lastClearCacheBeforeRefresh)
     }
 
     @Test
