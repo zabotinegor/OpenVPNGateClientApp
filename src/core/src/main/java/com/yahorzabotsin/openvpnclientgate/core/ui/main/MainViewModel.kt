@@ -116,7 +116,7 @@ class MainViewModel(
                     countryCode = selection.countryCode,
                     config = selection.config,
                     ip = selection.ip,
-                    fromUserSelection = false
+                    fromUserSelection = _state.value.pendingUserSelectionOverride
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e

@@ -102,7 +102,7 @@ class SettingsViewModel(
         _state.value = _state.value.copy(serverSource = source)
         repository.saveServerSource(source)
         logger.logServerSourceChanged(old, source)
-        viewModelScope.launch {
+        customUrlSyncJob = viewModelScope.launch {
             triggerServerSync(
                 forceRefresh = true,
                 clearCacheBeforeRefresh = true,
