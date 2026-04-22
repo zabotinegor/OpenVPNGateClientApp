@@ -245,40 +245,6 @@ class MainViewModelTest {
             connectionState = ConnectionState.CONNECTED
         )
 
-                @Test
-                fun `foreground sync preserves pending user selection override`() = runTest {
-                    val viewModel = createViewModel(
-                        selectionInteractor = FakeMainSelectionInteractor(
-                            initialSelection = InitialSelection(
-                                country = "France",
-                                city = "Paris",
-                                config = "config",
-                                countryCode = "FR",
-                                ip = "1.2.3.4"
-                            )
-                        )
-                    )
-
-                    viewModel.onAction(
-                        MainAction.OnServerSelectionResult(
-                            SelectedServerResult(
-                                country = "Germany",
-                                countryCode = "DE",
-                                city = "Berlin",
-                                config = "user-config",
-                                ip = "8.8.8.8"
-                            )
-                        )
-                    )
-                    advanceUntilIdle()
-                    assertTrue(viewModel.state.value.pendingUserSelectionOverride)
-
-                    viewModel.onAction(MainAction.SyncServersForForeground)
-                    advanceUntilIdle()
-
-                    assertTrue(viewModel.state.value.pendingUserSelectionOverride)
-                }
-
         viewModel.onAction(MainAction.LoadInitialSelection)
         advanceUntilIdle()
 
@@ -303,6 +269,42 @@ class MainViewModelTest {
         assertTrue(effects.first() is MainEffect.StopVpn)
         assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
         job.cancel()
+    }
+
+    @Test
+    fun `foreground sync preserves pending user selection override`() = runTest {
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "France",
+                    city = "Paris",
+                    config = "config",
+                    countryCode = "FR",
+                    ip = "1.2.3.4"
+                )
+            )
+        )
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Germany",
+                    countryCode = "DE",
+                    city = "Berlin",
+                    config = "user-config",
+                    ip = "8.8.8.8"
+                )
+            )
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
     }
 
     @Test

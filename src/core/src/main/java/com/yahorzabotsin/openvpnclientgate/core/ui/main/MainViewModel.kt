@@ -109,6 +109,9 @@ class MainViewModel(
                     if (e is CancellationException) throw e
                     AppLog.w(tag, "Foreground server sync failed", e)
                 }
+                if (_state.value.pendingUserSelectionOverride) {
+                    return@launch
+                }
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly)
                     ?: return@launch
                 updateSelectedServer(
@@ -116,7 +119,7 @@ class MainViewModel(
                     countryCode = selection.countryCode,
                     config = selection.config,
                     ip = selection.ip,
-                    fromUserSelection = _state.value.pendingUserSelectionOverride
+                    fromUserSelection = false
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e

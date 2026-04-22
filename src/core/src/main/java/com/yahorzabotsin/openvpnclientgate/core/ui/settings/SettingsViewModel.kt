@@ -31,6 +31,7 @@ class SettingsViewModel(
 
     private val tag = LogTags.APP + ':' + "SettingsViewModel"
 
+    private var serverSourceSyncJob: Job? = null
     private var customUrlSyncJob: Job? = null
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -102,7 +103,8 @@ class SettingsViewModel(
         _state.value = _state.value.copy(serverSource = source)
         repository.saveServerSource(source)
         logger.logServerSourceChanged(old, source)
-        customUrlSyncJob = viewModelScope.launch {
+        serverSourceSyncJob?.cancel()
+        serverSourceSyncJob = viewModelScope.launch {
             triggerServerSync(
                 forceRefresh = true,
                 clearCacheBeforeRefresh = true,
