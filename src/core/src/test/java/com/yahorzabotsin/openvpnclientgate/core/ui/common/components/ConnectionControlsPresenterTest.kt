@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE)
 class ConnectionControlsPresenterTest {
     companion object {
-        private const val PLACEHOLDER = "\u2014/\u2014"
+        private const val PLACEHOLDER = "--/--"
     }
 
     private lateinit var context: Context

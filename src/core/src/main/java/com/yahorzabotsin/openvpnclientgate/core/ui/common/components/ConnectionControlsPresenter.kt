@@ -41,7 +41,7 @@ class ConnectionControlsPresenter(
             context.getString(R.string.connection_detail_server_position_placeholder)
         } catch (e: Resources.NotFoundException) {
             AppLog.e(TAG, "Failed to load server position placeholder resource, using fallback", e)
-            "\u2014/\u2014"
+            "--/--"
         }
     }
 
