@@ -19,6 +19,9 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE)
 class ConnectionControlsPresenterTest {
     companion object {
+        // Hard-coded ASCII fallback — mirrors what ConnectionControlsPresenter returns
+        // when @Config(manifest = Config.NONE) prevents resource loading in this test environment.
+        // The production em-dash placeholder (—/—) is verified in ConnectionControlsViewVersionSignalDeviceTest.
         private const val PLACEHOLDER = "--/--"
     }
 
