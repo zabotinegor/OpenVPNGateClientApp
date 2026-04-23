@@ -1,7 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
+import android.content.res.Resources
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -28,12 +31,18 @@ class ConnectionControlsPresenter(
     private val context: Context,
     private val useCase: ConnectionControlsUseCase
 ) {
+    companion object {
+        private val TAG = LogTags.APP + ':' + "ConnectionControlsPresenter"
+    }
 
     private val durationPlaceholder = "00:00:00"
     private val serverPositionPlaceholder: String by lazy {
-        runCatching {
+        try {
             context.getString(R.string.connection_detail_server_position_placeholder)
-        }.getOrDefault("\u2014/\u2014")
+        } catch (e: Resources.NotFoundException) {
+            AppLog.e(TAG, "Failed to load server position placeholder resource, using fallback", e)
+            "\u2014/\u2014"
+        }
     }
 
     fun buildStatusText(

@@ -1,7 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
-import android.content.ContextWrapper
 import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -10,10 +9,19 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class ConnectionControlsPresenterTest {
+    companion object {
+        private const val PLACEHOLDER = "\u2014/\u2014"
+    }
 
-    private val context: Context = ContextWrapper(null)
+    private val context: Context = RuntimeEnvironment.getApplication()
     private val presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
 
     @Test
@@ -57,7 +65,7 @@ class ConnectionControlsPresenterTest {
         assertNotNull(sync)
         assertEquals("Japan", sync?.country)
         assertEquals("1.2.3.4", sync?.ip)
-        assertEquals("\u2014/\u2014", sync?.cityText)
+        assertEquals(PLACEHOLDER, sync?.cityText)
     }
 
     @Test

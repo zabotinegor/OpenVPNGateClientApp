@@ -12,4 +12,8 @@ object SelectedCountryVersionSignal {
     fun bump() {
         versionState.update { it + 1L }
     }
+
+    fun restoreForTesting(version: Long) {
+        versionState.value = version
+    }
 }
