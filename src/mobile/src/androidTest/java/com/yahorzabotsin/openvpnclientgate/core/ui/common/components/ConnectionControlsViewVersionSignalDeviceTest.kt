@@ -55,8 +55,9 @@ class ConnectionControlsViewVersionSignalDeviceTest {
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+                SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
             }
-            SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
     }
 
@@ -96,8 +97,9 @@ class ConnectionControlsViewVersionSignalDeviceTest {
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+                SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
             }
-            SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
     }
 

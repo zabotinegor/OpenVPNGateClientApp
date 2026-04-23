@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -21,8 +22,14 @@ class ConnectionControlsPresenterTest {
         private const val PLACEHOLDER = "\u2014/\u2014"
     }
 
-    private val context: Context = RuntimeEnvironment.getApplication()
-    private val presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+    private lateinit var context: Context
+    private lateinit var presenter: ConnectionControlsPresenter
+
+    @Before
+    fun setUp() {
+        context = RuntimeEnvironment.getApplication()
+        presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+    }
 
     @Test
     fun `formatDuration returns placeholder when not connected`() {

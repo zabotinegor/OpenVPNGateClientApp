@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,7 @@ object SelectedCountryVersionSignal {
         versionState.update { it + 1L }
     }
 
+    @VisibleForTesting(otherwise = VisibleForTesting.NONE)
     fun restoreForTesting(version: Long) {
         versionState.value = version
     }
