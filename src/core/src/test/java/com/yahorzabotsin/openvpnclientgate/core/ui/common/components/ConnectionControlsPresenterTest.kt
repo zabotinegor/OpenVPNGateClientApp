@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,7 +57,7 @@ class ConnectionControlsPresenterTest {
         assertNotNull(sync)
         assertEquals("Japan", sync?.country)
         assertEquals("1.2.3.4", sync?.ip)
-        assertEquals("", sync?.cityText)
+        assertEquals("\u2014/\u2014", sync?.cityText)
     }
 
     @Test
@@ -123,6 +124,26 @@ class ConnectionControlsPresenterTest {
         assertEquals("3.3.3.3", sync?.ip)
     }
 
+    @Test
+    fun `syncServer returns null when country cannot be resolved`() {
+        val store = FakeSelectionStore(
+            selectedCountry = null,
+            currentServer = null,
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = 1 to 1
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = null,
+            selectedServerIp = null,
+            vpnConfig = null
+        )
+
+        assertNull(sync)
+    }
+
     private class FakeSelectionStore(
         private val selectedCountry: String?,
         private val currentServer: StoredServer?,
@@ -130,7 +151,7 @@ class ConnectionControlsPresenterTest {
         private val lastSuccessfulIp: String?,
         private val lastSuccessfulConfig: String? = null,
         private val ipForConfig: String? = null,
-        private val position: Pair<Int, Int>? = null
+        var position: Pair<Int, Int>? = null
     ) : ConnectionControlsSelectionStore {
 
         var ipForConfigRequested: Boolean = false

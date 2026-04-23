@@ -30,6 +30,11 @@ class ConnectionControlsPresenter(
 ) {
 
     private val durationPlaceholder = "00:00:00"
+    private val serverPositionPlaceholder: String by lazy {
+        runCatching {
+            context.getString(R.string.connection_detail_server_position_placeholder)
+        }.getOrDefault("\u2014/\u2014")
+    }
 
     fun buildStatusText(
         state: ConnectionState,
@@ -144,7 +149,7 @@ class ConnectionControlsPresenter(
             ?.let { (index, total) ->
                 context.getString(R.string.connection_detail_server_position, index, total)
             }
-            .orEmpty()
+            ?: serverPositionPlaceholder
 
         return ConnectionServerSync(
             country = resolvedCountry,

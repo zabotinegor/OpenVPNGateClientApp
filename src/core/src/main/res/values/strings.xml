@@ -141,6 +141,7 @@
     <string name="connection_detail_downloaded_label">DOWNLOADED</string>
     <string name="connection_detail_city_label">SERVER</string>
     <string name="connection_detail_server_position">%1$d/%2$d</string>
+    <string name="connection_detail_server_position_placeholder">&#8212;/&#8212;</string>
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">UPLOADED</string>
     <string name="connection_detail_address_label">ADDRESS</string>
