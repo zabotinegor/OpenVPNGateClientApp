@@ -22,6 +22,7 @@ class ConnectionControlsViewVersionSignalDeviceTest {
 
     @Test
     fun selectedCountrySignalUpdatesServerPositionOnActiveLifecycle() {
+        val initialSignalVersion = SelectedCountryVersionSignal.version.value
         val app = ApplicationProvider.getApplicationContext<Application>()
         val context = ContextThemeWrapper(app, R.style.Theme_OpenVPNClientGate_Base)
         val runtime = DefaultConnectionControlsRuntime()
@@ -30,29 +31,75 @@ class ConnectionControlsViewVersionSignalDeviceTest {
         val lifecycleOwner = TestLifecycleOwner()
 
         lateinit var view: ConnectionControlsView
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            view = ConnectionControlsView(context)
-            view.setDependencies(
-                presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase()),
-                runtime = runtime,
-                selectionStore = store
-            )
-            view.setConnectionDetailsListener(listener)
-            view.setLifecycleOwner(lifecycleOwner)
-            lifecycleOwner.moveTo(Lifecycle.State.STARTED)
-            view.setServer(country = "Country", countryCode = "CC", ip = null)
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                view = ConnectionControlsView(context)
+                view.setDependencies(
+                    presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase()),
+                    runtime = runtime,
+                    selectionStore = store
+                )
+                view.setConnectionDetailsListener(listener)
+                view.setLifecycleOwner(lifecycleOwner)
+                lifecycleOwner.moveTo(Lifecycle.State.STARTED)
+                view.setServer(country = "Country", countryCode = "CC", ip = null)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            assertEquals("1/2", listener.lastCity)
+
+            store.position = 2 to 2
+            SelectedCountryVersionSignal.bump()
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+            assertEquals("2/2", listener.lastCity)
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+                SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        assertEquals("1/2", listener.lastCity)
+    }
 
-        store.position = 2 to 2
-        SelectedCountryVersionSignal.bump()
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    @Test
+    fun selectedCountrySignalRestoresServerPositionAfterPlaceholderState() {
+        val initialSignalVersion = SelectedCountryVersionSignal.version.value
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val context = ContextThemeWrapper(app, R.style.Theme_OpenVPNClientGate_Base)
+        val expectedPlaceholder = context.getString(R.string.connection_detail_server_position_placeholder)
+        val runtime = DefaultConnectionControlsRuntime()
+        val store = FakeSelectionStore(position = null)
+        val listener = FakeDetailsListener()
+        val lifecycleOwner = TestLifecycleOwner()
 
-        assertEquals("2/2", listener.lastCity)
+        lateinit var view: ConnectionControlsView
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                view = ConnectionControlsView(context)
+                view.setDependencies(
+                    presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase()),
+                    runtime = runtime,
+                    selectionStore = store
+                )
+                view.setConnectionDetailsListener(listener)
+                view.setLifecycleOwner(lifecycleOwner)
+                lifecycleOwner.moveTo(Lifecycle.State.STARTED)
+                view.setServer(country = "Country", countryCode = "CC", ip = null)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            assertEquals(expectedPlaceholder, listener.lastCity)
 
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+            store.position = 2 to 5
+            SelectedCountryVersionSignal.bump()
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+            assertEquals("2/5", listener.lastCity)
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
+                SelectedCountryVersionSignal.restoreForTesting(initialSignalVersion)
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
     }
 

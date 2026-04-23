@@ -1,19 +1,39 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
-import android.content.ContextWrapper
 import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class ConnectionControlsPresenterTest {
+    companion object {
+        // Hard-coded ASCII fallback — mirrors what ConnectionControlsPresenter returns when
+        // @Config(manifest = Config.NONE) prevents Robolectric from loading module resources,
+        // causing Resources.NotFoundException in the presenter's try-catch and using the
+        // ASCII fallback instead of the em-dash resource (—/—) seen in production.
+        private const val PLACEHOLDER = "--/--"
+    }
 
-    private val context: Context = ContextWrapper(null)
-    private val presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+    private lateinit var context: Context
+    private lateinit var presenter: ConnectionControlsPresenter
+
+    @Before
+    fun setUp() {
+        context = RuntimeEnvironment.getApplication()
+        presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+    }
 
     @Test
     fun `formatDuration returns placeholder when not connected`() {
@@ -56,7 +76,7 @@ class ConnectionControlsPresenterTest {
         assertNotNull(sync)
         assertEquals("Japan", sync?.country)
         assertEquals("1.2.3.4", sync?.ip)
-        assertEquals("", sync?.cityText)
+        assertEquals(PLACEHOLDER, sync?.cityText)
     }
 
     @Test
@@ -123,6 +143,26 @@ class ConnectionControlsPresenterTest {
         assertEquals("3.3.3.3", sync?.ip)
     }
 
+    @Test
+    fun `syncServer returns null when country cannot be resolved`() {
+        val store = FakeSelectionStore(
+            selectedCountry = null,
+            currentServer = null,
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = 1 to 1
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = null,
+            selectedServerIp = null,
+            vpnConfig = null
+        )
+
+        assertNull(sync)
+    }
+
     private class FakeSelectionStore(
         private val selectedCountry: String?,
         private val currentServer: StoredServer?,
@@ -130,7 +170,7 @@ class ConnectionControlsPresenterTest {
         private val lastSuccessfulIp: String?,
         private val lastSuccessfulConfig: String? = null,
         private val ipForConfig: String? = null,
-        private val position: Pair<Int, Int>? = null
+        var position: Pair<Int, Int>? = null
     ) : ConnectionControlsSelectionStore {
 
         var ipForConfigRequested: Boolean = false
