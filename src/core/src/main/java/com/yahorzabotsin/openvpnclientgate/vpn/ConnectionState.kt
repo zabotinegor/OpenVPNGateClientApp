@@ -41,6 +41,7 @@ object ConnectionStateManager {
     )
     private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
     internal val engineTeardownDetails = setOf("NOPROCESS", "EXITING", "DISCONNECTED")
+    @Volatile
     private var resumeTransitionInFlight = false
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -112,9 +113,8 @@ object ConnectionStateManager {
                     _connectionStartTimeMs.value = null
                 }
                 ConnectionState.CONNECTED -> {
-                    val wasResuming = resumeTransitionInFlight
                     resumeTransitionInFlight = false
-                    if (current != ConnectionState.CONNECTED && !wasResuming) {
+                    if (_connectionStartTimeMs.value == null) {
                         _connectionStartTimeMs.value = System.currentTimeMillis()
                     }
                 }
@@ -129,7 +129,7 @@ object ConnectionStateManager {
     }
 
     @MainThread
-    fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
+    internal fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
         val normalizedLevel = if (detail == "CONNECTED" && level != ConnectionStatus.LEVEL_CONNECTED) {
             ConnectionStatus.LEVEL_CONNECTED
         } else {
