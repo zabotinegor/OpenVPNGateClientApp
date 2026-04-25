@@ -67,6 +67,10 @@ object VpnManager {
         val result = startControllerService(context, intent, ACTION_PAUSE)
         if (!result) {
             AppLog.w(TAG, "pauseVpn: failed to send pause command, rolling state back to $previousState")
+            if (previousState == ConnectionState.CONNECTED) {
+                // Restore CONNECTED through an allowed transition path.
+                ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+            }
             ConnectionStateManager.updateState(previousState)
         }
         AppLog.i(TAG, "pauseVpn: sent pause command, result=$result")
