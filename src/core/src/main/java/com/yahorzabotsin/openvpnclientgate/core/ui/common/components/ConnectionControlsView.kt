@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
+import androidx.core.view.isVisible
 import androidx.core.text.buildSpannedString
 import androidx.core.text.inSpans
 import androidx.lifecycle.Lifecycle
@@ -289,7 +290,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         connectButton.backgroundTintList = ColorStateList.valueOf(color)
 
         val pauseModel = presenter.buildPauseButtonModel(state)
-        pauseButton.visibility = if (pauseModel.visible) android.view.View.VISIBLE else android.view.View.GONE
+        pauseButton.isVisible = pauseModel.visible
         if (pauseModel.visible) pauseButton.text = pauseModel.text
 
         when (resolveFocusTarget(TvUtils.isTvDevice(context), focusPolicyRequested, pauseModel.visible)) {
