@@ -257,5 +257,42 @@ class ConnectionStateManagerTest {
 
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
     }
+
+    @Test
+    fun cancelResumeTransition_allowsStalePausedEngineCallbackThrough() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+        ConnectionStateManager.beginResumeTransition()
+        // resumeTransitionInFlight is true — LEVEL_VPNPAUSED callback ignored
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        // Service resume-timeout fires: cancel transition, re-process engine level
+        ConnectionStateManager.cancelResumeTransition()
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun connectionTimerPreservedAcrossPauseResumeCycle() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        val base = ConnectionStateManager.connectionStartTimeMs.value!!
+
+        // Pause
+        ConnectionStateManager.beginPauseTransition()
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+
+        // Resume
+        ConnectionStateManager.beginResumeTransition()
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, null)
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // Timer must not be reset during resume
+        assertEquals(base, ConnectionStateManager.connectionStartTimeMs.value)
+    }
 }
 

@@ -82,6 +82,11 @@ object ConnectionStateManager {
     }
 
     @MainThread
+    internal fun cancelResumeTransition() {
+        resumeTransitionInFlight = false
+    }
+
+    @MainThread
     internal fun updateState(newState: ConnectionState) {
         val current = _state.value
         if (current == newState) return
@@ -107,8 +112,9 @@ object ConnectionStateManager {
                     _connectionStartTimeMs.value = null
                 }
                 ConnectionState.CONNECTED -> {
+                    val wasResuming = resumeTransitionInFlight
                     resumeTransitionInFlight = false
-                    if (current != ConnectionState.CONNECTED) {
+                    if (current != ConnectionState.CONNECTED && !wasResuming) {
                         _connectionStartTimeMs.value = System.currentTimeMillis()
                     }
                 }

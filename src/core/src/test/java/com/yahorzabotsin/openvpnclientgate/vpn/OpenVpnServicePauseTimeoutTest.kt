@@ -111,7 +111,7 @@ class OpenVpnServicePauseTimeoutTest {
     }
 
     @Test
-    fun resumeAction_clearsPauseTimeoutHandler() {
+    fun resumeAction_clearsPauseTimeoutAndSetResumeInFlight() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -129,15 +129,44 @@ class OpenVpnServicePauseTimeoutTest {
         }
         service.onStartCommand(resumeIntent, 0, 2)
 
-        // Flag should be cleared
-        val pauseActionInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
-        assertEquals(false, pauseActionInFlight)
+        // Pause flag must be cleared
+        val pauseInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
+        assertEquals(false, pauseInFlight)
 
-        // Run timeout handlers - no state change expected
+        // Resume flag should now be active (timeout will guard against stall)
+        val resumeInFlight = ReflectionHelpers.getField<Boolean>(service, "resumeActionInFlight")
+        assertEquals(true, resumeInFlight)
+
+        // State is still CONNECTED: VpnManager.resumeVpn calls beginResumeTransition,
+        // but this test dispatches directly to the service, bypassing VpnManager.
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun resumeActionTimeout_rollsBackToPausedWhenEngineStillPaused() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        // Simulate resume tap: VpnManager sets resumeTransitionInFlight and moves state to CONNECTING
+        ConnectionStateManager.beginResumeTransition()
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        // Service receives ACTION_RESUME and schedules resume timeout
+        val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)
+        }
+        service.onStartCommand(resumeIntent, 0, 1)
+
+        // Engine level is still VPNPAUSED — ignored because resumeTransitionInFlight is true
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        // Resume timeout fires: engine still paused → roll back to PAUSED
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
-        // Service ACTION_RESUME clears timeout tracking and does not force PAUSED on timeout.
-        // App state transition to CONNECTING is initiated by VpnManager, not by service command forwarding.
-        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 }

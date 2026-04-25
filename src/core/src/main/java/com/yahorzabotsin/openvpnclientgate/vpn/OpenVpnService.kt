@@ -60,6 +60,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
+        private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
     }
 
     // Track engine binding for start/stop coordination
@@ -112,6 +113,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
+    // Track resume action to detect engine stall and roll back to PAUSED
+    private var resumeActionInFlight = false
     private var lastAidlLevel: ConnectionStatus? = null
     private var lastAidlState: String? = null
     private var lastVpnStatusLevel: ConnectionStatus? = null
@@ -399,19 +402,28 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                             AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
                         } catch (e: Exception) {
                             AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
-                            pauseActionInFlight = false
+                            statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                            statusHandler.post(pauseActionTimeoutRunnable)
                         }
                     }
                     VpnManager.ACTION_RESUME -> {
                         AppLog.i(TAG, "ACTION_RESUME")
                         pauseActionInFlight = false
                         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                        resumeActionInFlight = true
+                        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+                        statusHandler.postDelayed(resumeActionTimeoutRunnable, RESUME_CONFIRMATION_TIMEOUT_MS)
                         try {
                             startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
                                 setAction(ENGINE_ACTION_RESUME_VPN)
                             })
+                            AppLog.d(TAG, "Forwarded RESUME_VPN to engine, waiting for CONNECTED confirmation (timeout=${RESUME_CONFIRMATION_TIMEOUT_MS}ms)")
                         } catch (e: Exception) {
                             AppLog.w(TAG, "Failed to forward RESUME_VPN to engine", e)
+                            resumeActionInFlight = false
+                            statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+                            ConnectionStateManager.cancelResumeTransition()
+                            ConnectionStateManager.updateState(ConnectionState.PAUSED)
                         }
                     }
                     else -> {
@@ -465,6 +477,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
+        }
+    }
+
+    private val resumeActionTimeoutRunnable = Runnable {
+        if (!resumeActionInFlight) return@Runnable
+        resumeActionInFlight = false
+        val level = ConnectionStateManager.engineLevel.value
+        AppLog.w(TAG, "Resume action timeout: engine did not confirm CONNECTED (lastLevel=${level ?: "<null>"})")
+        try {
+            ConnectionStateManager.cancelResumeTransition()
+            if (level != null) {
+                ConnectionStateManager.updateFromEngine(level, ConnectionStateManager.engineDetail.value)
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to reconcile app state after resume timeout", e)
         }
     }
 
@@ -578,6 +605,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -690,14 +718,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
               ConnectionStatus.LEVEL_CONNECTED -> {
                   userInitiatedStart = false
                   userInitiatedStop = false
-                  pauseActionInFlight = false
-                  statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                  resumeActionInFlight = false
+                  statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 AppLog.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
