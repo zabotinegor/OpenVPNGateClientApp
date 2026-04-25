@@ -1090,9 +1090,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.d(TAG, "Ignoring stale LEVEL_CONNECTED after user stop")
                 true
             }
+            ConnectionStatus.LEVEL_VPNPAUSED -> {
+                ignoreConnectedUntilNotConnected = false
+                AppLog.d(TAG, "Cleared stale CONNECTED guard on level=$level and ignored stale paused callback")
+                true
+            }
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_NONETWORK,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> {
                 ignoreConnectedUntilNotConnected = false
