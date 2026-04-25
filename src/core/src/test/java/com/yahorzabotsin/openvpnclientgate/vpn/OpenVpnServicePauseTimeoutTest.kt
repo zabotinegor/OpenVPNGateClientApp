@@ -164,9 +164,51 @@ class OpenVpnServicePauseTimeoutTest {
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
 
+        // Force the timeout path to use the ConnectionStateManager fallback instead of
+        // any incidental observed service-source state from the test environment.
+        ReflectionHelpers.setField(service, "lastAidlStateUpdateMs", 0L)
+        ReflectionHelpers.setField(service, "lastVpnStatusStateUpdateMs", 0L)
+
         // Resume timeout fires: engine still paused → roll back to PAUSED
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun resumeActionTimeout_usesNewerVpnStatusConnectedOverStaleManagerLevel() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        ConnectionStateManager.beginResumeTransition()
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        val now = System.currentTimeMillis()
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now)
+
+        val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)
+        }
+        service.onStartCommand(resumeIntent, 0, 1)
+
+        service.updateState(
+            "CONNECTED",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTED,
+            null
+        )
+
+        // VPN_STATUS CONNECTED was observed, but the manager still carries stale PAUSED
+        // because fresh AIDL suppressed the sync path.
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 }

@@ -1,4 +1,4 @@
-﻿---
+---
 id: VPN-PAUSE-002
 title: Pause and resume transitions stay smooth and do not bounce
 area: VPN Connection Controls

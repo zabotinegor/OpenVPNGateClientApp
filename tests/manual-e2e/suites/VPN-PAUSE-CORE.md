@@ -1,4 +1,4 @@
-﻿---
+---
 id: VPN-PAUSE-CORE
 title: VPN pause/resume connection controls acceptance suite
 surface: android

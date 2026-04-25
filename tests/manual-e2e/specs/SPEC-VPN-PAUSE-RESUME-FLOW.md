@@ -1,4 +1,4 @@
-﻿---
+---
 id: SPEC-VPN-PAUSE-RESUME-FLOW
 title: Main screen pause/resume/stop behavior
 surface: android

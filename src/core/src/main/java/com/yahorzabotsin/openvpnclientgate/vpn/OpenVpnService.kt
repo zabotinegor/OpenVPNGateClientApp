@@ -117,8 +117,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var resumeActionInFlight = false
     private var lastAidlLevel: ConnectionStatus? = null
     private var lastAidlState: String? = null
+    private var lastAidlStateUpdateMs: Long = 0L
     private var lastVpnStatusLevel: ConnectionStatus? = null
     private var lastVpnStatusState: String? = null
+    private var lastVpnStatusStateUpdateMs: Long = 0L
     private var lastEngineLevel: ConnectionStatus? = null
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
@@ -189,6 +191,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         level: ConnectionStatus,
         state: String?
     ) {
+        val now = System.currentTimeMillis()
         val previousLevel: ConnectionStatus?
         val previousState: String?
         when (source) {
@@ -197,12 +200,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 previousState = lastAidlState
                 lastAidlLevel = level
                 lastAidlState = state
+                lastAidlStateUpdateMs = now
             }
             "VPN_STATUS" -> {
                 previousLevel = lastVpnStatusLevel
                 previousState = lastVpnStatusState
                 lastVpnStatusLevel = level
                 lastVpnStatusState = state
+                lastVpnStatusStateUpdateMs = now
             }
             else -> {
                 previousLevel = null
@@ -211,6 +216,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         if (previousLevel != level || previousState != state) {
             AppLog.d(TAG, "Engine state (${source}): level=${level} state=${state ?: "<null>"}")
+        }
+    }
+
+    private fun getLatestObservedEngineState(): Pair<ConnectionStatus?, String?> {
+        return when {
+            lastVpnStatusStateUpdateMs > lastAidlStateUpdateMs -> lastVpnStatusLevel to lastVpnStatusState
+            lastAidlStateUpdateMs > 0L -> lastAidlLevel to lastAidlState
+            lastVpnStatusStateUpdateMs > 0L -> lastVpnStatusLevel to lastVpnStatusState
+            else -> ConnectionStateManager.engineLevel.value to ConnectionStateManager.engineDetail.value
         }
     }
 
@@ -483,12 +497,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val resumeActionTimeoutRunnable = Runnable {
         if (!resumeActionInFlight) return@Runnable
         resumeActionInFlight = false
-        val level = ConnectionStateManager.engineLevel.value
+        val (level, detail) = getLatestObservedEngineState()
         AppLog.w(TAG, "Resume action timeout: engine did not confirm CONNECTED (lastLevel=${level ?: "<null>"})")
         try {
             ConnectionStateManager.cancelResumeTransition()
             if (level != null) {
-                ConnectionStateManager.updateFromEngine(level, ConnectionStateManager.engineDetail.value)
+                ConnectionStateManager.updateFromEngine(level, detail)
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to reconcile app state after resume timeout", e)

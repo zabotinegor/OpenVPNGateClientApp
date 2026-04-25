@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Serial = "192.168.1.95:5555",
     [string]$Adb = "c:/platform-tools/adb.exe",
     [string]$OutputDir = "$env:TEMP/OpenVPNClient-tv-pause-resume-e2e"
