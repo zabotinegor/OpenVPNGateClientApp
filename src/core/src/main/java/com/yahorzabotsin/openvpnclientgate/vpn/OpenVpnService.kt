@@ -223,7 +223,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return when {
             lastVpnStatusStateUpdateMs > lastAidlStateUpdateMs -> lastVpnStatusLevel to lastVpnStatusState
             lastAidlStateUpdateMs > 0L -> lastAidlLevel to lastAidlState
-            lastVpnStatusStateUpdateMs > 0L -> lastVpnStatusLevel to lastVpnStatusState
             else -> ConnectionStateManager.engineLevel.value to ConnectionStateManager.engineDetail.value
         }
     }
@@ -469,7 +468,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!pauseActionInFlight) return@Runnable
         val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
         pauseActionInFlight = false
-        val level = ConnectionStateManager.engineLevel.value
+        val (level, detail) = getLatestObservedEngineState()
         AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
         try {
             when (level) {
@@ -485,7 +484,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 }
                 ConnectionStatus.LEVEL_VPNPAUSED -> {
-                    ConnectionStateManager.updateState(ConnectionState.PAUSED)
+                    ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
                 }
                 else -> Unit
             }
@@ -789,6 +788,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 syncEngineState(level, state, allowAutoSwitch = true)
                 onOneShotInitialStateSynced("AIDL callback")
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
+                    resumeActionInFlight = false
+                    statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
                 }

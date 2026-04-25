@@ -300,7 +300,6 @@ class ConnectionControlsView @JvmOverloads constructor(
             }
             FocusTarget.START -> {
                 connectButton.requestFocus()
-                pauseActionFocusPending = false
             }
             FocusTarget.NONE -> Unit
         }
