@@ -198,6 +198,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         connectionControlsView.setConnectionButtonClickHandler {
             dispatchConnectionButtonClick()
         }
+        connectionControlsView.setPauseButtonClickHandler {
+            viewModel.onAction(MainAction.PauseButtonClicked)
+        }
     }
 
     private fun setupToolbarAndDrawer(drawerLayout: DrawerLayout) {
@@ -267,6 +270,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
+            MainEffect.PauseVpn -> VpnManager.pauseVpn(this)
+            MainEffect.ResumeVpn -> VpnManager.resumeVpn(this)
             is MainEffect.PromptUpdate -> {
                 val shouldShow = !effect.oneTimeOnly || shouldShowUpdatePromptOnce(effect.update)
                 AppLog.i(tag, "Prompt update requested: oneTimeOnly=${effect.oneTimeOnly}, shouldShow=$shouldShow")

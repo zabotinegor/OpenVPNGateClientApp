@@ -50,6 +50,7 @@ class MainViewModel(
             )
             is MainAction.OnServerSelectionResult -> onServerSelectionResult(action.selection)
             is MainAction.OnMultiWindowModeChanged -> onMultiWindowModeChanged(action.isInMultiWindowMode)
+            MainAction.PauseButtonClicked -> onPauseButtonClicked()
         }
     }
 
@@ -266,6 +267,8 @@ class MainViewModel(
         viewModelScope.launch {
             when (connectionStateProvider.state.value) {
                 ConnectionState.CONNECTED,
+                ConnectionState.PAUSING,
+                ConnectionState.PAUSED,
                 ConnectionState.CONNECTING,
                 ConnectionState.DISCONNECTING -> {
                     _effects.send(MainEffect.StopVpn)
@@ -303,6 +306,16 @@ class MainViewModel(
                     )
                     _effects.send(MainEffect.StartVpn(prepared.config, prepared.country))
                 }
+            }
+        }
+    }
+
+    private fun onPauseButtonClicked() {
+        viewModelScope.launch {
+            when (connectionStateProvider.state.value) {
+                ConnectionState.CONNECTED -> _effects.send(MainEffect.PauseVpn)
+                ConnectionState.PAUSED -> _effects.send(MainEffect.ResumeVpn)
+                else -> Unit
             }
         }
     }

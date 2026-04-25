@@ -21,6 +21,11 @@ enum class ConnectionButtonStyle {
     DISCONNECTED
 }
 
+data class PauseButtonModel(
+    val visible: Boolean,
+    val text: CharSequence
+)
+
 data class ConnectionServerSync(
     val country: String?,
     val ip: String?,
@@ -54,6 +59,8 @@ class ConnectionControlsPresenter(
             ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
             ConnectionState.CONNECTING -> R.string.main_status_connecting
             ConnectionState.CONNECTED -> R.string.main_status_connected
+            ConnectionState.PAUSING -> R.string.main_status_pausing
+            ConnectionState.PAUSED -> R.string.main_status_paused
             ConnectionState.DISCONNECTING -> R.string.main_status_disconnecting
         }
         val baseStatus = context.getString(statusRes)
@@ -67,7 +74,6 @@ class ConnectionControlsPresenter(
             baseStatus
         }
     }
-
     fun buildButtonModel(
         state: ConnectionState,
         detail: String?,
@@ -76,6 +82,8 @@ class ConnectionControlsPresenter(
     ): ConnectionButtonModel {
         return when (state) {
             ConnectionState.CONNECTED,
+            ConnectionState.PAUSING,
+            ConnectionState.PAUSED,
             ConnectionState.DISCONNECTING -> ConnectionButtonModel(
                 text = context.getString(R.string.stop_connection),
                 style = ConnectionButtonStyle.ACTIVE
@@ -110,8 +118,27 @@ class ConnectionControlsPresenter(
         }
     }
 
+    fun buildPauseButtonModel(state: ConnectionState): PauseButtonModel {
+        return when (state) {
+            ConnectionState.CONNECTED -> PauseButtonModel(
+                visible = true,
+                text = context.getString(R.string.pause_connection)
+            )
+            ConnectionState.PAUSED -> PauseButtonModel(
+                visible = true,
+                text = context.getString(R.string.resume_connection)
+            )
+            else -> PauseButtonModel(visible = false, text = "")
+        }
+    }
+
     fun formatDuration(state: ConnectionState, connectionStartTimeMs: Long?): String {
-        if (state != ConnectionState.CONNECTED || connectionStartTimeMs == null) return durationPlaceholder
+        if (
+            (state != ConnectionState.CONNECTED &&
+                state != ConnectionState.PAUSING &&
+                state != ConnectionState.PAUSED) ||
+            connectionStartTimeMs == null
+        ) return durationPlaceholder
         val elapsedSec = ((System.currentTimeMillis() - connectionStartTimeMs) / 1000L).coerceAtLeast(0L)
         val hours = elapsedSec / 3600
         val minutes = (elapsedSec % 3600) / 60

@@ -10,6 +10,8 @@ object VpnManager {
 
     const val ACTION_START = "start"
     const val ACTION_STOP = "stop"
+    const val ACTION_PAUSE = "pause"
+    const val ACTION_RESUME = "resume"
     const val ACTION_STOP_IF_IDLE = "stop_if_idle"
     const val ACTION_SYNC_STATUS = "sync_status"
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "VpnManager"
@@ -44,6 +46,47 @@ object VpnManager {
             putExtra(extraPreserveReconnectKey(context), preserveReconnectHint)
         }
         return startControllerService(context, intent, ACTION_STOP)
+    }
+
+    fun pauseVpn(context: Context): Boolean {
+        AppLog.d(TAG, "pauseVpn")
+        val currentState = ConnectionStateManager.state.value
+        AppLog.d(TAG, "pauseVpn: current state = $currentState")
+
+        // Only send pause if we're already connected or transitioning from connected
+        if (currentState != ConnectionState.CONNECTED && currentState != ConnectionState.PAUSING) {
+            AppLog.w(TAG, "pauseVpn: ignoring pause request, not in CONNECTED state (current=$currentState)")
+            return false
+        }
+
+        val previousState = currentState
+        ConnectionStateManager.beginPauseTransition()
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
+            putExtra(actionKey(context), ACTION_PAUSE)
+        }
+        val result = startControllerService(context, intent, ACTION_PAUSE)
+        if (!result) {
+            AppLog.w(TAG, "pauseVpn: failed to send pause command, rolling state back to $previousState")
+            ConnectionStateManager.updateState(previousState)
+        }
+        AppLog.i(TAG, "pauseVpn: sent pause command, result=$result")
+        return result
+    }
+
+    fun resumeVpn(context: Context): Boolean {
+        AppLog.d(TAG, "resumeVpn")
+        val previousState = ConnectionStateManager.state.value
+        // Reflect reconnecting UI immediately after resume tap while engine status catches up.
+        ConnectionStateManager.beginResumeTransition()
+        val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
+            putExtra(actionKey(context), ACTION_RESUME)
+        }
+        val result = startControllerService(context, intent, ACTION_RESUME)
+        if (!result) {
+            AppLog.w(TAG, "resumeVpn: failed to send resume command, rolling state back to $previousState")
+            ConnectionStateManager.updateState(previousState)
+        }
+        return result
     }
 
     fun stopControllerIfIdle(context: Context): Boolean {
@@ -86,6 +129,3 @@ object VpnManager {
         }
     }
 }
-
-
-

@@ -11,16 +11,37 @@ enum class ConnectionState {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
+    PAUSING,
+    PAUSED,
     DISCONNECTING
 }
 
 object ConnectionStateManager {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionState"
     private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
-    private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
-    private val allowedFromConnected = setOf(ConnectionState.CONNECTING, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+    private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.PAUSED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
+    private val allowedFromConnected = setOf(
+        ConnectionState.CONNECTING,
+        ConnectionState.PAUSING,
+        ConnectionState.PAUSED,
+        ConnectionState.DISCONNECTING,
+        ConnectionState.DISCONNECTED
+    )
+    private val allowedFromPausing = setOf(
+        ConnectionState.CONNECTING,
+        ConnectionState.PAUSED,
+        ConnectionState.DISCONNECTING,
+        ConnectionState.DISCONNECTED
+    )
+    private val allowedFromPaused = setOf(
+        ConnectionState.CONNECTING,
+        ConnectionState.CONNECTED,
+        ConnectionState.DISCONNECTING,
+        ConnectionState.DISCONNECTED
+    )
     private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
     internal val engineTeardownDetails = setOf("NOPROCESS", "EXITING", "DISCONNECTED")
+    private var resumeTransitionInFlight = false
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
@@ -49,6 +70,18 @@ object ConnectionStateManager {
     }
 
     @MainThread
+    internal fun beginPauseTransition() {
+        resumeTransitionInFlight = false
+        updateState(ConnectionState.PAUSING)
+    }
+
+    @MainThread
+    internal fun beginResumeTransition() {
+        resumeTransitionInFlight = true
+        updateState(ConnectionState.CONNECTING)
+    }
+
+    @MainThread
     internal fun updateState(newState: ConnectionState) {
         val current = _state.value
         if (current == newState) return
@@ -57,6 +90,8 @@ object ConnectionStateManager {
             ConnectionState.DISCONNECTED -> allowedFromDisconnected
             ConnectionState.CONNECTING -> allowedFromConnecting
             ConnectionState.CONNECTED -> allowedFromConnected
+            ConnectionState.PAUSING -> allowedFromPausing
+            ConnectionState.PAUSED -> allowedFromPaused
             ConnectionState.DISCONNECTING -> allowedFromDisconnecting
         }
 
@@ -65,15 +100,21 @@ object ConnectionStateManager {
             AppLog.i(TAG, "App state: ${current} -> ${newState}")
             when (newState) {
                 ConnectionState.DISCONNECTED -> {
+                    resumeTransitionInFlight = false
                     _speedMbps.value = 0.0
                     _downloadedBytes.value = 0L
                     _uploadedBytes.value = 0L
                     _connectionStartTimeMs.value = null
                 }
                 ConnectionState.CONNECTED -> {
+                    resumeTransitionInFlight = false
                     if (current != ConnectionState.CONNECTED) {
                         _connectionStartTimeMs.value = System.currentTimeMillis()
                     }
+                }
+                ConnectionState.PAUSING -> Unit
+                ConnectionState.PAUSED -> {
+                    resumeTransitionInFlight = false
                 }
                 ConnectionState.CONNECTING,
                 ConnectionState.DISCONNECTING -> Unit
@@ -97,9 +138,9 @@ object ConnectionStateManager {
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> ConnectionState.CONNECTING
             ConnectionStatus.LEVEL_CONNECTED -> ConnectionState.CONNECTED
+            ConnectionStatus.LEVEL_VPNPAUSED -> ConnectionState.PAUSED
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> ConnectionState.DISCONNECTED
         }
@@ -111,6 +152,15 @@ object ConnectionStateManager {
         }
 
         if (mapped == ConnectionState.CONNECTED) _reconnectingHint.value = false
+
+        if (mapped == ConnectionState.PAUSED) {
+            if (resumeTransitionInFlight) {
+                AppLog.d(TAG, "Ignoring stale PAUSED engine callback during resume transition")
+                return
+            }
+            updateState(ConnectionState.PAUSED)
+            return
+        }
 
         val current = _state.value
         val d = detail ?: ""

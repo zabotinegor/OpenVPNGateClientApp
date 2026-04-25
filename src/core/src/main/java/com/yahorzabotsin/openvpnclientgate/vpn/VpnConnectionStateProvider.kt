@@ -11,5 +11,7 @@ class DefaultVpnConnectionStateProvider : VpnConnectionStateProvider {
     override val state: StateFlow<ConnectionState> = ConnectionStateManager.state
 
     override fun isConnected(): Boolean =
-        ConnectionStateManager.state.value == ConnectionState.CONNECTED
+        ConnectionStateManager.state.value == ConnectionState.CONNECTED ||
+    ConnectionStateManager.state.value == ConnectionState.PAUSING ||
+        ConnectionStateManager.state.value == ConnectionState.PAUSED
 }

@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
+﻿package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
 import android.content.res.ColorStateList
@@ -18,6 +18,7 @@ import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ViewConnectionControlsBinding
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
@@ -31,6 +32,12 @@ class ConnectionControlsView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
+    internal enum class FocusTarget {
+        PAUSE,
+        START,
+        NONE
+    }
+
     private val binding: ViewConnectionControlsBinding =
         ViewConnectionControlsBinding.inflate(LayoutInflater.from(context), this)
 
@@ -40,6 +47,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var selectedServerIp: String? = null
     private var openServerList: (() -> Unit)? = null
     private var onConnectionButtonClick: (() -> Unit)? = null
+    private var onPauseButtonClick: (() -> Unit)? = null
+    private var pauseActionFocusPending: Boolean = false
     private var connectionDetailsListener: ConnectionDetailsListener? = null
     private var presenter: ConnectionControlsPresenter =
         ConnectionControlsPresenter(context, ConnectionControlsUseCase())
@@ -48,6 +57,11 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionControlsView"
+
+        internal fun resolveFocusTarget(isTvDevice: Boolean, pauseHadFocus: Boolean, pauseVisible: Boolean): FocusTarget {
+            if (!isTvDevice || !pauseHadFocus) return FocusTarget.NONE
+            return if (pauseVisible) FocusTarget.PAUSE else FocusTarget.START
+        }
     }
 
     init {
@@ -65,10 +79,17 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun setupClicks() {
         binding.startConnectionButton.setOnClickListener {
+            pauseActionFocusPending = false
             onConnectionButtonClick?.invoke()
         }
 
+        binding.pauseConnectionButton.setOnClickListener {
+            pauseActionFocusPending = true
+            onPauseButtonClick?.invoke()
+        }
+
         binding.serverSelectionContainer.setOnClickListener {
+            pauseActionFocusPending = false
             AppLog.d(TAG, "Server selection container clicked")
             openServerList?.invoke()
         }
@@ -86,6 +107,10 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     fun setConnectionButtonClickHandler(handler: () -> Unit) {
         onConnectionButtonClick = handler
+    }
+
+    fun setPauseButtonClickHandler(handler: () -> Unit) {
+        onPauseButtonClick = handler
     }
 
     fun setOpenServerListHandler(handler: () -> Unit) {
@@ -250,6 +275,10 @@ class ConnectionControlsView @JvmOverloads constructor(
             reconnectingHint = runtime.reconnectingHint.value
         )
         val connectButton = binding.startConnectionButton
+        val pauseButton = binding.pauseConnectionButton
+        val pauseHadFocus = pauseButton.hasFocus()
+        val focusPolicyRequested = pauseHadFocus || pauseActionFocusPending
+
         connectButton.text = model.text
         val color = when (model.style) {
             ConnectionButtonStyle.ACTIVE -> ContextCompat.getColor(context, R.color.connection_button_active)
@@ -258,6 +287,22 @@ class ConnectionControlsView @JvmOverloads constructor(
                 ContextCompat.getColor(context, R.color.connection_button_disconnected)
         }
         connectButton.backgroundTintList = ColorStateList.valueOf(color)
+
+        val pauseModel = presenter.buildPauseButtonModel(state)
+        pauseButton.visibility = if (pauseModel.visible) android.view.View.VISIBLE else android.view.View.GONE
+        if (pauseModel.visible) pauseButton.text = pauseModel.text
+
+        when (resolveFocusTarget(TvUtils.isTvDevice(context), focusPolicyRequested, pauseModel.visible)) {
+            FocusTarget.PAUSE -> {
+                pauseButton.requestFocus()
+                pauseActionFocusPending = false
+            }
+            FocusTarget.START -> {
+                connectButton.requestFocus()
+                pauseActionFocusPending = false
+            }
+            FocusTarget.NONE -> Unit
+        }
     }
 
     private fun updateDurationTimer() {
@@ -347,6 +392,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateStatus(text: String)
     }
 }
+
 
 
 

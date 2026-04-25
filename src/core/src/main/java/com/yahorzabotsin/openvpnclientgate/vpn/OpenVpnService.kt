@@ -39,6 +39,9 @@ import java.io.InputStreamReader
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
     private companion object {
+        private const val ENGINE_ACTION_PAUSE_VPN = "de.blinkt.openvpn.PAUSE_VPN"
+        private const val ENGINE_ACTION_RESUME_VPN = "de.blinkt.openvpn.RESUME_VPN"
+
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
         const val KEY_OVPN3 = "ovpn3"
@@ -56,6 +59,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
+        private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
     }
 
     // Track engine binding for start/stop coordination
@@ -104,6 +108,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
     private var lastPolledState: ConnectionState? = null
+    
+    // Track pause action to ensure PAUSED state is reached
+    private var pauseActionInFlight = false
+    private var pauseActionStartedMs: Long = 0L
     private var lastAidlLevel: ConnectionStatus? = null
     private var lastAidlState: String? = null
     private var lastVpnStatusLevel: ConnectionStatus? = null
@@ -377,8 +385,40 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> {
                 val action = intent?.getStringExtra(VpnManager.actionKey(this))
-                if (!action.isNullOrBlank()) {
-                    AppLog.w(TAG, "Unknown action: $action")
+                when (action) {
+                    VpnManager.ACTION_PAUSE -> {
+                        AppLog.i(TAG, "ACTION_PAUSE")
+                        pauseActionInFlight = true
+                        pauseActionStartedMs = System.currentTimeMillis()
+                        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                        statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
+                        try {
+                            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                setAction(ENGINE_ACTION_PAUSE_VPN)
+                            })
+                            AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
+                        } catch (e: Exception) {
+                            AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                            pauseActionInFlight = false
+                        }
+                    }
+                    VpnManager.ACTION_RESUME -> {
+                        AppLog.i(TAG, "ACTION_RESUME")
+                        pauseActionInFlight = false
+                        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                        try {
+                            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                setAction(ENGINE_ACTION_RESUME_VPN)
+                            })
+                        } catch (e: Exception) {
+                            AppLog.w(TAG, "Failed to forward RESUME_VPN to engine", e)
+                        }
+                    }
+                    else -> {
+                        if (!action.isNullOrBlank()) {
+                            AppLog.w(TAG, "Unknown action: $action")
+                        }
+                    }
                 }
             }
         }
@@ -397,6 +437,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         AppLog.d(TAG, "One-shot initial state synced from $reason")
         scheduleOneShotStop()
+    }
+
+    private val pauseActionTimeoutRunnable = Runnable {
+        if (!pauseActionInFlight) return@Runnable
+        val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
+        AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED, forcing state to PAUSED")
+        pauseActionInFlight = false
+        try { ConnectionStateManager.updateState(ConnectionState.PAUSED) } catch (e: Exception) { AppLog.w(TAG, "Failed to force PAUSED state", e) }
     }
 
     private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {
@@ -508,6 +556,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -620,13 +669,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
               ConnectionStatus.LEVEL_CONNECTED -> {
                   userInitiatedStart = false
                   userInitiatedStop = false
+                  pauseActionInFlight = false
+                  statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
                 AppLog.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
+            }
+            ConnectionStatus.LEVEL_VPNPAUSED -> {
+                if (userInitiatedStop) { userInitiatedStop = false }
+                pauseActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
                 AppLog.d(TAG, "Waiting for user input")
