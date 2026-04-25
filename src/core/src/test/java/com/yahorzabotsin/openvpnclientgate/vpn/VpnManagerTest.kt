@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -17,6 +18,12 @@ import org.robolectric.Shadows
 
 @RunWith(RobolectricTestRunner::class)
 class VpnManagerTest {
+
+    @Before
+    fun resetState() {
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+    }
 
     @Test
     fun startVpn_decodesBase64AndSetsExtras() {
