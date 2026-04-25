@@ -442,9 +442,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val pauseActionTimeoutRunnable = Runnable {
         if (!pauseActionInFlight) return@Runnable
         val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
-        AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED, forcing state to PAUSED")
         pauseActionInFlight = false
-        try { ConnectionStateManager.updateState(ConnectionState.PAUSED) } catch (e: Exception) { AppLog.w(TAG, "Failed to force PAUSED state", e) }
+        val level = ConnectionStateManager.engineLevel.value
+        AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
+        try {
+            when (level) {
+                ConnectionStatus.LEVEL_CONNECTED -> {
+                    // Restore connected state through valid transition path from PAUSING.
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                }
+                ConnectionStatus.LEVEL_START,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+                ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                }
+                ConnectionStatus.LEVEL_VPNPAUSED -> {
+                    ConnectionStateManager.updateState(ConnectionState.PAUSED)
+                }
+                else -> Unit
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
+        }
     }
 
     private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {

@@ -159,6 +159,15 @@ class ConnectionStateManagerTest {
     }
 
     @Test
+    fun mapsVpnPausedLevelToPausedStateFromDisconnected() {
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    @Test
     fun beginPauseTransition_movesConnectedStateToPausing() {
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
         ConnectionStateManager.updateState(ConnectionState.CONNECTED)

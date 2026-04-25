@@ -38,7 +38,7 @@ class OpenVpnServicePauseTimeoutTest {
     }
 
     @Test
-    fun pauseActionTimeout_forcesPausedStateAfter3Seconds() {
+    fun pauseActionTimeout_reconcilesToConnectedWhenLastKnownLevelIsConnected() {
         // Setup: Service with pause action in flight
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
@@ -54,18 +54,11 @@ class OpenVpnServicePauseTimeoutTest {
         // Service only forwards command; app state stays CONNECTED until VpnManager/engine update.
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
 
-        // Simulate: Engine does NOT respond with PAUSED callback for 3+ seconds
-        // Just let the timeout runnable execute without engine callback
-
-        // Trigger: Run all pending handlers (executes timeout runnable after 3 seconds)
+        // Trigger timeout runnable
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
-        // Verify: State automatically transitioned to PAUSED after timeout
-        assertEquals(
-            "Pause timeout should force state to PAUSED",
-            ConnectionState.PAUSED,
-            ConnectionStateManager.state.value
-        )
+        // Verify: no forced PAUSED, state reconciles to CONNECTED from last known level.
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 
     @Test

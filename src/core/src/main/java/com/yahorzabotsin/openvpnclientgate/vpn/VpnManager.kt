@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
+import androidx.annotation.MainThread
 import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 
@@ -48,6 +49,7 @@ object VpnManager {
         return startControllerService(context, intent, ACTION_STOP)
     }
 
+    @MainThread
     fun pauseVpn(context: Context): Boolean {
         AppLog.d(TAG, "pauseVpn")
         val currentState = ConnectionStateManager.state.value
@@ -77,6 +79,7 @@ object VpnManager {
         return result
     }
 
+    @MainThread
     fun resumeVpn(context: Context): Boolean {
         AppLog.d(TAG, "resumeVpn")
         val previousState = ConnectionStateManager.state.value

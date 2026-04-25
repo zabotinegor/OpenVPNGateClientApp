@@ -18,7 +18,7 @@ enum class ConnectionState {
 
 object ConnectionStateManager {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionState"
-    private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED)
+    private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED, ConnectionState.PAUSED)
     private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.PAUSED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
     private val allowedFromConnected = setOf(
         ConnectionState.CONNECTING,
