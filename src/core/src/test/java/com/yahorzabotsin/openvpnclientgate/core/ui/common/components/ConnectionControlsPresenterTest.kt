@@ -5,6 +5,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -43,6 +44,34 @@ class ConnectionControlsPresenterTest {
         )
 
         assertEquals("00:00:00", value)
+    }
+
+    @Test
+    fun `formatDuration returns elapsed value when paused`() {
+        val value = presenter.formatDuration(
+            state = ConnectionState.PAUSED,
+            connectionStartTimeMs = System.currentTimeMillis() - 15_000L
+        )
+
+        assertFalse(value == "00:00:00")
+    }
+
+    @Test
+    fun `formatDuration returns elapsed value when pausing`() {
+        val value = presenter.formatDuration(
+            state = ConnectionState.PAUSING,
+            connectionStartTimeMs = System.currentTimeMillis() - 15_000L
+        )
+
+        assertFalse(value == "00:00:00")
+    }
+
+    @Test
+    fun `buildPauseButtonModel hides button for inactive state`() {
+        val model = presenter.buildPauseButtonModel(ConnectionState.DISCONNECTED)
+
+        assertFalse(model.visible)
+        assertEquals("", model.text)
     }
 
     @Test
@@ -192,4 +221,5 @@ class ConnectionControlsPresenterTest {
 
         override fun getCurrentPosition(context: Context): Pair<Int, Int>? = position
     }
+
 }

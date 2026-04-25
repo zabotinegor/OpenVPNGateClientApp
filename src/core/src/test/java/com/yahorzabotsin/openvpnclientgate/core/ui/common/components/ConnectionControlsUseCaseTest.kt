@@ -29,5 +29,8 @@ class ConnectionControlsUseCaseTest {
         assertEquals(R.string.state_tcp_connect, useCase.mapEngineDetailToResId("TCP_CONNECT"))
         assertEquals(R.string.state_auth, useCase.mapEngineDetailToResId("AUTH"))
         assertEquals(R.string.state_assign_ip, useCase.mapEngineDetailToResId("ASSIGN_IP"))
+        assertEquals(R.string.state_userpause, useCase.mapEngineDetailToResId("USERPAUSE"))
+        assertEquals(R.string.state_screenoff, useCase.mapEngineDetailToResId("SCREENOFF"))
+        assertEquals(R.string.state_nonetwork, useCase.mapEngineDetailToResId("NONETWORK"))
     }
 }

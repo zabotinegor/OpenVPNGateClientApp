@@ -13,7 +13,9 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -101,6 +103,29 @@ class ConnectionControlsViewVersionSignalDeviceTest {
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         }
+    }
+
+    @Test
+    fun buildPauseButtonModel_showsCorrectTextPerState() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val context = ContextThemeWrapper(app, R.style.Theme_OpenVPNClientGate_Base)
+        val presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+
+        val connectedModel = presenter.buildPauseButtonModel(ConnectionState.CONNECTED)
+        assertTrue("CONNECTED model should be visible", connectedModel.visible)
+        assertEquals(
+            "CONNECTED model text should be pause_connection",
+            context.getString(R.string.pause_connection),
+            connectedModel.text.toString()
+        )
+
+        val pausedModel = presenter.buildPauseButtonModel(ConnectionState.PAUSED)
+        assertTrue("PAUSED model should be visible", pausedModel.visible)
+        assertEquals(
+            "PAUSED model text should be resume_connection",
+            context.getString(R.string.resume_connection),
+            pausedModel.text.toString()
+        )
     }
 
     private class TestLifecycleOwner : LifecycleOwner {

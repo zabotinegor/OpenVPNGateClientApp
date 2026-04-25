@@ -129,5 +129,52 @@ class OpenVpnServiceStatusSyncTest {
         assertNotNull(nextActivity)
         assertEquals("de.blinkt.openvpn.activities.DisconnectVPN", nextActivity.component?.className)
     }
+
+    @Test
+    fun forwardsPauseActionToEngineService() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        drainStartedServices(service)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        val startedService = Shadows.shadowOf(service).nextStartedService
+        assertNotNull(startedService)
+        assertEquals(
+            "de.blinkt.openvpn.core.OpenVPNService",
+            startedService.component?.className
+        )
+        assertEquals("de.blinkt.openvpn.PAUSE_VPN", startedService.action)
+    }
+
+    @Test
+    fun forwardsResumeActionToEngineService() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        drainStartedServices(service)
+
+        val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)
+        }
+        service.onStartCommand(resumeIntent, 0, 1)
+
+        val startedService = Shadows.shadowOf(service).nextStartedService
+        assertNotNull(startedService)
+        assertEquals(
+            "de.blinkt.openvpn.core.OpenVPNService",
+            startedService.component?.className
+        )
+        assertEquals("de.blinkt.openvpn.RESUME_VPN", startedService.action)
+    }
+
+    private fun drainStartedServices(service: OpenVpnService) {
+        val shadow = Shadows.shadowOf(service)
+        while (shadow.nextStartedService != null) {
+            // Drain service queue so assertions inspect only action under test.
+        }
+    }
 }
 
