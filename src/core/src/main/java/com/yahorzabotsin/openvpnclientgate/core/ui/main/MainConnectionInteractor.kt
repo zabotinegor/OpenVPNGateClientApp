@@ -94,6 +94,8 @@ class DefaultMainConnectionInteractor(
         newIp: String?
     ): Boolean {
         val isVpnActive = state == ConnectionState.CONNECTED ||
+            state == ConnectionState.PAUSING ||
+            state == ConnectionState.PAUSED ||
             state == ConnectionState.CONNECTING
         if (!isVpnActive) return false
 

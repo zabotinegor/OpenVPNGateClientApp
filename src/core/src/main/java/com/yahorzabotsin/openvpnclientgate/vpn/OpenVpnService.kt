@@ -39,6 +39,9 @@ import java.io.InputStreamReader
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
     private companion object {
+        private const val ENGINE_ACTION_PAUSE_VPN = "de.blinkt.openvpn.PAUSE_VPN"
+        private const val ENGINE_ACTION_RESUME_VPN = "de.blinkt.openvpn.RESUME_VPN"
+
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
         const val KEY_OVPN3 = "ovpn3"
@@ -56,6 +59,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
+        private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
+        private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
     }
 
     // Track engine binding for start/stop coordination
@@ -104,10 +109,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
     private var lastPolledState: ConnectionState? = null
+    
+    // Track pause action to ensure PAUSED state is reached
+    private var pauseActionInFlight = false
+    private var pauseActionStartedMs: Long = 0L
+    // Track resume action to detect engine stall and roll back to PAUSED
+    private var resumeActionInFlight = false
     private var lastAidlLevel: ConnectionStatus? = null
     private var lastAidlState: String? = null
+    private var lastAidlStateUpdateMs: Long = 0L
     private var lastVpnStatusLevel: ConnectionStatus? = null
     private var lastVpnStatusState: String? = null
+    private var lastVpnStatusStateUpdateMs: Long = 0L
     private var lastEngineLevel: ConnectionStatus? = null
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
@@ -178,6 +191,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         level: ConnectionStatus,
         state: String?
     ) {
+        val now = System.currentTimeMillis()
         val previousLevel: ConnectionStatus?
         val previousState: String?
         when (source) {
@@ -186,12 +200,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 previousState = lastAidlState
                 lastAidlLevel = level
                 lastAidlState = state
+                lastAidlStateUpdateMs = now
             }
             "VPN_STATUS" -> {
                 previousLevel = lastVpnStatusLevel
                 previousState = lastVpnStatusState
                 lastVpnStatusLevel = level
                 lastVpnStatusState = state
+                lastVpnStatusStateUpdateMs = now
             }
             else -> {
                 previousLevel = null
@@ -200,6 +216,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         if (previousLevel != level || previousState != state) {
             AppLog.d(TAG, "Engine state (${source}): level=${level} state=${state ?: "<null>"}")
+        }
+    }
+
+    private fun getLatestObservedEngineState(): Pair<ConnectionStatus?, String?> {
+        return when {
+            lastVpnStatusStateUpdateMs > lastAidlStateUpdateMs -> lastVpnStatusLevel to lastVpnStatusState
+            lastAidlStateUpdateMs > 0L -> lastAidlLevel to lastAidlState
+            else -> ConnectionStateManager.engineLevel.value to ConnectionStateManager.engineDetail.value
         }
     }
 
@@ -377,8 +401,49 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             else -> {
                 val action = intent?.getStringExtra(VpnManager.actionKey(this))
-                if (!action.isNullOrBlank()) {
-                    AppLog.w(TAG, "Unknown action: $action")
+                when (action) {
+                    VpnManager.ACTION_PAUSE -> {
+                        AppLog.i(TAG, "ACTION_PAUSE")
+                        pauseActionInFlight = true
+                        pauseActionStartedMs = System.currentTimeMillis()
+                        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                        statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
+                        try {
+                            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                setAction(ENGINE_ACTION_PAUSE_VPN)
+                            })
+                            AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
+                        } catch (e: Exception) {
+                            AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                            statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                            statusHandler.post(pauseActionTimeoutRunnable)
+                        }
+                    }
+                    VpnManager.ACTION_RESUME -> {
+                        AppLog.i(TAG, "ACTION_RESUME")
+                        pauseActionInFlight = false
+                        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                        resumeActionInFlight = true
+                        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+                        statusHandler.postDelayed(resumeActionTimeoutRunnable, RESUME_CONFIRMATION_TIMEOUT_MS)
+                        try {
+                            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                setAction(ENGINE_ACTION_RESUME_VPN)
+                            })
+                            AppLog.d(TAG, "Forwarded RESUME_VPN to engine, waiting for CONNECTED confirmation (timeout=${RESUME_CONFIRMATION_TIMEOUT_MS}ms)")
+                        } catch (e: Exception) {
+                            AppLog.w(TAG, "Failed to forward RESUME_VPN to engine", e)
+                            resumeActionInFlight = false
+                            statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+                            ConnectionStateManager.cancelResumeTransition()
+                            ConnectionStateManager.updateState(ConnectionState.PAUSED)
+                        }
+                    }
+                    else -> {
+                        if (!action.isNullOrBlank()) {
+                            AppLog.w(TAG, "Unknown action: $action")
+                        }
+                    }
                 }
             }
         }
@@ -397,6 +462,50 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         AppLog.d(TAG, "One-shot initial state synced from $reason")
         scheduleOneShotStop()
+    }
+
+    private val pauseActionTimeoutRunnable = Runnable {
+        if (!pauseActionInFlight) return@Runnable
+        val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
+        pauseActionInFlight = false
+        val (level, detail) = getLatestObservedEngineState()
+        AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
+        try {
+            when (level) {
+                ConnectionStatus.LEVEL_CONNECTED -> {
+                    // Restore connected state through valid transition path from PAUSING.
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                }
+                ConnectionStatus.LEVEL_START,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+                ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                }
+                ConnectionStatus.LEVEL_VPNPAUSED -> {
+                    ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
+                }
+                else -> Unit
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
+        }
+    }
+
+    private val resumeActionTimeoutRunnable = Runnable {
+        if (!resumeActionInFlight) return@Runnable
+        resumeActionInFlight = false
+        val (level, detail) = getLatestObservedEngineState()
+        AppLog.w(TAG, "Resume action timeout: engine did not confirm CONNECTED (lastLevel=${level ?: "<null>"})")
+        try {
+            ConnectionStateManager.cancelResumeTransition()
+            if (level != null) {
+                ConnectionStateManager.updateFromEngine(level, detail)
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to reconcile app state after resume timeout", e)
+        }
     }
 
     private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {
@@ -508,6 +617,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -620,13 +731,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
               ConnectionStatus.LEVEL_CONNECTED -> {
                   userInitiatedStart = false
                   userInitiatedStop = false
+                  resumeActionInFlight = false
+                  statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 AppLog.i(TAG, "Connected after attempt ${sessionAttempt} (serversInCountry=${totalServersStr()})")
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
                 if (userInitiatedStop) { userInitiatedStop = false }
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+            }
+            ConnectionStatus.LEVEL_VPNPAUSED -> {
+                if (userInitiatedStop) { userInitiatedStop = false }
+                pauseActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
                 AppLog.d(TAG, "Waiting for user input")
@@ -668,6 +788,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 syncEngineState(level, state, allowAutoSwitch = true)
                 onOneShotInitialStateSynced("AIDL callback")
                 if (level == ConnectionStatus.LEVEL_CONNECTED) {
+                    resumeActionInFlight = false
+                    statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
                 }
@@ -968,9 +1090,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.d(TAG, "Ignoring stale LEVEL_CONNECTED after user stop")
                 true
             }
+            ConnectionStatus.LEVEL_VPNPAUSED -> {
+                ignoreConnectedUntilNotConnected = false
+                AppLog.d(TAG, "Cleared stale CONNECTED guard on level=$level and ignored stale paused callback")
+                true
+            }
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_NONETWORK,
-            ConnectionStatus.LEVEL_VPNPAUSED,
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.UNKNOWN_LEVEL -> {
                 ignoreConnectedUntilNotConnected = false

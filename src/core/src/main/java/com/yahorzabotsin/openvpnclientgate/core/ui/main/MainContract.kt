@@ -57,6 +57,7 @@ sealed interface MainAction {
     ) : MainAction
     data class OnServerSelectionResult(val selection: SelectedServerResult?) : MainAction
     data class OnMultiWindowModeChanged(val isInMultiWindowMode: Boolean) : MainAction
+    data object PauseButtonClicked : MainAction
 }
 
 data class SelectedServerResult(
@@ -89,6 +90,8 @@ sealed interface MainEffect {
     data object RequestNotificationPermission : MainEffect
     data class StartVpn(val config: String, val country: String?) : MainEffect
     data object StopVpn : MainEffect
+    data object PauseVpn : MainEffect
+    data object ResumeVpn : MainEffect
 
     data class PromptUpdate(
         val update: MainAvailableUpdate,

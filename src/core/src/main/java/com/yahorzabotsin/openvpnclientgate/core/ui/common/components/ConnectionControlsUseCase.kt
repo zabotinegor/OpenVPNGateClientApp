@@ -30,6 +30,9 @@ class ConnectionControlsUseCase {
         "RESOLVE" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_resolve
         "TCP_CONNECT" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_tcp_connect
         "AUTH_PENDING" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_auth_pending
+        "USERPAUSE" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_userpause
+        "SCREENOFF" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_screenoff
+        "NONETWORK" -> com.yahorzabotsin.openvpnclientgate.core.R.string.state_nonetwork
         else -> null
     }
 

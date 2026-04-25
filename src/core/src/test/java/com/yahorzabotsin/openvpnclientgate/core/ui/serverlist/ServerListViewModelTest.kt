@@ -156,6 +156,16 @@ class ServerListViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun `paused state is treated as vpn connected`() = runTest {
+        val interactor = FakeInteractor(loaded = emptyList())
+        val connection = FakeConnectionProvider(ConnectionState.PAUSED)
+        val vm = ServerListViewModel(interactor, connection, FakeLogger())
+
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.isVpnConnected)
+    }
     private fun server(countryName: String, code: String?, lineIndex: Int): Server =
         Server(
             lineIndex = lineIndex,
@@ -202,7 +212,8 @@ class ServerListViewModelTest {
     private class FakeConnectionProvider(initial: ConnectionState) : VpnConnectionStateProvider {
         private val _state = MutableStateFlow(initial)
         override val state: StateFlow<ConnectionState> = _state
-        override fun isConnected(): Boolean = _state.value == ConnectionState.CONNECTED
+        override fun isConnected(): Boolean =
+            _state.value == ConnectionState.CONNECTED || _state.value == ConnectionState.PAUSED
     }
 
     private class FakeLogger : ServerListLogger {

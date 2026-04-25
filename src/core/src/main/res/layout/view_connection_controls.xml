@@ -14,11 +14,33 @@
         android:layout_marginBottom="12dp"
         android:shadowColor="@color/text_color_tertiary"
         android:shadowRadius="10"
-        app:layout_constraintBottom_toTopOf="@+id/start_connection_button"
+        app:layout_constraintBottom_toTopOf="@+id/pause_connection_button"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         tools:text="Japan\nTokyo" />
 
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/pause_connection_button"
+        style="@style/Widget.OpenVPNClientGate.Button"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="12dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:focusable="true"
+        android:clipToOutline="false"
+        android:outlineProvider="none"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="@string/pause_connection"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@+id/start_connection_button"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/start_connection_button"

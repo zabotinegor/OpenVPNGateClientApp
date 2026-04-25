@@ -54,7 +54,10 @@ class ServerListViewModel(
     private fun observeConnectionState() {
         viewModelScope.launch {
             connectionStateProvider.state.collect { state ->
-                val connected = state == ConnectionState.CONNECTED
+                val connected =
+                    state == ConnectionState.CONNECTED ||
+                    state == ConnectionState.PAUSING ||
+                    state == ConnectionState.PAUSED
                 updateState { it.copy(isVpnConnected = connected) }
             }
         }

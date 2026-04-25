@@ -477,6 +477,75 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `connection click when paused emits stop vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.PAUSED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(
+            MainAction.ConnectionButtonClicked(
+                hasNotificationPermission = true,
+                hasVpnPermission = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.StopVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when connected emits pause vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.CONNECTED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.PauseVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when paused emits resume vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.PAUSED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.ResumeVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when disconnected emits no effect`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.DISCONNECTED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.isEmpty())
+        job.cancel()
+    }
+
+    @Test
     fun `update without asset is hidden and nav update does not emit install`() = runTest {
         val viewModel = createViewModel(
             updateCheckInteractor = FakeUpdateCheckInteractor(latest = sampleUpdate(asset = null))
@@ -624,7 +693,8 @@ class MainViewModelTest {
     private class FakeConnectionProvider(initial: ConnectionState) : VpnConnectionStateProvider {
         private val stateFlow = MutableStateFlow(initial)
         override val state: StateFlow<ConnectionState> = stateFlow
-        override fun isConnected(): Boolean = stateFlow.value == ConnectionState.CONNECTED
+        override fun isConnected(): Boolean =
+            stateFlow.value == ConnectionState.CONNECTED || stateFlow.value == ConnectionState.PAUSED
     }
 
     private class FakeMainConnectionInteractor : MainConnectionInteractor {
@@ -651,7 +721,10 @@ class MainViewModelTest {
             previousIp: String?,
             newIp: String?
         ): Boolean {
-            val isVpnActive = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
+            val isVpnActive =
+                state == ConnectionState.CONNECTED ||
+                    state == ConnectionState.PAUSED ||
+                    state == ConnectionState.CONNECTING
             if (!isVpnActive) return false
 
             val configChanged = !previousConfig.isNullOrBlank() &&
