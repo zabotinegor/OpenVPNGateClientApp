@@ -7,6 +7,7 @@ import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.IStatusCallbacks
 import de.blinkt.openvpn.core.StatusSnapshot
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -128,6 +129,67 @@ class OpenVpnServiceStatusSyncTest {
         val nextActivity = Shadows.shadowOf(service).nextStartedActivity
         assertNotNull(nextActivity)
         assertEquals("de.blinkt.openvpn.activities.DisconnectVPN", nextActivity.component?.className)
+    }
+
+    @Test
+    fun forwardsPauseActionToEngineService() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        drainStartedServices(service)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        val startedService = Shadows.shadowOf(service).nextStartedService
+        assertNotNull(startedService)
+        assertEquals(
+            "de.blinkt.openvpn.core.OpenVPNService",
+            startedService.component?.className
+        )
+        assertEquals("de.blinkt.openvpn.PAUSE_VPN", startedService.action)
+    }
+
+    @Test
+    fun forwardsResumeActionToEngineService() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        drainStartedServices(service)
+
+        val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)
+        }
+        service.onStartCommand(resumeIntent, 0, 1)
+
+        val startedService = Shadows.shadowOf(service).nextStartedService
+        assertNotNull(startedService)
+        assertEquals(
+            "de.blinkt.openvpn.core.OpenVPNService",
+            startedService.component?.className
+        )
+        assertEquals("de.blinkt.openvpn.RESUME_VPN", startedService.action)
+    }
+
+    @Test
+    fun ignoresStalePausedCallbackAfterUserStopGuard() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
+        ReflectionHelpers.setField(service, "ignoreConnectedUntilNotConnected", true)
+
+        service.updateState("VPNPAUSED", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ReflectionHelpers.getField(service, "ignoreConnectedUntilNotConnected"))
+    }
+
+    private fun drainStartedServices(service: OpenVpnService) {
+        val shadow = Shadows.shadowOf(service)
+        while (shadow.nextStartedService != null) {
+            // Drain service queue so assertions inspect only action under test.
+        }
     }
 }
 

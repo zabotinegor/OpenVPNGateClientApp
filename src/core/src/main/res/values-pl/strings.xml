@@ -2,6 +2,8 @@
 <resources>
     <string name="start_connection">URUCHOM POŁĄCZENIE</string>
     <string name="stop_connection">ZATRZYMAJ POŁĄCZENIE</string>
+    <string name="pause_connection">WSTRZYMAJ POŁĄCZENIE</string>
+    <string name="resume_connection">WZNÓW POŁĄCZENIE</string>
     <string name="navigation_drawer_open">Otwórz panel nawigacji</string>
     <string name="navigation_drawer_close">Zamknij panel nawigacji</string>
 
@@ -122,6 +124,8 @@
     <string name="main_status_disconnected">Rozłączono</string>
     <string name="main_status_connecting">Łączenie…</string>
     <string name="main_status_connected">Połączono</string>
+    <string name="main_status_pausing">Wstrzymywanie…</string>
+    <string name="main_status_paused">Wstrzymano</string>
     <string name="main_status_disconnecting">Rozłączanie…</string>
 
     <!-- Section: Connection details (landscape) -->

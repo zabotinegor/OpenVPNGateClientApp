@@ -1,6 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
@@ -170,6 +172,43 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `foreground sync action calls server sync coordinator`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+        assertEquals(false, syncCoordinator.lastForceRefresh)
+    }
+
+    @Test
+    fun `foreground sync action is debounced for consecutive calls`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+    }
+    @Test
+    fun `load initial selection debounces immediate foreground sync`() = runTest {
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(serverSyncCoordinator = syncCoordinator)
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.callCount)
+    }
+
+    @Test
     fun `connection click without selected server emits toast effect`() = runTest {
         val viewModel = createViewModel(connectionState = ConnectionState.DISCONNECTED)
 
@@ -205,6 +244,7 @@ class MainViewModelTest {
             ),
             connectionState = ConnectionState.CONNECTED
         )
+
         viewModel.onAction(MainAction.LoadInitialSelection)
         advanceUntilIdle()
 
@@ -229,6 +269,42 @@ class MainViewModelTest {
         assertTrue(effects.first() is MainEffect.StopVpn)
         assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
         job.cancel()
+    }
+
+    @Test
+    fun `foreground sync preserves pending user selection override`() = runTest {
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(
+                initialSelection = InitialSelection(
+                    country = "France",
+                    city = "Paris",
+                    config = "config",
+                    countryCode = "FR",
+                    ip = "1.2.3.4"
+                )
+            )
+        )
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Germany",
+                    countryCode = "DE",
+                    city = "Berlin",
+                    config = "user-config",
+                    ip = "8.8.8.8"
+                )
+            )
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
     }
 
     @Test
@@ -401,6 +477,75 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `connection click when paused emits stop vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.PAUSED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(
+            MainAction.ConnectionButtonClicked(
+                hasNotificationPermission = true,
+                hasVpnPermission = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.StopVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when connected emits pause vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.CONNECTED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.PauseVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when paused emits resume vpn`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.PAUSED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.first() is MainEffect.ResumeVpn)
+        job.cancel()
+    }
+
+    @Test
+    fun `pause click when disconnected emits no effect`() = runTest {
+        val viewModel = createViewModel(connectionState = ConnectionState.DISCONNECTED)
+
+        val effects = mutableListOf<MainEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.effects.take(1).toList(effects)
+        }
+
+        viewModel.onAction(MainAction.PauseButtonClicked)
+        advanceUntilIdle()
+
+        assertTrue(effects.isEmpty())
+        job.cancel()
+    }
+
+    @Test
     fun `update without asset is hidden and nav update does not emit install`() = runTest {
         val viewModel = createViewModel(
             updateCheckInteractor = FakeUpdateCheckInteractor(latest = sampleUpdate(asset = null))
@@ -494,6 +639,7 @@ class MainViewModelTest {
 
     private fun createViewModel(
         selectionInteractor: MainSelectionInteractor = FakeMainSelectionInteractor(),
+        serverSyncCoordinator: ServerSelectionSyncCoordinator = FakeServerSelectionSyncCoordinator(),
         versionReleaseInteractor: VersionReleaseInteractor = FakeVersionReleaseInteractor(),
         updateCheckInteractor: UpdateCheckInteractor = FakeUpdateCheckInteractor(),
         connectionInteractor: MainConnectionInteractor = FakeMainConnectionInteractor(),
@@ -502,6 +648,7 @@ class MainViewModelTest {
     ): MainViewModel {
         return MainViewModel(
             selectionInteractor = selectionInteractor,
+            serverSyncCoordinator = serverSyncCoordinator,
             versionReleaseInteractor = versionReleaseInteractor,
             updateCheckInteractor = updateCheckInteractor,
             connectionInteractor = connectionInteractor,
@@ -546,7 +693,8 @@ class MainViewModelTest {
     private class FakeConnectionProvider(initial: ConnectionState) : VpnConnectionStateProvider {
         private val stateFlow = MutableStateFlow(initial)
         override val state: StateFlow<ConnectionState> = stateFlow
-        override fun isConnected(): Boolean = stateFlow.value == ConnectionState.CONNECTED
+        override fun isConnected(): Boolean =
+            stateFlow.value == ConnectionState.CONNECTED || stateFlow.value == ConnectionState.PAUSED
     }
 
     private class FakeMainConnectionInteractor : MainConnectionInteractor {
@@ -573,7 +721,10 @@ class MainViewModelTest {
             previousIp: String?,
             newIp: String?
         ): Boolean {
-            val isVpnActive = state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING
+            val isVpnActive =
+                state == ConnectionState.CONNECTED ||
+                    state == ConnectionState.PAUSED ||
+                    state == ConnectionState.CONNECTING
             if (!isVpnActive) return false
 
             val configChanged = !previousConfig.isNullOrBlank() &&
@@ -595,6 +746,21 @@ class MainViewModelTest {
         override fun logUpdateLoadError(error: Exception) = Unit
         override fun logServerSelectionApplied(selection: SelectedServerResult) = Unit
         override fun logIncompleteServerSelection(selection: SelectedServerResult) = Unit
+    }
+
+    private class FakeServerSelectionSyncCoordinator : ServerSelectionSyncCoordinator {
+        var callCount: Int = 0
+        var lastForceRefresh: Boolean? = null
+
+        override suspend fun sync(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean,
+            clearCacheBeforeRefresh: Boolean
+        ): List<Server> {
+            callCount += 1
+            lastForceRefresh = forceRefresh
+            return emptyList()
+        }
     }
 
     private fun sampleRelease() = LatestReleaseInfo(

@@ -2,6 +2,8 @@
 <resources>
     <string name="start_connection">НАЧАТЬ ПОДКЛЮЧЕНИЕ</string>
     <string name="stop_connection">ОСТАНОВИТЬ ПОДКЛЮЧЕНИЕ</string>
+    <string name="pause_connection">ПАУЗА</string>
+    <string name="resume_connection">ПРОДОЛЖИТЬ</string>
     <string name="navigation_drawer_open">Открыть панель навигации</string>
     <string name="navigation_drawer_close">Закрыть панель навигации</string>
 
@@ -118,6 +120,8 @@
     <string name="main_status_disconnected">Отключено</string>
     <string name="main_status_connecting">Подключение…</string>
     <string name="main_status_connected">Подключено</string>
+    <string name="main_status_pausing">Пауза…</string>
+    <string name="main_status_paused">Пауза</string>
     <string name="main_status_disconnecting">Отключение…</string>
 
     <!-- Section: Connection details -->

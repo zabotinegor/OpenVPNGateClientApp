@@ -254,5 +254,21 @@ class SelectedCountryStoreTest {
         assertEquals((2 to 2), SelectedCountryStore.getCurrentPosition(ctx))
         assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
     }
+
+    @Test
+    fun getCurrentPosition_returns_null_when_servers_json_is_malformed() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val prefs = ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+
+        prefs.edit()
+            .putString("selected_country", "CountryA")
+            .putString("selected_country_servers", "{bad-json")
+            .putInt("selected_country_index", 0)
+            .commit()
+
+        assertTrue(SelectedCountryStore.getServers(ctx).isEmpty())
+        assertNull(SelectedCountryStore.getCurrentPosition(ctx))
+    }
 }
 

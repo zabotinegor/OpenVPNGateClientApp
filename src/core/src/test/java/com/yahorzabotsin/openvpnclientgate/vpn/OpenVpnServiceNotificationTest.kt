@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import de.blinkt.openvpn.core.ConnectionStatus
+import org.junit.Before
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,6 +18,12 @@ import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class OpenVpnServiceNotificationTest {
+
+    @Before
+    fun resetState() {
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+    }
 
     @Test
     fun updateStateDoesNotPostControllerForegroundNotification() {
@@ -36,6 +43,7 @@ class OpenVpnServiceNotificationTest {
     fun stopIfIdleActionStopsService() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
 
         val intent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP_IF_IDLE)

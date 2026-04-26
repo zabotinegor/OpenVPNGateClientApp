@@ -167,6 +167,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         super.onStart()
         AppLog.i(screenLogTag, "enter ${javaClass.simpleName}")
         viewModel.onAction(MainAction.RefreshUpdateAvailability)
+        viewModel.onAction(MainAction.SyncServersForForeground)
         try {
             VpnManager.syncStatus(this)
         } catch (e: Exception) {
@@ -196,6 +197,9 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         connectionControlsView.setConnectionDetailsListener(this)
         connectionControlsView.setConnectionButtonClickHandler {
             dispatchConnectionButtonClick()
+        }
+        connectionControlsView.setPauseButtonClickHandler {
+            viewModel.onAction(MainAction.PauseButtonClicked)
         }
     }
 
@@ -266,6 +270,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
             }
             is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
+            MainEffect.PauseVpn -> VpnManager.pauseVpn(this)
+            MainEffect.ResumeVpn -> VpnManager.resumeVpn(this)
             is MainEffect.PromptUpdate -> {
                 val shouldShow = !effect.oneTimeOnly || shouldShowUpdatePromptOnce(effect.update)
                 AppLog.i(tag, "Prompt update requested: oneTimeOnly=${effect.oneTimeOnly}, shouldShow=$shouldShow")

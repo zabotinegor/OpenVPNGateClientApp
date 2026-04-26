@@ -2,6 +2,8 @@
 <resources>
     <string name="start_connection">START CONNECTION</string>
     <string name="stop_connection">STOP CONNECTION</string>
+    <string name="pause_connection">PAUSE CONNECTION</string>
+    <string name="resume_connection">RESUME CONNECTION</string>
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
 
@@ -134,6 +136,8 @@
     <string name="main_status_disconnected">Disconnected</string>
     <string name="main_status_connecting">Connecting…</string>
     <string name="main_status_connected">Connected</string>
+    <string name="main_status_pausing">Pausing…</string>
+    <string name="main_status_paused">Paused</string>
     <string name="main_status_disconnecting">Disconnecting…</string>
 
     <!-- Section: Connection details (landscape) -->
@@ -141,6 +145,7 @@
     <string name="connection_detail_downloaded_label">DOWNLOADED</string>
     <string name="connection_detail_city_label">SERVER</string>
     <string name="connection_detail_server_position">%1$d/%2$d</string>
+    <string name="connection_detail_server_position_placeholder" translatable="false">&#8212;/&#8212;</string>
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">UPLOADED</string>
     <string name="connection_detail_address_label">ADDRESS</string>
