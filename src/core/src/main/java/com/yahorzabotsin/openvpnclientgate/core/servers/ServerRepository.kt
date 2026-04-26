@@ -112,7 +112,7 @@ class ServerRepository(
                         if (publishedNewCache || previousTs <= 0L) System.currentTimeMillis() else previousTs
                     )
                     .putString(KEY_LAST_CACHE, key)
-                    .apply()
+                    .commit()
             }
             true
         }.onFailure { error ->

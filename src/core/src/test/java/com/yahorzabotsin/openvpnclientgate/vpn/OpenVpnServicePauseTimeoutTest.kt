@@ -176,7 +176,7 @@ class OpenVpnServicePauseTimeoutTest {
     }
 
     @Test
-    fun resumeActionTimeout_usesNewerVpnStatusConnectedOverStaleManagerLevel() {
+    fun resumeActionTimeout_ignoresVpnStatusWhenAidlIsFresh() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -209,6 +209,40 @@ class OpenVpnServicePauseTimeoutTest {
 
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
-        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        // While AIDL is still fresh, timeout reconciliation should not trust newer VPN_STATUS.
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun aidlPausedCallback_clearsPauseTimeoutAndInFlightFlag() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        val pauseActionInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
+        assertEquals(false, pauseActionInFlight)
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        // The timeout runnable should already be canceled by the AIDL PAUSED callback.
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 }

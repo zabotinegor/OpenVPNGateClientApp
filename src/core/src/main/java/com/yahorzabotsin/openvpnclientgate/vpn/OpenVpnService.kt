@@ -220,6 +220,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun getLatestObservedEngineState(): Pair<ConnectionStatus?, String?> {
+        if (isAidlFresh()) {
+            return if (lastAidlStateUpdateMs > 0L || lastAidlLevel != null) {
+                lastAidlLevel to lastAidlState
+            } else {
+                ConnectionStateManager.engineLevel.value to ConnectionStateManager.engineDetail.value
+            }
+        }
+
         return when {
             lastVpnStatusStateUpdateMs > lastAidlStateUpdateMs -> lastVpnStatusLevel to lastVpnStatusState
             lastAidlStateUpdateMs > 0L -> lastAidlLevel to lastAidlState
@@ -792,6 +800,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
+                } else if (level == ConnectionStatus.LEVEL_VPNPAUSED) {
+                    pauseActionInFlight = false
+                    statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
                 }
             } catch (t: Throwable) {
                 AppLog.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
