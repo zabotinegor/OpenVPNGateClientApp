@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.tv
+package com.yahorzabotsin.openvpnclientgate.tv
 
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import android.os.SystemClock
@@ -17,7 +17,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     private companion object {
         const val TAG = "MainActivityTV"
         const val OK_KEY_POST_DRAWER_CLOSE_DEBOUNCE_MS = 500L
-        const val OK_KEY_SPAM_BURST_GUARD_MS = 2000L
+        const val OK_KEY_SPAM_BURST_GUARD_MS = 500L
     }
     private var selectedMenuItemId: Int = coreR.id.nav_server
     private var isMainContentBlocked: Boolean = false
@@ -84,8 +84,13 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
 
     override fun afterViewsReady() {
         binding.navView.setCheckedItem(selectedMenuItemId)
-        updateMainContentInteraction(blocked = false)
-        connectionControlsView.post { connectionControlsView.requestPrimaryFocus() }
+        val drawerIsOpen = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
+        updateMainContentInteraction(blocked = drawerIsOpen)
+        connectionControlsView.post {
+            if (!binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                connectionControlsView.requestPrimaryFocus()
+            }
+        }
     }
 
     override fun onResume() {
@@ -157,7 +162,6 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         if (isMainContentBlocked == blocked) return
         isMainContentBlocked = blocked
 
-        setEnabledRecursively(binding.connectionControls, !blocked)
         binding.connectionControls.descendantFocusability = if (blocked) {
             ViewGroup.FOCUS_BLOCK_DESCENDANTS
         } else {
@@ -165,15 +169,6 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         }
         if (blocked) {
             requestSelectedDrawerItemFocus()
-        }
-    }
-
-    private fun setEnabledRecursively(view: View, enabled: Boolean) {
-        view.isEnabled = enabled
-        if (view is ViewGroup) {
-            for (index in 0 until view.childCount) {
-                setEnabledRecursively(view.getChildAt(index), enabled)
-            }
         }
     }
 

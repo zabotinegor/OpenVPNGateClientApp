@@ -10,7 +10,7 @@ includes:
 Verify that opening/closing the TV drawer never allows accidental connection control actions from the main screen.
 
 ## Environment (Validated)
-- Real Android TV device over ADB TCP (192.168.1.95:5555, model MIBOX4, Android 9).
+- Real Android TV device over ADB TCP (<TV_IP:5555>, validated on MIBOX4, Android 9).
 - Fresh debug install recommended before acceptance run.
 
 ## Scope
@@ -31,7 +31,7 @@ Verify that opening/closing the TV drawer never allows accidental connection con
 ## Recommended Execution Command (Windows)
 ```powershell
 Set-Location .\src
-$env:ANDROID_SERIAL = "192.168.1.95:5555"
+$env:ANDROID_SERIAL = "<TV_IP:5555>"
 .\gradlew :tv:connectedDebugAndroidTest
 ```
 

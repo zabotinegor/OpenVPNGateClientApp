@@ -13,7 +13,7 @@ TV users can trigger an unintended connection action when pressing OK while the 
 - AC2: When drawer is open, OK applies only to drawer-focused items.
 - AC3: After drawer closes, primary connection control regains interactivity and focus.
 - AC4: Existing TV drawer navigation flow remains working while the guard is active.
-- AC5: Manual E2E artifacts for this feature are executable against the validated TV device (192.168.1.95:5555).
+- AC5: Manual E2E artifacts for this feature are executable against a target TV device (<TV_IP:5555>) and validated on MIBOX4.
 
 ## Evidence Model
 - Instrumentation run result (:tv:connectedDebugAndroidTest) on target TV.
@@ -21,6 +21,6 @@ TV users can trigger an unintended connection action when pressing OK while the 
 - Optional screenshots and logs for transition moments.
 
 ## Device Baseline
-- Target device: 192.168.1.95:5555
+- Target device: <TV_IP:5555>
 - Model: MIBOX4
 - Android: 9

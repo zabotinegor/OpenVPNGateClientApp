@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.tv
+package com.yahorzabotsin.openvpnclientgate.tv
 
 import android.view.KeyEvent
 import androidx.drawerlayout.widget.DrawerLayout
