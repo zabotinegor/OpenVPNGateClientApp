@@ -45,7 +45,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
             }
 
             override fun onDrawerOpened(drawerView: View) {
-                AppLog.d(TAG, "Drawer opened, focusing on selected item.")
+                AppLog.d(TAG, "Drawer opened, main content interaction blocked.")
                 isDrawerEngaged = true
                 updateMainContentInteraction(blocked = true)
             }
@@ -112,9 +112,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         val isCloseDebounceActive = now < consumeOkUntilUptimeMs
         val isBurstGuardActive = now < consumeOkBurstUntilUptimeMs
 
-        val isOkKey = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            event.keyCode == KeyEvent.KEYCODE_ENTER ||
-            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        val isOkKey = TvDrawerInteractionGuard.isOkKey(event.keyCode)
 
         val shouldConsumeDebounced = TvDrawerInteractionGuard.shouldConsumeDebouncedOkEvent(
             keyCode = event.keyCode,

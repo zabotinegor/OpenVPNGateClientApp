@@ -4,6 +4,12 @@ import android.view.KeyEvent
 import androidx.drawerlayout.widget.DrawerLayout
 
 internal object TvDrawerInteractionGuard {
+    fun isOkKey(keyCode: Int): Boolean {
+        return keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            keyCode == KeyEvent.KEYCODE_ENTER ||
+            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+    }
+
     fun shouldConsumeDebouncedOkEvent(
         keyCode: Int,
         keyAction: Int,
@@ -12,9 +18,7 @@ internal object TvDrawerInteractionGuard {
     ): Boolean {
         if (!isCloseDebounceActive || isDrawerOpen) return false
 
-        val isOkKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            keyCode == KeyEvent.KEYCODE_ENTER ||
-            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        val isOkKey = isOkKey(keyCode)
 
         val isOkAction = keyAction == KeyEvent.ACTION_DOWN || keyAction == KeyEvent.ACTION_UP
 
@@ -36,9 +40,7 @@ internal object TvDrawerInteractionGuard {
         isDrawerOpen: Boolean,
         isFocusInDrawer: Boolean
     ): Boolean {
-        val isOkKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-            keyCode == KeyEvent.KEYCODE_ENTER ||
-            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        val isOkKey = isOkKey(keyCode)
         val isOkAction = keyAction == KeyEvent.ACTION_DOWN || keyAction == KeyEvent.ACTION_UP
         if (!isOkKey || !isOkAction) return false
 
