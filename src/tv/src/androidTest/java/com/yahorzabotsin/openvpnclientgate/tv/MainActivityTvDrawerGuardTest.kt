@@ -147,4 +147,29 @@ class MainActivityTvDrawerGuardTest {
             }
         }
     }
+
+    // E2E-ANDROID-TV-DRAWER-GUARD-006
+    @Test
+    fun openDrawer_focusesCheckedDrawerItem() {
+        withMainActivity { scenario ->
+            scenario.onActivity { activity ->
+                val navView = activity.findViewById<NavigationView>(R.id.nav_view)
+                navView.setCheckedItem(R.id.nav_settings)
+            }
+
+            openDrawerReliably()
+
+            scenario.onActivity { activity ->
+                val navView = activity.findViewById<NavigationView>(R.id.nav_view)
+                val checkedItemId = navView.checkedItem?.itemId
+                val focusedViewId = activity.currentFocus?.id
+
+                assertEquals(
+                    "drawer focus should land on checked item after drawer opens",
+                    checkedItemId,
+                    focusedViewId
+                )
+            }
+        }
+    }
 }

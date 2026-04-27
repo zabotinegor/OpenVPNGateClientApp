@@ -50,6 +50,8 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 AppLog.d(TAG, "Drawer opened, main content interaction blocked.")
                 isDrawerEngaged = true
                 updateMainContentInteraction(blocked = true)
+                // Retry focus transfer when drawer is fully opened in case transition-time request missed.
+                requestSelectedDrawerItemFocus()
             }
 
             override fun onDrawerClosed(drawerView: View) {
