@@ -41,7 +41,6 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 }
                 if (TvDrawerInteractionGuard.shouldRequestDrawerFocus(slideOffset)) {
                     updateMainContentInteraction(blocked = true)
-                    requestSelectedDrawerItemFocus()
                 }
             }
 
@@ -49,7 +48,6 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 AppLog.d(TAG, "Drawer opened, focusing on selected item.")
                 isDrawerEngaged = true
                 updateMainContentInteraction(blocked = true)
-                requestSelectedDrawerItemFocus()
             }
 
             override fun onDrawerClosed(drawerView: View) {
@@ -68,6 +66,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 if (newState != DrawerLayout.STATE_IDLE) {
                     isDrawerEngaged = true
                 } else if (isDrawerEngaged && !drawerIsOpen) {
+                    isDrawerEngaged = false
                     // Arm debounce when drawer has just finished closing.
                     consumeOkUntilUptimeMs =
                         SystemClock.uptimeMillis() + OK_KEY_POST_DRAWER_CLOSE_DEBOUNCE_MS
@@ -79,9 +78,6 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                     isDrawerOpen = drawerIsOpen
                 )
                 updateMainContentInteraction(shouldBlock)
-                if (shouldBlock) {
-                    requestSelectedDrawerItemFocus()
-                }
             }
         })
     }
@@ -106,6 +102,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val drawerIsOpen = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
+        val drawerIsEngaged = drawerIsOpen || isDrawerEngaged
         val now = SystemClock.uptimeMillis()
         val isCloseDebounceActive = now < consumeOkUntilUptimeMs
         val isBurstGuardActive = now < consumeOkBurstUntilUptimeMs
@@ -114,14 +111,22 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
             event.keyCode == KeyEvent.KEYCODE_ENTER ||
             event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
 
-        if (event.action == KeyEvent.ACTION_DOWN && isOkKey && !drawerIsOpen) {
-            if (isCloseDebounceActive) {
+        val shouldConsumeDebounced = TvDrawerInteractionGuard.shouldConsumeDebouncedOkEvent(
+            keyCode = event.keyCode,
+            keyAction = event.action,
+            isCloseDebounceActive = isCloseDebounceActive,
+            isDrawerOpen = drawerIsOpen
+        )
+
+        if (shouldConsumeDebounced) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
                 consumeOkBurstUntilUptimeMs = now + OK_KEY_SPAM_BURST_GUARD_MS
-                return true
             }
-            if (isBurstGuardActive) {
-                return true
-            }
+            return true
+        }
+
+        if (isBurstGuardActive && isOkKey && !drawerIsOpen) {
+            return true
         }
 
         val focusInDrawer = isViewInside(binding.navView, currentFocus)
@@ -129,14 +134,11 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
             keyCode = event.keyCode,
             keyAction = event.action,
             drawerState = currentDrawerState,
-            isDrawerOpen = drawerIsOpen || isDrawerEngaged,
+            isDrawerOpen = drawerIsEngaged,
             isFocusInDrawer = focusInDrawer
         )
 
         if (shouldConsume) {
-            if (drawerIsOpen) {
-                requestSelectedDrawerItemFocus()
-            }
             return true
         }
 
@@ -155,12 +157,14 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         if (isMainContentBlocked == blocked) return
         isMainContentBlocked = blocked
 
-        binding.connectionControls.isEnabled = !blocked
         setEnabledRecursively(binding.connectionControls, !blocked)
         binding.connectionControls.descendantFocusability = if (blocked) {
             ViewGroup.FOCUS_BLOCK_DESCENDANTS
         } else {
             ViewGroup.FOCUS_AFTER_DESCENDANTS
+        }
+        if (blocked) {
+            requestSelectedDrawerItemFocus()
         }
     }
 

@@ -58,6 +58,19 @@ class TvDrawerInteractionGuardTest {
     }
 
     @Test
+    fun shouldConsumeOkEventActionUp_whenDrawerInTransition() {
+        val consume = TvDrawerInteractionGuard.shouldConsumeOkEvent(
+            keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
+            keyAction = KeyEvent.ACTION_UP,
+            drawerState = DrawerLayout.STATE_SETTLING,
+            isDrawerOpen = false,
+            isFocusInDrawer = false
+        )
+
+        assertTrue(consume)
+    }
+
+    @Test
     fun shouldConsumeOkEvent_whenDrawerOpenAndFocusOutsideDrawer() {
         val consume = TvDrawerInteractionGuard.shouldConsumeOkEvent(
             keyCode = KeyEvent.KEYCODE_ENTER,
@@ -88,6 +101,18 @@ class TvDrawerInteractionGuardTest {
         val consume = TvDrawerInteractionGuard.shouldConsumeDebouncedOkEvent(
             keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
             keyAction = KeyEvent.ACTION_DOWN,
+            isCloseDebounceActive = true,
+            isDrawerOpen = false
+        )
+
+        assertTrue(consume)
+    }
+
+    @Test
+    fun shouldConsumeDebouncedOkEventActionUp_onlyAfterCloseWhenDrawerIsNotOpen() {
+        val consume = TvDrawerInteractionGuard.shouldConsumeDebouncedOkEvent(
+            keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
+            keyAction = KeyEvent.ACTION_UP,
             isCloseDebounceActive = true,
             isDrawerOpen = false
         )

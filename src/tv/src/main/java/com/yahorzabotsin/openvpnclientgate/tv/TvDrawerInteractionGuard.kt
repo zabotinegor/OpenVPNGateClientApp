@@ -16,7 +16,9 @@ internal object TvDrawerInteractionGuard {
             keyCode == KeyEvent.KEYCODE_ENTER ||
             keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
 
-        return isOkKey && keyAction == KeyEvent.ACTION_DOWN
+        val isOkAction = keyAction == KeyEvent.ACTION_DOWN || keyAction == KeyEvent.ACTION_UP
+
+        return isOkKey && isOkAction
     }
 
     fun shouldBlockMainContent(drawerState: Int, isDrawerOpen: Boolean): Boolean {
@@ -37,7 +39,8 @@ internal object TvDrawerInteractionGuard {
         val isOkKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
             keyCode == KeyEvent.KEYCODE_ENTER ||
             keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-        if (!isOkKey || keyAction != KeyEvent.ACTION_DOWN) return false
+        val isOkAction = keyAction == KeyEvent.ACTION_DOWN || keyAction == KeyEvent.ACTION_UP
+        if (!isOkKey || !isOkAction) return false
 
         if (drawerState != DrawerLayout.STATE_IDLE) {
             return true
