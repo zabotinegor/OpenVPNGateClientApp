@@ -13,8 +13,8 @@
 - Prefer the aggregate tasks defined in `src/build.gradle.kts`:
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
-  - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device or Android emulator; runs Espresso instrumented tests for core and mobile)
-  - `./gradlew connectedDebugAndroidTestTv` (requires a connected TV/Leanback ADB target; runs Espresso instrumented tests for the tv module — the TV APK requires `android.software.leanback` and cannot be installed on non-TV devices)
+  - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
+  - `./gradlew connectedDebugAndroidTestTv` (requires a Leanback-capable ADB target; runs Espresso instrumented tests for tv)
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
