@@ -59,10 +59,18 @@ tasks.register("testDebugUnitTestApp") {
     dependsOn(":core:testDebugUnitTest", ":mobile:testDebugUnitTest", ":tv:testDebugUnitTest")
 }
 
-// Runs instrumented (on-device) tests for all modules that have them.
-// Requires a connected ADB device or emulator.
+// Runs instrumented (on-device) tests for core and mobile.
+// Requires a connected ADB device or Android emulator.
 tasks.register("connectedDebugAndroidTestApp") {
-    dependsOn(":core:connectedDebugAndroidTest", ":mobile:connectedDebugAndroidTest", ":tv:connectedDebugAndroidTest")
+    dependsOn(":core:connectedDebugAndroidTest", ":mobile:connectedDebugAndroidTest")
+}
+
+// Runs instrumented (on-device) tests for the TV module.
+// Requires a connected ADB device that supports android.software.leanback (TV/Leanback emulator).
+// The TV APK declares android.software.leanback as required="true" and cannot be installed
+// on non-TV devices, so TV tests are deliberately kept in a separate task.
+tasks.register("connectedDebugAndroidTestTv") {
+    dependsOn(":tv:connectedDebugAndroidTest")
 }
 
 tasks.register<Copy>("stageReleaseArtifacts") {
