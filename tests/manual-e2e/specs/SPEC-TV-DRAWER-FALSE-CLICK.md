@@ -11,7 +11,7 @@ TV users can trigger an unintended connection action when pressing OK while the 
 ## Acceptance Criteria Mapping
 - AC1: During drawer opening/closing transitions, main-screen action controls are blocked.
 - AC2: When drawer is open, OK applies only to drawer-focused items.
-- AC3: After drawer closes, primary connection control regains interactivity and focus.
+- AC3: After drawer closes, primary connection control regains focus and interactivity; an immediate accidental OK on main content may be ignored once by the post-close debounce guard.
 - AC4: Existing TV drawer navigation flow remains working while the guard is active.
 - AC5: Manual E2E artifacts for this feature are executable against a target TV device (<TV_IP:5555>) and validated on MIBOX4.
 

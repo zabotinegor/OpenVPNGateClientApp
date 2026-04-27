@@ -25,6 +25,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     private var isDrawerEngaged: Boolean = false
     private var consumeOkUntilUptimeMs: Long = 0L
     private var consumeOkBurstUntilUptimeMs: Long = 0L
+    private var hasConsumedPostCloseOkUp: Boolean = false
 
     override fun styleNavigationView(nv: NavigationView) {
         nv.itemBackground = AppCompatResources.getDrawable(
@@ -55,6 +56,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                 isDrawerEngaged = false
                 consumeOkUntilUptimeMs = SystemClock.uptimeMillis() + OK_KEY_POST_DRAWER_CLOSE_DEBOUNCE_MS
                 consumeOkBurstUntilUptimeMs = 0L
+                hasConsumedPostCloseOkUp = false
                 updateMainContentInteraction(blocked = false)
                 connectionControlsView.requestPrimaryFocus()
             }
@@ -71,6 +73,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
                     consumeOkUntilUptimeMs =
                         SystemClock.uptimeMillis() + OK_KEY_POST_DRAWER_CLOSE_DEBOUNCE_MS
                     consumeOkBurstUntilUptimeMs = 0L
+                    hasConsumedPostCloseOkUp = false
                 }
 
                 val shouldBlock = TvDrawerInteractionGuard.shouldBlockMainContent(
@@ -113,31 +116,36 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         val isBurstGuardActive = now < consumeOkBurstUntilUptimeMs
 
         val isOkKey = TvDrawerInteractionGuard.isOkKey(event.keyCode)
+        val focusInDrawer = isViewInside(binding.navView, currentFocus)
+        val focusInMainControls = isViewInside(binding.connectionControls, currentFocus)
 
         val shouldConsumeDebounced = TvDrawerInteractionGuard.shouldConsumeDebouncedOkEvent(
             keyCode = event.keyCode,
             keyAction = event.action,
             isCloseDebounceActive = isCloseDebounceActive,
-            isDrawerOpen = drawerIsOpen
+            isDrawerOpen = drawerIsOpen,
+            isFocusInMainContent = focusInMainControls,
+            hasConsumedPostCloseOkUp = hasConsumedPostCloseOkUp
         )
 
         if (shouldConsumeDebounced) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 consumeOkBurstUntilUptimeMs = now + OK_KEY_SPAM_BURST_GUARD_MS
+            } else if (event.action == KeyEvent.ACTION_UP) {
+                hasConsumedPostCloseOkUp = true
             }
             return true
         }
 
-        if (isBurstGuardActive && isOkKey && !drawerIsOpen) {
+        if (isBurstGuardActive && isOkKey && focusInMainControls) {
             return true
         }
 
-        val focusInDrawer = isViewInside(binding.navView, currentFocus)
         val shouldConsume = TvDrawerInteractionGuard.shouldConsumeOkEvent(
             keyCode = event.keyCode,
             keyAction = event.action,
             drawerState = currentDrawerState,
-            isDrawerOpen = drawerIsEngaged,
+            isDrawerEngaged = drawerIsEngaged,
             isFocusInDrawer = focusInDrawer
         )
 

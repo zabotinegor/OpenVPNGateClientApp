@@ -14,9 +14,13 @@ internal object TvDrawerInteractionGuard {
         keyCode: Int,
         keyAction: Int,
         isCloseDebounceActive: Boolean,
-        isDrawerOpen: Boolean
+        isDrawerOpen: Boolean,
+        isFocusInMainContent: Boolean,
+        hasConsumedPostCloseOkUp: Boolean
     ): Boolean {
-        if (!isCloseDebounceActive || isDrawerOpen) return false
+        if (!isCloseDebounceActive || isDrawerOpen || !isFocusInMainContent || hasConsumedPostCloseOkUp) {
+            return false
+        }
 
         val isOkKey = isOkKey(keyCode)
 
@@ -37,7 +41,7 @@ internal object TvDrawerInteractionGuard {
         keyCode: Int,
         keyAction: Int,
         drawerState: Int,
-        isDrawerOpen: Boolean,
+        isDrawerEngaged: Boolean,
         isFocusInDrawer: Boolean
     ): Boolean {
         val isOkKey = isOkKey(keyCode)
@@ -48,6 +52,6 @@ internal object TvDrawerInteractionGuard {
             return true
         }
 
-        return isDrawerOpen && !isFocusInDrawer
+        return isDrawerEngaged && !isFocusInDrawer
     }
 }
