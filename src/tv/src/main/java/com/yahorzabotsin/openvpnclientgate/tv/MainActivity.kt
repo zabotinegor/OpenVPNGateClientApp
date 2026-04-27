@@ -117,13 +117,17 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val isOkKey = TvDrawerInteractionGuard.isOkKey(event.keyCode)
+        if (!isOkKey) {
+            return super.dispatchKeyEvent(event)
+        }
+
         val drawerIsOpen = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
         val drawerIsEngaged = drawerIsOpen || isDrawerEngaged
         val now = SystemClock.uptimeMillis()
         val isCloseDebounceActive = now < consumeOkUntilUptimeMs
         val isBurstGuardActive = now < consumeOkBurstUntilUptimeMs
 
-        val isOkKey = TvDrawerInteractionGuard.isOkKey(event.keyCode)
         val focusInDrawer = isViewInside(binding.navView, currentFocus)
         val focusInMainControls = isViewInside(binding.connectionControls, currentFocus)
 
