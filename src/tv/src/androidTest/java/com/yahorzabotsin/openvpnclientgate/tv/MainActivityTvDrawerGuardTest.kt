@@ -103,6 +103,12 @@ class MainActivityTvDrawerGuardTest {
     @Test
     fun closeDrawer_unblocksFocusOnConnectionControls() {
         withMainActivity { scenario ->
+            var initialFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            scenario.onActivity { activity ->
+                val connectionControls = activity.findViewById<ViewGroup>(R.id.connection_controls)
+                initialFocusability = connectionControls.descendantFocusability
+            }
+
             openDrawerReliably()
 
             onView(withId(R.id.drawer_layout)).perform(DrawerActions.close())
@@ -111,8 +117,8 @@ class MainActivityTvDrawerGuardTest {
             scenario.onActivity { activity ->
                 val connectionControls = activity.findViewById<ViewGroup>(R.id.connection_controls)
                 assertEquals(
-                    "connectionControls must allow descendants focus after drawer closes",
-                    ViewGroup.FOCUS_AFTER_DESCENDANTS,
+                    "connectionControls must restore baseline descendant focusability after drawer closes",
+                    initialFocusability,
                     connectionControls.descendantFocusability
                 )
             }

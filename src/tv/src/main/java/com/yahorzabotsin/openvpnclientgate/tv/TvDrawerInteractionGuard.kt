@@ -29,6 +29,11 @@ internal object TvDrawerInteractionGuard {
         return isOkKey && isOkAction
     }
 
+    fun shouldArmBurstGuardAfterDebouncedConsume(keyCode: Int, keyAction: Int): Boolean {
+        if (!isOkKey(keyCode)) return false
+        return keyAction == KeyEvent.ACTION_DOWN || keyAction == KeyEvent.ACTION_UP
+    }
+
     fun shouldBlockMainContent(drawerState: Int, isDrawerOpen: Boolean): Boolean {
         return drawerState != DrawerLayout.STATE_IDLE || isDrawerOpen
     }

@@ -165,4 +165,34 @@ class TvDrawerInteractionGuardTest {
 
         assertFalse(consume)
     }
+
+    @Test
+    fun shouldArmBurstGuardAfterDebouncedConsume_onOkDown() {
+        val shouldArm = TvDrawerInteractionGuard.shouldArmBurstGuardAfterDebouncedConsume(
+            keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
+            keyAction = KeyEvent.ACTION_DOWN
+        )
+
+        assertTrue(shouldArm)
+    }
+
+    @Test
+    fun shouldArmBurstGuardAfterDebouncedConsume_onOkUp() {
+        val shouldArm = TvDrawerInteractionGuard.shouldArmBurstGuardAfterDebouncedConsume(
+            keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
+            keyAction = KeyEvent.ACTION_UP
+        )
+
+        assertTrue(shouldArm)
+    }
+
+    @Test
+    fun shouldNotArmBurstGuardAfterDebouncedConsume_onNonOkKey() {
+        val shouldArm = TvDrawerInteractionGuard.shouldArmBurstGuardAfterDebouncedConsume(
+            keyCode = KeyEvent.KEYCODE_BACK,
+            keyAction = KeyEvent.ACTION_UP
+        )
+
+        assertFalse(shouldArm)
+    }
 }

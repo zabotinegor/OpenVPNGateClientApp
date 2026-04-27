@@ -26,6 +26,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     private var consumeOkUntilUptimeMs: Long = 0L
     private var consumeOkBurstUntilUptimeMs: Long = 0L
     private var hasConsumedPostCloseOkUp: Boolean = false
+    private var initialConnectionControlsDescendantFocusability: Int? = null
 
     override fun styleNavigationView(nv: NavigationView) {
         nv.itemBackground = AppCompatResources.getDrawable(
@@ -129,9 +130,14 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
         )
 
         if (shouldConsumeDebounced) {
-            if (event.action == KeyEvent.ACTION_DOWN) {
+            if (TvDrawerInteractionGuard.shouldArmBurstGuardAfterDebouncedConsume(
+                    keyCode = event.keyCode,
+                    keyAction = event.action
+                )
+            ) {
                 consumeOkBurstUntilUptimeMs = now + OK_KEY_SPAM_BURST_GUARD_MS
-            } else if (event.action == KeyEvent.ACTION_UP) {
+            }
+            if (event.action == KeyEvent.ACTION_UP) {
                 hasConsumedPostCloseOkUp = true
             }
             return true
@@ -165,13 +171,17 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     }
 
     private fun updateMainContentInteraction(blocked: Boolean) {
+        if (initialConnectionControlsDescendantFocusability == null) {
+            initialConnectionControlsDescendantFocusability =
+                binding.connectionControls.descendantFocusability
+        }
         if (isMainContentBlocked == blocked) return
         isMainContentBlocked = blocked
 
         binding.connectionControls.descendantFocusability = if (blocked) {
             ViewGroup.FOCUS_BLOCK_DESCENDANTS
         } else {
-            ViewGroup.FOCUS_AFTER_DESCENDANTS
+            initialConnectionControlsDescendantFocusability ?: ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
         if (blocked) {
             requestSelectedDrawerItemFocus()
