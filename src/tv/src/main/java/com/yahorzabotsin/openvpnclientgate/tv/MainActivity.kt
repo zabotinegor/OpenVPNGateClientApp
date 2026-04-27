@@ -154,7 +154,7 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
             return true
         }
 
-        if (isBurstGuardActive && isOkKey && focusInMainControls) {
+        if (isBurstGuardActive && focusInMainControls) {
             return true
         }
 
