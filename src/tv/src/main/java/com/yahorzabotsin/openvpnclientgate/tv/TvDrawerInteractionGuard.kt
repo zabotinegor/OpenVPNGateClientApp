@@ -54,7 +54,7 @@ internal object TvDrawerInteractionGuard {
         if (!isOkKey || !isOkAction) return false
 
         if (drawerState != DrawerLayout.STATE_IDLE) {
-            return true
+            return !isFocusInDrawer
         }
 
         return isDrawerEngaged && !isFocusInDrawer

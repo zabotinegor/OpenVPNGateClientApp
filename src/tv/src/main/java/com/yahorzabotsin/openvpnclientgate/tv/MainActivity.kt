@@ -87,7 +87,12 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     }
 
     override fun afterViewsReady() {
-        binding.navView.setCheckedItem(selectedMenuItemId)
+        val checkedItemId = binding.navView.checkedItem?.itemId
+        if (checkedItemId == null) {
+            binding.navView.setCheckedItem(selectedMenuItemId)
+        } else {
+            selectedMenuItemId = checkedItemId
+        }
         val drawerIsOpen = binding.drawerLayout.isDrawerOpen(GravityCompat.START)
         updateMainContentInteraction(blocked = drawerIsOpen)
         connectionControlsView.post {
@@ -163,9 +168,11 @@ class MainActivity : com.yahorzabotsin.openvpnclientgate.core.ui.main.MainActivi
     }
 
     private fun requestSelectedDrawerItemFocus() {
-        binding.navView.setCheckedItem(selectedMenuItemId)
+        val selectedId = binding.navView.checkedItem?.itemId ?: selectedMenuItemId
+        selectedMenuItemId = selectedId
+        binding.navView.setCheckedItem(selectedId)
         binding.navView.post {
-            val viewToFocus = binding.navView.findViewById<View>(selectedMenuItemId)
+            val viewToFocus = binding.navView.findViewById<View>(selectedId)
             viewToFocus?.requestFocus()
         }
     }

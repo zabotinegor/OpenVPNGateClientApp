@@ -71,6 +71,19 @@ class TvDrawerInteractionGuardTest {
     }
 
     @Test
+    fun shouldNotConsumeOkEvent_whenDrawerInTransitionAndFocusInDrawer() {
+        val consume = TvDrawerInteractionGuard.shouldConsumeOkEvent(
+            keyCode = KeyEvent.KEYCODE_DPAD_CENTER,
+            keyAction = KeyEvent.ACTION_DOWN,
+            drawerState = DrawerLayout.STATE_SETTLING,
+            isDrawerEngaged = true,
+            isFocusInDrawer = true
+        )
+
+        assertFalse(consume)
+    }
+
+    @Test
     fun shouldConsumeOkEvent_whenDrawerOpenAndFocusOutsideDrawer() {
         val consume = TvDrawerInteractionGuard.shouldConsumeOkEvent(
             keyCode = KeyEvent.KEYCODE_ENTER,

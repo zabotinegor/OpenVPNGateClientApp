@@ -15,6 +15,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import com.google.android.material.navigation.NavigationView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -120,6 +121,28 @@ class MainActivityTvDrawerGuardTest {
                     "connectionControls must restore baseline descendant focusability after drawer closes",
                     initialFocusability,
                     connectionControls.descendantFocusability
+                )
+            }
+        }
+    }
+
+    // E2E-ANDROID-TV-DRAWER-GUARD-005
+    @Test
+    fun openDrawer_preservesCheckedDrawerItem() {
+        withMainActivity { scenario ->
+            scenario.onActivity { activity ->
+                val navView = activity.findViewById<NavigationView>(R.id.nav_view)
+                navView.setCheckedItem(R.id.nav_settings)
+            }
+
+            openDrawerReliably()
+
+            scenario.onActivity { activity ->
+                val navView = activity.findViewById<NavigationView>(R.id.nav_view)
+                assertEquals(
+                    "openDrawer should preserve currently checked drawer item",
+                    R.id.nav_settings,
+                    navView.checkedItem?.itemId
                 )
             }
         }
