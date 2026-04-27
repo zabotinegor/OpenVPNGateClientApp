@@ -60,9 +60,9 @@ tasks.register("testDebugUnitTestApp") {
 }
 
 // Runs instrumented (on-device) tests for all modules that have them.
-// Requires a connected ADB device or emulator. TV is excluded until test sources are added.
+// Requires a connected ADB device or emulator.
 tasks.register("connectedDebugAndroidTestApp") {
-    dependsOn(":core:connectedDebugAndroidTest", ":mobile:connectedDebugAndroidTest")
+    dependsOn(":core:connectedDebugAndroidTest", ":mobile:connectedDebugAndroidTest", ":tv:connectedDebugAndroidTest")
 }
 
 tasks.register<Copy>("stageReleaseArtifacts") {

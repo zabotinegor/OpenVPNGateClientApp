@@ -30,6 +30,7 @@ android {
         applicationId = "${rootProject.extra.get("basePackageName")}"
         minSdk = 24
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val versionCodeOverride = (project.findProperty("appVersionCodeTv") as String?)
             ?: (project.findProperty("appVersionCode") as String?)
         versionCode = (versionCodeOverride ?: "1").toInt()
@@ -92,6 +93,10 @@ dependencies {
     implementation(libs.glide)
     implementation(libs.material)
     implementation(libs.timber)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.espresso.contrib)
 }
 
 apply(from = "../copy_drawables.gradle.kts")
