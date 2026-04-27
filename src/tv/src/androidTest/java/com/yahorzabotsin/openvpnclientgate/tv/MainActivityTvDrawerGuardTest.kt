@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.tv
 
 import android.content.Intent
+import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
@@ -15,6 +16,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import com.yahorzabotsin.openvpnclientgate.core.R
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -45,14 +47,14 @@ class MainActivityTvDrawerGuardTest {
         }
     }
 
-    private inline fun withMainActivity(assertions: () -> Unit) {
+    private inline fun withMainActivity(assertions: (ActivityScenario<MainActivity>) -> Unit) {
         val launchIntent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
 
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
             dismissUpdatePromptIfVisible()
-            assertions()
+            assertions(scenario)
         }
     }
 
@@ -77,6 +79,43 @@ class MainActivityTvDrawerGuardTest {
 
             onView(withId(R.id.drawer_layout)).check(matches(DrawerMatchers.isClosed()))
             onView(withId(R.id.start_connection_button)).check(matches(isDisplayed()))
+        }
+    }
+
+    // E2E-ANDROID-TV-DRAWER-GUARD-003
+    @Test
+    fun openDrawer_blocksDescendantFocusOnConnectionControls() {
+        withMainActivity { scenario ->
+            openDrawerReliably()
+
+            scenario.onActivity { activity ->
+                val connectionControls = activity.findViewById<ViewGroup>(R.id.connection_controls)
+                assertEquals(
+                    "connectionControls must block descendants while drawer is open",
+                    ViewGroup.FOCUS_BLOCK_DESCENDANTS,
+                    connectionControls.descendantFocusability
+                )
+            }
+        }
+    }
+
+    // E2E-ANDROID-TV-DRAWER-GUARD-004
+    @Test
+    fun closeDrawer_unblocksFocusOnConnectionControls() {
+        withMainActivity { scenario ->
+            openDrawerReliably()
+
+            onView(withId(R.id.drawer_layout)).perform(DrawerActions.close())
+            onView(withId(R.id.drawer_layout)).check(matches(DrawerMatchers.isClosed()))
+
+            scenario.onActivity { activity ->
+                val connectionControls = activity.findViewById<ViewGroup>(R.id.connection_controls)
+                assertEquals(
+                    "connectionControls must allow descendants focus after drawer closes",
+                    ViewGroup.FOCUS_AFTER_DESCENDANTS,
+                    connectionControls.descendantFocusability
+                )
+            }
         }
     }
 }
