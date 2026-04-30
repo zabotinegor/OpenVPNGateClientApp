@@ -46,16 +46,46 @@ servers.local.json
 src/.kotlin/
 src/.kotlin/errors/*.log
 
-# Keep only Agent Sync visible; hide other customization assets
-/.github/agents/**
-/.github/skills/**
-/.github/tools/**
-/.github/scripts/**
-/.github/*.md
-
-!/.github/agents/agent-sync.agent.md
-!/.github/**/*agent-sync*
-!/.github/**/*agent-sync*/**
-!/.github/scripts/validate-agent-skill-definitions.ps1
+# Copilot customization assets synced from CopilotTools (not committed)
+# Exact paths only — no broad patterns; agent-sync files are never hidden
+/.github/agents/app-builder.agent.md
+/.github/agents/bug-fixer.agent.md
+/.github/agents/code-review.agent.md
+/.github/agents/developer-workflow.agent.md
+/.github/agents/docs-maintainer.agent.md
+/.github/agents/e2e-manual-tester.agent.md
+/.github/agents/github-create-pr.agent.md
+/.github/agents/github-create-release.agent.md
+/.github/agents/github-pr-merger-release.agent.md
+/.github/agents/github-pr-merger.agent.md
+/.github/agents/github-review-comments.agent.md
+/.github/agents/pre-pr-quality-check.agent.md
+/.github/agents/scope-quality-gate.agent.md
+/.github/agents/update-engine.agent.md
+/.github/skills/app-builder/SKILL.md
+/.github/skills/app-builder/scripts/build-check-install.ps1
+/.github/skills/bug-fixer/SKILL.md
+/.github/skills/code-review/SKILL.md
+/.github/skills/code-review/references/review-checklist-android.md
+/.github/skills/code-review/references/review-checklist-aspnet.md
+/.github/skills/code-review/references/review-checklist-mssql.md
+/.github/skills/code-review/references/review-checklist-react-ts.md
+/.github/skills/docs-maintenance/SKILL.md
+/.github/skills/docs-maintenance/references/docs-report-template.md
+/.github/skills/docs-maintenance/references/documentation-sync-checklist.md
+/.github/skills/e2e-manual-testing/SKILL.md
+/.github/skills/e2e-manual-testing/references/artifact-contract.md
+/.github/skills/e2e-manual-testing/references/environment-and-auth.md
+/.github/skills/e2e-manual-testing/references/scenario-patterns.md
+/.github/skills/github-create-pr/SKILL.md
+/.github/skills/github-create-pr/references/pr-style.md
+/.github/skills/github-pr-merger/SKILL.md
+/.github/skills/github-pr-merger/references/squash-merge-style.md
+/.github/skills/github-review-comments/SKILL.md
+/.github/skills/github-review-comments/references/review-comment-style.md
+/.github/skills/pre-pr-quality-check/SKILL.md
+/.github/skills/scope-quality-gate/SKILL.md
+/.github/skills/update-engine/SKILL.md
+/.github/skills/update-engine/references/engine-update-checklist.md
 *.lnk
 artifacts
