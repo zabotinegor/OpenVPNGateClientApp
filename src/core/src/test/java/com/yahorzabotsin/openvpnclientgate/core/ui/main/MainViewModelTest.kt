@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo
@@ -10,6 +11,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.core.versions.LatestReleaseInfo
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,10 +22,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -637,6 +641,183 @@ class MainViewModelTest {
         job.cancel()
     }
 
+    @Before
+    fun resetSignal() {
+        SelectedCountryVersionSignal.restoreForTesting(0L)
+    }
+
+    @After
+    fun resetSignalAfter() {
+        SelectedCountryVersionSignal.restoreForTesting(0L)
+    }
+
+    @Test
+    fun `store version bump updates selected server from cache without network sync`() = runTest {
+        val updatedSelection = InitialSelection(
+            country = "Russian Federation",
+            city = "Moscow",
+            config = "new-config",
+            countryCode = "RU",
+            ip = "5.5.5.5"
+        )
+        val interactor = FakeMainSelectionInteractor(initialSelection = updatedSelection)
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val viewModel = createViewModel(
+            selectionInteractor = interactor,
+            serverSyncCoordinator = syncCoordinator
+        )
+        advanceUntilIdle()
+
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+
+        val selected = viewModel.state.value.selectedServer
+        assertEquals("Russian Federation", selected?.country)
+        assertEquals("RU", selected?.countryCode)
+        assertEquals("new-config", selected?.config)
+        assertEquals("5.5.5.5", selected?.ip)
+        assertEquals(false, selected?.fromUserSelection)
+        // No additional network sync call triggered
+        assertEquals(0, syncCoordinator.callCount)
+    }
+
+    @Test
+    fun `store version bump uses cache-only load`() = runTest {
+        val interactor = FakeMainSelectionInteractor(
+            initialSelection = InitialSelection(
+                country = "Japan",
+                city = "Tokyo",
+                config = "cfg",
+                countryCode = "JP",
+                ip = "1.1.1.1"
+            )
+        )
+        val viewModel = createViewModel(selectionInteractor = interactor)
+        advanceUntilIdle()
+
+        interactor.lastCacheOnly = null
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+
+        assertEquals(true, interactor.lastCacheOnly)
+    }
+
+    @Test
+    fun `store version bump is ignored when pending user selection override is set`() = runTest {
+        val backgroundSelection = InitialSelection(
+            country = "Germany",
+            city = "Berlin",
+            config = "bg-config",
+            countryCode = "DE",
+            ip = "9.9.9.9"
+        )
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(initialSelection = backgroundSelection)
+        )
+        // Apply a user selection to set pendingUserSelectionOverride
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "France",
+                    countryCode = "FR",
+                    city = "Paris",
+                    config = "user-config",
+                    ip = "8.8.8.8"
+                )
+            )
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        val userConfig = viewModel.state.value.selectedServer?.config
+
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+
+        // User selection must not be overwritten
+        assertEquals(userConfig, viewModel.state.value.selectedServer?.config)
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+    }
+
+    @Test
+    fun `store version bump does not overwrite user selection when override becomes true during reload`() = runTest {
+        val interactor = BlockingMainSelectionInteractor(
+            result = InitialSelection(
+                country = "Germany",
+                city = "Berlin",
+                config = "bg-config",
+                countryCode = "DE",
+                ip = "9.9.9.9"
+            )
+        )
+        val viewModel = createViewModel(selectionInteractor = interactor)
+        advanceUntilIdle()
+
+        SelectedCountryVersionSignal.bump()
+        interactor.loadStarted.await()
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "France",
+                    countryCode = "FR",
+                    city = "Paris",
+                    config = "user-config",
+                    ip = "8.8.8.8"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        interactor.allowCompletion.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+    }
+
+    @Test
+    fun `store version bump does not change state when interactor returns null`() = runTest {
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(initialSelection = null)
+        )
+        advanceUntilIdle()
+        val stateBefore = viewModel.state.value.selectedServer
+
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+
+        assertEquals(stateBefore, viewModel.state.value.selectedServer)
+    }
+
+    @Test
+    fun `multiple store version bumps each reload selection`() = runTest {
+        var callCount = 0
+        val interactor = object : MainSelectionInteractor {
+            override suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection {
+                callCount++
+                return InitialSelection(
+                    country = "Country$callCount",
+                    city = "City",
+                    config = "config$callCount",
+                    countryCode = null,
+                    ip = null
+                )
+            }
+        }
+        val viewModel = createViewModel(selectionInteractor = interactor)
+        advanceUntilIdle()
+
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+        val firstReload = callCount
+
+        SelectedCountryVersionSignal.bump()
+        advanceUntilIdle()
+
+        assertTrue(callCount > firstReload)
+        assertEquals("Country$callCount", viewModel.state.value.selectedServer?.country)
+    }
+
     private fun createViewModel(
         selectionInteractor: MainSelectionInteractor = FakeMainSelectionInteractor(),
         serverSyncCoordinator: ServerSelectionSyncCoordinator = FakeServerSelectionSyncCoordinator(),
@@ -665,6 +846,19 @@ class MainViewModelTest {
         override suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection? {
             lastCacheOnly = cacheOnly
             return initialSelection
+        }
+    }
+
+    private class BlockingMainSelectionInteractor(
+        private val result: InitialSelection?
+    ) : MainSelectionInteractor {
+        val loadStarted = CompletableDeferred<Unit>()
+        val allowCompletion = CompletableDeferred<Unit>()
+
+        override suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection? {
+            loadStarted.complete(Unit)
+            allowCompletion.await()
+            return result
         }
     }
 

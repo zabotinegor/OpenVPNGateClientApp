@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
@@ -14,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
@@ -36,6 +38,19 @@ class MainViewModel(
     val effects = _effects.receiveAsFlow()
     private var updatePromptShown = false
     private var lastForegroundSyncAttemptAtMs = 0L
+
+    init {
+        // Signal-driven cache refresh pattern: Subscribe to SelectedCountryVersionSignal.version bumps.
+        // drop(1) skips the initial emission, so only subsequent version changes trigger UI refresh.
+        // When ServerRefreshWorker completes a background sync, it bumps the version signal,
+        // which triggers onStoreVersionChanged() to reload the selected server from cache (no network call).
+        // This ensures the UI stays fresh without blocking the foreground and respects user selections.
+        viewModelScope.launch {
+            SelectedCountryVersionSignal.version
+                .drop(1)
+                .collect { onStoreVersionChanged() }
+        }
+    }
 
     fun onAction(action: MainAction) {
         when (action) {
@@ -365,6 +380,36 @@ class MainViewModel(
 
     private fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
         _state.value = _state.value.copy(isDetailsVisible = !isInMultiWindowMode)
+    }
+
+    // Called when SelectedCountryVersionSignal.version bumps (background sync completes).
+    // Double-guard pattern protects against race conditions when user selects a server concurrently:
+    // 1. Early check: if user selection is pending, skip reload (do not overwrite user choice).
+    // 2. Load from cache only (no network call; background sync already populated cache).
+    // 3. Late check: if user selection became pending during load, discard reload and keep user selection.
+    // This ensures server refresh from background sync updates the UI without interrupting user actions.
+    private fun onStoreVersionChanged() {
+        if (_state.value.pendingUserSelectionOverride) return
+        viewModelScope.launch {
+            try {
+                val selection = selectionInteractor.loadInitialSelection(cacheOnly = true)
+                    ?: return@launch
+                if (_state.value.pendingUserSelectionOverride) {
+                    return@launch
+                }
+                logInfo("Store version changed, reloading selection from cache")
+                updateSelectedServer(
+                    country = selection.country,
+                    countryCode = selection.countryCode,
+                    config = selection.config,
+                    ip = selection.ip,
+                    fromUserSelection = false
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                AppLog.w(tag, "Failed to reload selection after store version bump", e)
+            }
+        }
     }
 
     private fun logInfo(message: String) {
