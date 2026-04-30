@@ -27,7 +27,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -639,11 +638,6 @@ class MainViewModelTest {
         assertTrue(effects.first() is MainEffect.RequestPrimaryFocus)
         assertFalse(viewModel.state.value.reopenDrawerAfterReturn)
         job.cancel()
-    }
-
-    @Before
-    fun resetSignal() {
-        SelectedCountryVersionSignal.restoreForTesting(0L)
     }
 
     @After

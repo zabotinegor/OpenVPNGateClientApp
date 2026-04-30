@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
@@ -48,7 +49,7 @@ class MainViewModel(
         viewModelScope.launch {
             SelectedCountryVersionSignal.version
                 .drop(1)
-                .collect { onStoreVersionChanged() }
+                .collectLatest { onStoreVersionChanged() }
         }
     }
 
@@ -388,27 +389,25 @@ class MainViewModel(
     // 2. Load from cache only (no network call; background sync already populated cache).
     // 3. Late check: if user selection became pending during load, discard reload and keep user selection.
     // This ensures server refresh from background sync updates the UI without interrupting user actions.
-    private fun onStoreVersionChanged() {
+    private suspend fun onStoreVersionChanged() {
         if (_state.value.pendingUserSelectionOverride) return
-        viewModelScope.launch {
-            try {
-                val selection = selectionInteractor.loadInitialSelection(cacheOnly = true)
-                    ?: return@launch
-                if (_state.value.pendingUserSelectionOverride) {
-                    return@launch
-                }
-                logInfo("Store version changed, reloading selection from cache")
-                updateSelectedServer(
-                    country = selection.country,
-                    countryCode = selection.countryCode,
-                    config = selection.config,
-                    ip = selection.ip,
-                    fromUserSelection = false
-                )
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                AppLog.w(tag, "Failed to reload selection after store version bump", e)
+        try {
+            val selection = selectionInteractor.loadInitialSelection(cacheOnly = true)
+                ?: return
+            if (_state.value.pendingUserSelectionOverride) {
+                return
             }
+            logInfo("Store version changed, reloading selection from cache")
+            updateSelectedServer(
+                country = selection.country,
+                countryCode = selection.countryCode,
+                config = selection.config,
+                ip = selection.ip,
+                fromUserSelection = false
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            AppLog.w(tag, "Failed to reload selection after store version bump", e)
         }
     }
 
