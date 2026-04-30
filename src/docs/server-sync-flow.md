@@ -35,12 +35,13 @@ When `ServerRefreshWorker` completes a background periodic refresh, the selected
 **How it works:**
 1. Background worker (`ServerRefreshWorker`) completes sync via `ServerSelectionSyncCoordinator.sync(...)`
 2. `SelectedCountryServerSync.syncAfterRefresh(...)` aligns the refreshed selection and `SelectedCountryStore.saveSelectionPreservingIndex(...)` bumps `SelectedCountryVersionSignal.version`
-3. `MainViewModel.init()` observes version bumps with `drop(1)` (skips initial value)
+3. `MainViewModel.init()` captures the current version as a baseline and observes only subsequent bumps
 4. Signal emission triggers `onStoreVersionChanged()` callback
 5. `onStoreVersionChanged()` implements double-guard race condition protection:
    - Early guard: Skip if user selection is pending (do not overwrite user choice)
    - Cache-only load: Fetch updated selection from cache (no network call)
-   - Late guard: Skip state update if user selection became pending during load
+  - Late guard: Skip state update if user selection became pending during load
+  - Atomic update guard: background refresh re-checks `pendingUserSelectionOverride` inside `MutableStateFlow.update {}` and discards stale refresh result if needed
 6. Selected server UI updates with new data from cache (country, countryCode, IP, config)
 
 **Race condition safety:**

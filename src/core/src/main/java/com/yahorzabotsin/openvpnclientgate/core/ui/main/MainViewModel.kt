@@ -16,7 +16,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -43,14 +42,19 @@ class MainViewModel(
 
     init {
         // Signal-driven cache refresh pattern: Subscribe to SelectedCountryVersionSignal.version bumps.
-        // drop(1) skips the initial emission, so only subsequent version changes trigger UI refresh.
+        // Capture baseline version and only react to later bumps to avoid losing updates
+        // that can happen right before collector starts.
         // When ServerRefreshWorker completes a background sync, it bumps the version signal,
         // which triggers onStoreVersionChanged() to reload the selected server from cache (no network call).
         // This ensures the UI stays fresh without blocking the foreground and respects user selections.
+        val baselineVersion = SelectedCountryVersionSignal.version.value
         viewModelScope.launch {
             SelectedCountryVersionSignal.version
-                .drop(1)
-                .collectLatest { onStoreVersionChanged() }
+                .collectLatest { version ->
+                    if (version != baselineVersion) {
+                        onStoreVersionChanged()
+                    }
+                }
         }
     }
 
@@ -214,9 +218,13 @@ class MainViewModel(
         countryCode: String?,
         config: String,
         ip: String?,
-        fromUserSelection: Boolean
+        fromUserSelection: Boolean,
+        isBackgroundRefresh: Boolean = false
     ) {
         _state.update { state ->
+            if (isBackgroundRefresh && state.pendingUserSelectionOverride) {
+                return@update state
+            }
             val nextVersion = state.selectionVersion + 1
             state.copy(
                 selectionVersion = nextVersion,
@@ -406,7 +414,8 @@ class MainViewModel(
                 countryCode = selection.countryCode,
                 config = selection.config,
                 ip = selection.ip,
-                fromUserSelection = false
+                fromUserSelection = false,
+                isBackgroundRefresh = true
             )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
