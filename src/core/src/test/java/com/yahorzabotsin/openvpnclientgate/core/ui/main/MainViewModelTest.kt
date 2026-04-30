@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
@@ -37,12 +38,12 @@ class MainViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
 
-    private val createdViewModels = mutableListOf<MainViewModel>()
+    private val viewModelStores = mutableListOf<ViewModelStore>()
 
     @After
     fun clearViewModels() {
-        createdViewModels.forEach(::clearViewModel)
-        createdViewModels.clear()
+        viewModelStores.forEach { it.clear() }
+        viewModelStores.clear()
     }
 
     @Test
@@ -825,22 +826,21 @@ class MainViewModelTest {
         connectionState: ConnectionState = ConnectionState.DISCONNECTED,
         logger: MainLogger = FakeMainLogger()
     ): MainViewModel {
-        return MainViewModel(
-            selectionInteractor = selectionInteractor,
-            serverSyncCoordinator = serverSyncCoordinator,
-            versionReleaseInteractor = versionReleaseInteractor,
-            updateCheckInteractor = updateCheckInteractor,
-            connectionInteractor = connectionInteractor,
-            connectionStateProvider = FakeConnectionProvider(connectionState),
-            logger = logger
-        ).also(createdViewModels::add)
-    }
-
-    private fun clearViewModel(viewModel: MainViewModel) {
-        ViewModel::class.java.declaredMethods
-            .first { it.name.startsWith("clear") && it.parameterCount == 0 }
-            .apply { isAccessible = true }
-            .invoke(viewModel)
+        val store = ViewModelStore()
+        viewModelStores.add(store)
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = MainViewModel(
+                selectionInteractor = selectionInteractor,
+                serverSyncCoordinator = serverSyncCoordinator,
+                versionReleaseInteractor = versionReleaseInteractor,
+                updateCheckInteractor = updateCheckInteractor,
+                connectionInteractor = connectionInteractor,
+                connectionStateProvider = FakeConnectionProvider(connectionState),
+                logger = logger
+            ) as T
+        }
+        return ViewModelProvider(store, factory)[MainViewModel::class.java]
     }
 
     private class FakeMainSelectionInteractor(
