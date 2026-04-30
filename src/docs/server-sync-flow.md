@@ -41,7 +41,7 @@ When `ServerRefreshWorker` completes a background periodic refresh, it bumps `Se
    - Early guard: Skip if user selection is pending (do not overwrite user choice)
    - Cache-only load: Fetch updated selection from cache (no network call)
    - Late guard: Skip state update if user selection became pending during load
-6. Selected server UI updates with new data from cache (country, city, IP, config)
+6. Selected server UI updates with new data from cache (country, countryCode, IP, config)
 
 **Race condition safety:**
 - If user selects a server while background refresh is in progress, `pendingUserSelectionOverride=true` blocks both early and late

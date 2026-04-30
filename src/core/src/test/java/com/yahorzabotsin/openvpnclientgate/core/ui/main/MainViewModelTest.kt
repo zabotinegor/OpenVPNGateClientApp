@@ -22,7 +22,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -638,11 +637,6 @@ class MainViewModelTest {
         assertTrue(effects.first() is MainEffect.RequestPrimaryFocus)
         assertFalse(viewModel.state.value.reopenDrawerAfterReturn)
         job.cancel()
-    }
-
-    @After
-    fun resetSignalAfter() {
-        SelectedCountryVersionSignal.restoreForTesting(0L)
     }
 
     @Test
