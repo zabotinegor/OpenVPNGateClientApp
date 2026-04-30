@@ -30,11 +30,11 @@ The coordinator owns this flow:
 - Main foreground sync is debounced in `MainViewModel` to avoid duplicate work around lifecycle transitions.
 
 ## Signal-Driven Cache Refresh Pattern
-When `ServerRefreshWorker` completes a background periodic refresh, it bumps `SelectedCountryVersionSignal.version` to notify the UI layer of cache updates without forcing a network call. This pattern ensures the main UI stays fresh without blocking foreground interaction.
+When `ServerRefreshWorker` completes a background periodic refresh, the selected-country sync path persists the refreshed selection and bumps `SelectedCountryVersionSignal.version` to notify the UI layer of cache updates without forcing a network call. This pattern ensures the main UI stays fresh without blocking foreground interaction.
 
 **How it works:**
 1. Background worker (`ServerRefreshWorker`) completes sync via `ServerSelectionSyncCoordinator.sync(...)`
-2. Worker bumps `SelectedCountryVersionSignal.version` (via `SelectedCountryServerSync.syncAfterRefresh(...)`)
+2. `SelectedCountryServerSync.syncAfterRefresh(...)` aligns the refreshed selection and `SelectedCountryStore.saveSelectionPreservingIndex(...)` bumps `SelectedCountryVersionSignal.version`
 3. `MainViewModel.init()` observes version bumps with `drop(1)` (skips initial value)
 4. Signal emission triggers `onStoreVersionChanged()` callback
 5. `onStoreVersionChanged()` implements double-guard race condition protection:

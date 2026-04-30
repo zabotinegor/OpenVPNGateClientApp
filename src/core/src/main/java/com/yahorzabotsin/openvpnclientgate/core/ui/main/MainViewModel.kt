@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MainViewModel(
@@ -161,7 +162,7 @@ class MainViewModel(
                     changelogHtml = MarkdownRenderer.renderDocument(latestRelease.changelog)
                 )
                 logger.logWhatsNewLoaded(whatsNew)
-                _state.value = _state.value.copy(whatsNew = whatsNew)
+                _state.update { it.copy(whatsNew = whatsNew) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 logger.logWhatsNewLoadError(e)
@@ -175,7 +176,7 @@ class MainViewModel(
                 val update = updateCheckInteractor.check(forceRefresh = true)
                 if (update == null || !update.hasUpdate || update.asset?.downloadProxyUrl.isNullOrBlank()) {
                     logger.logUpdateUnavailable()
-                    _state.value = _state.value.copy(availableUpdate = null)
+                    _state.update { it.copy(availableUpdate = null) }
                     return@launch
                 }
 
@@ -196,7 +197,7 @@ class MainViewModel(
                     message = update.message
                 )
                 logger.logUpdateLoaded(availableUpdate)
-                _state.value = _state.value.copy(availableUpdate = availableUpdate)
+                _state.update { it.copy(availableUpdate = availableUpdate) }
                 if (!updatePromptShown) {
                     updatePromptShown = true
                     _effects.send(MainEffect.PromptUpdate(availableUpdate))
@@ -215,26 +216,28 @@ class MainViewModel(
         ip: String?,
         fromUserSelection: Boolean
     ) {
-        val nextVersion = _state.value.selectionVersion + 1
-        _state.value = _state.value.copy(
-            selectionVersion = nextVersion,
-            pendingUserSelectionOverride = fromUserSelection,
-            selectedServer = MainSelectedServer(
-                country = country,
-                countryCode = countryCode,
-                config = config,
-                ip = ip,
-                fromUserSelection = fromUserSelection,
-                version = nextVersion
+        _state.update { state ->
+            val nextVersion = state.selectionVersion + 1
+            state.copy(
+                selectionVersion = nextVersion,
+                pendingUserSelectionOverride = fromUserSelection,
+                selectedServer = MainSelectedServer(
+                    country = country,
+                    countryCode = countryCode,
+                    config = config,
+                    ip = ip,
+                    fromUserSelection = fromUserSelection,
+                    version = nextVersion
+                )
             )
-        )
+        }
     }
 
     private fun onNavigationItemSelected(itemId: Int) {
         viewModelScope.launch {
             when (itemId) {
                 R.id.nav_server -> {
-                    _state.value = _state.value.copy(reopenDrawerAfterReturn = true)
+                    _state.update { it.copy(reopenDrawerAfterReturn = true) }
                     _effects.send(
                         MainEffect.OpenDestination(
                             destination = MainDestination.ServerList,
@@ -265,10 +268,10 @@ class MainViewModel(
     }
 
     private fun onOpenServerListFromConnectionControls() {
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             reopenDrawerAfterReturn = false,
             pendingUserSelectionOverride = false
-        )
+        ) }
         viewModelScope.launch {
             _effects.send(
                 MainEffect.OpenDestination(
@@ -375,12 +378,12 @@ class MainViewModel(
             } else {
                 _effects.send(MainEffect.RequestPrimaryFocus)
             }
-            _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
+            _state.update { it.copy(reopenDrawerAfterReturn = false) }
         }
     }
 
     private fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
-        _state.value = _state.value.copy(isDetailsVisible = !isInMultiWindowMode)
+        _state.update { it.copy(isDetailsVisible = !isInMultiWindowMode) }
     }
 
     // Called when SelectedCountryVersionSignal.version bumps (background sync completes).

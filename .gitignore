@@ -51,7 +51,6 @@ src/.kotlin/errors/*.log
 /.github/skills/**
 /.github/tools/**
 /.github/scripts/**
-/.github/*.md
 
 !/.github/agents/agent-sync.agent.md
 !/.github/**/*agent-sync*

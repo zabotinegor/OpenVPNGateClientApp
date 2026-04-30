@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
+import androidx.lifecycle.ViewModel
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -34,6 +36,14 @@ class MainViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
+
+    private val createdViewModels = mutableListOf<MainViewModel>()
+
+    @After
+    fun clearViewModels() {
+        createdViewModels.forEach(::clearViewModel)
+        createdViewModels.clear()
+    }
 
     @Test
     fun `load initial selection updates state with api refresh when vpn connected`() = runTest {
@@ -823,7 +833,14 @@ class MainViewModelTest {
             connectionInteractor = connectionInteractor,
             connectionStateProvider = FakeConnectionProvider(connectionState),
             logger = logger
-        )
+        ).also(createdViewModels::add)
+    }
+
+    private fun clearViewModel(viewModel: MainViewModel) {
+        ViewModel::class.java.declaredMethods
+            .first { it.name.startsWith("clear") && it.parameterCount == 0 }
+            .apply { isAccessible = true }
+            .invoke(viewModel)
     }
 
     private class FakeMainSelectionInteractor(
