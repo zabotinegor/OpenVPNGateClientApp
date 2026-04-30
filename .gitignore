@@ -46,9 +46,16 @@ servers.local.json
 src/.kotlin/
 src/.kotlin/errors/*.log
 
-# Keep only Agent Sync visible; hide other synced agents/skills
-.github/agents/*
-!.github/agents/agent-sync.agent.md
-.github/skills/**
+# Keep only Agent Sync visible; hide other customization assets
+/.github/agents/**
+/.github/skills/**
+/.github/tools/**
+/.github/scripts/**
+/.github/*.md
+
+!/.github/agents/agent-sync.agent.md
+!/.github/**/*agent-sync*
+!/.github/**/*agent-sync*/**
+!/.github/scripts/validate-agent-skill-definitions.ps1
 *.lnk
 artifacts
