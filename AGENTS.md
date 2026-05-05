@@ -14,6 +14,7 @@
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
+  - `./gradlew connectedDebugAndroidTestTv` (requires a Leanback-capable ADB target; runs Espresso instrumented tests for tv)
   - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
   - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
@@ -83,7 +84,7 @@
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
 ## Useful Starting Points
-- `src/build.gradle.kts` for aggregate app tasks (including `connectedDebugAndroidTestApp` for device instrumented tests).
+- `src/build.gradle.kts` for aggregate app tasks (including `connectedDebugAndroidTestApp` for non-TV device instrumented tests and `connectedDebugAndroidTestTv` for TV/Leanback device instrumented tests).
 - `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt` for Android mobile smoke suite identifiers used by device E2E execution.
 - `src/core/build.gradle.kts` for required build configuration and generated `BuildConfig` fields.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/di/CoreDi.kt` for DI wiring.

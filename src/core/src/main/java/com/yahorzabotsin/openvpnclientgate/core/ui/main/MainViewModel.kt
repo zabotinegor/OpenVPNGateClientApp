@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.MarkdownRenderer
@@ -14,7 +15,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MainViewModel(
@@ -36,6 +39,24 @@ class MainViewModel(
     val effects = _effects.receiveAsFlow()
     private var updatePromptShown = false
     private var lastForegroundSyncAttemptAtMs = 0L
+
+    init {
+        // Signal-driven cache refresh pattern: Subscribe to SelectedCountryVersionSignal.version bumps.
+        // Capture baseline version and only react to later bumps to avoid losing updates
+        // that can happen right before collector starts.
+        // When ServerRefreshWorker completes a background sync, it bumps the version signal,
+        // which triggers onStoreVersionChanged() to reload the selected server from cache (no network call).
+        // This ensures the UI stays fresh without blocking the foreground and respects user selections.
+        val baselineVersion = SelectedCountryVersionSignal.version.value
+        viewModelScope.launch {
+            SelectedCountryVersionSignal.version
+                .collectLatest { version ->
+                    if (version != baselineVersion) {
+                        onStoreVersionChanged()
+                    }
+                }
+        }
+    }
 
     fun onAction(action: MainAction) {
         when (action) {
@@ -145,7 +166,7 @@ class MainViewModel(
                     changelogHtml = MarkdownRenderer.renderDocument(latestRelease.changelog)
                 )
                 logger.logWhatsNewLoaded(whatsNew)
-                _state.value = _state.value.copy(whatsNew = whatsNew)
+                _state.update { it.copy(whatsNew = whatsNew) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 logger.logWhatsNewLoadError(e)
@@ -159,7 +180,7 @@ class MainViewModel(
                 val update = updateCheckInteractor.check(forceRefresh = true)
                 if (update == null || !update.hasUpdate || update.asset?.downloadProxyUrl.isNullOrBlank()) {
                     logger.logUpdateUnavailable()
-                    _state.value = _state.value.copy(availableUpdate = null)
+                    _state.update { it.copy(availableUpdate = null) }
                     return@launch
                 }
 
@@ -180,7 +201,7 @@ class MainViewModel(
                     message = update.message
                 )
                 logger.logUpdateLoaded(availableUpdate)
-                _state.value = _state.value.copy(availableUpdate = availableUpdate)
+                _state.update { it.copy(availableUpdate = availableUpdate) }
                 if (!updatePromptShown) {
                     updatePromptShown = true
                     _effects.send(MainEffect.PromptUpdate(availableUpdate))
@@ -197,28 +218,34 @@ class MainViewModel(
         countryCode: String?,
         config: String,
         ip: String?,
-        fromUserSelection: Boolean
+        fromUserSelection: Boolean,
+        isBackgroundRefresh: Boolean = false
     ) {
-        val nextVersion = _state.value.selectionVersion + 1
-        _state.value = _state.value.copy(
-            selectionVersion = nextVersion,
-            pendingUserSelectionOverride = fromUserSelection,
-            selectedServer = MainSelectedServer(
-                country = country,
-                countryCode = countryCode,
-                config = config,
-                ip = ip,
-                fromUserSelection = fromUserSelection,
-                version = nextVersion
+        _state.update { state ->
+            if (isBackgroundRefresh && state.pendingUserSelectionOverride) {
+                return@update state
+            }
+            val nextVersion = state.selectionVersion + 1
+            state.copy(
+                selectionVersion = nextVersion,
+                pendingUserSelectionOverride = fromUserSelection,
+                selectedServer = MainSelectedServer(
+                    country = country,
+                    countryCode = countryCode,
+                    config = config,
+                    ip = ip,
+                    fromUserSelection = fromUserSelection,
+                    version = nextVersion
+                )
             )
-        )
+        }
     }
 
     private fun onNavigationItemSelected(itemId: Int) {
         viewModelScope.launch {
             when (itemId) {
                 R.id.nav_server -> {
-                    _state.value = _state.value.copy(reopenDrawerAfterReturn = true)
+                    _state.update { it.copy(reopenDrawerAfterReturn = true) }
                     _effects.send(
                         MainEffect.OpenDestination(
                             destination = MainDestination.ServerList,
@@ -249,10 +276,10 @@ class MainViewModel(
     }
 
     private fun onOpenServerListFromConnectionControls() {
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             reopenDrawerAfterReturn = false,
             pendingUserSelectionOverride = false
-        )
+        ) }
         viewModelScope.launch {
             _effects.send(
                 MainEffect.OpenDestination(
@@ -359,12 +386,41 @@ class MainViewModel(
             } else {
                 _effects.send(MainEffect.RequestPrimaryFocus)
             }
-            _state.value = _state.value.copy(reopenDrawerAfterReturn = false)
+            _state.update { it.copy(reopenDrawerAfterReturn = false) }
         }
     }
 
     private fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean) {
-        _state.value = _state.value.copy(isDetailsVisible = !isInMultiWindowMode)
+        _state.update { it.copy(isDetailsVisible = !isInMultiWindowMode) }
+    }
+
+    // Called when SelectedCountryVersionSignal.version bumps (background sync completes).
+    // Double-guard pattern protects against race conditions when user selects a server concurrently:
+    // 1. Early check: if user selection is pending, skip reload (do not overwrite user choice).
+    // 2. Load from cache only (no network call; background sync already populated cache).
+    // 3. Late check: if user selection became pending during load, discard reload and keep user selection.
+    // This ensures server refresh from background sync updates the UI without interrupting user actions.
+    private suspend fun onStoreVersionChanged() {
+        if (_state.value.pendingUserSelectionOverride) return
+        try {
+            val selection = selectionInteractor.loadInitialSelection(cacheOnly = true)
+                ?: return
+            if (_state.value.pendingUserSelectionOverride) {
+                return
+            }
+            logInfo("Store version changed, reloading selection from cache")
+            updateSelectedServer(
+                country = selection.country,
+                countryCode = selection.countryCode,
+                config = selection.config,
+                ip = selection.ip,
+                fromUserSelection = false,
+                isBackgroundRefresh = true
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            AppLog.w(tag, "Failed to reload selection after store version bump", e)
+        }
     }
 
     private fun logInfo(message: String) {
