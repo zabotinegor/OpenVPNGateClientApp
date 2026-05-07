@@ -51,10 +51,10 @@ jobs:
         run: |
           set -e
 
-          STABLE_TAG=$(git tag --list 'v1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
+          STABLE_TAG=$(git tag --list 'v1.1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
           if [[ -z "$STABLE_TAG" ]]; then
-            echo "==> No stable tag found, starting with 1.0.0."
-            VERSION="1.0.0"
+            echo "==> No stable tag found, starting with 1.1.0."
+            VERSION="1.1.0"
             PATCH=0
           else
             CLEAN_TAG=$(echo "${STABLE_TAG#v}" | sed -E 's/-auto\([0-9]+\)$//' | sed -E 's/\([0-9]+\)$//')

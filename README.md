@@ -117,6 +117,14 @@ cd src
 ./gradlew testDebugUnitTestApp
 ```
 
+## Manual E2E Documentation
+- Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md)
+- Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
+- Specifications: [tests/manual-e2e/specs](tests/manual-e2e/specs)
+- Suites: [tests/manual-e2e/suites](tests/manual-e2e/suites)
+- Test cases: [tests/manual-e2e/cases](tests/manual-e2e/cases)
+- Run artifacts/evidence: [artifacts/manual-qa](artifacts/manual-qa)
+
 ## Runtime Behavior (from current code)
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
 - If preload outlives GIF playback, splash shows a loading spinner until preload completes.
