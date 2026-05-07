@@ -352,26 +352,42 @@ The following test classes **must not break** after implementation. Validated wi
 ## Definition of done
 
 ### Code and configuration
-- [ ] `ServerSource`: `DEFAULT` → `LEGACY`; `DEFAULT_V2` added; migration guard in `load()` maps stored `"DEFAULT"` → `LEGACY`
-- [ ] Gradle property `PRIMARY_SERVERS_V2_URL` defined in `src/build.gradle.kts` and exposed as `BuildConfig.PRIMARY_SERVERS_V2_URL`
-- [ ] `ServersV2Api`, `CountryV2`, `ServerV2`, `ServersV2Repository`, `ServersV2SyncCoordinator` implemented
-- [ ] Splash loads only countries when the source is `DEFAULT_V2`
-- [ ] `CountryServersInteractor` lazy-loads servers via `ServersV2Repository` for `DEFAULT_V2`
-- [ ] `loadConfigs()` is not called with v2; `configData` is taken from the API response
-- [ ] Settings UI shows both entries with correct labels in all three locales (`en`, `ru`, `pl`)
-- [ ] All new v2 components registered in `CoreDi.kt`
+- [x] `ServerSource`: `DEFAULT` → `LEGACY`; `DEFAULT_V2` added; migration guard in `load()` maps stored `"DEFAULT"` → `LEGACY`
+- [x] Gradle property `PRIMARY_SERVERS_V2_URL` defined in `src/build.gradle.kts` and exposed as `BuildConfig.PRIMARY_SERVERS_V2_URL`
+- [x] `ServersV2Api`, `CountryV2`, `ServerV2`, `ServersV2Repository`, `ServersV2SyncCoordinator` implemented
+- [x] Splash loads only countries when the source is `DEFAULT_V2`
+- [x] `CountryServersInteractor` lazy-loads servers via `ServersV2Repository` for `DEFAULT_V2`
+- [x] `loadConfigs()` is not called with v2; `configData` is taken from the API response
+- [x] Settings UI shows both entries with correct labels in all three locales (`en`, `ru`, `pl`)
+- [x] All new v2 components registered in `CoreDi.kt`
 
 ### Tests
-- [ ] Unit tests UT-1 — UT-6 written and green
+- [x] Unit tests UT-1 — UT-6 written and green (23 new unit tests; all passing; existing CSV-flow tests unaffected)
 - [ ] Component tests CT-1 and CT-2 written and green
-- [ ] Existing CSV-flow unit tests (see Unit regression) still green
-- [ ] `./gradlew testDebugUnitTestApp assembleDebugApp` passes without errors
+- [x] Existing CSV-flow unit tests (see Unit regression) still green
+- [x] `./gradlew testDebugUnitTestApp assembleDebugApp` passes without errors
 - [ ] `./gradlew connectedDebugAndroidTestApp` passes (CT-1, CT-2, existing device tests)
 
 ### Manual E2E
-- [ ] Scenarios ME-1 — ME-12 passed; screenshots saved under `artifacts/manual-qa/`
-- [ ] Regression scenarios R-1 — R-10 passed
+- [x] Scenarios ME-1 — ME-12 passed; screenshots and logcat saved under `artifacts/manual-qa/2026-05-07-us01-v2-lazy-loading-full/`
+- [ ] Regression scenarios R-1 — R-10 passed (full upgrade/CSV regression not yet executed)
 
 ### Documentation
-- [ ] `src/docs/server-sync-flow.md` extended with the v2 flow section or a link to this story
+- [x] `src/docs/server-sync-flow.md` extended with the v2 flow section
 - [ ] TV variant verified (ME-12 or a separate `connectedDebugAndroidTestTv` smoke)
+
+---
+
+## E2E test runs
+
+| Date | Suite | Device | Branch / Commit | Result | Report |
+|------|-------|--------|-----------------|--------|--------|
+| 2026-05-07 | US-01-V2-LAZY-LOADING-CORE (ME-1–ME-12) | Xiaomi Mi 9 SE, Android 11 | feature/us-01-lazy-loading-v2-server-source @ 78db3c3 | ✅ PASS (all 8 executed cases) | `artifacts/manual-qa/2026-05-07-us01-v2-lazy-loading-full/report.md` |
+
+### Known gaps after 2026-05-07 run
+
+| Gap | Tracking |
+|-----|---------|
+| Component tests CT-1 and CT-2 not yet implemented | Open — needs Espresso test authoring |
+| Full CSV-regression E2E (R-1 to R-10) not yet executed | Open — requires upgrade device or emulator snapshot |
+| TV smoke (ME-12 / `connectedDebugAndroidTestTv`) not run | Open — Leanback device required |
