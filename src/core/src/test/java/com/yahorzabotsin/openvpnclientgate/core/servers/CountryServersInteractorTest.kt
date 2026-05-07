@@ -51,9 +51,10 @@ class CountryServersInteractorTest {
         assertEquals(0, legacyApi.callCount)
     }
 
-    // UT-5.3 -- DEFAULT_V2: saves result to SelectedCountryStore
+    // UT-5.3 -- DEFAULT_V2: getServersForCountry does NOT save to SelectedCountryStore;
+    // selection is only persisted when the user confirms via resolveSelection.
     @Test
-    fun getServersForCountry_v2_saves_to_selected_country_store() = runBlocking {
+    fun getServersForCountry_v2_does_not_save_to_selected_country_store() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
         val api = FakeServersV2Api(
             countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
@@ -66,9 +67,9 @@ class CountryServersInteractorTest {
         val servers = interactor.getServersForCountry("Germany", cacheOnly = false)
 
         assertEquals(3, servers.size)
-        // SelectedCountryStore should now have a saved entry
-        val pos = SelectedCountryStore.getCurrentPosition(context)
-        assertTrue(pos != null)
+        // SelectedCountryStore must NOT be populated until the user explicitly confirms a server
+        val pos = runCatching { SelectedCountryStore.getCurrentPosition(context) }.getOrNull()
+        assertTrue(pos == null)
     }
 
     // UT-5.4 -- DEFAULT_V2: configData is populated from v2 server

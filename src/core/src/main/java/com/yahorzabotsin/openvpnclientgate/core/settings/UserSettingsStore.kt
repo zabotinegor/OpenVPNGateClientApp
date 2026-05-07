@@ -131,7 +131,7 @@ object UserSettingsStore {
             ServerSource.LEGACY -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
-            ServerSource.DEFAULT_V2 -> emptyList()  // v2 uses its own base URL via ServersV2Api
+            ServerSource.DEFAULT_V2 -> listOf(ApiConstants.PRIMARY_SERVERS_V2_URL)
         }
         return rawUrls.map { it.trim() }
             .filter { it.isNotBlank() }

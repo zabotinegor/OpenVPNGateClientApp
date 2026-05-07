@@ -125,13 +125,15 @@ class UserSettingsStoreTest {
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
-    // UT-1.5 — DEFAULT_V2 resolves to empty URL list
+    // UT-1.5 — DEFAULT_V2 resolves to the v2 server URL (not empty)
     @Test
-    fun resolve_server_urls_default_v2_returns_empty_list() {
+    fun resolve_server_urls_default_v2_returns_v2_url() {
         val urls = UserSettingsStore.resolveServerUrls(
             UserSettings(serverSource = ServerSource.DEFAULT_V2)
         )
-        assertTrue(urls.isEmpty())
+        // PRIMARY_SERVERS_V2_URL is injected via BuildConfig; in a valid build it resolves to a
+        // non-empty, usable https URL and must not be empty after filtering.
+        assertTrue(urls.isNotEmpty())
     }
 
     // UT-1.6 — LEGACY resolves to primary + fallback URL

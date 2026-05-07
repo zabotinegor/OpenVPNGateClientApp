@@ -43,15 +43,16 @@ class DefaultCountryServersInteractor(
         val repo = serversV2Repository
             ?: throw IOException("ServersV2Repository not injected for v2 source")
 
-        // Find the countryCode from the cached country list to get serverCount for pagination
-        // The country cache may be absent if splash sync failed or app data was cleared; treat
-        // a missing cache as an empty list and proceed with fallback values.
+        // Find the countryCode from the cached country list to get serverCount for pagination.
+        // If the cache is absent (splash sync failed, app data cleared), fail fast: sending a
+        // full country name as countryCode to the v2 API produces empty/error responses.
         val countries = runCatching {
             repo.getCountries(appContext, forceRefresh = false, cacheOnly = true)
-        }.getOrElse { emptyList() }
+        }.getOrElse { emptyList<CountryV2>() }
         val countryV2 = countries.firstOrNull { it.name == countryName }
-        val countryCode = countryV2?.code ?: countryName
-        val serverCount = countryV2?.serverCount ?: Int.MAX_VALUE
+            ?: throw IOException("Country '$countryName' not found in cache. Cannot resolve country code.")
+        val countryCode = countryV2.code
+        val serverCount = countryV2.serverCount
 
         val v2Servers = repo.getServersForCountry(
             context = appContext,
@@ -63,7 +64,6 @@ class DefaultCountryServersInteractor(
         if (v2Servers.isEmpty()) throw IOException("No servers available for $countryName")
 
         val legacyServers = v2Servers.map { it.toLegacyServer() }
-        SelectedCountryStore.saveSelection(appContext, countryName, legacyServers)
         AppLog.i(TAG, "getServersForCountryV2: country=$countryName servers=${legacyServers.size}")
         return legacyServers
     }
