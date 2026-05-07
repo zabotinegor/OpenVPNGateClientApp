@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
@@ -189,6 +190,8 @@ class ServerListViewModelTest {
 
     private class FakeInteractor(
         private val loaded: List<Server> = emptyList(),
+        private val countriesV2: List<CountryV2> = emptyList(),
+        private val v2Source: Boolean = false,
         private val selectionResult: ServerSelectionResult = ServerSelectionResult("", "", null, "", null),
         private val getError: Exception? = null,
         private val selectionError: Exception? = null
@@ -197,6 +200,13 @@ class ServerListViewModelTest {
             getError?.let { throw it }
             return loaded
         }
+
+        override suspend fun getCountriesV2(forceRefresh: Boolean, cacheOnly: Boolean): List<CountryV2> {
+            getError?.let { throw it }
+            return countriesV2
+        }
+
+        override fun isDefaultV2Source(): Boolean = v2Source
 
         override suspend fun resolveSelection(
             countryName: String,

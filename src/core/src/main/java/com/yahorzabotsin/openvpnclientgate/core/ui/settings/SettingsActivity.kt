@@ -60,6 +60,7 @@ class SettingsActivity : AppCompatActivity() {
             binding.themeLight,
             binding.themeDark,
             binding.serverDefault,
+            binding.serverDefaultV2,
             binding.serverVpngate,
             binding.serverCustom,
             binding.autoSwitchOn,
@@ -98,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
             content = binding.serverContent,
             chevron = binding.serverChevron,
             collapsedNextId = binding.autoSwitchHeader.id,
-            expandedFirstId = binding.serverDefault.id
+            expandedFirstId = binding.serverDefaultV2.id
         )
         setupCollapsibleSection(
             header = binding.autoSwitchHeader,
@@ -149,10 +150,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.serverRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             if (isUpdatingUi) return@setOnCheckedChangeListener
             val source = when (checkedId) {
-                binding.serverDefault.id -> ServerSource.DEFAULT
+                binding.serverDefaultV2.id -> ServerSource.DEFAULT_V2
+                binding.serverDefault.id -> ServerSource.LEGACY
                 binding.serverVpngate.id -> ServerSource.VPNGATE
                 binding.serverCustom.id -> ServerSource.CUSTOM
-                else -> ServerSource.DEFAULT
+                else -> ServerSource.DEFAULT_V2
             }
             viewModel.onAction(SettingsAction.SelectServerSource(source))
         }
@@ -239,6 +241,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.languagePl.nextFocusDownId = binding.themeHeader.id
         binding.themeSystem.nextFocusUpId = binding.themeHeader.id
         binding.themeDark.nextFocusDownId = binding.serverHeader.id
+        binding.serverDefaultV2.nextFocusUpId = binding.serverHeader.id
         binding.serverDefault.nextFocusUpId = binding.serverHeader.id
         binding.autoSwitchOn.nextFocusUpId = binding.autoSwitchHeader.id
         binding.autoSwitchOff.nextFocusDownId = binding.statusTimerHeader.id
@@ -273,7 +276,8 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         when (state.serverSource) {
-            ServerSource.DEFAULT -> binding.serverRadioGroup.check(binding.serverDefault.id)
+            ServerSource.DEFAULT_V2 -> binding.serverRadioGroup.check(binding.serverDefaultV2.id)
+            ServerSource.LEGACY -> binding.serverRadioGroup.check(binding.serverDefault.id)
             ServerSource.VPNGATE -> binding.serverRadioGroup.check(binding.serverVpngate.id)
             ServerSource.CUSTOM -> binding.serverRadioGroup.check(binding.serverCustom.id)
         }
@@ -345,7 +349,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun serverLabel(source: ServerSource): String = when (source) {
-        ServerSource.DEFAULT -> binding.serverDefault.text.toString()
+        ServerSource.DEFAULT_V2 -> binding.serverDefaultV2.text.toString()
+        ServerSource.LEGACY -> binding.serverDefault.text.toString()
         ServerSource.VPNGATE -> binding.serverVpngate.text.toString()
         ServerSource.CUSTOM -> binding.serverCustom.text.toString()
     }

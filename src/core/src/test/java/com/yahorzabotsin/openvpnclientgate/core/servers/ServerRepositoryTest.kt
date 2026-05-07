@@ -78,7 +78,7 @@ class ServerRepositoryTest {
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT)
+        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 
@@ -386,7 +386,7 @@ class ServerRepositoryTest {
 
         UserSettingsStore.save(
             context,
-            UserSettingsStore.load(context).copy(serverSource = ServerSource.DEFAULT)
+            UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY)
         )
 
         val configs = secondRepo.loadConfigs(context, customServers)

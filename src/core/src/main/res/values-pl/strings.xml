@@ -151,7 +151,8 @@
     <string name="settings_theme_dark">Ciemny</string>
     <string name="settings_server_title">Źródło listy serwerów</string>
     <string name="settings_server_subtitle">Wybierz skąd pobierać listę serwerów.</string>
-    <string name="settings_server_default">Client for OpenVPN Gate</string>
+    <string name="settings_server_default_v2">Client for OpenVPN Gate</string>
+    <string name="settings_server_default">Client for OpenVPN Gate (Legacy)</string>
     <string name="settings_server_vpngate">VPN Gate</string>
     <string name="settings_server_custom">Własny serwer (wpisz url niżej)</string>
     <string name="settings_server_custom_hint">https://twoj-serwer.example/api</string>

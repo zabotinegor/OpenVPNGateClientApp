@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.mobile
+package com.yahorzabotsin.openvpnclientgate.mobile
 
 import org.junit.Test
 

@@ -262,8 +262,13 @@
                     android:orientation="vertical">
 
                     <RadioButton
-                        android:id="@+id/server_default"
+                        android:id="@+id/server_default_v2"
                         android:checked="true"
+                        android:text="@string/settings_server_default_v2"
+                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
+
+                    <RadioButton
+                        android:id="@+id/server_default"
                         android:text="@string/settings_server_default"
                         style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 

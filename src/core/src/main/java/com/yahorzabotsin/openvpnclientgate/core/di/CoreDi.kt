@@ -16,10 +16,14 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServersV2SyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Api
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Repository
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.PeriodicWorkEnqueuer
@@ -52,6 +56,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListViewMode
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.DefaultSettingsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsLogger
 import com.yahorzabotsin.openvpnclientgate.core.ui.settings.SettingsViewModel
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.ui.splash.DefaultSplashServerPreloadInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.splash.SplashServerPreloadInteractor
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.DefaultMainLogger
@@ -103,6 +108,18 @@ val coreModule = module {
     single<VpnServersApi> {
         get<Retrofit>().create(VpnServersApi::class.java)
     }
+
+    single<ServersV2Api> {
+        Retrofit.Builder()
+            .baseUrl(ApiConstants.PRIMARY_SERVERS_V2_URL.trimEnd('/') + "/")
+            .client(get())
+            .addConverterFactory(ScalarsConverterFactory.create())
+            .build()
+            .create(ServersV2Api::class.java)
+    }
+
+    single { ServersV2Repository(get()) }
+    single<ServersV2SyncCoordinator> { DefaultServersV2SyncCoordinator(get()) }
     single<VersionsApi> {
         get<Retrofit>().create(VersionsApi::class.java)
     }
@@ -120,8 +137,8 @@ val coreModule = module {
     single { ServerRepository(get()) }
     single { SelectedCountryServerSync(androidContext(), get()) }
     single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get()) }
-    single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get()) }
-    single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get()) }
+    single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get(), get()) }
+    single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get(), get()) }
     single { WorkManager.getInstance(androidContext()) }
     single<PeriodicWorkEnqueuer> { WorkManagerPeriodicWorkEnqueuer(get()) }
     single<ServerCacheTtlProvider> { SettingsServerCacheTtlProvider(androidContext()) }
@@ -146,7 +163,7 @@ val coreModule = module {
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
-    single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(get()) }
+    single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(get(), get(), androidContext()) }
     single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
     single<MainLogger> { DefaultMainLogger() }
     single { ConnectionControlsUseCase() }

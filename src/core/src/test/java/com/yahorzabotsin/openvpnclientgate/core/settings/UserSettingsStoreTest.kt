@@ -86,5 +86,69 @@ class UserSettingsStoreTest {
 
         assertTrue(urls.isEmpty())
     }
+
+    // UT-1.1 — migration: stored "DEFAULT" → ServerSource.LEGACY
+    @Test
+    fun load_legacy_migration() {
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().putString("server_source", "DEFAULT").commit()
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.LEGACY, settings.serverSource)
+    }
+
+    // UT-1.2 — stored "DEFAULT_V2" round-trips correctly
+    @Test
+    fun load_default_v2() {
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().putString("server_source", "DEFAULT_V2").commit()
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    // UT-1.3 — unknown stored key falls back to LEGACY
+    @Test
+    fun load_unknown_key_falls_back_to_legacy() {
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().putString("server_source", "TOTALLY_UNKNOWN").commit()
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.LEGACY, settings.serverSource)
+    }
+
+    // UT-1.4 — save DEFAULT_V2 then reload returns DEFAULT_V2
+    @Test
+    fun save_and_load_roundtrip_default_v2() {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    // UT-1.5 — DEFAULT_V2 resolves to empty URL list
+    @Test
+    fun resolve_server_urls_default_v2_returns_empty_list() {
+        val urls = UserSettingsStore.resolveServerUrls(
+            UserSettings(serverSource = ServerSource.DEFAULT_V2)
+        )
+        assertTrue(urls.isEmpty())
+    }
+
+    // UT-1.6 — LEGACY resolves to primary + fallback URL
+    @Test
+    fun resolve_server_urls_legacy_returns_primary_and_fallback() {
+        val urls = UserSettingsStore.resolveServerUrls(
+            UserSettings(serverSource = ServerSource.LEGACY)
+        )
+        assertEquals(2, urls.size)
+    }
+
+    // AC-1: new install (no stored key) defaults to DEFAULT_V2
+    @Test
+    fun load_new_install_defaults_to_default_v2() {
+        // setUp() already cleared prefs — no "server_source" key exists
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
 }
 

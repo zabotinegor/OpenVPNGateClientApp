@@ -46,9 +46,14 @@ servers.local.json
 src/.kotlin/
 src/.kotlin/errors/*.log
 
+# Local overlay files — machine-specific paths and context, never committed
+AGENTS.local.md
+README.local.md
+
 # Copilot customization assets synced from CopilotTools (not committed)
-# Exact paths only — no broad patterns; agent-sync files are never hidden
-/.github/agents/app-builder.agent.md
+# Exact paths only - no broad patterns; agent-sync files are never hidden
+/.github/AGENTS-REGISTRY.md
+/.github/FRONTMATTER-SCHEMA.md
 /.github/agents/bug-fixer.agent.md
 /.github/agents/code-review.agent.md
 /.github/agents/developer-workflow.agent.md
@@ -59,11 +64,10 @@ src/.kotlin/errors/*.log
 /.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-pr-merger.agent.md
 /.github/agents/github-review-comments.agent.md
-/.github/agents/pre-pr-quality-check.agent.md
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
-/.github/skills/app-builder/SKILL.md
-/.github/skills/app-builder/scripts/build-check-install.ps1
+/.github/agents/user-story-spec.agent.md
+/.github/scripts/validate-agent-skill-definitions.ps1
 /.github/skills/bug-fixer/SKILL.md
 /.github/skills/code-review/SKILL.md
 /.github/skills/code-review/references/review-checklist-android.md
@@ -83,9 +87,10 @@ src/.kotlin/errors/*.log
 /.github/skills/github-pr-merger/references/squash-merge-style.md
 /.github/skills/github-review-comments/SKILL.md
 /.github/skills/github-review-comments/references/review-comment-style.md
-/.github/skills/pre-pr-quality-check/SKILL.md
 /.github/skills/scope-quality-gate/SKILL.md
 /.github/skills/update-engine/SKILL.md
 /.github/skills/update-engine/references/engine-update-checklist.md
+/.github/skills/user-story-spec/SKILL.md
+/.github/skills/user-story-spec/references/user-story-spec-template.md
 *.lnk
 artifacts

@@ -12,7 +12,7 @@ import java.util.Locale
 data class UserSettings(
     val language: LanguageOption = LanguageOption.SYSTEM,
     val theme: ThemeOption = ThemeOption.SYSTEM,
-    val serverSource: ServerSource = ServerSource.DEFAULT,
+    val serverSource: ServerSource = ServerSource.DEFAULT_V2,
     val customServerUrl: String = "",
     val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
     val autoSwitchWithinCountry: Boolean = true,
@@ -22,7 +22,7 @@ data class UserSettings(
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
 enum class ThemeOption { SYSTEM, LIGHT, DARK }
-enum class ServerSource { DEFAULT, VPNGATE, CUSTOM }
+enum class ServerSource { LEGACY, VPNGATE, CUSTOM, DEFAULT_V2 }
 
 object UserSettingsStore {
     private const val PREFS_NAME = "user_settings"
@@ -49,8 +49,12 @@ object UserSettingsStore {
             .firstOrNull { it.name == p.getString(KEY_LANGUAGE, null) } ?: LanguageOption.SYSTEM
         val theme = ThemeOption.values()
             .firstOrNull { it.name == p.getString(KEY_THEME, null) } ?: ThemeOption.SYSTEM
-        val serverSource = ServerSource.values()
-            .firstOrNull { it.name == p.getString(KEY_SERVER_SOURCE, null) } ?: ServerSource.DEFAULT
+        val serverSourceRaw = p.getString(KEY_SERVER_SOURCE, null)
+        val serverSource = when (serverSourceRaw) {
+            "DEFAULT" -> ServerSource.LEGACY  // migration: old DEFAULT becomes LEGACY
+            null -> ServerSource.DEFAULT_V2   // new install default
+            else -> ServerSource.values().firstOrNull { it.name == serverSourceRaw } ?: ServerSource.LEGACY
+        }
         val customUrl = p.getString(KEY_CUSTOM_SERVER_URL, "") ?: ""
         val cacheTtl = p.getLong(KEY_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS).coerceAtLeast(MIN_CACHE_TTL_MS)
         val autoSwitch = p.getBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, true)
@@ -124,9 +128,10 @@ object UserSettingsStore {
 
     fun resolveServerUrls(settings: UserSettings): List<String> {
         val rawUrls = when (settings.serverSource) {
-            ServerSource.DEFAULT -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
+            ServerSource.LEGACY -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
+            ServerSource.DEFAULT_V2 -> emptyList()  // v2 uses its own base URL via ServersV2Api
         }
         return rawUrls.map { it.trim() }
             .filter { it.isNotBlank() }
