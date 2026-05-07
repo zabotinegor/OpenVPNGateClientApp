@@ -46,13 +46,10 @@ At splash, `ServersV2SyncCoordinator` pre-fetches the country list only. Per-cou
 - On network error, stale cache is returned if available.
 
 ### Pagination
-Page size 50. Pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the declared `serverCount`.
+Page size 50. Pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the authoritative `page.total` field from the API response (or `serverCount` as a fallback when `total=0`).
 
 ### Filtering
 Servers with empty `configData` are dropped silently before caching.
 
 ### Migration
 A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load. New installs default to `DEFAULT_V2`.
-
-
-## Signal-Driven

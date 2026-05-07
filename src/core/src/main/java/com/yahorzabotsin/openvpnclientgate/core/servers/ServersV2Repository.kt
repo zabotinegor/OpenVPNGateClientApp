@@ -132,21 +132,45 @@ class ServersV2Repository(
 
         if (cacheValid) {
             AppLog.d(TAG, "$logPrefix: cache hit")
-            return withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+            return try {
+                withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+            } catch (e: Exception) {
+                AppLog.w(TAG, "$logPrefix: cache parse error, invalidating and retrying from network", e)
+                cacheFile.delete()
+                prefs.edit().remove(tsKey).apply()
+                // Fall through to network fetch below
+                fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
+            }
         }
 
         if (cacheOnly) {
             if (cacheFile.isFile) {
                 AppLog.d(TAG, "$logPrefix: cacheOnly, reading stale cache")
-                return withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+                return try {
+                    withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+                } catch (e: Exception) {
+                    throw IOException("$logPrefix: cache parse error (corrupted file)", e)
+                }
             }
             throw IOException("$logPrefix: cacheOnly=true but no cache available")
         }
 
         AppLog.d(TAG, "$logPrefix: fetching from network")
+        return fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
+    }
+
+    private suspend fun <T> fetchFromNetworkWithParsing(
+        logPrefix: String,
+        cacheFile: File,
+        tsKey: String,
+        prefs: SharedPreferences,
+        cacheTtlMs: Long,
+        parse: (String) -> List<T>,
+        fetchNetwork: suspend () -> String
+    ): List<T> {
         return try {
-            val json = fetchNetwork()
-            val parsed = parse(json)
+            val json = withContext(Dispatchers.Default) { fetchNetwork() }
+            val parsed = withContext(Dispatchers.Default) { parse(json) }
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
             prefs.edit().putLong(tsKey, System.currentTimeMillis()).apply()
             parsed
@@ -156,7 +180,11 @@ class ServersV2Repository(
             AppLog.w(TAG, "$logPrefix: network failure", e)
             if (cacheFile.isFile) {
                 AppLog.d(TAG, "$logPrefix: falling back to stale cache after network error")
-                withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+                try {
+                    withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
+                } catch (parseError: Exception) {
+                    throw IOException("$logPrefix: network failed and cache is corrupted", parseError)
+                }
             } else {
                 throw IOException("$logPrefix: network failed and no cache available", e)
             }
