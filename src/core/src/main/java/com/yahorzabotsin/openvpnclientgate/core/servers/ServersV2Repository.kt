@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
+import android.content.SharedPreferences
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -86,49 +87,21 @@ class ServersV2Repository(
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     ): List<CountryV2> = countriesMutex.withLock {
-        val cacheTtl = settingsStore.load(context).cacheTtlMs
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-        val ts = prefs.getLong(KEY_COUNTRIES_TS, -1L)
-        val cacheFile = countriesCacheFile(context)
-        val cacheValid = !forceRefresh && ts > 0L && cacheFile.isFile &&
-                (System.currentTimeMillis() - ts) < cacheTtl
-
-        if (cacheValid) {
-            AppLog.d(TAG, "getCountries: cache hit")
-            return@withLock withContext(Dispatchers.IO) {
-                parseCountries(cacheFile.readText())
+        fetchWithCache(
+            cacheFile = countriesCacheFile(context),
+            tsKey = KEY_COUNTRIES_TS,
+            prefs = prefs,
+            cacheTtlMs = settingsStore.load(context).cacheTtlMs,
+            forceRefresh = forceRefresh,
+            cacheOnly = cacheOnly,
+            logPrefix = "getCountries",
+            parse = ::parseCountries,
+            fetchNetwork = {
+                val body = api.getCountries()
+                withContext(Dispatchers.IO) { body.string() }
             }
-        }
-
-        if (cacheOnly) {
-            if (cacheFile.isFile) {
-                AppLog.d(TAG, "getCountries: cacheOnly, reading stale cache")
-                return@withLock withContext(Dispatchers.IO) {
-                    parseCountries(cacheFile.readText())
-                }
-            }
-            throw IOException("getCountries: cacheOnly=true but no cache available")
-        }
-
-        AppLog.d(TAG, "getCountries: fetching from network")
-        return@withLock try {
-            val body = api.getCountries()
-            val json = withContext(Dispatchers.IO) { body.string() }
-            val countries = parseCountries(json)
-            withContext(Dispatchers.IO) { cacheFile.writeText(json) }
-            prefs.edit().putLong(KEY_COUNTRIES_TS, System.currentTimeMillis()).apply()
-            countries
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLog.w(TAG, "getCountries: network failure", e)
-            if (cacheFile.isFile) {
-                AppLog.d(TAG, "getCountries: falling back to stale cache after network error")
-                withContext(Dispatchers.IO) { parseCountries(cacheFile.readText()) }
-            } else {
-                throw IOException("getCountries: network failed and no cache available", e)
-            }
-        }
+        )
     }
 
     /**
@@ -145,47 +118,69 @@ class ServersV2Repository(
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     ): List<ServerV2> = serversMutex.withLock {
-        val cacheTtl = settingsStore.load(context).cacheTtlMs
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val cacheKey = "ts_servers_${countryCode.lowercase()}"
-        val ts = prefs.getLong(cacheKey, -1L)
-        val cacheFile = serversCacheFile(context, countryCode)
+        AppLog.d(TAG, "getServersForCountry[$countryCode]: serverCount=$serverCount")
+        fetchWithCache(
+            cacheFile = serversCacheFile(context, countryCode),
+            tsKey = cacheKey,
+            prefs = prefs,
+            cacheTtlMs = settingsStore.load(context).cacheTtlMs,
+            forceRefresh = forceRefresh,
+            cacheOnly = cacheOnly,
+            logPrefix = "getServersForCountry[$countryCode]",
+            parse = ::parseServers,
+            fetchNetwork = {
+                val allServers = fetchAllPages(countryCode, serverCount)
+                serversToJson(allServers)
+            }
+        )
+    }
+
+    private suspend fun <T> fetchWithCache(
+        cacheFile: File,
+        tsKey: String,
+        prefs: SharedPreferences,
+        cacheTtlMs: Long,
+        forceRefresh: Boolean,
+        cacheOnly: Boolean,
+        logPrefix: String,
+        parse: (String) -> List<T>,
+        fetchNetwork: suspend () -> String
+    ): List<T> {
+        val ts = prefs.getLong(tsKey, -1L)
         val cacheValid = !forceRefresh && ts > 0L && cacheFile.isFile &&
-                (System.currentTimeMillis() - ts) < cacheTtl
+                (System.currentTimeMillis() - ts) < cacheTtlMs
 
         if (cacheValid) {
-            AppLog.d(TAG, "getServersForCountry[$countryCode]: cache hit")
-            return@withLock withContext(Dispatchers.IO) {
-                parseServers(cacheFile.readText())
-            }
+            AppLog.d(TAG, "$logPrefix: cache hit")
+            return withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
         }
 
         if (cacheOnly) {
             if (cacheFile.isFile) {
-                AppLog.d(TAG, "getServersForCountry[$countryCode]: cacheOnly, reading stale cache")
-                return@withLock withContext(Dispatchers.IO) {
-                    parseServers(cacheFile.readText())
-                }
+                AppLog.d(TAG, "$logPrefix: cacheOnly, reading stale cache")
+                return withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
             }
-            throw IOException("getServersForCountry[$countryCode]: cacheOnly=true but no cache available")
+            throw IOException("$logPrefix: cacheOnly=true but no cache available")
         }
 
-        AppLog.d(TAG, "getServersForCountry[$countryCode]: fetching from network (serverCount=$serverCount)")
-        return@withLock try {
-            val allServers = fetchAllPages(countryCode, serverCount)
-            val json = serversToJson(allServers)
+        AppLog.d(TAG, "$logPrefix: fetching from network")
+        return try {
+            val json = fetchNetwork()
+            val parsed = parse(json)
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
-            prefs.edit().putLong(cacheKey, System.currentTimeMillis()).apply()
-            allServers
+            prefs.edit().putLong(tsKey, System.currentTimeMillis()).apply()
+            parsed
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "getServersForCountry[$countryCode]: network failure", e)
+            AppLog.w(TAG, "$logPrefix: network failure", e)
             if (cacheFile.isFile) {
-                AppLog.d(TAG, "getServersForCountry[$countryCode]: falling back to stale cache")
-                withContext(Dispatchers.IO) { parseServers(cacheFile.readText()) }
+                AppLog.d(TAG, "$logPrefix: falling back to stale cache after network error")
+                withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
             } else {
-                throw IOException("getServersForCountry[$countryCode]: network failed and no cache available", e)
+                throw IOException("$logPrefix: network failed and no cache available", e)
             }
         }
     }

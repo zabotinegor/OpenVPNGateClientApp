@@ -136,7 +136,7 @@ val coreModule = module {
 
     single { ServerRepository(get()) }
     single { SelectedCountryServerSync(androidContext(), get()) }
-    single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get()) }
+    single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get(), get()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get(), get()) }
     single { WorkManager.getInstance(androidContext()) }

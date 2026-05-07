@@ -3,6 +3,8 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
@@ -40,7 +42,7 @@ class ServerSelectionSyncCoordinatorTest {
         )
         val repository = ServerRepository(FixedApi(sampleCsv(servers)))
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
-        val coordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
+        val coordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync, NoOpV2SyncCoordinator)
 
         SelectedCountryStore.saveSelection(
             context,
@@ -74,7 +76,8 @@ class ServerSelectionSyncCoordinatorTest {
         val coordinator = DefaultServerSelectionSyncCoordinator(
             context,
             newRepository,
-            SelectedCountryServerSync(context, newRepository)
+            SelectedCountryServerSync(context, newRepository),
+            NoOpV2SyncCoordinator
         )
 
         coordinator.sync(
@@ -137,6 +140,14 @@ class ServerSelectionSyncCoordinatorTest {
         message = "msg",
         configData = config
     )
+
+    private object NoOpV2SyncCoordinator : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> = emptyList()
+    }
 
     private class FixedApi(private val body: String) : VpnServersApi {
         override suspend fun getServers(url: String): ResponseBody {

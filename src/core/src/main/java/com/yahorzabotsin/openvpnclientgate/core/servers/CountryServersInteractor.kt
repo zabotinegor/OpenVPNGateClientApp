@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
 interface CountryServersInteractor {
     suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server>
@@ -48,7 +49,10 @@ class DefaultCountryServersInteractor(
         // full country name as countryCode to the v2 API produces empty/error responses.
         val countries = runCatching {
             repo.getCountries(appContext, forceRefresh = false, cacheOnly = true)
-        }.getOrElse { emptyList<CountryV2>() }
+        }.getOrElse { e ->
+            if (e is CancellationException) throw e
+            emptyList<CountryV2>()
+        }
         val countryV2 = countries.firstOrNull { it.name == countryName }
             ?: throw IOException("Country '$countryName' not found in cache. Cannot resolve country code.")
         val countryCode = countryV2.code

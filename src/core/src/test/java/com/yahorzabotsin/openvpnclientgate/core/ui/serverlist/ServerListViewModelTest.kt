@@ -158,6 +158,55 @@ class ServerListViewModelTest {
     }
 
     @Test
+    fun `init_v2_source_emits_country_list_with_server_count`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "CA", name = "Canada", serverCount = 3),
+                CountryV2(code = "US", name = "United States", serverCount = 5)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val vm = ServerListViewModel(interactor, connection, FakeLogger())
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(2, state.countries.size)
+        // sorted by name: Canada before United States
+        assertEquals("Canada", state.countries[0].country.name)
+        assertEquals(3, state.countries[0].serverCount)
+        assertEquals("United States", state.countries[1].country.name)
+        assertEquals(5, state.countries[1].serverCount)
+        assertTrue(effects.first() is ServerListEffect.FocusFirstItem)
+        job.cancel()
+    }
+
+    @Test
+    fun `init_v2_source_load_error_emits_snackbar`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = IOException("v2 boom")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val vm = ServerListViewModel(interactor, connection, FakeLogger())
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+        advanceUntilIdle()
+
+        val effect = effects.first()
+        assertTrue(effect is ServerListEffect.ShowSnackbar)
+        assertEquals(
+            UiText.Res(R.string.error_getting_servers),
+            (effect as ServerListEffect.ShowSnackbar).text
+        )
+        job.cancel()
+    }
+
+    @Test
     fun `paused state is treated as vpn connected`() = runTest {
         val interactor = FakeInteractor(loaded = emptyList())
         val connection = FakeConnectionProvider(ConnectionState.PAUSED)
