@@ -1,12 +1,16 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
-import okhttp3.ResponseBody
 import retrofit2.http.GET
 import retrofit2.http.Query
 
+data class ServersPageResponse(
+    val items: List<ServerV2>?,
+    val total: Int = 0
+)
+
 interface ServersV2Api {
     @GET("api/v2/servers/countries/active")
-    suspend fun getCountries(): ResponseBody
+    suspend fun getCountries(): List<CountryV2>
 
     @GET("api/v2/servers")
     suspend fun getServers(
@@ -14,5 +18,5 @@ interface ServersV2Api {
         @Query("isActive") isActive: Boolean = true,
         @Query("skip") skip: Int = 0,
         @Query("take") take: Int = 50
-    ): ResponseBody
+    ): ServersPageResponse
 }

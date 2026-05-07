@@ -1,10 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import com.google.gson.Gson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
-import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -253,17 +253,17 @@ class ServersV2RepositoryTest {
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
-        private val serversJson: String = "[]",
+        private val serversJson: String = "{\"items\":[]}",
         private val serversPageResponses: List<String>? = null,
         var throwOnCountries: Exception? = null
     ) : ServersV2Api {
         var countriesCallCount = 0
         var serversCallCount = 0
 
-        override suspend fun getCountries(): okhttp3.ResponseBody {
+        override suspend fun getCountries(): List<CountryV2> {
             throwOnCountries?.let { throw it }
             countriesCallCount++
-            return countriesJson.toResponseBody()
+            return Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         }
 
         override suspend fun getServers(
@@ -271,10 +271,10 @@ class ServersV2RepositoryTest {
             isActive: Boolean,
             skip: Int,
             take: Int
-        ): okhttp3.ResponseBody {
-            val page = serversPageResponses?.getOrElse(serversCallCount) { "[]" } ?: serversJson
+        ): ServersPageResponse {
+            val pageJson = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
             serversCallCount++
-            return page.toResponseBody()
+            return Gson().fromJson(pageJson, ServersPageResponse::class.java)
         }
     }
 }

@@ -86,6 +86,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import java.util.concurrent.TimeUnit
 
@@ -113,7 +114,7 @@ val coreModule = module {
         Retrofit.Builder()
             .baseUrl(ApiConstants.PRIMARY_SERVERS_V2_URL.trimEnd('/') + "/")
             .client(get())
-            .addConverterFactory(ScalarsConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(ServersV2Api::class.java)
     }

@@ -1,8 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import com.google.gson.Gson
 import kotlinx.coroutines.runBlocking
-import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -77,15 +77,15 @@ class ServersV2SyncCoordinatorTest {
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
-        private val serversJson: String = "[]",
+        private val serversJson: String = "{\"items\":[]}",
         var throwOnCountries: Exception? = null
     ) : ServersV2Api {
         var countriesCallCount = 0
 
-        override suspend fun getCountries(): okhttp3.ResponseBody {
+        override suspend fun getCountries(): List<CountryV2> {
             throwOnCountries?.let { throw it }
             countriesCallCount++
-            return countriesJson.toResponseBody()
+            return Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         }
 
         override suspend fun getServers(
@@ -93,6 +93,6 @@ class ServersV2SyncCoordinatorTest {
             isActive: Boolean,
             skip: Int,
             take: Int
-        ): okhttp3.ResponseBody = serversJson.toResponseBody()
+        ): ServersPageResponse = Gson().fromJson(serversJson, ServersPageResponse::class.java)
     }
 }

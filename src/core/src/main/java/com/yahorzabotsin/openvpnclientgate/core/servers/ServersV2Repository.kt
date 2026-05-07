@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.SharedPreferences
+import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -11,8 +12,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
@@ -45,35 +44,16 @@ class ServersV2Repository(
         private fun countriesCacheFile(ctx: Context): File =
             File(ctx.cacheDir, COUNTRIES_CACHE_FILE)
 
-        private fun parseCountries(json: String): List<CountryV2> {
-            val arr = JSONArray(json)
-            return (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                CountryV2(
-                    code = o.getString("code"),
-                    name = o.getString("name"),
-                    serverCount = o.optInt("serverCount", 0)
-                )
-            }
-        }
+        private fun parseCountries(json: String): List<CountryV2> =
+            Gson().fromJson(json, Array<CountryV2>::class.java).toList()
 
-        private fun parseServers(json: String): List<ServerV2> {
-            val arr = JSONArray(json)
-            return (0 until arr.length()).mapNotNull { i ->
-                val o = arr.getJSONObject(i)
-                val configData = o.optString("configData", "")
-                if (configData.isBlank()) {
-                    AppLog.w(TAG, "Server at index $i has empty configData — skipping")
-                    return@mapNotNull null
-                }
-                ServerV2(
-                    ip = o.optString("ip", ""),
-                    countryCode = o.optString("countryCode", ""),
-                    countryName = o.optString("countryName", ""),
-                    configData = configData
-                )
+        private fun parseServers(json: String): List<ServerV2> =
+            Gson().fromJson(json, Array<ServerV2>::class.java).filter { s ->
+                if (s.configData.isBlank()) {
+                    AppLog.w(TAG, "Server ${s.ip} has empty configData — skipping")
+                    false
+                } else true
             }
-        }
     }
 
     /**
@@ -97,10 +77,7 @@ class ServersV2Repository(
             cacheOnly = cacheOnly,
             logPrefix = "getCountries",
             parse = ::parseCountries,
-            fetchNetwork = {
-                val body = api.getCountries()
-                withContext(Dispatchers.IO) { body.string() }
-            }
+            fetchNetwork = { Gson().toJson(api.getCountries()) }
         )
     }
 
@@ -130,10 +107,7 @@ class ServersV2Repository(
             cacheOnly = cacheOnly,
             logPrefix = "getServersForCountry[$countryCode]",
             parse = ::parseServers,
-            fetchNetwork = {
-                val allServers = fetchAllPages(countryCode, serverCount)
-                serversToJson(allServers)
-            }
+            fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount)) }
         )
     }
 
@@ -189,22 +163,20 @@ class ServersV2Repository(
         val result = mutableListOf<ServerV2>()
         var skip = 0
         while (true) {
-            val body = api.getServers(
+            val page = api.getServers(
                 countryCode = countryCode,
                 isActive = true,
                 skip = skip,
                 take = PAGE_SIZE
             )
-            val pageJson = withContext(Dispatchers.IO) { body.string() }
-            // The v2 API returns {"items":[...], "total":..., "page":..., "pageSize":...}.
+            // The v2 API returns {"items":[...], "total":..., ...}.
             // Use raw count (before configData filtering) to decide whether more pages exist.
             // Filtered count can be < PAGE_SIZE even on a full page if some servers have blank
             // configData, which would cause the loop to terminate too early.
-            val itemsArray = JSONObject(pageJson).optJSONArray("items")
-                ?: throw IOException("fetchAllPages[$countryCode]: missing 'items' key in response")
-            val rawPageSize = itemsArray.length()
-            val page = parseServers(itemsArray.toString())
-            result += page
+            val items = page.items
+                ?: throw IOException("fetchAllPages[$countryCode]: missing 'items' in response")
+            val rawPageSize = items.size
+            result += items
             if (rawPageSize < PAGE_SIZE || result.size >= serverCount) break
             skip += PAGE_SIZE
         }
@@ -219,17 +191,4 @@ class ServersV2Repository(
             .apply()
     }
 
-    private fun serversToJson(servers: List<ServerV2>): String {
-        val arr = JSONArray()
-        servers.forEach { s ->
-            arr.put(
-                JSONObject()
-                    .put("ip", s.ip)
-                    .put("countryCode", s.countryCode)
-                    .put("countryName", s.countryName)
-                    .put("configData", s.configData)
-            )
-        }
-        return arr.toString()
-    }
 }

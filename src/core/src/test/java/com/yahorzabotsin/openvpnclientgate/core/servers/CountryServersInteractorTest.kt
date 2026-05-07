@@ -1,10 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.runBlocking
-import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -124,15 +124,16 @@ class CountryServersInteractorTest {
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
-        private val serversJson: String = "[]"
+        private val serversJson: String = "{\"items\":[]}"
     ) : ServersV2Api {
-        override suspend fun getCountries(): okhttp3.ResponseBody = countriesJson.toResponseBody()
+        override suspend fun getCountries(): List<CountryV2> =
+            Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         override suspend fun getServers(
             countryCode: String,
             isActive: Boolean,
             skip: Int,
             take: Int
-        ): okhttp3.ResponseBody = serversJson.toResponseBody()
+        ): ServersPageResponse = Gson().fromJson(serversJson, ServersPageResponse::class.java)
     }
 
     private class FailingVpnServersApi : VpnServersApi {
