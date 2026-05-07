@@ -45,10 +45,10 @@ class DefaultCountryServersInteractor(
             ?: throw IOException("ServersV2Repository not injected for v2 source")
 
         // Find the countryCode from the cached country list to get serverCount for pagination.
-        // If the cache is absent (splash sync failed, app data cleared), fail fast: sending a
-        // full country name as countryCode to the v2 API produces empty/error responses.
+        // If the cache is absent (splash sync failed, app data cleared), honor the caller's
+        // cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
         val countries = runCatching {
-            repo.getCountries(appContext, forceRefresh = false, cacheOnly = true)
+            repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
         }.getOrElse { e ->
             if (e is CancellationException) throw e
             emptyList<CountryV2>()

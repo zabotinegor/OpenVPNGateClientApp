@@ -162,7 +162,7 @@ val coreModule = module {
     viewModel { CountryServersViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
-    single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get()) }
+    single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get(), get()) }
     single<SplashServerPreloadInteractor> { DefaultSplashServerPreloadInteractor(get(), get(), androidContext()) }
     single<MainConnectionInteractor> { DefaultMainConnectionInteractor(androidContext()) }
     single<MainLogger> { DefaultMainLogger() }
