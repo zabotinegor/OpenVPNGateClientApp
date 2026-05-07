@@ -112,7 +112,7 @@ android {
 
         buildConfigField("String", "PRIMARY_SERVERS_URL", "\"$primaryServersUrl\"")
         buildConfigField("String", "FALLBACK_SERVERS_URL", "\"$fallbackServersUrl\"")
-        buildConfigField("String", "PRIMARY_SERVERS_V2_URL", "\"${primaryServersV2Url ?: ""}\"")
+        buildConfigField("String", "PRIMARY_SERVERS_V2_URL", "\"$primaryServersV2Url\"")
         buildConfigField("String", "APP_RELEASE_TYPE", "\"$appReleaseType\"")
     }
 
