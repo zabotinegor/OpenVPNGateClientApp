@@ -262,7 +262,7 @@ class ServerRepository(
                 saveLastCacheKey(context, fallbackCache.key)
             }
 
-            if (settings.serverSource == ServerSource.DEFAULT && usedIndex > 0) {
+            if (settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
                 settingsStore.saveServerSource(context, ServerSource.VPNGATE)
                 AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
             } else if (usedIndex >= 0) {

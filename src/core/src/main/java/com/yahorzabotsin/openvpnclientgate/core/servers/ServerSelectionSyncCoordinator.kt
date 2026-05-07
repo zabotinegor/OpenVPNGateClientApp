@@ -2,6 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 
 interface ServerSelectionSyncCoordinator {
@@ -15,7 +17,8 @@ interface ServerSelectionSyncCoordinator {
 class DefaultServerSelectionSyncCoordinator(
     private val appContext: Context,
     private val serverRepository: ServerRepository,
-    private val selectedCountrySync: SelectedCountryServerSync
+    private val selectedCountrySync: SelectedCountryServerSync,
+    private val serversV2SyncCoordinator: ServersV2SyncCoordinator
 ) : ServerSelectionSyncCoordinator {
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerSelectionSyncCoordinator"
@@ -25,6 +28,16 @@ class DefaultServerSelectionSyncCoordinator(
         cacheOnly: Boolean,
         clearCacheBeforeRefresh: Boolean
     ): List<Server> {
+        val source = UserSettingsStore.load(appContext).serverSource
+        if (source == ServerSource.DEFAULT_V2) {
+            serversV2SyncCoordinator.syncCountries(
+                context = appContext,
+                forceRefresh = forceRefresh || clearCacheBeforeRefresh,
+                cacheOnly = cacheOnly
+            )
+            return emptyList()
+        }
+
         if (clearCacheBeforeRefresh) {
             runCatching { serverRepository.clearServerCache(appContext) }
                 .onFailure { e ->

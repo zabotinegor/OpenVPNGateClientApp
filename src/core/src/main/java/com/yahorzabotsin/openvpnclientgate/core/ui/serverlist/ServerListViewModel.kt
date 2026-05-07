@@ -71,15 +71,32 @@ class ServerListViewModel(
                 val vpnConnected = _state.value.isVpnConnected
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
                 logInfo("Loading servers. force_refresh=$forceRefresh, vpn_connected=$vpnConnected, cache_only=$cacheOnly")
-                val loaded = interactor.getServers(forceRefresh, cacheOnly)
-                servers = loaded
-                logger.logLoadSuccess(loaded.size)
-                val countries = loaded
-                    .groupBy { it.country }
-                    .map { (country, serversByCountry) ->
-                        CountryWithServers(country, serversByCountry.size)
-                    }
-                    .sortedBy { it.country.name }
+
+                val countries: List<CountryWithServers>
+                if (interactor.isDefaultV2Source()) {
+                    val v2Countries = interactor.getCountriesV2(forceRefresh, cacheOnly)
+                    countries = v2Countries.map { cv2 ->
+                        CountryWithServers(
+                            country = com.yahorzabotsin.openvpnclientgate.core.servers.Country(
+                                name = cv2.name,
+                                code = cv2.code
+                            ),
+                            serverCount = cv2.serverCount
+                        )
+                    }.sortedBy { it.country.name }
+                    servers = emptyList()
+                } else {
+                    val loaded = interactor.getServers(forceRefresh, cacheOnly)
+                    servers = loaded
+                    logger.logLoadSuccess(loaded.size)
+                    countries = loaded
+                        .groupBy { it.country }
+                        .map { (country, serversByCountry) ->
+                            CountryWithServers(country, serversByCountry.size)
+                        }
+                        .sortedBy { it.country.name }
+                }
+
                 updateState { it.copy(countries = countries) }
                 _effects.emit(ServerListEffect.FocusFirstItem)
             } catch (e: Exception) {
@@ -94,6 +111,13 @@ class ServerListViewModel(
     private fun handleCountrySelection(selected: Country) {
         val countryName = selected.name
         val countryCode = selected.code
+        if (interactor.isDefaultV2Source()) {
+            // For v2, always open the server list screen — servers are loaded lazily per country
+            viewModelScope.launch {
+                _effects.emit(ServerListEffect.OpenCountryServers(countryName, countryCode))
+            }
+            return
+        }
         val countryServers = servers.filter { it.country.name == countryName }
         if (countryServers.isEmpty()) {
             logger.logNoServers(countryName)
