@@ -23,7 +23,7 @@ The backend exposes a clean JSON API v2:
 | Route | Returns |
 |-------|---------|
 | `GET /api/v2/servers/countries/active` | `[ { code, name, serverCount } ]` |
-| `GET /api/v2/servers?countryCode=XX&isActive=true&skip=0&take=N` | `[ { ip, countryCode, countryName, configData } ]` (take ≤ 50) |
+| `GET /api/v2/servers?countryCode=XX&isActive=true&skip=0&take=N` | `{ "items": [ { ip, countryCode, countryName, configData } ], "total": N }` (take ≤ 50) |
 
 `configData` is a Base64-encoded OpenVPN config embedded directly in the server list response, so a separate `loadConfigs()` call is no longer needed.
 
@@ -141,7 +141,7 @@ The backend exposes a clean JSON API v2:
 | File | Change |
 |------|--------|
 | `UserSettingsStore.kt` | Add `DEFAULT_V2` to `ServerSource`; rename `DEFAULT` → `LEGACY`; add migration guard in `load()` for the `"DEFAULT"` key |
-| `UserSettingsStore.resolveServerUrls()` | Add `DEFAULT_V2` branch — returns `emptyList()` (URL is managed via the v2 API, not a URL list) |
+| `UserSettingsStore.resolveServerUrls()` | Add `DEFAULT_V2` branch — returns `listOf(ApiConstants.PRIMARY_SERVERS_V2_URL)` (URL used for v2 API calls and the "What's New" page) |
 | `SplashServerPreloadInteractor` | For `DEFAULT_V2`: call `ServersV2SyncCoordinator.syncCountries()`; for all others: existing logic |
 | `CountryServersInteractor` | For `DEFAULT_V2`: call `ServersV2Repository.getServersForCountry(countryCode)` instead of filtering from CSV |
 | `ServerListViewModel` | For `DEFAULT_V2`: subscribe to `CountryV2` list instead of grouping `Server` by country |
@@ -205,7 +205,7 @@ Location: `src/core/src/test/.../`
 | UT-1.2 | `load_default_v2` — SharedPrefs contains `"DEFAULT_V2"`; `load()` returns `ServerSource.DEFAULT_V2` |
 | UT-1.3 | `load_unknown_key_falls_back_to_legacy` — unknown string → `ServerSource.LEGACY` |
 | UT-1.4 | `save_and_load_roundtrip_default_v2` — save `DEFAULT_V2`, reload → `DEFAULT_V2` |
-| UT-1.5 | `resolveServerUrls_default_v2_returns_empty_list` — `DEFAULT_V2` → `emptyList()` |
+| UT-1.5 | `resolveServerUrls_default_v2_returns_v2_url` — `DEFAULT_V2` → `listOf(PRIMARY_SERVERS_V2_URL)` |
 | UT-1.6 | `resolveServerUrls_legacy_returns_primary_and_fallback` — `LEGACY` → list of two URLs |
 
 #### UT-2 — `ServersV2RepositoryTest` (new file)

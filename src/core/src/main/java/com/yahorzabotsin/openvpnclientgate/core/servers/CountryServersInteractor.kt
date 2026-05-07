@@ -6,7 +6,6 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.io.IOException
-import kotlinx.coroutines.CancellationException
 
 interface CountryServersInteractor {
     suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server>
@@ -47,12 +46,7 @@ class DefaultCountryServersInteractor(
         // Find the countryCode from the cached country list to get serverCount for pagination.
         // If the cache is absent (splash sync failed, app data cleared), honor the caller's
         // cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
-        val countries = runCatching {
-            repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
-        }.getOrElse { e ->
-            if (e is CancellationException) throw e
-            emptyList<CountryV2>()
-        }
+        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
         val countryV2 = countries.firstOrNull { it.name == countryName }
             ?: throw IOException("Country '$countryName' not found in cache. Cannot resolve country code.")
         val countryCode = countryV2.code

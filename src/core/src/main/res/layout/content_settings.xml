@@ -263,7 +263,6 @@
 
                     <RadioButton
                         android:id="@+id/server_default_v2"
-                        android:checked="true"
                         android:text="@string/settings_server_default_v2"
                         style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 

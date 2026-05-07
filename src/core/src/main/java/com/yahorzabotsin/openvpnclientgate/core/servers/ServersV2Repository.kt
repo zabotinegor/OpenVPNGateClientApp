@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Fetches and caches v2 country and server lists.
@@ -26,7 +27,7 @@ class ServersV2Repository(
     private val api: ServersV2Api,
     private val settingsStore: UserSettingsStore = UserSettingsStore,
     private val countriesMutex: Mutex = Mutex(),
-    private val serversMutex: Mutex = Mutex()
+    private val serversMutexMap: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
 ) {
 
     private companion object {
@@ -94,21 +95,24 @@ class ServersV2Repository(
         serverCount: Int,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
-    ): List<ServerV2> = serversMutex.withLock {
-        val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-        val cacheKey = "ts_servers_${countryCode.lowercase()}"
-        AppLog.d(TAG, "getServersForCountry[$countryCode]: serverCount=$serverCount")
-        fetchWithCache(
-            cacheFile = serversCacheFile(context, countryCode),
-            tsKey = cacheKey,
-            prefs = prefs,
-            cacheTtlMs = settingsStore.load(context).cacheTtlMs,
-            forceRefresh = forceRefresh,
-            cacheOnly = cacheOnly,
-            logPrefix = "getServersForCountry[$countryCode]",
-            parse = ::parseServers,
-            fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount)) }
-        )
+    ): List<ServerV2> {
+        val mutex = serversMutexMap.getOrPut(countryCode.lowercase()) { Mutex() }
+        return mutex.withLock {
+            val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+            val cacheKey = "ts_servers_${countryCode.lowercase()}"
+            AppLog.d(TAG, "getServersForCountry[$countryCode]: serverCount=$serverCount")
+            fetchWithCache(
+                cacheFile = serversCacheFile(context, countryCode),
+                tsKey = cacheKey,
+                prefs = prefs,
+                cacheTtlMs = settingsStore.load(context).cacheTtlMs,
+                forceRefresh = forceRefresh,
+                cacheOnly = cacheOnly,
+                logPrefix = "getServersForCountry[$countryCode]",
+                parse = ::parseServers,
+                fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount)) }
+            )
+        }
     }
 
     private suspend fun <T> fetchWithCache(
@@ -159,9 +163,10 @@ class ServersV2Repository(
         }
     }
 
-    private suspend fun fetchAllPages(countryCode: String, serverCount: Int): List<ServerV2> {
+    private suspend fun fetchAllPages(countryCode: String, @Suppress("UNUSED_PARAMETER") serverCount: Int): List<ServerV2> {
         val result = mutableListOf<ServerV2>()
         var skip = 0
+        var rawFetched = 0
         while (true) {
             val page = api.getServers(
                 countryCode = countryCode,
@@ -169,18 +174,20 @@ class ServersV2Repository(
                 skip = skip,
                 take = PAGE_SIZE
             )
-            // The v2 API returns {"items":[...], "total":..., ...}.
-            // Use raw count (before configData filtering) to decide whether more pages exist.
-            // Filtered count can be < PAGE_SIZE even on a full page if some servers have blank
-            // configData, which would cause the loop to terminate too early.
+            // The v2 API returns {"items":[...], "total":N}.
+            // Use raw page count (before configData filtering) for the partial-page exit
+            // so a full page that happens to contain blank entries does not stop pagination early.
+            // If the API supplies a reliable total, also stop when all items have been fetched.
             val items = page.items
                 ?: throw IOException("fetchAllPages[$countryCode]: missing 'items' in response")
             val rawPageSize = items.size
-            result += items
-            if (rawPageSize < PAGE_SIZE || result.size >= serverCount) break
+            rawFetched += rawPageSize
+            // Filter blank configData before accumulating so the cache stays clean.
+            result += items.filter { it.configData.isNotBlank() }
+            if (rawPageSize < PAGE_SIZE || (page.total > 0 && rawFetched >= page.total)) break
             skip += PAGE_SIZE
         }
-        AppLog.d(TAG, "fetchAllPages[$countryCode]: fetched ${result.size} servers")
+        AppLog.d(TAG, "fetchAllPages[$countryCode]: fetched ${result.size} servers (raw=$rawFetched)")
         return result
     }
 
