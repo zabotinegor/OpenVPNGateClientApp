@@ -44,7 +44,11 @@ class DefaultCountryServersInteractor(
             ?: throw IOException("ServersV2Repository not injected for v2 source")
 
         // Find the countryCode from the cached country list to get serverCount for pagination
-        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = true)
+        // The country cache may be absent if splash sync failed or app data was cleared; treat
+        // a missing cache as an empty list and proceed with fallback values.
+        val countries = runCatching {
+            repo.getCountries(appContext, forceRefresh = false, cacheOnly = true)
+        }.getOrElse { emptyList() }
         val countryV2 = countries.firstOrNull { it.name == countryName }
         val countryCode = countryV2?.code ?: countryName
         val serverCount = countryV2?.serverCount ?: Int.MAX_VALUE

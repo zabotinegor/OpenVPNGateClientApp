@@ -29,7 +29,7 @@ class CountryServersInteractorTest {
         }?.forEach { it.delete() }
     }
 
-    // UT-5.2 — DEFAULT_V2: calls v2 repo, not legacy ServerRepository
+    // UT-5.2 -- DEFAULT_V2: calls v2 repo, not legacy ServerRepository
     @Test
     fun getServersForCountry_v2_calls_v2_repo_not_legacy() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -51,7 +51,7 @@ class CountryServersInteractorTest {
         assertEquals(0, legacyApi.callCount)
     }
 
-    // UT-5.3 — DEFAULT_V2: saves result to SelectedCountryStore
+    // UT-5.3 -- DEFAULT_V2: saves result to SelectedCountryStore
     @Test
     fun getServersForCountry_v2_saves_to_selected_country_store() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -71,14 +71,14 @@ class CountryServersInteractorTest {
         assertTrue(pos != null)
     }
 
-    // UT-5.4 — DEFAULT_V2: configData is populated from v2 server
+    // UT-5.4 -- DEFAULT_V2: configData is populated from v2 server
     @Test
     fun getServersForCountry_v2_configData_populated() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
         val expectedConfig = "OPENVPN_CONFIG_BLOB"
-        val serversJson = """[
+        val serversJson = """{"items":[
             {"ip":"10.0.0.1","countryCode":"FR","countryName":"France","configData":"$expectedConfig"}
-        ]"""
+        ]}"""
         val api = FakeServersV2Api(
             countriesJson = """[{"code":"FR","name":"France","serverCount":1}]""",
             serversJson = serversJson
@@ -93,13 +93,13 @@ class CountryServersInteractorTest {
         assertEquals(expectedConfig, servers[0].configData)
     }
 
-    // UT-5.5 — DEFAULT_V2: empty result from repo throws IOException
+    // UT-5.5 -- DEFAULT_V2: empty result from repo throws IOException
     @Test(expected = IOException::class)
     fun getServersForCountry_v2_empty_result_throws(): Unit = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
         val api = FakeServersV2Api(
             countriesJson = """[{"code":"US","name":"United States","serverCount":10}]""",
-            serversJson = "[]" // empty
+            serversJson = """{"items":[]}""" // empty
         )
         val v2Repo = ServersV2Repository(api)
         v2Repo.getCountries(context, forceRefresh = true)
@@ -118,7 +118,7 @@ class CountryServersInteractorTest {
         val items = (1..count).joinToString(",") { i ->
             """{"ip":"10.$i.0.1","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$i"}"""
         }
-        return "[$items]"
+        return """{"items":[$items]}"""
     }
 
     private class FakeServersV2Api(
