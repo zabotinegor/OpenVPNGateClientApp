@@ -201,10 +201,7 @@ class ServersV2Repository(
             // Filtered count can be < PAGE_SIZE even on a full page if some servers have blank
             // configData, which would cause the loop to terminate too early.
             val itemsArray = JSONObject(pageJson).optJSONArray("items")
-            if (itemsArray == null) {
-                AppLog.e(TAG, "fetchAllPages[$countryCode]: missing 'items' key in response")
-                break
-            }
+                ?: throw IOException("fetchAllPages[$countryCode]: missing 'items' key in response")
             val rawPageSize = itemsArray.length()
             val page = parseServers(itemsArray.toString())
             result += page
