@@ -19,6 +19,7 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.ConfigParser.ConfigParseError
@@ -28,6 +29,11 @@ import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
 import de.blinkt.openvpn.core.IStatusCallbacks
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.TrafficHistory
@@ -176,6 +182,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         bindStatusService()
 
         trafficHandler.post(trafficPollRunnable)
+
+        runCatching {
+            val v2Sync = GlobalContext.get().get<ServersV2SyncCoordinator>()
+            ServerAutoSwitcher.v2HydrationCallback = { ctx, onDone ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        v2Sync.syncSelectedCountryServers(ctx)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "DEFAULT_V2 on-demand hydration failed", e)
+                    }
+                    withContext(Dispatchers.Main) { onDone() }
+                }
+            }
+        }.onFailure { e ->
+            AppLog.w(TAG, "Failed to wire DEFAULT_V2 hydration callback", e)
+        }
     }
 
     private fun updateStatusSource(source: StatusSource, reason: String) {
@@ -637,6 +659,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusBinder = null
         }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
+        ServerAutoSwitcher.v2HydrationCallback = null
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 

@@ -180,6 +180,12 @@ class ServerRefreshWorkerTest {
             forceRefresh: Boolean,
             cacheOnly: Boolean
         ): List<CountryV2> = emptyList()
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
     }
 
     private fun createWorker(inputData: Data = Data.EMPTY): ServerRefreshWorker {

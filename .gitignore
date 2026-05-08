@@ -54,8 +54,9 @@ README.local.md
 # Exact paths only - no broad patterns; agent-sync files are never hidden
 /.github/AGENTS-REGISTRY.md
 /.github/FRONTMATTER-SCHEMA.md
-/.github/agents/bug-fixer.agent.md
+/.github/agents/code-implementator.agent.md
 /.github/agents/code-review.agent.md
+/.github/agents/developer-flow-new.agent.md
 /.github/agents/developer-workflow.agent.md
 /.github/agents/docs-maintainer.agent.md
 /.github/agents/e2e-manual-tester.agent.md
@@ -67,13 +68,15 @@ README.local.md
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
+/.github/scripts/sync-copilot-assets.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
-/.github/skills/bug-fixer/SKILL.md
+/.github/skills/code-implementator/SKILL.md
 /.github/skills/code-review/SKILL.md
 /.github/skills/code-review/references/review-checklist-android.md
 /.github/skills/code-review/references/review-checklist-aspnet.md
 /.github/skills/code-review/references/review-checklist-mssql.md
 /.github/skills/code-review/references/review-checklist-react-ts.md
+/.github/skills/developer-flow-new/SKILL.md
 /.github/skills/docs-maintenance/SKILL.md
 /.github/skills/docs-maintenance/references/docs-report-template.md
 /.github/skills/docs-maintenance/references/documentation-sync-checklist.md
