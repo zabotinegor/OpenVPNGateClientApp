@@ -2,7 +2,7 @@
 id: US-02-MQ-5
 title: TV surface — DEFAULT_V2 parity initial selection and auto-switch
 area: Android
-surface: android
+surface: android-tv
 ---
 
 ## Preconditions

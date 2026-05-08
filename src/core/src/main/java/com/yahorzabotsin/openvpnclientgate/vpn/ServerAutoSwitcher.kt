@@ -256,9 +256,6 @@ object ServerAutoSwitcher {
                 if (callback != null) {
                     AppLog.i(TAG, "DEFAULT_V2: store empty at switch time, requesting on-demand hydration (level=${level})")
                     v2HydrationPending = true
-                    val capturedLevel = level
-                    val capturedFromTimer = fromTimer
-                    val capturedWaited = waitedSeconds
                     callback(appContext) {
                         handler.post {
                             if (!v2HydrationPending) {

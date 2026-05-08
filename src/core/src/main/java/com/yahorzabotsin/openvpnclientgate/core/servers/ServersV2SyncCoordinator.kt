@@ -21,8 +21,9 @@ interface ServersV2SyncCoordinator {
      * [SelectedCountryStore.saveSelectionPreservingIndex] to align the store without discarding
      * the current server index.
      *
-     * No-ops silently when no country is selected, the selected country is not found in the
-     * cached country list, or the server fetch returns an empty result.
+     * Returns without saving when no country is selected, the selected country is not found in
+     * the cached country list, or the server fetch returns an empty result. Each early-return
+     * case logs a diagnostic message at debug or warning level.
      */
     suspend fun syncSelectedCountryServers(
         context: Context,
