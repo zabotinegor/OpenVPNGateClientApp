@@ -63,7 +63,8 @@ class DefaultServersV2SyncCoordinator(
         forceRefresh: Boolean,
         cacheOnly: Boolean
     ) {
-        val selectedCountry = SelectedCountryStore.getSelectedCountry(context)?.trim()
+        val rawSelectedCountry = SelectedCountryStore.getSelectedCountry(context)
+        val selectedCountry = rawSelectedCountry?.trim()
         if (selectedCountry.isNullOrBlank()) {
             AppLog.d(tag, "syncSelectedCountryServers: no selected country, skipping")
             return
@@ -118,7 +119,7 @@ class DefaultServersV2SyncCoordinator(
         }
 
         val legacyServers = v2Servers.map { it.toLegacyServer() }
-        SelectedCountryStore.saveSelectionPreservingIndex(context, selectedCountry, legacyServers)
+        SelectedCountryStore.saveSelectionPreservingIndex(context, rawSelectedCountry!!, legacyServers)
         AppLog.i(tag, "syncSelectedCountryServers: synced country=$selectedCountry servers=${legacyServers.size}")
     }
 }
