@@ -10,6 +10,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -130,15 +131,88 @@ class ServerAutoSwitcherV2HydrationTest {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
 
-        assertTrue(
-            "Expected at least one start call after hydration; got ${startCalls.size}",
-            startCalls.isNotEmpty()
-        )
-        val firstStartConfig = startCalls.first().cfg
-        assertTrue(
-            "Start should use a hydrated server config, got: $firstStartConfig",
-            firstStartConfig.startsWith("conf-hydrated-")
-        )
+        assertEquals("Expected exactly one start call after hydration", 1, startCalls.size)
+        // Fix 1: after hydration, beginChainedSwitch must start from index 0 (not skip it)
+        assertEquals("First started server after hydration must be index 0 (conf-hydrated-1)",
+            "conf-hydrated-1", startCalls.first().cfg)
+        assertEquals(true, startCalls.first().reconnect)
+    }
+
+    // Fix 1 (gemini): single-server list after hydration must start the only server,
+    // not immediately report "full cycle completed" and stop the engine.
+    @Test
+    fun autoSwitch_v2_single_server_after_hydration_starts_it_without_immediate_cycle_end() {
+        UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+        appContext.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().apply()
+
+        val singleServer = listOf(makeServer("conf-single-hydrated", "ip-single"))
+
+        ServerAutoSwitcher.v2HydrationCallback = { ctx, onDone ->
+            SelectedCountryStore.saveSelection(ctx, "Japan", singleServer)
+            SelectedCountryStore.resetIndex(ctx)
+            onDone()
+        }
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        // Simulate VPN stop triggered by beginChainedSwitch; the single server should start
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals("Single hydrated server must be started (no premature full-cycle stop)",
+            1, startCalls.size)
+        assertEquals("conf-single-hydrated", startCalls.first().cfg)
+        assertEquals(true, startCalls.first().reconnect)
+        assertEquals("Engine must not be stopped by switcher before the server is tried",
+            0, stopCalls)
+    }
+
+    // Fix 2 (codex P1): a concurrent LEVEL_AUTH_FAILED arriving while v2HydrationPending=true
+    // must be silently ignored — not cause "completed full server cycle" and stop the engine.
+    @Test
+    fun autoSwitch_v2_auth_failed_during_pending_hydration_does_not_stop_engine() {
+        UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+        appContext.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().apply()
+
+        var capturedOnDone: (() -> Unit)? = null
+        val hydratedServers = listOf(makeServer("conf-race-1", "ip-race-1"))
+
+        // Hydration callback captures onDone but does NOT invoke it (simulates in-flight async hydration)
+        ServerAutoSwitcher.v2HydrationCallback = { _, onDone ->
+            capturedOnDone = onDone
+        }
+
+        // First event triggers hydration via timer
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+
+        assertNotNull("Hydration callback should have been invoked", capturedOnDone)
+
+        // Second failure level arrives while hydration is still in-flight (v2HydrationPending=true)
+        // AUTH_FAILED + timerActive=true re-enters requestSwitchNow without Fix 2
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_AUTH_FAILED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals("Engine must not stop while v2HydrationPending=true", 0, stopCalls)
+        assertEquals("No switch must be started while hydration is still in-flight", 0, startCalls.size)
+
+        // Complete hydration now
+        SelectedCountryStore.saveSelection(appContext, "Japan", hydratedServers)
+        SelectedCountryStore.resetIndex(appContext)
+        capturedOnDone!!.invoke()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        // Simulate VPN stop triggered by beginChainedSwitch
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals("First server must start after hydration completes", 1, startCalls.size)
+        assertEquals("conf-race-1", startCalls.first().cfg)
     }
 
     // TS-6 edge: When hydration also returns no servers, the engine is stopped without a crash.

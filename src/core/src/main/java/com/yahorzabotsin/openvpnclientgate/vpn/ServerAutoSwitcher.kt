@@ -230,6 +230,11 @@ object ServerAutoSwitcher {
             return
         }
 
+        if (v2HydrationPending) {
+            AppLog.d(TAG, "DEFAULT_V2: hydration pending, ignoring switch request (level=${level})")
+            return
+        }
+
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
         val next = try {
@@ -263,10 +268,21 @@ object ServerAutoSwitcher {
                             v2HydrationPending = false
                             val hydratedTotal = try { SelectedCountryStore.getServers(appContext).size } catch (_: Exception) { 0 }
                             if (hydratedTotal > 0) {
-                                AppLog.i(TAG, "DEFAULT_V2: hydration complete ($hydratedTotal servers), retrying switch")
+                                AppLog.i(TAG, "DEFAULT_V2: hydration complete ($hydratedTotal servers), starting from first server")
                                 SelectedCountryStore.resetIndex(appContext)
                                 cycleStartIndex = null
-                                requestSwitchNow(appContext, capturedLevel, capturedFromTimer, capturedWaited)
+                                cancel(resetCycle = false)
+                                val firstServer = try { SelectedCountryStore.currentServer(appContext) } catch (_: Exception) { null }
+                                val hydrationTitle = SelectedCountryStore.getSelectedCountry(appContext)
+                                if (firstServer != null) {
+                                    beginChainedSwitch(appContext, firstServer.config ?: "", hydrationTitle)
+                                } else {
+                                    AppLog.w(TAG, "DEFAULT_V2: hydration complete but no current server after reset, stopping engine")
+                                    cancel(resetCycle = true)
+                                    try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset reconnecting hint after hydration no-server", e) }
+                                    try { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset state after hydration no-server", e) }
+                                    try { stopper(appContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop engine after hydration no-server", e) }
+                                }
                             } else {
                                 AppLog.w(TAG, "DEFAULT_V2: hydration yielded no servers, stopping engine")
                                 cancel(resetCycle = true)
