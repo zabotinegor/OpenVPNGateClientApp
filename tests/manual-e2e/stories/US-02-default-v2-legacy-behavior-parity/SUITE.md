@@ -15,7 +15,7 @@ Reference: [docs/userstories/US-02-default-v2-legacy-behavior-parity.md](../../.
 | AC-1.3 | Connect button is visible and enabled on main screen without user country selection |
 | AC-3.1 | `ServerAutoSwitcher` uses pre-populated store for rotation |
 | AC-3.2 | VPN engine LEVEL_NONETWORK → immediate switch to next server in selected country |
-| AC-3.3 | Full server cycle is completed and logged when all servers fail |
+| AC-3.4 | Full server cycle is completed and logged when all servers fail |
 | AC-4.1 | Foreground sync triggers `syncSelectedCountryServers` |
 | AC-4.2 | Forced refresh (`force_refresh=true`) triggers network fetch |
 | AC-4.3 | After forced refresh, `SelectedCountryStore` remains aligned |

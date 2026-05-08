@@ -251,23 +251,24 @@ class ServersV2SyncCoordinatorTest {
 
         val initialVersion = SelectedCountryVersionSignal.version.value
         SelectedCountryVersionSignal.restoreForTesting(0L)
+        try {
+            val api = FakeServersV2Api(
+                countriesJson = """[{"code":"JP","name":"Japan","serverCount":2}]""",
+                serversJson = """{"items":[{"ip":"1.0.0.1","countryCode":"JP","countryName":"Japan","configData":"conf-jp-1"},{"ip":"1.0.0.2","countryCode":"JP","countryName":"Japan","configData":"conf-jp-2"}],"total":2}"""
+            )
+            val repo = ServersV2Repository(api)
+            val coordinator = DefaultServersV2SyncCoordinator(repo)
 
-        val api = FakeServersV2Api(
-            countriesJson = """[{"code":"JP","name":"Japan","serverCount":2}]""",
-            serversJson = """{"items":[{"ip":"1.0.0.1","countryCode":"JP","countryName":"Japan","configData":"conf-jp-1"},{"ip":"1.0.0.2","countryCode":"JP","countryName":"Japan","configData":"conf-jp-2"}],"total":2}"""
-        )
-        val repo = ServersV2Repository(api)
-        val coordinator = DefaultServersV2SyncCoordinator(repo)
+            coordinator.syncSelectedCountryServers(context, forceRefresh = true)
 
-        coordinator.syncSelectedCountryServers(context, forceRefresh = true)
-
-        assertEquals(
-            "SelectedCountryVersionSignal.version must be bumped exactly once after sync",
-            1L, SelectedCountryVersionSignal.version.value
-        )
-
-        // Restore signal to its pre-test state to avoid affecting other tests
-        SelectedCountryVersionSignal.restoreForTesting(initialVersion)
+            assertEquals(
+                "SelectedCountryVersionSignal.version must be bumped exactly once after sync",
+                1L, SelectedCountryVersionSignal.version.value
+            )
+        } finally {
+            // Restore signal to its pre-test state to avoid affecting other tests
+            SelectedCountryVersionSignal.restoreForTesting(initialVersion)
+        }
     }
 
     // --------------- helpers ---------------
