@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -243,6 +244,43 @@ class ServersV2RepositoryTest {
     }
 
     // --------------- helpers ---------------
+
+    // TS-2 (AC-4.1) — parse failure (Gson JsonSyntaxException) with stale cache falls back to
+    // cached countries without crashing the caller. Regression for the minified-build path where
+    // the network deserialization throws instead of returning null fields.
+    @Test
+    fun getCountries_parse_failure_returns_stale_cache() = runBlocking {
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"IT","name":"Italy","serverCount":7}]"""
+        )
+        val repo = ServersV2Repository(api)
+
+        // Prime cache
+        repo.getCountries(context, forceRefresh = true)
+        // Expire cache
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_countries", 1L).commit()
+        // Simulate Gson deserialization failure on the next network attempt
+        api.throwOnCountries = JsonSyntaxException("simulated deserialization failure")
+
+        val result = repo.getCountries(context, forceRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals("IT", result[0].code)
+    }
+
+    // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a
+    // controlled IOException that callers handle without a fatal crash loop.
+    @Test(expected = IOException::class)
+    fun getCountries_parse_failure_no_cache_throws(): Unit = runBlocking {
+        val api = FakeServersV2Api(
+            countriesJson = "[]",
+            throwOnCountries = JsonSyntaxException("simulated deserialization failure — no cache")
+        )
+        val repo = ServersV2Repository(api)
+
+        repo.getCountries(context, forceRefresh = true)
+    }
 
     private fun buildServersJson(code: String, count: Int): String {
         val items = (1..count).joinToString(",") { i ->
