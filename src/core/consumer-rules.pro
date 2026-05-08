@@ -22,8 +22,7 @@
 	@com.google.gson.annotations.SerializedName <fields>;
 }
 
-# Keep v2 server/country model classes with their constructors and fields so
-# Gson's UnsafeAllocator and reflective deserialization remain intact under R8.
--keep class com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2 { *; }
--keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServerV2 { *; }
--keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServersPageResponse { *; }
+# Keep v2 server/country model classes with minimal scope.
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServerV2
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServersPageResponse

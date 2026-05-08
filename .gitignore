@@ -94,8 +94,6 @@ README.local.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 *.lnk
 artifacts
-!artifacts/agent-sync/
-!artifacts/agent-sync/**
 
 # BEGIN synced-copilot-assets
 /.github/agents/code-implementator.agent.md
