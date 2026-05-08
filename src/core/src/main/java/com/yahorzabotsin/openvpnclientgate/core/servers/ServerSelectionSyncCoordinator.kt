@@ -35,6 +35,19 @@ class DefaultServerSelectionSyncCoordinator(
                 forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                 cacheOnly = cacheOnly
             )
+            // AC-4.2/AC-4.3: Refresh the currently selected country's server list so the
+            // selected-country store stays aligned after every sync trigger (foreground, periodic,
+            // settings-triggered) without requiring the user to reopen the country screen.
+            runCatching {
+                serversV2SyncCoordinator.syncSelectedCountryServers(
+                    context = appContext,
+                    forceRefresh = forceRefresh || clearCacheBeforeRefresh,
+                    cacheOnly = cacheOnly
+                )
+            }.onFailure { e ->
+                if (e is CancellationException) throw e
+                AppLog.w(tag, "DEFAULT_V2 selected country sync failed after country list refresh", e)
+            }
             return emptyList()
         }
 

@@ -85,5 +85,11 @@ class SplashServerPreloadInteractorTest {
             lastCacheOnly = cacheOnly
             return emptyList()
         }
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
     }
 }

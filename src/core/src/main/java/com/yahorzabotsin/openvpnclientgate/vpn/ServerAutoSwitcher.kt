@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,11 @@ object ServerAutoSwitcher {
     @Volatile private var timerLevel: ConnectionStatus? = null
     internal var starter: (Context, String, String?, Boolean) -> Unit = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
+    // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
+    // selected-country server list is empty. The callback must hydrate the list and then
+    // invoke the provided completion action on the main thread.
+    @Volatile internal var v2HydrationCallback: ((Context, () -> Unit) -> Unit)? = null
+    @Volatile private var v2HydrationPending: Boolean = false
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
@@ -201,6 +207,7 @@ object ServerAutoSwitcher {
         stopRetryTimeoutRunnable = null
         cancelIdleTolerance()
         _remainingSeconds.value = null
+        v2HydrationPending = false
         if (resetCycle) {
             cycleStartIndex = null
         }
@@ -223,6 +230,11 @@ object ServerAutoSwitcher {
             return
         }
 
+        if (v2HydrationPending) {
+            AppLog.d(TAG, "DEFAULT_V2: hydration pending, ignoring switch request (level=${level})")
+            return
+        }
+
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
         val next = try {
@@ -233,6 +245,53 @@ object ServerAutoSwitcher {
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to resolve next server circularly", e)
             null
+        }
+
+        // AC-3.3: For DEFAULT_V2 with an empty store, request on-demand hydration before
+        // concluding that no next server is available.
+        if (next == null && total == 0 && !v2HydrationPending) {
+            val serverSource = try { UserSettingsStore.load(appContext).serverSource } catch (_: Exception) { null }
+            if (serverSource == ServerSource.DEFAULT_V2) {
+                val callback = v2HydrationCallback
+                if (callback != null) {
+                    AppLog.i(TAG, "DEFAULT_V2: store empty at switch time, requesting on-demand hydration (level=${level})")
+                    v2HydrationPending = true
+                    callback(appContext) {
+                        handler.post {
+                            if (!v2HydrationPending) {
+                                AppLog.d(TAG, "DEFAULT_V2: hydration callback received but state was reset, skipping retry")
+                                return@post
+                            }
+                            v2HydrationPending = false
+                            val hydratedTotal = try { SelectedCountryStore.getServers(appContext).size } catch (_: Exception) { 0 }
+                            if (hydratedTotal > 0) {
+                                AppLog.i(TAG, "DEFAULT_V2: hydration complete ($hydratedTotal servers), starting from first server")
+                                SelectedCountryStore.resetIndex(appContext)
+                                cycleStartIndex = null
+                                cancel(resetCycle = false)
+                                val firstServer = try { SelectedCountryStore.currentServer(appContext) } catch (_: Exception) { null }
+                                val hydrationTitle = SelectedCountryStore.getSelectedCountry(appContext)
+                                if (firstServer != null) {
+                                    beginChainedSwitch(appContext, firstServer.config ?: "", hydrationTitle)
+                                } else {
+                                    AppLog.w(TAG, "DEFAULT_V2: hydration complete but no current server after reset, stopping engine")
+                                    cancel(resetCycle = true)
+                                    try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset reconnecting hint after hydration no-server", e) }
+                                    try { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset state after hydration no-server", e) }
+                                    try { stopper(appContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop engine after hydration no-server", e) }
+                                }
+                            } else {
+                                AppLog.w(TAG, "DEFAULT_V2: hydration yielded no servers, stopping engine")
+                                cancel(resetCycle = true)
+                                try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset reconnecting hint after hydration failure", e) }
+                                try { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset state after hydration failure", e) }
+                                try { stopper(appContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to stop engine after hydration failure", e) }
+                            }
+                        }
+                    }
+                    return
+                }
+            }
         }
 
         if (next != null) {

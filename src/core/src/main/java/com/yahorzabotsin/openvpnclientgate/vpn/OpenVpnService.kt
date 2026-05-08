@@ -19,6 +19,7 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOptions
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import de.blinkt.openvpn.VpnProfile
 import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.ConfigParser.ConfigParseError
@@ -28,8 +29,17 @@ import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
 import de.blinkt.openvpn.core.IStatusCallbacks
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
 import de.blinkt.openvpn.core.TrafficHistory
 import de.blinkt.openvpn.core.StatusSnapshot
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterStore
@@ -62,6 +72,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
         private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
     }
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Track engine binding for start/stop coordination
     private var engineBinder: IOpenVPNServiceInternal? = null
@@ -176,6 +188,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         bindStatusService()
 
         trafficHandler.post(trafficPollRunnable)
+
+        runCatching {
+            val v2Sync = GlobalContext.get().get<ServersV2SyncCoordinator>()
+            val selectionInteractor = GlobalContext.get().get<MainSelectionInteractor>()
+            ServerAutoSwitcher.v2HydrationCallback = { ctx, onDone ->
+                serviceScope.launch {
+                    try {
+                        val hasCountry = !SelectedCountryStore.getSelectedCountry(ctx).isNullOrBlank()
+                        if (hasCountry) {
+                            v2Sync.syncSelectedCountryServers(ctx)
+                        } else {
+                            AppLog.i(TAG, "DEFAULT_V2 hydration: no selected country, bootstrapping initial selection")
+                            selectionInteractor.loadInitialSelection(cacheOnly = false)
+                        }
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "DEFAULT_V2 on-demand hydration failed", e)
+                    } finally {
+                        withContext(NonCancellable + Dispatchers.Main) { onDone() }
+                    }
+                }
+            }
+        }.onFailure { e ->
+            AppLog.w(TAG, "Failed to wire DEFAULT_V2 hydration callback", e)
+        }
     }
 
     private fun updateStatusSource(source: StatusSource, reason: String) {
@@ -637,6 +673,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusBinder = null
         }
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
+        serviceScope.cancel()
+        ServerAutoSwitcher.v2HydrationCallback = null
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
