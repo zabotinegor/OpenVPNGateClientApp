@@ -44,7 +44,11 @@ class ServerAutoSwitcherV2HydrationTest {
 
     @Before
     fun setUp() {
+        // Reset all ServerAutoSwitcher singleton state (timers, pending config, cycle index, etc.)
+        // before each test. The virtual Robolectric clock is NOT reset between tests, so runnables
+        // scheduled by previous tests can fire during this test's idleFor() calls unless cancelled.
         ConnectionStateManager.setReconnectingHint(false)
+        ServerAutoSwitcher.onEngineLevel(appContext, de.blinkt.openvpn.core.ConnectionStatus.LEVEL_CONNECTED, "setUp-reset")
         UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
         ServerAutoSwitcher.setNoReplyThresholdForTest(2)
