@@ -74,7 +74,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: wrapper
-          cache-read-only: false
+          # PR runs use read-only cache for build cache layer to reduce storage growth (AC-3.1)
+          # Note: dependency caching still enabled via setup-java; build cache writes disabled only
+          cache-read-only: true
 
       - name: Make gradlew executable
         run: chmod +x gradlew
@@ -85,15 +87,18 @@ jobs:
         working-directory: ./src
 
       - name: Upload Unit Test Reports
-        if: always()
+        # Only upload on failure to reduce storage (AC-2.2); keep 5 days for PR debugging (AC-1.2)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
           path: |
             src/**/build/reports/tests/testDebugUnitTest/**
             src/**/build/test-results/testDebugUnitTest/**
+          retention-days: 5
 
       - name: Build Debug APKs (mobile + tv)
+        # Only builds if tests passed (workflow stops on test failure to save resources and storage)
         run: ./gradlew --no-daemon --max-workers=2 :mobile:assembleDebug :tv:assembleDebug --stacktrace
         working-directory: ./src
 
@@ -116,20 +121,24 @@ jobs:
           done
 
       - name: Upload Debug APK (mobile)
+        # Keep mobile APK for reviewers (AC-2.3); short 3-day retention (AC-1.3)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: apk-mobile-debug_${{ steps.build_meta.outputs.short_sha }}
           path: src/mobile/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload Debug APK (tv)
+        # Optional TV artifact with short retention (AC-1.3, AC-2.4)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: apk-tv-debug_${{ steps.build_meta.outputs.short_sha }}
           path: src/tv/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
+          retention-days: 3
 
       - name: Comment PR with APK links
         if: always()
