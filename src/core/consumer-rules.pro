@@ -21,3 +21,8 @@
 -keepclasseswithmembers class * {
 	@com.google.gson.annotations.SerializedName <fields>;
 }
+
+# Keep v2 server/country model classes with minimal scope.
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServerV2
+-keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServersPageResponse

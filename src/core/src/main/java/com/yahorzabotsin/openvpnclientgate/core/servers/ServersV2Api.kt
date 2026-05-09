@@ -1,11 +1,12 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import com.google.gson.annotations.SerializedName
 import retrofit2.http.GET
 import retrofit2.http.Query
 
 data class ServersPageResponse(
-    val items: List<ServerV2>?,
-    val total: Int = 0
+    @SerializedName("items") val items: List<ServerV2>?,
+    @SerializedName("total") val total: Int = 0
 )
 
 interface ServersV2Api {

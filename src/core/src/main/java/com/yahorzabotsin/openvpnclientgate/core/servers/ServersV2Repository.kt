@@ -177,7 +177,7 @@ class ServersV2Repository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "$logPrefix: network failure", e)
+            AppLog.w(TAG, "$logPrefix: network fetch or parse failure (${e.javaClass.simpleName})", e)
             if (cacheFile.isFile) {
                 AppLog.d(TAG, "$logPrefix: falling back to stale cache after network error")
                 try {

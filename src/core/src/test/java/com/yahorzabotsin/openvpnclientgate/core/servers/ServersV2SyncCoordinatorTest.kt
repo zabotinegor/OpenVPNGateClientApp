@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
 import kotlinx.coroutines.runBlocking
@@ -272,6 +273,44 @@ class ServersV2SyncCoordinatorTest {
     }
 
     // --------------- helpers ---------------
+
+    // TS-4 (AC-4.1) — syncCountries propagates parse failures from the repository as IOException
+    // (the repository wraps JsonSyntaxException in IOException when no cache is present),
+    // consistent with existing IOException propagation (UT-3.3).
+    @Test(expected = IOException::class)
+    fun syncCountries_propagates_parse_exception(): Unit = runBlocking {
+        val api = FakeServersV2Api(
+            countriesJson = "[]",
+            throwOnCountries = JsonSyntaxException("simulated parse failure in coordinator path")
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        coordinator.syncCountries(context, forceRefresh = true)
+    }
+
+    // TS-4b (AC-4.1) — syncSelectedCountryServers absorbs non-IO parse exceptions from the
+    // countries fetch and returns without crashing, consistent with graceful failure contract.
+    @Test
+    fun syncSelectedCountryServers_absorbs_parse_exception_on_countries_fetch(): Unit = runBlocking {
+        val originalServers = listOf(
+            makeServer("conf-jp-1", "JP", "Japan", "1.0.0.1")
+        )
+        SelectedCountryStore.saveSelection(context, "Japan", originalServers)
+
+        val api = FakeServersV2Api(
+            countriesJson = "[]",
+            throwOnCountries = JsonSyntaxException("simulated deserialization failure in syncSelectedCountryServers")
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        // Must return gracefully without throwing
+        coordinator.syncSelectedCountryServers(context, forceRefresh = true)
+
+        // Original store contents must be preserved
+        assertEquals(1, SelectedCountryStore.getServers(context).size)
+    }
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",

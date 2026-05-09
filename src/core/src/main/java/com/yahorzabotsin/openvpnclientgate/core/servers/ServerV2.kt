@@ -1,10 +1,12 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import com.google.gson.annotations.SerializedName
+
 data class ServerV2(
-    val ip: String,
-    val countryCode: String,
-    val countryName: String,
-    val configData: String
+    @SerializedName("ip") val ip: String,
+    @SerializedName("countryCode") val countryCode: String,
+    @SerializedName("countryName") val countryName: String,
+    @SerializedName("configData") val configData: String
 )
 
 /** Maps a [ServerV2] to the legacy [Server] shape so it can be stored in [SelectedCountryStore]. */

@@ -43,7 +43,7 @@ At splash, `ServersV2SyncCoordinator` pre-fetches the country list only. Per-cou
 - Countries cached in `v2_countries.json`; timestamp stored in SharedPrefs key `servers_v2_cache` / `ts_countries`.
 - Servers cached per country in `v2_servers_<code>.json`; timestamp stored as `ts_servers_<code>`.
 - TTL is read from `UserSettingsStore.cacheTtlMs`.
-- On network error, stale cache is returned if available.
+- On network error or parse failure (including Gson deserialization exceptions), stale cache is returned if available. If no cache exists, IOException is propagated to the caller for graceful handling. This behavior is implemented in `ServersV2Repository.getCountries()` and `ServersV2Repository.getServersForCountry()`.
 
 ### Pagination
 Page size 50. Pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the authoritative `page.total` field from the API response (or `serverCount` as a fallback when `total=0`).
