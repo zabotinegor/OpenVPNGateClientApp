@@ -141,6 +141,25 @@ class ServersV2RepositoryTest {
         assertEquals(2, api.serversCallCount)
     }
 
+    // UT-2.7b — when API returns total=0 and full pages, serverCount fallback must stop paging.
+    @Test
+    fun getServersForCountry_serverCount_fallback_stops_when_total_zero() = runBlocking {
+        val fullPageWithZeroTotal = buildServersJsonWithTotal("JP", 50, total = 0)
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                fullPageWithZeroTotal,
+                fullPageWithZeroTotal,
+                fullPageWithZeroTotal
+            )
+        )
+        val repo = ServersV2Repository(api)
+
+        val result = repo.getServersForCountry(context, "JP", serverCount = 100, forceRefresh = true)
+
+        assertEquals(2, api.serversCallCount)
+        assertEquals(100, result.size)
+    }
+
     // UT-2.8 — servers with empty configData are filtered out
     @Test
     fun getServersForCountry_filters_empty_configData() = runBlocking {
@@ -269,6 +288,31 @@ class ServersV2RepositoryTest {
         assertEquals("IT", result[0].code)
     }
 
+    // TS-7 — cacheOnly=true with valid-cache parse failure must not fall through to network.
+    @Test
+    fun getCountries_cache_only_parse_failure_does_not_call_network() = runBlocking {
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"IT","name":"Italy","serverCount":7}]"""
+        )
+        val repo = ServersV2Repository(api)
+
+        // Prime cache with valid content.
+        repo.getCountries(context, forceRefresh = true)
+        val callsAfterPrime = api.countriesCallCount
+
+        // Corrupt cache file while timestamp remains valid.
+        File(context.cacheDir, "v2_countries.json").writeText("{not-json")
+
+        try {
+            repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+            throw AssertionError("Expected IOException for cache parse failure in cacheOnly mode")
+        } catch (_: IOException) {
+            // expected
+        }
+
+        assertEquals(callsAfterPrime, api.countriesCallCount)
+    }
+
     // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a
     // controlled IOException that callers handle without a fatal crash loop.
     @Test(expected = IOException::class)
@@ -287,6 +331,13 @@ class ServersV2RepositoryTest {
             """{"ip":"10.$i.0.1","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$i"}"""
         }
         return """{"items":[$items]}"""
+    }
+
+    private fun buildServersJsonWithTotal(code: String, count: Int, total: Int): String {
+        val items = (1..count).joinToString(",") { i ->
+            """{"ip":"10.$i.0.1","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$i"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
     }
 
     private class FakeServersV2Api(

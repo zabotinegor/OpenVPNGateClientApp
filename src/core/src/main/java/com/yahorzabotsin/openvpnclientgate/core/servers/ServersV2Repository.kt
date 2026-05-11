@@ -38,6 +38,7 @@ class ServersV2Repository(
         private const val SERVERS_CACHE_FILE_PREFIX = "v2_servers_"
         private const val SERVERS_CACHE_FILE_SUFFIX = ".json"
         private const val PAGE_SIZE = 50
+        private const val MAX_PAGES_SAFETY_LIMIT = 200
 
         private fun serversCacheFile(ctx: Context, countryCode: String): File =
             File(ctx.cacheDir, "$SERVERS_CACHE_FILE_PREFIX${countryCode.lowercase()}$SERVERS_CACHE_FILE_SUFFIX")
@@ -96,7 +97,7 @@ class ServersV2Repository(
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     ): List<ServerV2> {
-        val mutex = serversMutexMap.getOrPut(countryCode.lowercase()) { Mutex() }
+        val mutex = serversMutexMap.computeIfAbsent(countryCode.lowercase()) { Mutex() }
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
             val cacheKey = "ts_servers_${countryCode.lowercase()}"
@@ -135,10 +136,13 @@ class ServersV2Repository(
             return try {
                 withContext(Dispatchers.IO) { parse(cacheFile.readText()) }
             } catch (e: Exception) {
-                AppLog.w(TAG, "$logPrefix: cache parse error, invalidating and retrying from network", e)
+                AppLog.w(TAG, "$logPrefix: cache parse error", e)
                 cacheFile.delete()
                 prefs.edit().remove(tsKey).apply()
-                // Fall through to network fetch below
+                if (cacheOnly) {
+                    throw IOException("$logPrefix: cache parse error (cacheOnly=true, network disabled)", e)
+                }
+                // Fall through to network fetch below for non-cacheOnly mode.
                 fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
             }
         }
@@ -169,7 +173,7 @@ class ServersV2Repository(
         fetchNetwork: suspend () -> String
     ): List<T> {
         return try {
-            val json = withContext(Dispatchers.Default) { fetchNetwork() }
+            val json = withContext(Dispatchers.IO) { fetchNetwork() }
             val parsed = withContext(Dispatchers.Default) { parse(json) }
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
             prefs.edit().putLong(tsKey, System.currentTimeMillis()).apply()
@@ -191,10 +195,12 @@ class ServersV2Repository(
         }
     }
 
-    private suspend fun fetchAllPages(countryCode: String, @Suppress("UNUSED_PARAMETER") serverCount: Int): List<ServerV2> {
+    private suspend fun fetchAllPages(countryCode: String, serverCount: Int): List<ServerV2> {
         val result = mutableListOf<ServerV2>()
         var skip = 0
         var rawFetched = 0
+        var pagesFetched = 0
+        val serverCountBound = serverCount.coerceAtLeast(0)
         while (true) {
             val page = api.getServers(
                 countryCode = countryCode,
@@ -202,17 +208,30 @@ class ServersV2Repository(
                 skip = skip,
                 take = PAGE_SIZE
             )
+            pagesFetched += 1
             // The v2 API returns {"items":[...], "total":N}.
             // Use raw page count (before configData filtering) for the partial-page exit
             // so a full page that happens to contain blank entries does not stop pagination early.
             // If the API supplies a reliable total, also stop when all items have been fetched.
+            // When total is missing/zero, use serverCount fallback to prevent unbounded pagination.
             val items = page.items
                 ?: throw IOException("fetchAllPages[$countryCode]: missing 'items' in response")
             val rawPageSize = items.size
             rawFetched += rawPageSize
             // Filter blank configData before accumulating so the cache stays clean.
             result += items.filter { it.configData.isNotBlank() }
-            if (rawPageSize < PAGE_SIZE || (page.total > 0 && rawFetched >= page.total)) break
+            val reachedApiTotal = page.total > 0 && rawFetched >= page.total
+            val reachedServerCountFallback = page.total <= 0 && serverCountBound > 0 && rawFetched >= serverCountBound
+            val reachedSafetyLimit = pagesFetched >= MAX_PAGES_SAFETY_LIMIT
+            if (rawPageSize < PAGE_SIZE || reachedApiTotal || reachedServerCountFallback || reachedSafetyLimit) {
+                if (reachedSafetyLimit) {
+                    AppLog.w(
+                        TAG,
+                        "fetchAllPages[$countryCode]: stopped by safety page limit ($MAX_PAGES_SAFETY_LIMIT)"
+                    )
+                }
+                break
+            }
             skip += PAGE_SIZE
         }
         AppLog.d(TAG, "fetchAllPages[$countryCode]: fetched ${result.size} servers (raw=$rawFetched)")
