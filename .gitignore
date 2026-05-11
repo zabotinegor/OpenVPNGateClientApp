@@ -54,7 +54,6 @@ README.local.md
 # Exact paths only - no broad patterns; agent-sync files are never hidden
 /.github/AGENTS-REGISTRY.md
 /.github/FRONTMATTER-SCHEMA.md
-/.github/agents/bug-fixer.agent.md
 /.github/agents/code-review.agent.md
 /.github/agents/developer-workflow.agent.md
 /.github/agents/docs-maintainer.agent.md
@@ -68,7 +67,6 @@ README.local.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/validate-agent-skill-definitions.ps1
-/.github/skills/bug-fixer/SKILL.md
 /.github/skills/code-review/SKILL.md
 /.github/skills/code-review/references/review-checklist-android.md
 /.github/skills/code-review/references/review-checklist-aspnet.md
@@ -95,6 +93,12 @@ README.local.md
 *.lnk
 artifacts
 
+
+
+
+
+
+
 # BEGIN synced-copilot-assets
 /.github/agents/code-implementator.agent.md
 /.github/agents/code-review.agent.md
@@ -110,6 +114,7 @@ artifacts
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
+/.github/scripts/invoke-long-operation.ps1
 /.github/scripts/update-sdlc-status.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
 /.github/skills/code-implementator/SKILL.md
@@ -119,6 +124,7 @@ artifacts
 /.github/skills/code-review/references/review-checklist-react-ts.md
 /.github/skills/code-review/SKILL.md
 /.github/skills/developer-flow-new/SKILL.md
+/.github/skills/developer-workflow/SKILL.md
 /.github/skills/docs-maintenance/references/docs-report-template.md
 /.github/skills/docs-maintenance/references/documentation-sync-checklist.md
 /.github/skills/docs-maintenance/SKILL.md
@@ -138,3 +144,15 @@ artifacts
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 /.github/skills/user-story-spec/SKILL.md
 # END synced-copilot-assets
+
+# BEGIN transient-copilot-artifacts
+*_HANDOFF*.md
+*_PROMPT*.md
+*_PROMT*.md
+CODE_REVIEW_HANDOFF_*.md
+/.sdlc/status.json
+**/.sdlc/status.json
+/.sdlc/operations/
+/.sdlc/operations/**
+**/.sdlc/operations/**
+# END transient-copilot-artifacts

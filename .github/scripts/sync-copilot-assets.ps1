@@ -4,7 +4,8 @@ param(
     [string]$TargetRoot = (Get-Location).Path,
     [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts'),
     [string[]]$PreservePattern = @('agent-sync', 'sync-copilot-assets'),
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$AllowRootMdSync
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,6 +119,110 @@ function Set-ExactGitignoreEntries {
     return $entries.Count
 }
 
+function Set-TransientCopilotArtifactGitignoreEntries {
+    param([string]$Root)
+
+    $gitignorePath = Join-Path $Root '.gitignore'
+    $beginMarker = '# BEGIN transient-copilot-artifacts'
+    $endMarker = '# END transient-copilot-artifacts'
+    $entries = @(
+        '*_HANDOFF*.md',
+        '*_PROMPT*.md',
+        '*_PROMT*.md',
+        'CODE_REVIEW_HANDOFF_*.md',
+        '/.sdlc/status.json',
+        '**/.sdlc/status.json',
+        '/.sdlc/operations/',
+        '/.sdlc/operations/**',
+        '**/.sdlc/operations/**'
+    )
+
+    $existing = @()
+    if (Test-Path -LiteralPath $gitignorePath) {
+        $existing = @(Get-Content -LiteralPath $gitignorePath)
+    }
+
+    $next = New-Object System.Collections.Generic.List[string]
+    $insideManagedBlock = $false
+    foreach ($line in $existing) {
+        if ($line -eq $beginMarker) {
+            $insideManagedBlock = $true
+            continue
+        }
+
+        if ($insideManagedBlock) {
+            if ($line -eq $endMarker) {
+                $insideManagedBlock = $false
+            }
+            continue
+        }
+
+        $next.Add($line)
+    }
+
+    if (-not $DryRun) {
+        while ($next.Count -gt 0 -and $next[$next.Count - 1] -eq '') {
+            $next.RemoveAt($next.Count - 1)
+        }
+
+        $next.Add('')
+        $next.Add($beginMarker)
+        foreach ($entry in $entries) {
+            $next.Add($entry)
+        }
+        $next.Add($endMarker)
+
+        Set-Content -LiteralPath $gitignorePath -Value $next
+    }
+
+    return $entries.Count
+}
+
+function Get-ForbiddenCopilotArtifacts {
+    param([string]$Root)
+
+    $patterns = @(
+        '*_HANDOFF*.md',
+        '*_PROMPT*.md',
+        '*_PROMT*.md',
+        'CODE_REVIEW_HANDOFF_*.md'
+    )
+
+    $files = New-Object System.Collections.Generic.List[string]
+    foreach ($pattern in $patterns) {
+        Get-ChildItem -LiteralPath $Root -File -Recurse -Filter $pattern -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.FullName -notmatch '\\\.git\\' -and $_.FullName -notmatch '\\node_modules\\'
+            } |
+            ForEach-Object {
+                $relative = Get-RelativePath -Root $Root -Path $_.FullName
+                $files.Add((Convert-ToRepoRelativePath -Path $relative))
+            }
+    }
+
+    return @($files | Sort-Object -Unique)
+}
+
+function Get-NestedSdlcStatusFiles {
+    param([string]$Root)
+
+    $rootStatus = [System.IO.Path]::GetFullPath((Join-Path $Root '.sdlc/status.json'))
+    $files = New-Object System.Collections.Generic.List[string]
+    Get-ChildItem -LiteralPath $Root -File -Recurse -Filter 'status.json' -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.FullName -notmatch '\\\.git\\' -and
+            $_.FullName -notmatch '\\node_modules\\' -and
+            ($_.FullName -replace '/', '\') -match '\\\.sdlc\\status\.json$' -and
+            ([System.IO.Path]::GetFullPath($_.FullName) -ne $rootStatus)
+        } |
+        ForEach-Object {
+            $relative = Get-RelativePath -Root $Root -Path $_.FullName
+            $files.Add((Convert-ToRepoRelativePath -Path $relative))
+        }
+
+    return @($files | Sort-Object -Unique)
+}
+
 $targetRootResolved = (Resolve-Path -LiteralPath $TargetRoot).Path
 $normalizedScope = @(
     $Scope |
@@ -125,6 +230,25 @@ $normalizedScope = @(
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
         ForEach-Object { Convert-ToRepoRelativePath -Path $_.Trim() }
 )
+$protectedRootMdPaths = @(
+    'AGENTS.md',
+    'README.md',
+    'AGENTS.local.md',
+    'README.local.md'
+)
+
+$requestedProtectedRootMd = @(
+    $normalizedScope |
+        Where-Object {
+            $scopePath = $_
+            @($protectedRootMdPaths | Where-Object { $_ -ieq $scopePath }).Count -gt 0
+        }
+)
+
+if ($requestedProtectedRootMd.Count -gt 0 -and -not $AllowRootMdSync) {
+    $blocked = ($requestedProtectedRootMd | Sort-Object -Unique) -join ', '
+    throw "Sync scope contains protected root markdown path(s): $blocked. Root markdown sync is blocked by default. Re-run with -AllowRootMdSync only when explicitly approved."
+}
 
 $remoteRef = "refs/heads/$SourceRef"
 $lsRemote = git ls-remote $SourceRepo $remoteRef
@@ -152,6 +276,10 @@ try {
     $deleted = New-Object System.Collections.Generic.List[string]
 
     foreach ($relativePath in ($sourceFiles.Keys | Sort-Object)) {
+        if (-not $AllowRootMdSync -and @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0) {
+            throw "Protected root markdown path '$relativePath' cannot be synced without -AllowRootMdSync."
+        }
+
         $sourcePath = $sourceFiles[$relativePath]
         $targetPath = Join-Path $targetRootResolved $relativePath
         $targetDirectory = Split-Path -Parent $targetPath
@@ -176,6 +304,10 @@ try {
     }
 
     foreach ($relativePath in ($targetFiles.Keys | Sort-Object)) {
+        if (-not $AllowRootMdSync -and @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0) {
+            continue
+        }
+
         if ($sourceFiles.ContainsKey($relativePath)) {
             continue
         }
@@ -195,6 +327,10 @@ try {
         -Root $targetRootResolved `
         -RelativePaths @($sourceFiles.Keys) `
         -ExcludePattern $PreservePattern
+
+    $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
+    $forbiddenArtifacts = Get-ForbiddenCopilotArtifacts -Root $targetRootResolved
+    $nestedSdlcStatusFiles = Get-NestedSdlcStatusFiles -Root $targetRootResolved
 
     $mismatches = New-Object System.Collections.Generic.List[string]
     if (-not $DryRun) {
@@ -227,6 +363,9 @@ try {
         changed = @($changed)
         deleted = @($deleted)
         gitignoreExactEntryCount = $gitignoreEntryCount
+        transientGitignoreEntryCount = $transientGitignoreEntryCount
+        forbiddenArtifacts = @($forbiddenArtifacts)
+        nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
         verification = if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' }
         mismatches = @($mismatches)
     }
