@@ -64,4 +64,4 @@
 - 2026-05-12 17:56 UTC: All evidence compiled; final verdict: PASSED
 
 ## Final Summary
-All AC-1 through AC-6 acceptance criteria **PASSED**. Unit tests freshly validated (389/389). Profile timing evidence confirms 98.5% rebuild speedup from cache. SWIG task `generateOpenVPN3SwigfullDebug` observed FROM-CACHE. Configuration validated without errors or secrets. Release build confirmed by gate evidence. Install smoke not executed (no device available in QA environment).
+AC-1 through AC-5 acceptance criteria **PASSED**. AC-6.1 (release build success) **PASSED** via gate evidence. AC-6.2 (release install/launch smoke) **NOT TESTED** due to missing ADB device in QA environment. AC-6.3 (unit tests) **PASSED** (389/389). Profile timing evidence confirms 98.5% rebuild speedup from cache. SWIG task `generateOpenVPN3SwigfullDebug` observed FROM-CACHE. Configuration validated without errors or secrets.

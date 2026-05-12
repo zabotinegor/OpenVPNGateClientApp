@@ -78,7 +78,7 @@
   - Key test: CoreDiTest passed (module wiring verified)
 
 ### Defects and Issues
-- [x] us-05-defects.json — **NOT CREATED** (no blocking defects found)
+- [ ] us-05-defects.json — **NOT CREATED** (no blocking defects found)
   - No AC failures detected
   - Install smoke not tested (device blocker) is noted as partial limitation only; does not constitute AC defect
 

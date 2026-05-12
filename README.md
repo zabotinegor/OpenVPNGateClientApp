@@ -129,18 +129,7 @@ Default Gradle tuning in src/gradle.properties now enables faster local and CI i
 
 OpenVPN engine SWIG generation tasks in src/external/OpenVPNEngine/main/build.gradle.kts are cache-eligible with explicit inputs and outputs, so unchanged code generation can be restored from cache.
 
-Validation evidence for this optimization is tracked in:
-- tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md
-
-Observed results from the documented validation run:
-- Cold profiled build baseline: 50m15.06s
-- Cached rebuild: 46.360s
-- Measured speedup: 98.5%
-- Unit tests: 389/389 passed
-- Release assembly: successful
-
-Limitation:
-- Release install and launch smoke was not executed in Manual QA due to missing ADB device; release assembly success was confirmed.
+For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
 ## Manual E2E Documentation
 - Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md)
 - Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
