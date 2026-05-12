@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class ServersV2RepositoryTest {
@@ -228,6 +229,29 @@ class ServersV2RepositoryTest {
         val deCacheFile = File(context.cacheDir, "v2_servers_de.json")
         assertTrue(jpCacheFile.exists())
         assertTrue(deCacheFile.exists())
+    }
+
+    @Test
+    fun getServersForCountry_normalizes_cache_keys_with_locale_root() = runBlocking {
+        val previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+        try {
+            val api = FakeServersV2Api(serversJson = buildServersJson("IQ", 1))
+            val repo = ServersV2Repository(api)
+
+            repo.getServersForCountry(context, "IQ", 1, forceRefresh = true)
+
+            val normalizedCacheFile = File(context.cacheDir, "v2_servers_iq.json")
+            val localeSensitiveCacheFile = File(context.cacheDir, "v2_servers_ıq.json")
+            assertTrue(normalizedCacheFile.exists())
+            assertEquals(false, localeSensitiveCacheFile.exists())
+
+            val ts = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .getLong("ts_servers_iq", -1L)
+            assertTrue(ts > 0L)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 
     // UT-2.10 — expired server cache triggers new request

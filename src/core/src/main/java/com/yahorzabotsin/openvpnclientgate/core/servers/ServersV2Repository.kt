@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -40,8 +41,11 @@ class ServersV2Repository(
         private const val PAGE_SIZE = 50
         private const val MAX_PAGES_SAFETY_LIMIT = 200
 
+        private fun normalizeCountryCode(countryCode: String): String =
+            countryCode.lowercase(Locale.ROOT)
+
         private fun serversCacheFile(ctx: Context, countryCode: String): File =
-            File(ctx.cacheDir, "$SERVERS_CACHE_FILE_PREFIX${countryCode.lowercase()}$SERVERS_CACHE_FILE_SUFFIX")
+            File(ctx.cacheDir, "$SERVERS_CACHE_FILE_PREFIX${normalizeCountryCode(countryCode)}$SERVERS_CACHE_FILE_SUFFIX")
 
         private fun countriesCacheFile(ctx: Context): File =
             File(ctx.cacheDir, COUNTRIES_CACHE_FILE)
@@ -97,10 +101,11 @@ class ServersV2Repository(
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     ): List<ServerV2> {
-        val mutex = serversMutexMap.computeIfAbsent(countryCode.lowercase()) { Mutex() }
+        val normalizedCountryCode = normalizeCountryCode(countryCode)
+        val mutex = serversMutexMap.computeIfAbsent(normalizedCountryCode) { Mutex() }
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-            val cacheKey = "ts_servers_${countryCode.lowercase()}"
+            val cacheKey = "ts_servers_${normalizedCountryCode}"
             AppLog.d(TAG, "getServersForCountry[$countryCode]: serverCount=$serverCount")
             fetchWithCache(
                 cacheFile = serversCacheFile(context, countryCode),
