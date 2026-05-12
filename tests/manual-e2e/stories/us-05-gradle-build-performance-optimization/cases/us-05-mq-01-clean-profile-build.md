@@ -36,7 +36,7 @@
 ## Acceptance Criteria
 - **AC-5.1**: Profile build completes and generates report ✓
 - **AC-5.2**: Report contains actionable metrics ✓
-- **AC-6.3**: APK assembly succeeds ✓
+- **AC-6.2**: APK assembly succeeds ✓
 
 ## Expected Evidence Output
 ```

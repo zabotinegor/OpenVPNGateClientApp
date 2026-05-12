@@ -33,8 +33,8 @@
    - Expected: >60% of tasks from cache in second run
 
 ## Acceptance Criteria
-- **AC-2.2**: Cache improves repeated build performance ✓
-- **AC-5.3**: Second build shows cache improvement over profile baseline ✓
+- **AC-5.3**: Second build shows cache improvement over profile baseline (speedup > 30%) ✓
+- **AC-2.2**: Cache is configured for local use and improves repeated build performance ✓
 
 ## Expected Evidence Output
 ```

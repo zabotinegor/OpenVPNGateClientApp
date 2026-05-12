@@ -118,12 +118,15 @@ cd src
 ```
 
 
-### Build performance defaults (US-05)
-Default Gradle tuning in src/gradle.properties now enables faster local and CI iteration for app builds:
-
-- org.gradle.parallel=true
 ### Build performance
 The project is configured for optimized build performance in `src/gradle.properties`. These settings enable parallel execution, build caching, and increased heap memory to reduce iteration times. Additionally, the OpenVPN engine SWIG generation tasks are configured to be cache-eligible, allowing unchanged code generation to be restored from the local build cache.
+
+**Default Gradle properties** (US-05 optimization):
+- `org.gradle.parallel=true` — Enable parallel module execution
+- `org.gradle.jvmargs=-Xmx4096m` — Increase JVM heap to 4 GB
+- `org.gradle.workers.max=8` — Cap worker threads
+- `org.gradle.caching=true` — Enable local build cache
+- `org.gradle.configureondemand=true` — Configure only required modules
 
 For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
 ## Manual E2E Documentation

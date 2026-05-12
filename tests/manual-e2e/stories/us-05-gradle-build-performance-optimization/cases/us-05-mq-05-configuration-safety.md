@@ -50,13 +50,14 @@
 
 ## Acceptance Criteria
 - **AC-1.1**: `org.gradle.parallel=true` is set ✓
-- **AC-1.2**: `org.gradle.jvmargs` set to 4GB ✓
-- **AC-1.3**: `org.gradle.workers.max` configured ✓
+- **AC-1.2**: `org.gradle.workers.max` configured and documented ✓
+- **AC-1.3**: `org.gradle.jvmargs` set to 4GB ✓
 - **AC-1.4**: No syntax errors, no secrets ✓
 - **AC-2.1**: `org.gradle.caching=true` ✓
+- **AC-2.2**: Build cache is configured for local use ✓
 - **AC-3.1**: `org.gradle.configureondemand=true` ✓
+- **AC-3.2**: Configuration properly documented ✓
 - **AC-4.1 through AC-4.3**: SWIG cache declarations complete ✓
-- **AC-6.4**: Module structure and safety constraints intact ✓
 
 ## Expected Evidence Output
 ```

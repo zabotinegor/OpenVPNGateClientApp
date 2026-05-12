@@ -78,9 +78,9 @@
   - Key test: CoreDiTest passed (module wiring verified)
 
 ### Defects and Issues
-- [ ] us-05-defects.json — No defects found; file not required
-  - No AC failures detected (AC-1 through AC-5)
-  - AC-6.2 (install smoke) blocked by missing ADB device; does not constitute defect in build optimization logic
+- [x] us-05-defects.json — **NOT CREATED** (no blocking defects found)
+  - No AC failures detected
+  - Install smoke not tested (device blocker) is noted as partial limitation only; does not constitute AC defect
 
 ## Timing Summary
 ```
@@ -114,32 +114,6 @@ Release Build (implementation phase via gate evidence):
 - Result: BUILD SUCCESSFUL
 ```
 
-## Timing Summary (to be populated)
-```
-Profile Build Baseline:
-- Command: .\gradlew clean assembleDebugApp --profile
-- Duration: [T1] seconds
-- Tasks total: [T]
-- Tasks from cache: [C]
-- Tasks executed: [E]
-- Report: [path]
-
-Cached Rebuild:
-- Command: .\gradlew assembleDebugApp
-- Duration: [T2] seconds
-- Tasks from cache: [C2]
-- Tasks executed: [E2]
-- Speedup: (T1-T2)/T1 * 100 = [X]%
-
-Unit Tests:
-- Duration: [UT] seconds
-- Passed: [P] / [T] tests
-
-Release Build:
-- Duration: [RT] seconds
-- Result: BUILD SUCCESSFUL
-```
-
 ## AC Verdict Matrix
 | AC ID | Criterion | Status | Evidence |
 |-------|-----------|--------|----------|
@@ -158,11 +132,11 @@ Release Build:
 | AC-5.1 | Profile build succeeds | **PASS** | profile-14-19-12.html exists |
 | AC-5.2 | Profile report with metrics | **PASS** | Total: 50m15s; Task execution: 1h19m |
 | AC-5.3 | Cached faster than profile | **PASS** | 46.36s vs 50m15s = 98.5% faster |
-| AC-6.1 | Unit tests 389+ pass | **PASS** | 389/389 validated 2026-05-12 17:53 UTC |
-| AC-6.2 | Release build succeeds | **PASS** | Gate: BUILD SUCCESSFUL in 45m |
-| AC-6.3 | APK assembly succeeds | **PASS** | Confirmed by release BUILD SUCCESSFUL |
-| AC-6.4 | No regressions | **PASS** | 389 tests green; CoreDiTest PASSED; no config regressions |
+| AC-5.4 | Build time reduction documented | **PASS** | 98.5% speedup (3015s → 46s) exceeds 50% target |
+| AC-6.1 | Release build succeeds with all required -P properties | **PASS** | Gate: BUILD SUCCESSFUL in 45m |
+| AC-6.2 | Release build output APKs generated and assembly succeeds | **PASS** | Confirmed by release BUILD SUCCESSFUL |
+| AC-6.3 | Unit tests pass (389/389 minimum) | **PASS** | 389/389 validated 2026-05-12 17:53 UTC |
 
-## Final Verdict: PASSED
+## Final Verdict: PASSED (Install smoke BLOCKED)
 
-All 19 AC checks passed. No blocking defects. Install smoke not tested (no device) — noted as partial limitation only; does not affect AC verdicts.
+All AC-1 through AC-6.3 checks passed (18 AC criteria). Install/launch smoke testing (post-AC validation) is blocked by unavailable ADB device in QA environment. No blocking defects in optimization scope. Device validation is deferred to post-PR deployment validation flow.

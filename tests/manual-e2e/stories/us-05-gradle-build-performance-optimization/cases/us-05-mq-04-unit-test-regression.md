@@ -25,7 +25,7 @@
    - No new test failures
 
 ## Acceptance Criteria
-- **AC-6.1**: Unit tests pass (389/389 minimum) ✓
+- **AC-6.3**: Unit tests pass (389/389 minimum) ✓
 
 ## Expected Evidence Output
 ```

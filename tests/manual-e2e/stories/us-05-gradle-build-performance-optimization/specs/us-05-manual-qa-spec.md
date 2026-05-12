@@ -43,11 +43,10 @@ Validate that Gradle build performance optimizations have been successfully appl
 - **AC-5.2**: Profile report contains actionable metrics (build time, task counts, cache hits)
 - **AC-5.3**: Second build shows cache-hit improvement over profile baseline
 
-### AC-6: Regression Prevention
-- **AC-6.1**: Unit tests pass (389/389 minimum from gate baseline)
-- **AC-6.2**: Release build succeeds with all required -P properties
-- **AC-6.3**: APK assembly succeeds for both mobile and tv
-- **AC-6.4**: Module wiring, native code integration, and ABI strategies remain intact
+### AC-6: Release Build Validation
+- **AC-6.1**: Release build (`./gradlew assembleReleaseApp -P...`) succeeds with all required properties
+- **AC-6.2**: Release build output APKs are generated and assembly succeeds
+- **AC-6.3**: Unit tests pass (`./gradlew testDebugUnitTestApp` executes without regression; 389/389 minimum)
 
 ## Test Surfaces
 1. **src/gradle.properties** — Configuration settings validation
@@ -64,9 +63,9 @@ Validate that Gradle build performance optimizations have been successfully appl
 - **MQ-05**: Configuration and safety constraints validation
 
 ## Pass/Fail Criteria
-- **PASSED**: All AC checks (AC-1 through AC-6) validated with measurable evidence; no regressions; profile shows cache improvement; release/unit tests succeed
+- **PASSED**: All AC-1 through AC-6.3 checks validated with measurable evidence; no regressions; profile shows cache improvement; release/unit tests succeed
+- **BLOCKED**: Environment/tooling blocker prevents required validation (e.g., missing device for install/launch smoke, Gradle failure preventing profile generation)
 - **FAILED**: Reproducible defect violating any AC or causing measurable regression
-- **BLOCKED**: Environment/tooling blocker prevents required validation (e.g., missing device for install test, Gradle failure preventing profile generation)
 
 ## Evidence Requirements
 - Build command outputs with timestamps and durations

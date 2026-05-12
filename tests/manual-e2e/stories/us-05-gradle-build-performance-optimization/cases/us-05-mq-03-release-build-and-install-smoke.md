@@ -40,9 +40,9 @@
    - Expected: App launches without immediate crashes
 
 ## Acceptance Criteria
-- **AC-6.2**: Release build succeeds with all required -P properties ✓
-- **AC-6.3**: APK assembly succeeds ✓
-- **AC-6.4**: Module wiring and integration remain intact ✓
+- **AC-6.1**: Release build succeeds with all required -P properties ✓
+- **AC-6.2**: APK assembly succeeds ✓
+- **AC-6.3**: Unit tests pass (no regressions) ✓
 
 ## Expected Evidence Output
 ```
