@@ -240,9 +240,22 @@ class ServersV2Repository(
 
     /** Clears the countries cache (timestamp only; file left until overwritten). */
     fun clearCountriesCache(context: Context) {
+        countriesCacheFile(context).delete()
         context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE).edit()
             .remove(KEY_COUNTRIES_TS)
             .apply()
+    }
+
+    /** Clears all per-country server caches (timestamps and files). */
+    fun clearAllServersCaches(context: Context) {
+        context.cacheDir.listFiles()?.filter {
+            it.name.startsWith(SERVERS_CACHE_FILE_PREFIX) && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
+        }?.forEach { it.delete() }
+        val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+        val keysToRemove = prefs.all.keys.filter { it.startsWith("ts_servers_") }
+        prefs.edit().apply {
+            keysToRemove.forEach { remove(it) }
+        }.apply()
     }
 
 }

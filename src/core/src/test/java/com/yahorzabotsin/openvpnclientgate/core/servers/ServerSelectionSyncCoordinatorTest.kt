@@ -223,6 +223,8 @@ class ServerSelectionSyncCoordinatorTest {
             forceRefresh: Boolean,
             cacheOnly: Boolean
         ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 
     private class TrackingV2SyncCoordinator : ServersV2SyncCoordinator {
@@ -251,6 +253,8 @@ class ServerSelectionSyncCoordinatorTest {
             lastSelectedCountryForceRefresh = forceRefresh
             lastSelectedCountryCacheOnly = cacheOnly
         }
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 
     private class ThrowingSelectedCountryV2SyncCoordinator : ServersV2SyncCoordinator {
@@ -267,6 +271,8 @@ class ServerSelectionSyncCoordinatorTest {
         ) {
             throw RuntimeException("simulated sync failure")
         }
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 
     private class FixedApi(private val body: String) : VpnServersApi {

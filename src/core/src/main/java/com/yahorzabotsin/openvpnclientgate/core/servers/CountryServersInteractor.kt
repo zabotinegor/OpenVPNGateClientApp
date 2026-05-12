@@ -44,11 +44,16 @@ class DefaultCountryServersInteractor(
             ?: throw IOException("ServersV2Repository not injected for v2 source")
 
         // Find the countryCode from the cached country list to get serverCount for pagination.
-        // If the cache is absent (splash sync failed, app data cleared), honor the caller's
-        // cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
+        // Prefer code lookup for stability: if a country label changes (backend rename/localization),
+        // the code-based path avoids failure. If the cache is absent (splash sync failed, app data cleared),
+        // honor the caller's cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
         val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
-        val countryV2 = countries.firstOrNull { it.name == countryName }
-            ?: throw IOException("Country '$countryName' not found in cache. Cannot resolve country code.")
+        val selectedCountryCode = SelectedCountryStore.currentServer(appContext)?.countryCode
+            ?: SelectedCountryStore.getServers(appContext).firstOrNull()?.countryCode
+        val countryV2 = selectedCountryCode?.let { code ->
+            countries.firstOrNull { it.code.equals(code, ignoreCase = true) }
+        } ?: countries.firstOrNull { it.name.equals(countryName, ignoreCase = true) }
+            ?: throw IOException("Country '$countryName' (code=${selectedCountryCode ?: "<unknown>"}) not found in cache.")
         val countryCode = countryV2.code
         val serverCount = countryV2.serverCount
 

@@ -30,6 +30,9 @@ class DefaultServerSelectionSyncCoordinator(
     ): List<Server> {
         val source = UserSettingsStore.load(appContext).serverSource
         if (source == ServerSource.DEFAULT_V2) {
+            if (clearCacheBeforeRefresh) {
+                serversV2SyncCoordinator.clearCaches(appContext)
+            }
             serversV2SyncCoordinator.syncCountries(
                 context = appContext,
                 forceRefresh = forceRefresh || clearCacheBeforeRefresh,

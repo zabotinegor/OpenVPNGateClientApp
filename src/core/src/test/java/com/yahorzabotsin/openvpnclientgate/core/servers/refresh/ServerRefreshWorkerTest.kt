@@ -186,6 +186,8 @@ class ServerRefreshWorkerTest {
             forceRefresh: Boolean,
             cacheOnly: Boolean
         ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 
     private fun createWorker(inputData: Data = Data.EMPTY): ServerRefreshWorker {

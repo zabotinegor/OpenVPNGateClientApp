@@ -271,10 +271,10 @@ object ServerAutoSwitcher {
                                 cancel(resetCycle = false)
                                 val firstServer = try { SelectedCountryStore.currentServer(appContext) } catch (_: Exception) { null }
                                 val hydrationTitle = SelectedCountryStore.getSelectedCountry(appContext)
-                                if (firstServer != null) {
-                                    beginChainedSwitch(appContext, firstServer.config ?: "", hydrationTitle)
+                                if (firstServer != null && !firstServer.config.isNullOrBlank()) {
+                                    beginChainedSwitch(appContext, firstServer.config!!, hydrationTitle)
                                 } else {
-                                    AppLog.w(TAG, "DEFAULT_V2: hydration complete but no current server after reset, stopping engine")
+                                    AppLog.w(TAG, "DEFAULT_V2: hydration complete but server config is blank after reset, stopping engine")
                                     cancel(resetCycle = true)
                                     try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset reconnecting hint after hydration no-server", e) }
                                     try { ConnectionStateManager.updateState(ConnectionState.DISCONNECTED) } catch (e: Exception) { AppLog.w(TAG, "Failed to reset state after hydration no-server", e) }

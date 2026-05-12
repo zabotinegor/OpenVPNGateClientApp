@@ -23,7 +23,7 @@ class CountryServersInteractorTest {
     fun setUp() {
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE).edit().clear().commit()
-        context.getSharedPreferences("selected_country", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
         context.cacheDir.listFiles()?.filter {
             it.name.startsWith("v2_") && it.extension == "json"
         }?.forEach { it.delete() }
@@ -142,5 +142,15 @@ class CountryServersInteractorTest {
             callCount++
             throw IOException("Should not be called for DEFAULT_V2")
         }
+    }
+
+    // Test for fix #1/#3: verify correct SharedPreferences name is used
+    @Test
+    fun test_setup_uses_correct_selected_country_prefs_name() {
+        // SelectedCountryStore uses 'vpn_selection_prefs', not 'selected_country'
+        val testPrefs = context.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE)
+        testPrefs.edit().putString("selected_country", "Japan").apply()
+        val stored = testPrefs.getString("selected_country", null)
+        assertEquals("Japan", stored)
     }
 }

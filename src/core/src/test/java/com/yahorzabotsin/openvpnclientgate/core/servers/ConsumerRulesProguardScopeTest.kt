@@ -29,7 +29,9 @@ class ConsumerRulesProguardScopeTest {
             File("consumer-rules.pro"),
             File("src/core/consumer-rules.pro"),
             File(userDir, "consumer-rules.pro"),
-            File(userDir, "src/core/consumer-rules.pro")
+            File(userDir, "src/core/consumer-rules.pro"),
+            File(userDir, "core/consumer-rules.pro"),
+            File(userDir, "../core/consumer-rules.pro")
         )
 
         return candidates.firstOrNull { it.isFile }

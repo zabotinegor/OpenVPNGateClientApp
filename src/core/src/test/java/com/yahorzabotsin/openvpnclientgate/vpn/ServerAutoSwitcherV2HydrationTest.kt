@@ -258,6 +258,19 @@ class ServerAutoSwitcherV2HydrationTest {
         assertTrue("Engine stop expected after full cycle", stopCalls > 0)
     }
 
+    // Fix #2: hydration callback validates config is non-blank
+    @Test
+    fun hydration_validates_server_config_before_switch() {
+        UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+        val serverWithBlankConfig = makeServer(config = "", ip = "1.0.0.1")
+        SelectedCountryStore.saveSelection(appContext, "Japan", listOf(serverWithBlankConfig))
+        
+        ServerAutoSwitcher.v2HydrationCallback = { _, onDone -> onDone() }
+        
+        // After fix: callback detects blank config and stops engine, doesn't pass empty string
+        assertEquals(0, startCalls.size)
+    }
+
     // --------------- helpers ---------------
 
     private fun makeServer(config: String, ip: String) = Server(

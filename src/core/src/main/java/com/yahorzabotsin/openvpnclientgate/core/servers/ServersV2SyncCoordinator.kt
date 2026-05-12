@@ -30,6 +30,9 @@ interface ServersV2SyncCoordinator {
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     )
+
+    /** Clears all v2 cache files and timestamps. */
+    suspend fun clearCaches(context: Context)
 }
 
 class DefaultServersV2SyncCoordinator(
@@ -37,6 +40,11 @@ class DefaultServersV2SyncCoordinator(
 ) : ServersV2SyncCoordinator {
 
     private val tag = LogTags.APP + ":ServersV2SyncCoordinator"
+
+    override suspend fun clearCaches(context: Context) {
+        serversV2Repository.clearCountriesCache(context)
+        serversV2Repository.clearAllServersCaches(context)
+    }
 
     override suspend fun syncCountries(
         context: Context,

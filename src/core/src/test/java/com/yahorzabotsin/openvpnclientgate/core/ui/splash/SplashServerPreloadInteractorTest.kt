@@ -91,5 +91,7 @@ class SplashServerPreloadInteractorTest {
             forceRefresh: Boolean,
             cacheOnly: Boolean
         ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 }
