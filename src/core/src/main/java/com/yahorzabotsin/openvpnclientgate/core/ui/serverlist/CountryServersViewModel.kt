@@ -49,10 +49,10 @@ class CountryServersViewModel(
             countryCode = countryCode
         )
 
-        loadServers(countryName)
+        loadServers(countryName, countryCode)
     }
 
-    private fun loadServers(countryName: String) {
+    private fun loadServers(countryName: String, countryCode: String?) {
         if (_state.value.isLoading) return
         viewModelScope.launch {
             updateState { it.copy(isLoading = true) }
@@ -62,6 +62,7 @@ class CountryServersViewModel(
                 logInfo("Loading country servers. country=$countryName, vpn_connected=$vpnConnected, cache_only=$cacheOnly")
                 val loaded = interactor.getServersForCountry(
                     countryName = countryName,
+                    countryCode = countryCode,
                     cacheOnly = cacheOnly
                 )
                 if (loaded.isEmpty()) {

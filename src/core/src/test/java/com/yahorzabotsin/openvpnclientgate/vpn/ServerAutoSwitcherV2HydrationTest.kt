@@ -262,13 +262,23 @@ class ServerAutoSwitcherV2HydrationTest {
     @Test
     fun hydration_validates_server_config_before_switch() {
         UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+        appContext.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+
         val serverWithBlankConfig = makeServer(config = "", ip = "1.0.0.1")
-        SelectedCountryStore.saveSelection(appContext, "Japan", listOf(serverWithBlankConfig))
-        
-        ServerAutoSwitcher.v2HydrationCallback = { _, onDone -> onDone() }
-        
-        // After fix: callback detects blank config and stops engine, doesn't pass empty string
+        ServerAutoSwitcher.v2HydrationCallback = { _, onDone ->
+            SelectedCountryStore.saveSelection(appContext, "Japan", listOf(serverWithBlankConfig))
+            SelectedCountryStore.resetIndex(appContext)
+            onDone()
+        }
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        // After fix: callback detects blank config and stops engine, does not start next VPN.
         assertEquals(0, startCalls.size)
+        assertTrue("Engine stop expected when hydrated server config is blank", stopCalls > 0)
     }
 
     // --------------- helpers ---------------

@@ -8,7 +8,11 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.io.IOException
 
 interface CountryServersInteractor {
-    suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server>
+    suspend fun getServersForCountry(
+        countryName: String,
+        countryCode: String? = null,
+        cacheOnly: Boolean
+    ): List<Server>
     suspend fun resolveSelection(
         countryName: String,
         countryCode: String?,
@@ -26,10 +30,14 @@ class DefaultCountryServersInteractor(
         private val TAG = LogTags.APP + ":CountryServersInteractor"
     }
 
-    override suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server> {
+    override suspend fun getServersForCountry(
+        countryName: String,
+        countryCode: String?,
+        cacheOnly: Boolean
+    ): List<Server> {
         val source = UserSettingsStore.load(appContext).serverSource
         if (source == ServerSource.DEFAULT_V2) {
-            return getServersForCountryV2(countryName, cacheOnly)
+            return getServersForCountryV2(countryName, countryCode, cacheOnly)
         }
         val allServers = serverRepository.getServers(
             context = appContext,
@@ -39,7 +47,11 @@ class DefaultCountryServersInteractor(
         return allServers.filter { it.country.name == countryName }
     }
 
-    private suspend fun getServersForCountryV2(countryName: String, cacheOnly: Boolean): List<Server> {
+    private suspend fun getServersForCountryV2(
+        countryName: String,
+        countryCode: String?,
+        cacheOnly: Boolean
+    ): List<Server> {
         val repo = serversV2Repository
             ?: throw IOException("ServersV2Repository not injected for v2 source")
 
@@ -48,12 +60,10 @@ class DefaultCountryServersInteractor(
         // the code-based path avoids failure. If the cache is absent (splash sync failed, app data cleared),
         // honor the caller's cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
         val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
-        val selectedCountryCode = SelectedCountryStore.currentServer(appContext)?.countryCode
-            ?: SelectedCountryStore.getServers(appContext).firstOrNull()?.countryCode
-        val countryV2 = selectedCountryCode?.let { code ->
+        val countryV2 = countryCode?.let { code ->
             countries.firstOrNull { it.code.equals(code, ignoreCase = true) }
         } ?: countries.firstOrNull { it.name.equals(countryName, ignoreCase = true) }
-            ?: throw IOException("Country '$countryName' (code=${selectedCountryCode ?: "<unknown>"}) not found in cache.")
+            ?: throw IOException("Country '$countryName' (code=${countryCode ?: "<unknown>"}) not found in cache.")
         val countryCode = countryV2.code
         val serverCount = countryV2.serverCount
 

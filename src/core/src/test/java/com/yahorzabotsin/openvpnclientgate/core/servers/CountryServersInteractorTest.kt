@@ -109,6 +109,47 @@ class CountryServersInteractorTest {
         interactor.getServersForCountry("United States", cacheOnly = false)
     }
 
+    @Test
+    fun getServersForCountry_v2_prefers_requested_countryCode_over_stored_selection() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[
+                {"code":"DE","name":"Germany","serverCount":1},
+                {"code":"JP","name":"Japan","serverCount":1}
+            ]""",
+            serversJson = buildServersJson("JP", 1)
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+
+        // Simulate previous selection in store; request must still use UI countryCode.
+        val previouslySelected = Server(
+            lineIndex = 0,
+            name = "de-server",
+            city = "",
+            country = Country("Germany", "DE"),
+            ping = 0,
+            signalStrength = SignalStrength.WEAK,
+            ip = "1.1.1.1",
+            score = 0,
+            speed = 0L,
+            numVpnSessions = 0,
+            uptime = 0L,
+            totalUsers = 0L,
+            totalTraffic = 0L,
+            logType = "",
+            operator = "",
+            message = "",
+            configData = "CFG"
+        )
+        SelectedCountryStore.saveSelection(context, "Germany", listOf(previouslySelected))
+
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+        interactor.getServersForCountry("Japan", countryCode = "JP", cacheOnly = false)
+
+        assertEquals("JP", api.lastRequestedCountryCode)
+    }
+
     // --------------- helpers ---------------
 
     private fun setSource(source: ServerSource) {
@@ -126,6 +167,8 @@ class CountryServersInteractorTest {
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}"
     ) : ServersV2Api {
+        var lastRequestedCountryCode: String? = null
+
         override suspend fun getCountries(): List<CountryV2> =
             Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         override suspend fun getServers(
@@ -133,7 +176,10 @@ class CountryServersInteractorTest {
             isActive: Boolean,
             skip: Int,
             take: Int
-        ): ServersPageResponse = Gson().fromJson(serversJson, ServersPageResponse::class.java)
+        ): ServersPageResponse {
+            lastRequestedCountryCode = countryCode
+            return Gson().fromJson(serversJson, ServersPageResponse::class.java)
+        }
     }
 
     private class FailingVpnServersApi : VpnServersApi {
