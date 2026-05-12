@@ -29,4 +29,4 @@ The app must use the DEFAULT_V2 source, load country list first, load servers on
 ## Evidence Policy
 - Capture screenshots for ME-3, ME-4, ME-8, ME-10, ME-11, ME-12.
 - Capture logcat after ME-4 to prove no `JSONException` from app code path.
-- Store artifacts under [../../../../artifacts/manual-qa](../../../../artifacts/manual-qa) with a date/story folder.
+- Store artifacts under [../../artifacts/manual-qa](../../artifacts/manual-qa) with a date/story folder.
