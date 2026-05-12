@@ -70,6 +70,7 @@ class CountryServersViewModelTest {
         advanceUntilIdle()
 
         assertEquals(false, interactor.lastCacheOnly)
+        assertEquals("FR", interactor.lastCountryCode)
         assertEquals(2, vm.state.value.servers.size)
         assertTrue(effects.first() is CountryServersEffect.FocusFirstItem)
         job.cancel()
@@ -188,9 +189,15 @@ class CountryServersViewModelTest {
         private val selectionError: Exception? = null
     ) : CountryServersInteractor {
         var lastCacheOnly: Boolean? = null
+        var lastCountryCode: String? = null
 
-        override suspend fun getServersForCountry(countryName: String, cacheOnly: Boolean): List<Server> {
+        override suspend fun getServersForCountry(
+            countryName: String,
+            countryCode: String?,
+            cacheOnly: Boolean
+        ): List<Server> {
             lastCacheOnly = cacheOnly
+            lastCountryCode = countryCode
             return loaded
         }
 

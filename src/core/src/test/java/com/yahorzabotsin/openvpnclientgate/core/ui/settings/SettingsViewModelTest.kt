@@ -185,7 +185,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `server source change triggers forced sync without pre-clear`() = runTest {
-        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT))
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.LEGACY))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
         val syncCoordinator = FakeServerSelectionSyncCoordinator()
@@ -202,7 +202,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `server source change uses cache only when vpn is connected`() = runTest {
-        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT))
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.LEGACY))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
         val syncCoordinator = FakeServerSelectionSyncCoordinator()

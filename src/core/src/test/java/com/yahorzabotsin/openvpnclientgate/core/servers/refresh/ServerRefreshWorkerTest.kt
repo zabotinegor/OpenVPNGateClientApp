@@ -5,7 +5,9 @@ import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryServerSync
@@ -52,7 +54,7 @@ class ServerRefreshWorkerTest {
         val api = FixedApi.Success(sampleCsv(listOf(makeServer("srv-refresh"))))
         val repository = ServerRepository(api)
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
-        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync, NoOpV2SyncCoordinator)
 
         startKoin {
             modules(module {
@@ -75,7 +77,7 @@ class ServerRefreshWorkerTest {
         val api = FixedApi.Failure(IOException("network down"))
         val repository = ServerRepository(api)
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
-        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync, NoOpV2SyncCoordinator)
 
         startKoin {
             modules(module {
@@ -98,7 +100,7 @@ class ServerRefreshWorkerTest {
         val api = FixedApi.Failure(IOException("network down"))
         val repository = ServerRepository(api)
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
-        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync, NoOpV2SyncCoordinator)
 
         startKoin {
             modules(module {
@@ -138,7 +140,7 @@ class ServerRefreshWorkerTest {
         val api = FixedApi.Success(sampleCsv(servers))
         val repository = ServerRepository(api)
         val selectedCountrySync = SelectedCountryServerSync(context, repository)
-        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync)
+        val syncCoordinator = DefaultServerSelectionSyncCoordinator(context, repository, selectedCountrySync, NoOpV2SyncCoordinator)
 
         SelectedCountryStore.saveSelection(
             context,
@@ -172,6 +174,22 @@ class ServerRefreshWorkerTest {
         assertEquals("10.0.0.2", current?.ip)
     }
 
+    private object NoOpV2SyncCoordinator : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> = emptyList()
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
+    }
+
     private fun createWorker(inputData: Data = Data.EMPTY): ServerRefreshWorker {
         return TestListenableWorkerBuilder<ServerRefreshWorker>(context)
             .setInputData(inputData)
@@ -183,7 +201,7 @@ class ServerRefreshWorkerTest {
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT)
+        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 

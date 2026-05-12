@@ -8,6 +8,13 @@
 - The related backend/API codebase is local-only and must be resolved from untracked `AGENTS.local.md` at repo root.
 - If `AGENTS.local.md` is missing, ask the user for the local backend path and do not add it to tracked files.
 
+## Local Overlay (AGENTS.local.md)
+- `AGENTS.local.md` at the repo root is the single place for **machine-specific paths and local-only context** that agents need but that must never be committed.
+- Typical content: local path to the backend server repository, local deployment URLs, notes about the current machine's toolchain.
+- **Do NOT store secrets** (passwords, tokens, signing keys) in `AGENTS.local.md`. Use `src/keystore.properties` for signing and `servers.local.json` for build-time endpoints.
+- If `AGENTS.local.md` is absent, agents must ask the user for the missing information instead of guessing or hard-coding paths.
+- `README.local.md` follows the same convention for human-readable local setup notes.
+
 ## Build and Test
 - Run Gradle commands from `src/`.
 - Prefer the aggregate tasks defined in `src/build.gradle.kts`:
@@ -15,8 +22,8 @@
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
   - `./gradlew connectedDebugAndroidTestTv` (requires a Leanback-capable ADB target; runs Espresso instrumented tests for tv)
-  - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
-  - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
+  - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...`
+  - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
 - Before any build that touches resources or native code, initialize submodules: `git submodule update --init --recursive`.
 
@@ -58,7 +65,7 @@
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
 
 ## Project-Specific Pitfalls
-- `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.
+- `PRIMARY_SERVERS_URL`, `FALLBACK_SERVERS_URL`, and `PRIMARY_SERVERS_V2_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.

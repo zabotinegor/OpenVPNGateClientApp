@@ -15,7 +15,7 @@ The coordinator owns this flow:
 ## Trigger Matrix
 | Trigger | File | Mode |
 | --- | --- | --- |
-| Splash preload | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` | `forceRefresh=false`, `cacheOnly=feature-flag dependent`, `clearCacheBeforeRefresh=false` |
+| Splash preload | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` | `forceRefresh=false`, `cacheOnly=feature-flag dependent`, `clearCacheBeforeRefresh=false`. For `DEFAULT_V2`, only country list is pre-fetched; server configs are loaded lazily per country. |
 | Main foreground entry (`onStart`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` -> `MainViewModel` | `forceRefresh=false`, debounced, `cacheOnly=feature-flag dependent` |
 | Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)` |
 | Periodic background refresh | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false` |
@@ -29,47 +29,27 @@ The coordinator owns this flow:
 - `clearCacheBeforeRefresh` is used for server-source transitions to avoid stale cross-source reuse.
 - Main foreground sync is debounced in `MainViewModel` to avoid duplicate work around lifecycle transitions.
 
-## Signal-Driven Cache Refresh Pattern
-When `ServerRefreshWorker` completes a background periodic refresh, the selected-country sync path persists the refreshed selection and bumps `SelectedCountryVersionSignal.version` to notify the UI layer of cache updates without forcing a network call. This pattern ensures the main UI stays fresh without blocking foreground interaction.
+## V2 Server Source (DEFAULT_V2)
 
-**How it works:**
-1. Background worker (`ServerRefreshWorker`) completes sync via `ServerSelectionSyncCoordinator.sync(...)`
-2. `SelectedCountryServerSync.syncAfterRefresh(...)` aligns the refreshed selection and `SelectedCountryStore.saveSelectionPreservingIndex(...)` bumps `SelectedCountryVersionSignal.version`
-3. `MainViewModel.init()` captures the current version as a baseline and observes only subsequent bumps
-4. Signal emission triggers `onStoreVersionChanged()` callback
-5. `onStoreVersionChanged()` implements double-guard race condition protection:
-   - Early guard: Skip if user selection is pending (do not overwrite user choice)
-   - Cache-only load: Fetch updated selection from cache (no network call)
-  - Late guard: Skip state update if user selection became pending during load
-  - Atomic update guard: background refresh re-checks `pendingUserSelectionOverride` inside `MutableStateFlow.update {}` and discards stale refresh result if needed
-6. Selected server UI updates with new data from cache (country, countryCode, IP, config)
+### Two-Phase Lazy Load
+At splash, `ServersV2SyncCoordinator` pre-fetches the country list only. Per-country server lists are fetched lazily when the user selects a country in the main screen.
 
-**Race condition safety:**
-- If user selects a server while background refresh is in progress, `pendingUserSelectionOverride=true` blocks both early and late
-- Cache load completes after flag is set, but late guard prevents applying stale data
-- User selection takes precedence; background refresh does not overwrite it
+### Components
+- `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
+- `SplashServerPreloadInteractor` routes to the v2 path or the legacy path based on `UserSettingsStore.serverSource`.
+- `CountryServersInteractor` calls `ServersV2Repository.getServersForCountry()` to drive lazy per-country loads.
 
-**Testing:**
-- Use `SelectedCountryVersionSignal.bump()` in unit tests to simulate background sync completion
-- `BlockingMainSelectionInteractor` pattern allows testing race conditions between signal and user selection
-- See `MainViewModelTest` for `store version bump` tests covering guard conditions and concurrent scenarios
+### Cache Strategy
+- Countries cached in `v2_countries.json`; timestamp stored in SharedPrefs key `servers_v2_cache` / `ts_countries`.
+- Servers cached per country in `v2_servers_<code>.json`; timestamp stored as `ts_servers_<code>`.
+- TTL is read from `UserSettingsStore.cacheTtlMs`.
+- On network error or parse failure (including Gson deserialization exceptions), stale cache is returned if available. If no cache exists, IOException is propagated to the caller for graceful handling. This behavior is implemented in `ServersV2Repository.getCountries()` and `ServersV2Repository.getServersForCountry()`.
 
+### Pagination
+Page size 50. Pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the authoritative `page.total` field from the API response (or `serverCount` as a fallback when `total=0`).
 
-## Storage and State Impact
-- Server CSV cache and metadata:
-  - SharedPreferences `server_cache`
-  - Files in `cacheDir` with `servers_*.csv`
-- Current user server selection:
-  - `SelectedCountryStore`
-- Scheduler metadata:
-  - WorkManager unique periodic work `server-list-periodic-refresh`
+### Filtering
+Servers with empty `configData` are dropped silently before caching.
 
-## Reuse Guidance for Agents
-When adding a new place that needs server-list freshness, prefer calling `ServerSelectionSyncCoordinator.sync(...)` instead of directly calling `ServerRepository` plus manual selected-country sync.
-
-Use direct repository access only when no selection alignment is needed.
-
-## Known Guardrails
-- Do not call network refresh from launcher-specific code when shared `MainActivityCore` can handle it.
-- Keep `mobile` and `tv` launcher modules thin; place orchestration in `src/core`.
-- Preserve cancellation semantics: rethrow `CancellationException` in coroutine flows.
+### Migration
+A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load. New installs default to `DEFAULT_V2`.

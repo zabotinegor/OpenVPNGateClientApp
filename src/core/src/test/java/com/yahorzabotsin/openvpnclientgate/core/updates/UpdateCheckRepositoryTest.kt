@@ -45,7 +45,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.RUSSIAN,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -99,7 +99,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -118,7 +118,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -138,7 +138,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -160,7 +160,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -218,7 +218,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -260,7 +260,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -297,7 +297,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -338,7 +338,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -375,7 +375,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -396,7 +396,7 @@ class UpdateCheckRepositoryTest {
             missingPackageContext,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.DEFAULT
+                serverSource = ServerSource.LEGACY
             )
         )
 
@@ -417,7 +417,7 @@ class UpdateCheckRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.DEFAULT
+                    serverSource = ServerSource.LEGACY
                 )
             )
 

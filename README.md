@@ -36,9 +36,10 @@ git submodule update --init --recursive
 ```
 
 ## Required Build Configuration
-The `core` module requires both endpoints at build time:
+The `core` module requires the following endpoints at build time:
 - `PRIMARY_SERVERS_URL`
 - `FALLBACK_SERVERS_URL`
+- `PRIMARY_SERVERS_V2_URL` — base URL for the v2 API (e.g. `https://openvpngateclient.azurewebsites.net`)
 
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
@@ -51,7 +52,8 @@ Create `servers.local.json` in either repository root or `src/`:
 ```json
 {
   "PRIMARY_SERVERS_URL": "https://example.com/api/v1/servers/active",
-  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
+  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/",
+  "PRIMARY_SERVERS_V2_URL": "https://openvpngateclient.azurewebsites.net"
 }
 ```
 
@@ -99,10 +101,10 @@ cd src
 .\gradlew.bat assembleDebugApp
 
 # Release APKs (mobile + tv)
-./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
+./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
 
 # Release AABs (mobile + tv)
-./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
+./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
 ```
 
 ### Version override per launcher
@@ -115,12 +117,21 @@ cd src
 ./gradlew testDebugUnitTestApp
 ```
 
+## Manual E2E Documentation
+- Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md)
+- Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
+- Specifications: [tests/manual-e2e/specs](tests/manual-e2e/specs)
+- Suites: [tests/manual-e2e/suites](tests/manual-e2e/suites)
+- Test cases: [tests/manual-e2e/cases](tests/manual-e2e/cases)
+- Run artifacts/evidence: [artifacts/manual-qa](artifacts/manual-qa)
+
 ## Runtime Behavior (from current code)
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
 - If preload outlives GIF playback, splash shows a loading spinner until preload completes.
 - If preload fails, startup still continues to main screen; fallback is logged as a warning.
 - Server source modes in settings:
-  - `DEFAULT`: primary then fallback URL
+  - `LEGACY`: primary then fallback URL
+  - `DEFAULT_V2`: v2 API (default for fresh installs)
   - `VPNGATE`: fallback URL only
   - `CUSTOM`: user-provided URL
 - Server list cache with configurable TTL (`cacheTtlMs`, default 20 minutes).

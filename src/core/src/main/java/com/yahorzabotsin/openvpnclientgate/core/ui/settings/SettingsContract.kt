@@ -8,7 +8,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 data class SettingsUiState(
     val language: LanguageOption = LanguageOption.SYSTEM,
     val theme: ThemeOption = ThemeOption.SYSTEM,
-    val serverSource: ServerSource = ServerSource.DEFAULT,
+    val serverSource: ServerSource = ServerSource.DEFAULT_V2,
     val customServerUrl: String = "",
     val autoSwitchWithinCountry: Boolean = true,
     val statusStallTimeoutSeconds: Int = SettingsDefaults.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS,

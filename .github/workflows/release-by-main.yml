@@ -17,6 +17,7 @@ jobs:
     env:
       ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_V2_URL: ${{ vars.PRIMARY_SERVERS_V2_URL }}
       ORG_GRADLE_PROJECT_appReleaseType: release
       VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
       VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
@@ -48,12 +49,12 @@ jobs:
         shell: bash
         run: |
           set -e
-          STABLE_TAG=$(git tag --list 'v1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
+          STABLE_TAG=$(git tag --list 'v1.1.*' | grep -v 'beta' | sort -Vr | head -n 1) || true
           if [[ -z "$STABLE_TAG" ]]; then
             MAJOR=1
-            MINOR=0
+            MINOR=1
             PATCH=0
-            VERSION="1.0.0"
+            VERSION="1.1.0"
             echo "==> No stable tag found, starting with ${VERSION}."
           else
             CLEAN_TAG=$(echo "${STABLE_TAG#v}" | sed -E 's/-auto\([0-9]+\)$//' | sed -E 's/\([0-9]+\)$//')
