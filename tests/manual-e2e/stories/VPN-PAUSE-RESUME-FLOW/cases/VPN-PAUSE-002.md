@@ -34,7 +34,7 @@ surface: android
 ## Validation Note
 - On Android TV, pausing and reconnect transitions can be short enough that broad polling misses one of the transient frames.
 - If full-suite evidence shows the flow succeeded but `Pausing` or reconnect frames were not captured, rerun focused sampling before filing a product defect.
-- Reference: `tests/manual-e2e/reference/archived/TV-PAUSE-RESUME-SMOOTHER-STATES-2026-04-25.md`
+- Reference: `tests/manual-e2e/reference/TV-PAUSE-RESUME-SMOOTHER-STATES-2026-04-25.md`
 
 ## Evidence Required
 - Screenshot or log sample proving UI leaves `Connected` immediately after Pause and enters `Pausing` before `Paused`.
