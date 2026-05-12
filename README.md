@@ -122,12 +122,8 @@ cd src
 Default Gradle tuning in src/gradle.properties now enables faster local and CI iteration for app builds:
 
 - org.gradle.parallel=true
-- org.gradle.jvmargs=-Xmx4096m
-- org.gradle.workers.max=8
-- org.gradle.caching=true (local task output cache)
-- org.gradle.configureondemand=true
-
-OpenVPN engine SWIG generation tasks in src/external/OpenVPNEngine/main/build.gradle.kts are cache-eligible with explicit inputs and outputs, so unchanged code generation can be restored from cache.
+### Build performance
+The project is configured for optimized build performance in `src/gradle.properties`. These settings enable parallel execution, build caching, and increased heap memory to reduce iteration times. Additionally, the OpenVPN engine SWIG generation tasks are configured to be cache-eligible, allowing unchanged code generation to be restored from the local build cache.
 
 For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
 ## Manual E2E Documentation
