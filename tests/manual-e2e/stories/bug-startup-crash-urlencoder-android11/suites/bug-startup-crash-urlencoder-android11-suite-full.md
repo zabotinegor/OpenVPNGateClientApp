@@ -82,7 +82,7 @@ This test suite provides end-to-end manual QA validation of the fix for the Andr
 ### Coverage Summary
 - **Tested API Levels:** 30 (Android 11)
 - **Source Code Coverage:** API 24+ (all supported Android versions)
-- **Expected to Pass:** API 24 - 35+ (entire supported range)
+- **Compatibility Expectation (not runtime-validated in this run):** API 24 - 35+ based on `URLEncoder.encode(String, String)` API availability and passing automated tests.
 
 ## Build Information
 
@@ -128,3 +128,4 @@ This test suite provides end-to-end manual QA validation of the fix for the Andr
 The URLEncoder API compatibility fix has been successfully validated on Android 11. The app launches without crash, transitions to main screen, and shows no URLEncoder-related errors in logcat. The fix correctly addresses the Java 11+ API incompatibility by using the Android-compatible `URLEncoder.encode(String, String)` signature.
 
 Ready for merge and production deployment. ✅
+

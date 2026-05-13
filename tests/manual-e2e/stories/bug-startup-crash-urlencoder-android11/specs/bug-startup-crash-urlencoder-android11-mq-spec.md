@@ -30,7 +30,7 @@ This specification covers manual end-to-end validation of the URLEncoder API com
 ## Acceptance Criteria
 
 - ✅ App launches without crash on Android 11 (API 30)
-- ✅ App launches without crash on Android 12+ (API 31+)
+- [ ] App launch on Android 12+ (API 31+) was not executed in this run (device unavailable); covered by API compatibility rationale and automated tests.
 - ✅ Main screen displays after splash screen
 - ✅ No logcat errors: `NoSuchMethodError`, `URLEncoder`, `StandardCharsets`
 - ✅ Logcat shows successful app initialization (no crash stacks)
@@ -103,3 +103,4 @@ This specification covers manual end-to-end validation of the URLEncoder API com
 - No ANR (Application Not Responding) observed
 - App responsive to user input after startup
 - Logcat shows normal app initialization flow, no crash-related errors
+

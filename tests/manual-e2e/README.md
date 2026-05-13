@@ -22,7 +22,7 @@ stories/{story-id}-{kebab-title}/
 
 ### US-01 - DEFAULT_V2 Lazy Loading
 - Location: [stories/US-01-v2-lazy-loading/](stories/US-01-v2-lazy-loading/)
-- Suite: [stories/US-01-v2-lazy-loading/SUITE.md](stories/US-01-v2-lazy-loading/SUITE.md)
+- Suite: [stories/US-01-v2-lazy-loading/suites/SUITE.md](stories/US-01-v2-lazy-loading/suites/SUITE.md)
 - Case: [stories/US-01-v2-lazy-loading/cases/US-01-V2-LAZY-LOADING-001.md](stories/US-01-v2-lazy-loading/cases/US-01-V2-LAZY-LOADING-001.md)
 - Evidence: [../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading](../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading)
 
@@ -42,7 +42,7 @@ stories/{story-id}-{kebab-title}/
 
 ### VPN-PAUSE-RESUME-FLOW
 - Location: [stories/VPN-PAUSE-RESUME-FLOW/](stories/VPN-PAUSE-RESUME-FLOW/)
-- Suite: [stories/VPN-PAUSE-RESUME-FLOW/SUITE.md](stories/VPN-PAUSE-RESUME-FLOW/SUITE.md)
+- Suite: [stories/VPN-PAUSE-RESUME-FLOW/suites/SUITE.md](stories/VPN-PAUSE-RESUME-FLOW/suites/SUITE.md)
 - Cases:
   - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md)
   - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md)
@@ -50,5 +50,6 @@ stories/{story-id}-{kebab-title}/
 
 ### TV-DRAWER-FALSE-CLICK
 - Location: [stories/TV-DRAWER-FALSE-CLICK/](stories/TV-DRAWER-FALSE-CLICK/)
-- Suite: [stories/TV-DRAWER-FALSE-CLICK/SUITE.md](stories/TV-DRAWER-FALSE-CLICK/SUITE.md)
+- Suite: [stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md](stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md)
 - Case: [stories/TV-DRAWER-FALSE-CLICK/cases/TV-DRAWER-FALSE-CLICK-001.md](stories/TV-DRAWER-FALSE-CLICK/cases/TV-DRAWER-FALSE-CLICK-001.md)
+

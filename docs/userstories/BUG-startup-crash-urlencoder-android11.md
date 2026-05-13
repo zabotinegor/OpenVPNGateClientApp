@@ -5,8 +5,8 @@ description: |
 
 ## Context
 - Confirmed crash on startup on Android 11 (API 30) and potentially higher, caused by NoSuchMethodError: URLEncoder.encode(String, Charset) is not available in Android's Java runtime.
-- Source: src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/AppConstants.kt (lines 219, 222).
-- Evidence: manual-qa/2026-05-13-startup-crash-diagnostics/logcat-crash-filtered-utf8.txt, logcat-full.txt, logcat-crash-rerun.txt.
+- Source: src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/AppConstants.kt (lines 218, 221).
+- Evidence: tests/manual-e2e/stories/bug-startup-crash-urlencoder-android11/cases/logcat-20260513.txt, tests/manual-e2e/stories/bug-startup-crash-urlencoder-android11/cases/bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis.md.
 
 ## Acceptance Criteria
 - [ ] App launches and works on Android 11, 12, 13, 14+ (API 30, 31, 32, 33+) and all supported API levels (minSdk 24+).
@@ -65,3 +65,4 @@ App crashes on startup on Android 11+ due to use of URLEncoder.encode(String, Ch
 
 ## Evidence
 - See above.
+
