@@ -21,28 +21,28 @@ adb -s b6e8f6bd logcat -d > logcat-20260513.txt
 
 1. **URLEncoder Search**
    ```
-   logcat-20260513.txt | grep -i "URLEncoder"
+   grep -i "URLEncoder" logcat-20260513.txt
    ```
    **Expected:** No matches or only framework-level URLEncoder references (no error messages)
    **Result:** ✅ PASS - No URLEncoder error entries found
 
 2. **StandardCharsets Search**
    ```
-   logcat-20260513.txt | grep -i "StandardCharsets"
+   grep -i "StandardCharsets" logcat-20260513.txt
    ```
    **Expected:** No matches
    **Result:** ✅ PASS - No StandardCharsets entries found (import successfully removed)
 
 3. **NoSuchMethodError Search**
    ```
-   logcat-20260513.txt | grep -i "NoSuchMethodError"
+   grep -i "NoSuchMethodError" logcat-20260513.txt
    ```
    **Expected:** No matches for app or URL encoding related errors
    **Result:** ✅ PASS - No NoSuchMethodError entries found
 
 4. **App-Specific Crash Search**
    ```
-   logcat-20260513.txt | grep "com.yahorzabotsin.openvpnclientgate.*FATAL\|com.yahorzabotsin.openvpnclientgate.*Exception"
+   grep "com.yahorzabotsin.openvpnclientgate.*FATAL\|com.yahorzabotsin.openvpnclientgate.*Exception" logcat-20260513.txt
    ```
    **Expected:** No crash stack traces for the app package
    **Result:** ✅ PASS - No app crash stack traces detected
@@ -139,4 +139,5 @@ The logcat analysis confirms that:
 
 **Defects Found:** None ✅
 **Blockers:** None ✅
-**Recommendations:** None - fix validated and ready for production ✅
+**Recommendations:** Optional: add Android 12+ runtime validation evidence in a follow-up run to fully close cross-version runtime coverage.
+

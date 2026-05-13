@@ -17,7 +17,7 @@ stories/{story-id}-{kebab-title}/
   ├── specs/
   │   └── *-spec*.md
   └── cases/
-      └── *-case*.md
+      - *.md               (story-specific case naming, for example *-mq-*.md or VPN-PAUSE-001.md)
 ```
 
 ### US-01 - DEFAULT_V2 Lazy Loading
