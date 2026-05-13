@@ -66,4 +66,18 @@ class PrimaryDomainRoutesTest {
             PrimaryDomainRoutes.retrofitBaseUrl(legacyRoute)
         )
     }
+
+    @Test
+    fun `normalizes base urls that end with api version marker without trailing slash`() {
+        val baseUrl = "https://api.example.com/custom/root/api/v1"
+
+        assertEquals(
+            "https://api.example.com/custom/root/api/v1/servers/active",
+            PrimaryDomainRoutes.legacyServersUrl(baseUrl)
+        )
+        assertEquals(
+            "https://api.example.com/custom/root/",
+            PrimaryDomainRoutes.retrofitBaseUrl(baseUrl)
+        )
+    }
 }

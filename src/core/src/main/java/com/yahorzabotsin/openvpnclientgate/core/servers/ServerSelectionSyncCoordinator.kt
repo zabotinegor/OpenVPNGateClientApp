@@ -28,7 +28,8 @@ class DefaultServerSelectionSyncCoordinator(
         cacheOnly: Boolean,
         clearCacheBeforeRefresh: Boolean
     ): List<Server> {
-        val source = UserSettingsStore.load(appContext).serverSource
+        val settings = UserSettingsStore.load(appContext)
+        val source = settings.serverSource
         if (source == ServerSource.DEFAULT_V2) {
             try {
                 if (clearCacheBeforeRefresh) {
@@ -66,7 +67,7 @@ class DefaultServerSelectionSyncCoordinator(
                         }
                 }
 
-                val fallbackSettings = UserSettingsStore.load(appContext).copy(serverSource = ServerSource.LEGACY)
+                val fallbackSettings = settings.copy(serverSource = ServerSource.LEGACY)
                 val servers = serverRepository.getServers(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,

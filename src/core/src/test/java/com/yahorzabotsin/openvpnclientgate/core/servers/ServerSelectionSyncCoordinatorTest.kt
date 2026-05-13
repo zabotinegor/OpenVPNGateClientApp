@@ -189,6 +189,27 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
     }
 
+    @Test
+    fun sync_default_v2_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SourceSwitchingApi(
+            context = context,
+            switchedSource = ServerSource.CUSTOM,
+            body = sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1)))
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+    }
+
     // TS-7 (Legacy regression): Legacy CSV source is unaffected by the DEFAULT_V2 path.
     @Test
     fun sync_legacy_source_does_not_call_v2_selected_country_sync() = runBlocking {
@@ -353,6 +374,22 @@ class ServerSelectionSyncCoordinatorTest {
 
     private class FixedApi(private val body: String) : VpnServersApi {
         override suspend fun getServers(url: String): ResponseBody {
+            return body.toResponseBody("text/plain".toMediaType())
+        }
+    }
+
+    private class SourceSwitchingApi(
+        private val context: Context,
+        private val switchedSource: ServerSource,
+        private val body: String
+    ) : VpnServersApi {
+        private var switched = false
+
+        override suspend fun getServers(url: String): ResponseBody {
+            if (!switched) {
+                UserSettingsStore.saveServerSource(context, switchedSource)
+                switched = true
+            }
             return body.toResponseBody("text/plain".toMediaType())
         }
     }

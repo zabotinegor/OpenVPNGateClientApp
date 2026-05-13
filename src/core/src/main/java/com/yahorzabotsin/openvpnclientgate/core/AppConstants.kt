@@ -17,19 +17,40 @@ object ApiConstants {
             ?: SAFE_RETROFIT_FALLBACK_BASE_URL
 
     fun primaryLegacyServersUrl(): String =
-        PrimaryDomainRoutes.legacyServersUrl(PRIMARY_SERVERS_URL)
-            ?: error("PRIMARY_SERVERS_URL is invalid: $PRIMARY_SERVERS_URL")
+        primaryLegacyServersUrlOrFallback(PRIMARY_SERVERS_URL)
+
+    internal fun primaryLegacyServersUrlOrFallback(primaryServersUrl: String): String =
+        PrimaryDomainRoutes.legacyServersUrl(primaryServersUrl)
+            ?: SAFE_RETROFIT_FALLBACK_BASE_URL + "api/v1/servers/active"
 
     fun primaryVersionByNumberAndBuildUrl(
         versionName: String,
         buildNumber: Long,
         locale: String?
-    ): String = PrimaryDomainRoutes.versionByNumberAndBuildUrl(
-        baseUrl = PRIMARY_SERVERS_URL,
+    ): String = primaryVersionByNumberAndBuildUrlOrFallback(
+        primaryServersUrl = PRIMARY_SERVERS_URL,
         versionName = versionName,
         buildNumber = buildNumber,
         locale = locale
-    ) ?: error("PRIMARY_SERVERS_URL is invalid: $PRIMARY_SERVERS_URL")
+    )
+
+    internal fun primaryVersionByNumberAndBuildUrlOrFallback(
+        primaryServersUrl: String,
+        versionName: String,
+        buildNumber: Long,
+        locale: String?
+    ): String =
+        PrimaryDomainRoutes.versionByNumberAndBuildUrl(
+            baseUrl = primaryServersUrl,
+            versionName = versionName,
+            buildNumber = buildNumber,
+            locale = locale
+        ) ?: PrimaryDomainRoutes.versionByNumberAndBuildUrl(
+            baseUrl = SAFE_RETROFIT_FALLBACK_BASE_URL,
+            versionName = versionName,
+            buildNumber = buildNumber,
+            locale = locale
+        ) ?: error("Safe fallback URL is invalid")
 
     fun primaryUpdateCheckUrls(
         platform: String,
@@ -57,7 +78,7 @@ object ApiConstants {
 }
 
 object PrimaryDomainRoutes {
-    private val API_VERSION_MARKER = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
+    private val API_VERSION_MARKER = Regex("/api/v\\d+($|/)", RegexOption.IGNORE_CASE)
 
     private data class BaseParts(
         val scheme: String,
@@ -195,9 +216,9 @@ object PrimaryDomainRoutes {
     }
 
     private fun encodePathSegment(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+        URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
 
     private fun encodeQueryComponent(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+        URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
 }
 
