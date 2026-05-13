@@ -64,9 +64,9 @@ This test suite provides end-to-end manual QA validation of the fix for the Andr
 | App launches on Android 12+ (API 31+) | ⏳ MANUAL NOTE: Tested on Android 11 (API 30); Android 12+ not available in test env | N/A |
 | Main screen displays after splash | ✅ PASS | Case MQ-01, Screenshot |
 | No crash on startup | ✅ PASS | Case MQ-01, Logcat analysis |
-| No URLEncoder errors in logcat | ✅ PASS | Case MQ-03, Logcat grep results |
-| No StandardCharsets references | ✅ PASS | Case MQ-03, Logcat grep results |
-| No NoSuchMethodError in logs | ✅ PASS | Case MQ-03, Logcat grep results |
+| No URLEncoder errors in logcat | ✅ PASS | Case MQ-03, log search results |
+| No StandardCharsets references | ✅ PASS | Case MQ-03, log search results |
+| No NoSuchMethodError in logs | ✅ PASS | Case MQ-03, log search results |
 
 ## Test Surfaces
 

@@ -93,10 +93,10 @@ Logcat contains typical system messages:
 
 | # | Assertion | Status | Evidence |
 |---|-----------|--------|----------|
-| 1 | No `URLEncoder.encode` crash entries in logcat | ✅ PASS | logcat-20260513.txt (grep -v "URLEncoder" results empty for errors) |
-| 2 | No `StandardCharsets` import/reference errors | ✅ PASS | logcat-20260513.txt (grep "StandardCharsets" results empty) |
-| 3 | No `NoSuchMethodError` for URLEncoder.encode | ✅ PASS | logcat-20260513.txt (grep "NoSuchMethodError" results empty for URL encoding) |
-| 4 | No app package crash stack traces | ✅ PASS | logcat-20260513.txt (grep "com.yahorzabotsin.*Exception" results empty) |
+| 1 | No `URLEncoder.encode` crash entries in logcat | ✅ PASS | logcat-20260513.txt (log search results show no URLEncoder-related errors) |
+| 2 | No `StandardCharsets` import/reference errors | ✅ PASS | logcat-20260513.txt (log search results show no StandardCharsets entries) |
+| 3 | No `NoSuchMethodError` for URLEncoder.encode | ✅ PASS | logcat-20260513.txt (log search results show no URLEncoder-related NoSuchMethodError entries) |
+| 4 | No app package crash stack traces | ✅ PASS | logcat-20260513.txt (log search results show no app exception stack traces) |
 | 5 | App startup completed normally (no crash) | ✅ PASS | logcat shows "Complete" status, MainActivity resumed |
 | 6 | No ANR or StrictMode violations for app | ✅ PASS | logcat-20260513.txt (no ANR entries for app) |
 | 7 | URL encoding logic operates without exception | ✅ PASS | App reached MainActivity without crash, indicating URL encoding (server fetch) succeeded |
@@ -119,7 +119,7 @@ Logcat contains typical system messages:
 ✅ No URLEncoder-related errors in startup logcat  
 ✅ No StandardCharsets import errors  
 ✅ App reaches MainActivity without crash  
-✅ URL encoding logic operates normally (server list fetch, version check, update check all functional)  
+- URL encoding startup path operates without URLEncoder-related exceptions in the validated Android 11 run
 
 ## Evidence Files
 
