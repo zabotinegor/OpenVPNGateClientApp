@@ -21,28 +21,28 @@ adb -s b6e8f6bd logcat -d > logcat-20260513.txt
 
 1. **URLEncoder Search**
    ```
-   grep -i "URLEncoder" logcat-20260513.txt
+   Select-String -Path logcat-20260513.txt -Pattern "URLEncoder" -CaseSensitive:$false
    ```
    **Expected:** No matches or only framework-level URLEncoder references (no error messages)
    **Result:** ✅ PASS - No URLEncoder error entries found
 
 2. **StandardCharsets Search**
    ```
-   grep -i "StandardCharsets" logcat-20260513.txt
+   Select-String -Path logcat-20260513.txt -Pattern "StandardCharsets" -CaseSensitive:$false
    ```
    **Expected:** No matches
    **Result:** ✅ PASS - No StandardCharsets entries found (import successfully removed)
 
 3. **NoSuchMethodError Search**
    ```
-   grep -i "NoSuchMethodError" logcat-20260513.txt
+   Select-String -Path logcat-20260513.txt -Pattern "NoSuchMethodError" -CaseSensitive:$false
    ```
    **Expected:** No matches for app or URL encoding related errors
    **Result:** ✅ PASS - No NoSuchMethodError entries found
 
 4. **App-Specific Crash Search**
    ```
-   grep "com.yahorzabotsin.openvpnclientgate.*FATAL\|com.yahorzabotsin.openvpnclientgate.*Exception" logcat-20260513.txt
+   Select-String -Path logcat-20260513.txt -Pattern "com.yahorzabotsin.openvpnclientgate.*FATAL|com.yahorzabotsin.openvpnclientgate.*Exception"
    ```
    **Expected:** No crash stack traces for the app package
    **Result:** ✅ PASS - No app crash stack traces detected
@@ -134,7 +134,7 @@ The logcat analysis confirms that:
 1. The URLEncoder API compatibility fix has been successfully applied
 2. No Java 11+ API references remain in the startup flow
 3. The app launches and operates normally on Android 11 (API 30) without URLEncoder-related crashes
-4. URL encoding logic functions correctly for all server list, version check, and update check operations
+4. URL encoding startup path executes without URLEncoder-related exceptions in the validated Android 11 run
 5. The fix is compatible with all supported Android API levels (24+)
 
 **Defects Found:** None ✅

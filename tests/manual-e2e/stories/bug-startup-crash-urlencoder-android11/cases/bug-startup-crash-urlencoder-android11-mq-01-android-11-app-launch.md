@@ -61,7 +61,7 @@ Complete
 
 ### Action 2: Wait for App Initialization
 ```
-Sleep 3 seconds (allow splash → main screen transition)
+Start-Sleep -Seconds 3  # allow splash to main-screen transition
 ```
 
 **Expected Result:**
@@ -162,3 +162,4 @@ The URLEncoder API compatibility fix has been successfully validated on Android 
 The fix correctly addresses the Java 11+ API compatibility issue by using the Android-compatible `URLEncoder.encode(String, String)` signature instead of the unavailable `URLEncoder.encode(String, Charset)` signature.
 
 No defects detected. ✅
+

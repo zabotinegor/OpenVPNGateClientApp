@@ -34,7 +34,7 @@ This specification covers manual end-to-end validation of the URLEncoder API com
 - ✅ Main screen displays after splash screen
 - ✅ No logcat errors: `NoSuchMethodError`, `URLEncoder`, `StandardCharsets`
 - ✅ Logcat shows successful app initialization (no crash stacks)
-- ✅ URL encoding logic functions correctly for server list, version check, update check requests
+- [x] URL encoding startup path executes without URLEncoder-related exceptions on validated Android 11 runtime; broader request-path compatibility is covered by automated tests.
 
 ## Test Scope
 
