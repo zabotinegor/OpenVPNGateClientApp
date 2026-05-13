@@ -23,7 +23,7 @@ fun loadLocalServersConfig(): Map<String, String> {
     val file = candidates.firstOrNull { it.exists() } ?: return emptyMap()
 
     return try {
-        val allowedKeys = setOf("PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL", "PRIMARY_SERVERS_V2_URL")
+        val allowedKeys = setOf("PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL")
         @Suppress("UNCHECKED_CAST")
         val parsed = JsonSlurper().parse(file) as? Map<String, Any?> ?: emptyMap()
         parsed.mapNotNull { (k, v) ->
@@ -85,11 +85,6 @@ android {
             System.getenv("FALLBACK_SERVERS_URL"),
             localConfig["FALLBACK_SERVERS_URL"]
         )
-        val primaryServersV2Url: String? = firstUsableServerUrl(
-            project.findProperty("PRIMARY_SERVERS_V2_URL") as String?,
-            System.getenv("PRIMARY_SERVERS_V2_URL"),
-            localConfig["PRIMARY_SERVERS_V2_URL"]
-        )
         val appReleaseType: String =
             ((project.findProperty("appReleaseType") as String?)
                 ?: System.getenv("APP_RELEASE_TYPE")
@@ -103,16 +98,12 @@ android {
         require(!fallbackServersUrl.isNullOrBlank()) {
             "FALLBACK_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property FALLBACK_SERVERS_URL, env var FALLBACK_SERVERS_URL, or servers.local.json."
         }
-        require(!primaryServersV2Url.isNullOrBlank()) {
-            "PRIMARY_SERVERS_V2_URL is not set (or is placeholder). Provide it via Gradle property PRIMARY_SERVERS_V2_URL, env var PRIMARY_SERVERS_V2_URL, or servers.local.json."
-        }
         require(appReleaseType == "release" || appReleaseType == "beta") {
             "APP_RELEASE_TYPE/appReleaseType must be either 'release' or 'beta'."
         }
 
         buildConfigField("String", "PRIMARY_SERVERS_URL", "\"$primaryServersUrl\"")
         buildConfigField("String", "FALLBACK_SERVERS_URL", "\"$fallbackServersUrl\"")
-        buildConfigField("String", "PRIMARY_SERVERS_V2_URL", "\"$primaryServersV2Url\"")
         buildConfigField("String", "APP_RELEASE_TYPE", "\"$appReleaseType\"")
     }
 

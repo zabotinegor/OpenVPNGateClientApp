@@ -112,7 +112,7 @@ val coreModule = module {
 
     single<ServersV2Api> {
         Retrofit.Builder()
-            .baseUrl(ApiConstants.PRIMARY_SERVERS_V2_URL.trimEnd('/') + "/")
+            .baseUrl(ApiConstants.primaryRetrofitBaseUrl())
             .client(get())
             .addConverterFactory(GsonConverterFactory.create())
             .build()

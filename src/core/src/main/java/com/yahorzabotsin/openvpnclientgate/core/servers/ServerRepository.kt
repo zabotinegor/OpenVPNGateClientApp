@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
 import java.io.BufferedReader
@@ -31,6 +32,10 @@ class ServerRepository(
     private val settingsStore: UserSettingsStore = UserSettingsStore,
     private val cacheMutationMutex: Mutex = Mutex()
 ) {
+
+    // Track whether the last getServers() call performed a real network fetch (usedIndex >= 0)
+    // or only returned cache (usedIndex == -1). Used to guard fallback source persistence.
+    internal var lastUsedIndex: Int = -1
 
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerRepository"
@@ -160,9 +165,16 @@ class ServerRepository(
         }
     }
 
-    suspend fun getServers(context: Context, forceRefresh: Boolean = false, cacheOnly: Boolean = false): List<Server> =
+    suspend fun getServers(
+        context: Context,
+        forceRefresh: Boolean = false,
+        cacheOnly: Boolean = false,
+        settingsOverride: UserSettings? = null,
+        persistResolvedSource: Boolean = true,
+        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+    ): List<Server> =
         withContext(Dispatchers.IO) {
-            val settings = settingsStore.load(context)
+            val settings = settingsOverride ?: settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
 
             if (urls.isEmpty()) {
@@ -262,12 +274,26 @@ class ServerRepository(
                 saveLastCacheKey(context, fallbackCache.key)
             }
 
-            if (settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
-                settingsStore.saveServerSource(context, ServerSource.VPNGATE)
-                AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+            if (persistResolvedSource && settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
+                val currentPersistedSource = settingsStore.load(context).serverSource
+                val canPersistResolvedSource =
+                    persistResolvedSourceOnlyIfCurrent == null ||
+                        currentPersistedSource == persistResolvedSourceOnlyIfCurrent
+                if (canPersistResolvedSource) {
+                    settingsStore.saveServerSource(context, ServerSource.VPNGATE)
+                    AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+                } else {
+                    AppLog.i(
+                        TAG,
+                        "Primary failed but source changed concurrently; skipping persisted VPN Gate fallback. current=$currentPersistedSource"
+                    )
+                }
             } else if (usedIndex >= 0) {
                 AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
+
+            // Track usedIndex for coordinator to check if persistence should happen (usedIndex >= 0 means real fetch)
+            lastUsedIndex = usedIndex
 
             return@withContext result
         }

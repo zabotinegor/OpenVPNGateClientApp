@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import android.content.pm.PackageInfo
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
@@ -84,6 +85,38 @@ class UpdateCheckRepositoryTest {
         val requestedHost = Uri.parse(api.requestedUrls.single()).host
         val primaryHost = Uri.parse(BuildConfig.PRIMARY_SERVERS_URL).host
         assertEquals(primaryHost, requestedHost)
+    }
+
+    @Test
+    fun `checkForUpdate keeps cache key independent from selected server source`() = runTest {
+        val api = CapturingUpdateApi()
+        val repository = DefaultUpdateCheckRepository(context, api)
+
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.LEGACY
+            )
+        )
+
+        val first = repository.checkForUpdate(forceRefresh = false)
+
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://attacker.example.com/api/v1/servers/active"
+            )
+        )
+
+        val second = repository.checkForUpdate(forceRefresh = false)
+
+        assertNotNull(first)
+        assertNotNull(second)
+        assertEquals(1, api.callCount)
+        assertEquals(Uri.parse(ApiConstants.PRIMARY_SERVERS_URL).host, Uri.parse(api.requestedUrls.single()).host)
     }
 
     @Test

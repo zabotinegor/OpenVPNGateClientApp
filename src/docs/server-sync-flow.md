@@ -9,8 +9,9 @@ Use `ServerSelectionSyncCoordinator` as the single synchronization entrypoint:
 
 The coordinator owns this flow:
 1. Optional cache reset (`clearCacheBeforeRefresh=true`)
-2. Server list fetch via `ServerRepository.getServers(...)`
-3. Post-refresh selected-country alignment via `SelectedCountryServerSync.syncAfterRefresh(...)`
+2. Source-aware fetch via `ServersV2SyncCoordinator` for `DEFAULT_V2` or `ServerRepository.getServers(...)` for CSV-backed sources
+3. When `DEFAULT_V2` primary fetch fails, fallback to legacy CSV on the same primary domain, then `FALLBACK_SERVERS_URL`
+4. Post-refresh selected-country alignment via `SelectedCountryServerSync.syncAfterRefresh(...)` for CSV-backed data
 
 ## Trigger Matrix
 | Trigger | File | Mode |
@@ -34,10 +35,14 @@ The coordinator owns this flow:
 ### Two-Phase Lazy Load
 At splash, `ServersV2SyncCoordinator` pre-fetches the country list only. Per-country server lists are fetched lazily when the user selects a country in the main screen.
 
+### Trusted Fallback Chain
+When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary v2 routes first. If that fetch fails, the coordinator falls back to the legacy CSV route derived from `PRIMARY_SERVERS_URL`, and then to `FALLBACK_SERVERS_URL`. Successful fallback persists the working CSV-backed source (`LEGACY` for primary-domain CSV, `VPNGATE` for the final fallback), reusing the existing persisted-source behavior for CSV flows.
+
 ### Components
 - `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
 - `SplashServerPreloadInteractor` routes to the v2 path or the legacy path based on `UserSettingsStore.serverSource`.
 - `CountryServersInteractor` calls `ServersV2Repository.getServersForCountry()` to drive lazy per-country loads.
+- `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> primary legacy CSV -> VPN Gate CSV` fallback handoff for shared sync triggers.
 
 ### Cache Strategy
 - Countries cached in `v2_countries.json`; timestamp stored in SharedPrefs key `servers_v2_cache` / `ts_countries`.
@@ -53,3 +58,7 @@ Servers with empty `configData` are dropped silently before caching.
 
 ### Migration
 A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load. New installs default to `DEFAULT_V2`.
+
+## Source-Independent App Metadata Calls
+- Release notes (`What's New`) always use routes derived from `PRIMARY_SERVERS_URL` and no longer depend on the selected server source or custom CSV URL.
+- Update checks (`Get Update`) always use routes derived from `PRIMARY_SERVERS_URL`. `FALLBACK_SERVERS_URL` and custom server URLs are never trusted as update hosts.

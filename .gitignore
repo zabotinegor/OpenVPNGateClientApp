@@ -99,6 +99,10 @@ artifacts
 
 
 
+
+
+
+
 # BEGIN synced-copilot-assets
 /.github/agents/code-implementator.agent.md
 /.github/agents/code-review.agent.md
@@ -131,6 +135,7 @@ artifacts
 /.github/skills/e2e-manual-testing/references/artifact-contract.md
 /.github/skills/e2e-manual-testing/references/environment-and-auth.md
 /.github/skills/e2e-manual-testing/references/scenario-patterns.md
+/.github/skills/e2e-manual-testing/references/testing-knowledge-index.md
 /.github/skills/e2e-manual-testing/SKILL.md
 /.github/skills/github-create-pr/references/pr-style.md
 /.github/skills/github-create-pr/SKILL.md

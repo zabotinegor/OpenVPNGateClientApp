@@ -1,11 +1,13 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -143,6 +145,93 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(emptyList<Server>(), result)
     }
 
+    @Test
+    fun sync_default_v2_falls_back_to_primary_legacy_and_persists_legacy() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1))) }))
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(listOf(ApiConstants.primaryLegacyServersUrl()), api.calledUrls)
+        assertEquals(ServerSource.LEGACY, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
+    fun sync_default_v2_falls_back_to_vpngate_when_primary_legacy_fails() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("legacy primary down") },
+                { sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))) }
+            )
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ApiConstants.primaryLegacyServersUrl(), api.calledUrls[0])
+        assertEquals(ApiConstants.FALLBACK_SERVERS_URL, api.calledUrls[1])
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
+    fun sync_default_v2_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SourceSwitchingApi(
+            context = context,
+            switchedSource = ServerSource.CUSTOM,
+            body = sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1)))
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
+    fun sync_default_v2_vpngate_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = FallbackThenSourceSwitchingApi(
+            context = context,
+            switchedSource = ServerSource.CUSTOM,
+            body = sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1)))
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+    }
+
     // TS-7 (Legacy regression): Legacy CSV source is unaffected by the DEFAULT_V2 path.
     @Test
     fun sync_legacy_source_does_not_call_v2_selected_country_sync() = runBlocking {
@@ -158,6 +247,41 @@ class ServerSelectionSyncCoordinatorTest {
 
         assertEquals(0, v2Coordinator.syncCountriesCallCount)
         assertEquals(0, v2Coordinator.syncSelectedCountryCallCount)
+    }
+
+    // AC-4.6: Persist LEGACY only after a real CSV fallback fetch, not when returning stale cache.
+    @Test
+    fun sync_default_v2_does_not_persist_legacy_when_csv_fallback_returns_only_cache() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        // First, pre-populate cache by loading legacy servers
+        val legacyServer = makeServer("cached-server", lineIndex = 1)
+        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(legacyServer))))
+        cachedRepository.getServers(context, forceRefresh = true, settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY))
+
+        // Now create a coordinator with an API that fails for all URLs (simulating offline)
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("v2 down") },  // v2 fails
+                { throw IOException("csv primary down") }, // legacy primary fails
+                { throw IOException("fallback down") }     // vpngate fails
+            )
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        // Sync should succeed (returns cached servers), but should NOT persist LEGACY because
+        // the CSV fallback didn't actually execute (usedIndex == -1)
+        val result = coordinator.sync(forceRefresh = false, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals("cached-server", result[0].name)
+        // Source should remain DEFAULT_V2 (not switched to LEGACY) because only cache was returned
+        assertEquals(ServerSource.DEFAULT_V2, UserSettingsStore.load(context).serverSource)
     }
 
     private fun sampleCsv(servers: List<Server>): String {
@@ -227,6 +351,36 @@ class ServerSelectionSyncCoordinatorTest {
         override suspend fun clearCaches(context: Context) = Unit
     }
 
+    private class ThrowingCountriesV2SyncCoordinator : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> {
+            throw IOException("v2 down")
+        }
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
+    }
+
+    private class SequenceApi(private val responses: List<() -> String>) : VpnServersApi {
+        val calledUrls: MutableList<String> = mutableListOf()
+        private var callCount: Int = 0
+
+        override suspend fun getServers(url: String): ResponseBody {
+            calledUrls += url
+            val block = responses.getOrElse(callCount) { { throw IOException("No more responses") } }
+            callCount += 1
+            return block().toResponseBody("text/plain".toMediaType())
+        }
+    }
+
     private class TrackingV2SyncCoordinator : ServersV2SyncCoordinator {
         var syncCountriesCallCount = 0
         var syncSelectedCountryCallCount = 0
@@ -278,6 +432,40 @@ class ServerSelectionSyncCoordinatorTest {
     private class FixedApi(private val body: String) : VpnServersApi {
         override suspend fun getServers(url: String): ResponseBody {
             return body.toResponseBody("text/plain".toMediaType())
+        }
+    }
+
+    private class SourceSwitchingApi(
+        private val context: Context,
+        private val switchedSource: ServerSource,
+        private val body: String
+    ) : VpnServersApi {
+        private var switched = false
+
+        override suspend fun getServers(url: String): ResponseBody {
+            if (!switched) {
+                UserSettingsStore.saveServerSource(context, switchedSource)
+                switched = true
+            }
+            return body.toResponseBody("text/plain".toMediaType())
+        }
+    }
+
+    private class FallbackThenSourceSwitchingApi(
+        private val context: Context,
+        private val switchedSource: ServerSource,
+        private val body: String
+    ) : VpnServersApi {
+        private var callCount = 0
+
+        override suspend fun getServers(url: String): ResponseBody {
+            callCount += 1
+            return if (callCount == 1) {
+                throw IOException("legacy primary down")
+            } else {
+                UserSettingsStore.saveServerSource(context, switchedSource)
+                body.toResponseBody("text/plain".toMediaType())
+            }
         }
     }
 }
