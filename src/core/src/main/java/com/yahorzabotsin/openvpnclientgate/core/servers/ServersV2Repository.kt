@@ -21,8 +21,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Fetches and caches v2 country and server lists.
  *
  * Cache strategy mirrors [ServerRepository]:
- * - Countries cached in SharedPrefs timestamp + file `v2_countries.json`.
- * - Servers per country cached in `v2_servers_<code>.json`, keyed by country code.
+ * - Countries cached per locale in SharedPrefs timestamp + file `v2_countries_<locale>.json`.
+ * - Servers cached per country+locale in `v2_servers_<code>_<locale>.json`.
  */
 class ServersV2Repository(
     private val api: ServersV2Api,
@@ -34,8 +34,8 @@ class ServersV2Repository(
     private companion object {
         private val TAG = LogTags.APP + ":ServersV2Repository"
         private const val CACHE_PREFS = "servers_v2_cache"
-        private const val KEY_COUNTRIES_TS = "ts_countries"
-        private const val COUNTRIES_CACHE_FILE = "v2_countries.json"
+        private const val KEY_COUNTRIES_TS_PREFIX = "ts_countries_"
+        private const val COUNTRIES_CACHE_FILE_PREFIX = "v2_countries_"
         private const val SERVERS_CACHE_FILE_PREFIX = "v2_servers_"
         private const val SERVERS_CACHE_FILE_SUFFIX = ".json"
         private const val PAGE_SIZE = 50
@@ -44,11 +44,20 @@ class ServersV2Repository(
         private fun normalizeCountryCode(countryCode: String): String =
             countryCode.lowercase(Locale.ROOT)
 
-        private fun serversCacheFile(ctx: Context, countryCode: String): File =
-            File(ctx.cacheDir, "$SERVERS_CACHE_FILE_PREFIX${normalizeCountryCode(countryCode)}$SERVERS_CACHE_FILE_SUFFIX")
+        private fun normalizeLocale(locale: String): String =
+            locale.trim().lowercase(Locale.ROOT).ifBlank { "en" }
 
-        private fun countriesCacheFile(ctx: Context): File =
-            File(ctx.cacheDir, COUNTRIES_CACHE_FILE)
+        private fun serversCacheFile(ctx: Context, countryCode: String, locale: String): File {
+            val normalizedCountryCode = normalizeCountryCode(countryCode)
+            val normalizedLocale = normalizeLocale(locale)
+            return File(
+                ctx.cacheDir,
+                "$SERVERS_CACHE_FILE_PREFIX${normalizedCountryCode}_${normalizedLocale}$SERVERS_CACHE_FILE_SUFFIX"
+            )
+        }
+
+        private fun countriesCacheFile(ctx: Context, locale: String): File =
+            File(ctx.cacheDir, "$COUNTRIES_CACHE_FILE_PREFIX${normalizeLocale(locale)}$SERVERS_CACHE_FILE_SUFFIX")
 
         private fun parseCountries(json: String): List<CountryV2> =
             Gson().fromJson(json, Array<CountryV2>::class.java).toList()
@@ -74,16 +83,18 @@ class ServersV2Repository(
         cacheOnly: Boolean = false
     ): List<CountryV2> = countriesMutex.withLock {
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+        val locale = resolvePreferredLocale(context)
+        val normalizedLocale = normalizeLocale(locale)
         fetchWithCache(
-            cacheFile = countriesCacheFile(context),
-            tsKey = KEY_COUNTRIES_TS,
+            cacheFile = countriesCacheFile(context, normalizedLocale),
+            tsKey = "$KEY_COUNTRIES_TS_PREFIX$normalizedLocale",
             prefs = prefs,
             cacheTtlMs = settingsStore.load(context).cacheTtlMs,
             forceRefresh = forceRefresh,
             cacheOnly = cacheOnly,
-            logPrefix = "getCountries",
+            logPrefix = "getCountries[locale=$normalizedLocale]",
             parse = ::parseCountries,
-            fetchNetwork = { Gson().toJson(api.getCountries()) }
+            fetchNetwork = { Gson().toJson(api.getCountries(locale = normalizedLocale)) }
         )
     }
 
@@ -101,24 +112,35 @@ class ServersV2Repository(
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false
     ): List<ServerV2> {
+        val locale = resolvePreferredLocale(context)
+        val normalizedLocale = normalizeLocale(locale)
         val normalizedCountryCode = normalizeCountryCode(countryCode)
-        val mutex = serversMutexMap.computeIfAbsent(normalizedCountryCode) { Mutex() }
+        val lockKey = "${normalizedCountryCode}|$normalizedLocale"
+        val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-            val cacheKey = "ts_servers_${normalizedCountryCode}"
-            AppLog.d(TAG, "getServersForCountry[$countryCode]: serverCount=$serverCount")
+            val cacheKey = "ts_servers_${normalizedCountryCode}_$normalizedLocale"
+            AppLog.d(
+                TAG,
+                "getServersForCountry[$countryCode]: serverCount=$serverCount locale=$normalizedLocale"
+            )
             fetchWithCache(
-                cacheFile = serversCacheFile(context, countryCode),
+                cacheFile = serversCacheFile(context, countryCode, normalizedLocale),
                 tsKey = cacheKey,
                 prefs = prefs,
                 cacheTtlMs = settingsStore.load(context).cacheTtlMs,
                 forceRefresh = forceRefresh,
                 cacheOnly = cacheOnly,
-                logPrefix = "getServersForCountry[$countryCode]",
+                logPrefix = "getServersForCountry[$countryCode][$normalizedLocale]",
                 parse = ::parseServers,
-                fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount)) }
+                fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
             )
         }
+    }
+
+    private fun resolvePreferredLocale(context: Context): String {
+        val settings = settingsStore.load(context)
+        return settingsStore.resolvePreferredLocale(settings.language)
     }
 
     private suspend fun <T> fetchWithCache(
@@ -200,7 +222,11 @@ class ServersV2Repository(
         }
     }
 
-    private suspend fun fetchAllPages(countryCode: String, serverCount: Int): List<ServerV2> {
+    private suspend fun fetchAllPages(
+        countryCode: String,
+        serverCount: Int,
+        locale: String
+    ): List<ServerV2> {
         val result = mutableListOf<ServerV2>()
         var skip = 0
         var rawFetched = 0
@@ -208,6 +234,7 @@ class ServersV2Repository(
         val serverCountBound = serverCount.coerceAtLeast(0)
         while (true) {
             val page = api.getServers(
+                locale = locale,
                 countryCode = countryCode,
                 isActive = true,
                 skip = skip,
@@ -245,10 +272,14 @@ class ServersV2Repository(
 
     /** Clears the countries cache (timestamp only; file left until overwritten). */
     fun clearCountriesCache(context: Context) {
-        countriesCacheFile(context).delete()
-        context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE).edit()
-            .remove(KEY_COUNTRIES_TS)
-            .apply()
+        context.cacheDir.listFiles()?.filter {
+            it.name.startsWith(COUNTRIES_CACHE_FILE_PREFIX) && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
+        }?.forEach { it.delete() }
+        val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+        val keysToRemove = prefs.all.keys.filter { it.startsWith(KEY_COUNTRIES_TS_PREFIX) }
+        prefs.edit().apply {
+            keysToRemove.forEach { remove(it) }
+        }.apply()
     }
 
     /** Clears all per-country server caches (timestamps and files). */

@@ -126,6 +126,16 @@ object UserSettingsStore {
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
+    fun resolvePreferredLocale(
+        language: LanguageOption,
+        systemLocale: Locale = Locale.getDefault()
+    ): String = when (language) {
+        LanguageOption.SYSTEM -> systemLocale.language.ifBlank { "en" }
+        LanguageOption.ENGLISH -> "en"
+        LanguageOption.RUSSIAN -> "ru"
+        LanguageOption.POLISH -> "pl"
+    }
+
     fun resolveLegacyServerUrls(): List<String> = listOf(
         ApiConstants.primaryLegacyServersUrl(),
         ApiConstants.FALLBACK_SERVERS_URL

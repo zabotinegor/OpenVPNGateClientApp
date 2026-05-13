@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -46,6 +47,7 @@ class ServersV2RepositoryTest {
         assertEquals("JP", result[0].code)
         assertEquals("Japan", result[0].name)
         assertEquals(14, result[0].serverCount)
+        assertEquals(currentLocaleCode(), api.lastCountriesLocale)
     }
 
     // UT-2.2 — second call without forceRefresh uses cache (no second HTTP call)
@@ -72,8 +74,9 @@ class ServersV2RepositoryTest {
 
         // Write expired timestamp
         repo.getCountries(context, forceRefresh = true)
+        val locale = currentLocaleCode()
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_$locale", 1L).commit()
 
         repo.getCountries(context, forceRefresh = false)
 
@@ -91,7 +94,7 @@ class ServersV2RepositoryTest {
 
         // Expire cache and make API throw
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_${currentLocaleCode()}", 1L).commit()
         api.throwOnCountries = IOException("network down")
 
         val result = repo.getCountries(context, forceRefresh = false)
@@ -122,6 +125,7 @@ class ServersV2RepositoryTest {
 
         assertEquals(10, result.size)
         assertEquals(1, api.serversCallCount)
+        assertEquals(currentLocaleCode(), api.lastServersLocale)
     }
 
     // UT-2.7 — serverCount > 50 → multiple pages requested
@@ -225,8 +229,9 @@ class ServersV2RepositoryTest {
         repo.getServersForCountry(context, "JP", 5, forceRefresh = true)
         repo.getServersForCountry(context, "DE", 5, forceRefresh = true)
 
-        val jpCacheFile = File(context.cacheDir, "v2_servers_jp.json")
-        val deCacheFile = File(context.cacheDir, "v2_servers_de.json")
+        val locale = currentLocaleCode()
+        val jpCacheFile = File(context.cacheDir, "v2_servers_jp_${locale}.json")
+        val deCacheFile = File(context.cacheDir, "v2_servers_de_${locale}.json")
         assertTrue(jpCacheFile.exists())
         assertTrue(deCacheFile.exists())
     }
@@ -238,16 +243,17 @@ class ServersV2RepositoryTest {
         try {
             val api = FakeServersV2Api(serversJson = buildServersJson("IQ", 1))
             val repo = ServersV2Repository(api)
+            val locale = currentLocaleCode()
 
             repo.getServersForCountry(context, "IQ", 1, forceRefresh = true)
 
-            val normalizedCacheFile = File(context.cacheDir, "v2_servers_iq.json")
+            val normalizedCacheFile = File(context.cacheDir, "v2_servers_iq_${locale}.json")
             val localeSensitiveCacheFile = File(context.cacheDir, "v2_servers_ıq.json")
             assertTrue(normalizedCacheFile.exists())
             assertEquals(false, localeSensitiveCacheFile.exists())
 
             val ts = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-                .getLong("ts_servers_iq", -1L)
+                .getLong("ts_servers_iq_${locale}", -1L)
             assertTrue(ts > 0L)
         } finally {
             Locale.setDefault(previousLocale)
@@ -259,10 +265,11 @@ class ServersV2RepositoryTest {
     fun getServersForCountry_cache_expired() = runBlocking {
         val api = FakeServersV2Api(serversJson = buildServersJson("US", 3))
         val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
 
         repo.getServersForCountry(context, "US", 3, forceRefresh = true)
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_servers_us", 1L).commit()
+            .edit().putLong("ts_servers_us_${locale}", 1L).commit()
 
         repo.getServersForCountry(context, "US", 3, forceRefresh = false)
 
@@ -301,8 +308,9 @@ class ServersV2RepositoryTest {
         // Prime cache
         repo.getCountries(context, forceRefresh = true)
         // Expire cache
+        val locale = currentLocaleCode()
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_$locale", 1L).commit()
         // Simulate Gson deserialization failure on the next network attempt
         api.throwOnCountries = JsonSyntaxException("simulated deserialization failure")
 
@@ -325,7 +333,7 @@ class ServersV2RepositoryTest {
         val callsAfterPrime = api.countriesCallCount
 
         // Corrupt cache file while timestamp remains valid.
-        File(context.cacheDir, "v2_countries.json").writeText("{not-json")
+        File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json").writeText("{not-json")
 
         try {
             repo.getCountries(context, forceRefresh = false, cacheOnly = true)
@@ -364,6 +372,9 @@ class ServersV2RepositoryTest {
         return """{"items":[$items],"total":$total}"""
     }
 
+    private fun currentLocaleCode(): String =
+        UserSettingsStore.resolvePreferredLocale(UserSettingsStore.load(context).language)
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
@@ -372,14 +383,18 @@ class ServersV2RepositoryTest {
     ) : ServersV2Api {
         var countriesCallCount = 0
         var serversCallCount = 0
+        var lastCountriesLocale: String? = null
+        var lastServersLocale: String? = null
 
-        override suspend fun getCountries(): List<CountryV2> {
+        override suspend fun getCountries(locale: String): List<CountryV2> {
             throwOnCountries?.let { throw it }
             countriesCallCount++
+            lastCountriesLocale = locale
             return Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         }
 
         override suspend fun getServers(
+            locale: String,
             countryCode: String,
             isActive: Boolean,
             skip: Int,
@@ -387,6 +402,7 @@ class ServersV2RepositoryTest {
         ): ServersPageResponse {
             val pageJson = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
             serversCallCount++
+            lastServersLocale = locale
             return Gson().fromJson(pageJson, ServersPageResponse::class.java)
         }
     }

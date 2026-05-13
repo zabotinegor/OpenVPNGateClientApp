@@ -10,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class UserSettingsStoreTest {
@@ -151,6 +152,25 @@ class UserSettingsStoreTest {
         // setUp() already cleared prefs — no "server_source" key exists
         val settings = UserSettingsStore.load(context)
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    @Test
+    fun resolve_preferred_locale_maps_explicit_languages() {
+        assertEquals("en", UserSettingsStore.resolvePreferredLocale(LanguageOption.ENGLISH))
+        assertEquals("ru", UserSettingsStore.resolvePreferredLocale(LanguageOption.RUSSIAN))
+        assertEquals("pl", UserSettingsStore.resolvePreferredLocale(LanguageOption.POLISH))
+    }
+
+    @Test
+    fun resolve_preferred_locale_system_uses_system_language_or_en_fallback() {
+        assertEquals(
+            "uk",
+            UserSettingsStore.resolvePreferredLocale(LanguageOption.SYSTEM, Locale.forLanguageTag("uk-UA"))
+        )
+        assertEquals(
+            "en",
+            UserSettingsStore.resolvePreferredLocale(LanguageOption.SYSTEM, Locale(""))
+        )
     }
 }
 

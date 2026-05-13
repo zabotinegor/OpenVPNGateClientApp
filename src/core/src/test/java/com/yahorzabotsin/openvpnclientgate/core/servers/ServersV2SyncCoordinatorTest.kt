@@ -321,13 +321,14 @@ class ServersV2SyncCoordinatorTest {
         var countriesCallCount = 0
         var serversCallCount = 0
 
-        override suspend fun getCountries(): List<CountryV2> {
+        override suspend fun getCountries(locale: String): List<CountryV2> {
             throwOnCountries?.let { throw it }
             countriesCallCount++
             return Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         }
 
         override suspend fun getServers(
+            locale: String,
             countryCode: String,
             isActive: Boolean,
             skip: Int,
