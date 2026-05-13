@@ -16,8 +16,8 @@ This test suite provides end-to-end manual QA validation of the fix for the Andr
 
 | Case ID | Title | Surface | Status | Evidence |
 |---------|-------|---------|--------|----------|
-| **bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch** | App startup and main screen display on Android 11 (API 30) device | Android 11 (API 30) | ✅ PASS | [case file](./bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch.md) |
-| **bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis** | Verify no URLEncoder or StandardCharsets errors in startup logcat | Logcat analysis | ✅ PASS | [case file](./bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis.md) |
+| **bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch** | App startup and main screen display on Android 11 (API 30) device | Android 11 (API 30) | ✅ PASS | [case file](../cases/bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch.md) |
+| **bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis** | Verify no URLEncoder or StandardCharsets errors in startup logcat | Logcat analysis | ✅ PASS | [case file](../cases/bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis.md) |
 
 ### Case Execution Flow
 
