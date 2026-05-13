@@ -33,6 +33,10 @@ class ServerRepository(
     private val cacheMutationMutex: Mutex = Mutex()
 ) {
 
+    // Track whether the last getServers() call performed a real network fetch (usedIndex >= 0)
+    // or only returned cache (usedIndex == -1). Used to guard fallback source persistence.
+    internal var lastUsedIndex: Int = -1
+
     private companion object {
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerRepository"
         private const val CACHE_PREFS = "server_cache"
@@ -287,6 +291,9 @@ class ServerRepository(
             } else if (usedIndex >= 0) {
                 AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
+
+            // Track usedIndex for coordinator to check if persistence should happen (usedIndex >= 0 means real fetch)
+            lastUsedIndex = usedIndex
 
             return@withContext result
         }

@@ -249,6 +249,41 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(0, v2Coordinator.syncSelectedCountryCallCount)
     }
 
+    // AC-4.6: Persist LEGACY only after a real CSV fallback fetch, not when returning stale cache.
+    @Test
+    fun sync_default_v2_does_not_persist_legacy_when_csv_fallback_returns_only_cache() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        // First, pre-populate cache by loading legacy servers
+        val legacyServer = makeServer("cached-server", lineIndex = 1)
+        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(legacyServer))))
+        cachedRepository.getServers(context, forceRefresh = true, settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY))
+
+        // Now create a coordinator with an API that fails for all URLs (simulating offline)
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("v2 down") },  // v2 fails
+                { throw IOException("csv primary down") }, // legacy primary fails
+                { throw IOException("fallback down") }     // vpngate fails
+            )
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        // Sync should succeed (returns cached servers), but should NOT persist LEGACY because
+        // the CSV fallback didn't actually execute (usedIndex == -1)
+        val result = coordinator.sync(forceRefresh = false, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals("cached-server", result[0].name)
+        // Source should remain DEFAULT_V2 (not switched to LEGACY) because only cache was returned
+        assertEquals(ServerSource.DEFAULT_V2, UserSettingsStore.load(context).serverSource)
+    }
+
     private fun sampleCsv(servers: List<Server>): String {
         val header = "TITLE, SAMPLE\nHEADER, IGNORE\n"
         val body = servers.joinToString(separator = "\n") { s ->

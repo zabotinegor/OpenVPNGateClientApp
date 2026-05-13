@@ -78,7 +78,9 @@ class DefaultServerSelectionSyncCoordinator(
                 )
 
                 val persistedSource = UserSettingsStore.load(appContext).serverSource
-                if (persistedSource == ServerSource.DEFAULT_V2) {
+                if (persistedSource == ServerSource.DEFAULT_V2 && serverRepository.lastUsedIndex >= 0) {
+                    // AC-4.6: Persist LEGACY only if the LEGACY CSV fetch actually succeeded (usedIndex >= 0),
+                    // not if we only returned stale cache (usedIndex == -1).
                     UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
                     AppLog.w(tag, "DEFAULT_V2 primary failed; switched persisted source to Legacy CSV fallback.")
                 }
