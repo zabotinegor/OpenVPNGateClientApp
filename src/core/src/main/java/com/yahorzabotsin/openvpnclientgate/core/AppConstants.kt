@@ -2,7 +2,6 @@ package com.yahorzabotsin.openvpnclientgate.core
 
 import java.net.URI
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 object ApiConstants {
     val PRIMARY_SERVERS_URL: String = BuildConfig.PRIMARY_SERVERS_URL
@@ -216,9 +215,9 @@ object PrimaryDomainRoutes {
     }
 
     private fun encodePathSegment(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
+        URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
     private fun encodeQueryComponent(value: String): String =
-        URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
+        URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 }
 
