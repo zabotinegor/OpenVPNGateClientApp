@@ -33,6 +33,10 @@
    - Command: `adb -s b6e8f6bd logcat -c`
    - Purpose: Clear previous logs for clean evidence capture
 
+4. **Working Directory Preparation**
+   - Command: `Set-Location $PSScriptRoot`
+   - Purpose: Ensure redirected evidence files are created in this case directory.
+
 ## Test Actions
 
 ### Action 1: Launch App from Splash Screen

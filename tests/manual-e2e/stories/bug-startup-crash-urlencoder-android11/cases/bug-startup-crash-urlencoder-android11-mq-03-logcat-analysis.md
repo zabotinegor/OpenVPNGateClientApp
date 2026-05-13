@@ -12,6 +12,13 @@ Verify that the URLEncoder API compatibility fix has successfully resolved all `
 
 ## Test Method
 
+### Working Directory Preparation
+```
+Set-Location $PSScriptRoot
+```
+Run the commands below from the case directory so redirected outputs are written next to this case file.
+
+
 ### Logcat Capture
 ```
 adb -s b6e8f6bd logcat -d > logcat-20260513.txt
@@ -49,8 +56,8 @@ adb -s b6e8f6bd logcat -d > logcat-20260513.txt
 
 ### Logcat Statistics
 
-- **Total Logcat Lines:** ~2800
-- **Timestamp Range:** 05-13 20:57:04 - 20:57:06+ (startup window)
+- **Total Logcat Lines:** 3090
+- **Timestamp Range:** 05-13 20:57:04.495 - 05-13 20:57:47.926 (captured window)
 - **Device:** Xiaomi Mi 9T Pro (Android 11, API 30)
 - **App Package:** `com.yahorzabotsin.openvpnclientgate`
 
