@@ -92,8 +92,8 @@ class PrimaryDomainRoutesTest {
             buildNumber = 42L,
             locale = null
         )
-        
-        // The special characters + and . should be properly encoded
+
+        // '+' is encoded as %2B, while '.' and '-' remain unencoded.
         assertEquals(
             "https://api.example.com/api/v1/versions/number/1.2.3-beta%2Bbuild.123/build/42",
             urlWithSpecialChars
@@ -113,7 +113,7 @@ class PrimaryDomainRoutesTest {
             locale = "zh-CN"
         )
 
-        // The hyphen in zh-CN should be properly encoded
+        // The hyphen is an unreserved character and remains unencoded.
         assertEquals(
             "https://api.example.com/api/v2/versions/check-update?platform=mobile&releaseType=release&currentBuild=42&locale=zh-CN",
             urlWithLocale
@@ -124,19 +124,19 @@ class PrimaryDomainRoutesTest {
     fun `encodes url-unsafe characters in query parameters correctly`() {
         val baseUrl = "https://api.example.com"
 
-        // Test with locale containing spaces and special characters
+        // Use a locale with a space to verify %20 encoding in query params.
         val urlWithEncodedLocale = PrimaryDomainRoutes.updateCheckUrl(
             baseUrl = baseUrl,
             apiVersion = 1,
             platform = "mobile",
             releaseType = "release",
             currentBuild = 100L,
-            locale = "pt_BR"
+            locale = "pt BR"
         )
 
-        // Underscore should be properly encoded as %5F in the locale query parameter
+        // Space should be encoded as %20 in the locale query parameter.
         assertEquals(
-            "https://api.example.com/api/v1/versions/check-update?platform=mobile&releaseType=release&currentBuild=100&locale=pt_BR",
+            "https://api.example.com/api/v1/versions/check-update?platform=mobile&releaseType=release&currentBuild=100&locale=pt%20BR",
             urlWithEncodedLocale
         )
     }
