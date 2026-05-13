@@ -26,7 +26,7 @@
 
 2. **APK Installation**
    - APK path: `src/mobile/build/outputs/apk/debug/mobile-debug.apk`
-   - Command: `adb -s b6e8f6bd install mobile-debug.apk`
+   - Command: `adb -s b6e8f6bd install src/mobile/build/outputs/apk/debug/mobile-debug.apk`
    - Result: Success (no errors)
 
 3. **Logcat Preparation**
@@ -75,7 +75,7 @@ Start-Sleep -Seconds 3  # allow splash to main-screen transition
 
 ### Action 3: Verify MainActivity Resumed
 ```
-adb -s b6e8f6bd shell dumpsys activity activities | grep -i "mResumedActivity\|ResumedActivity"
+adb -s b6e8f6bd shell dumpsys activity activities | Select-String -Pattern "mResumedActivity|ResumedActivity"
 ```
 
 **Expected Result:**
