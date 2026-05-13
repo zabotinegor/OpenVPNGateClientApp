@@ -162,6 +162,35 @@ class ServerRepositoryTest {
     }
 
     @Test
+    fun custom_source_failure_does_not_fallback() = runBlocking {
+        UserSettingsStore.save(
+            context,
+            UserSettingsStore.load(context).copy(
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://custom.example/api/v1/servers/active"
+            )
+        )
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("custom down") },
+                { sampleCsv(listOf(makeServer("unexpected-fallback"))) }
+            )
+        )
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        try {
+            repo.getServers(context, forceRefresh = true)
+            fail("Expected IOException when custom source fails")
+        } catch (expected: IOException) {
+            // expected
+        }
+
+        assertEquals(1, api.callCount)
+        assertEquals(listOf("https://custom.example/api/v1/servers/active"), api.calledUrls)
+        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
     fun uses_cache_when_fresh() = runBlocking {
         val initial = makeServer("cached")
         val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }, { throw IOException("should not be called") }))

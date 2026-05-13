@@ -30,28 +30,66 @@ class DefaultServerSelectionSyncCoordinator(
     ): List<Server> {
         val source = UserSettingsStore.load(appContext).serverSource
         if (source == ServerSource.DEFAULT_V2) {
-            if (clearCacheBeforeRefresh) {
-                serversV2SyncCoordinator.clearCaches(appContext)
-            }
-            serversV2SyncCoordinator.syncCountries(
-                context = appContext,
-                forceRefresh = forceRefresh || clearCacheBeforeRefresh,
-                cacheOnly = cacheOnly
-            )
-            // AC-4.2/AC-4.3: Refresh the currently selected country's server list so the
-            // selected-country store stays aligned after every sync trigger (foreground, periodic,
-            // settings-triggered) without requiring the user to reopen the country screen.
-            runCatching {
-                serversV2SyncCoordinator.syncSelectedCountryServers(
+            try {
+                if (clearCacheBeforeRefresh) {
+                    serversV2SyncCoordinator.clearCaches(appContext)
+                }
+                serversV2SyncCoordinator.syncCountries(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                     cacheOnly = cacheOnly
                 )
-            }.onFailure { e ->
-                if (e is CancellationException) throw e
-                AppLog.w(tag, "DEFAULT_V2 selected country sync failed after country list refresh", e)
+                // AC-4.2/AC-4.3: Refresh the currently selected country's server list so the
+                // selected-country store stays aligned after every sync trigger (foreground, periodic,
+                // settings-triggered) without requiring the user to reopen the country screen.
+                runCatching {
+                    serversV2SyncCoordinator.syncSelectedCountryServers(
+                        context = appContext,
+                        forceRefresh = forceRefresh || clearCacheBeforeRefresh,
+                        cacheOnly = cacheOnly
+                    )
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    AppLog.w(tag, "DEFAULT_V2 selected country sync failed after country list refresh", e)
+                }
+                return emptyList()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(tag, "DEFAULT_V2 sync failed; falling back to legacy CSV chain", e)
+
+                if (clearCacheBeforeRefresh) {
+                    runCatching { serverRepository.clearServerCache(appContext) }
+                        .onFailure { clearError ->
+                            if (clearError is CancellationException) throw clearError
+                            AppLog.w(tag, "Failed to clear legacy cache before DEFAULT_V2 fallback", clearError)
+                        }
+                }
+
+                val fallbackSettings = UserSettingsStore.load(appContext).copy(serverSource = ServerSource.LEGACY)
+                val servers = serverRepository.getServers(
+                    context = appContext,
+                    forceRefresh = forceRefresh || clearCacheBeforeRefresh,
+                    cacheOnly = cacheOnly,
+                    settingsOverride = fallbackSettings
+                )
+
+                val persistedSource = UserSettingsStore.load(appContext).serverSource
+                if (persistedSource == ServerSource.DEFAULT_V2) {
+                    UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
+                    AppLog.w(tag, "DEFAULT_V2 primary failed; switched persisted source to Legacy CSV fallback.")
+                }
+
+                runCatching { selectedCountrySync.syncAfterRefresh(servers) }
+                    .onFailure { syncError ->
+                        if (syncError is CancellationException) {
+                            throw syncError
+                        }
+                        AppLog.w(tag, "Selected country sync failed after DEFAULT_V2 fallback refresh", syncError)
+                    }
+
+                return servers
             }
-            return emptyList()
         }
 
         if (clearCacheBeforeRefresh) {

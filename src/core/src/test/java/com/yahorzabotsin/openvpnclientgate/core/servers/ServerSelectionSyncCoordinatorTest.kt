@@ -1,11 +1,13 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -143,6 +145,50 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(emptyList<Server>(), result)
     }
 
+    @Test
+    fun sync_default_v2_falls_back_to_primary_legacy_and_persists_legacy() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1))) }))
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(listOf(ApiConstants.primaryLegacyServersUrl()), api.calledUrls)
+        assertEquals(ServerSource.LEGACY, UserSettingsStore.load(context).serverSource)
+    }
+
+    @Test
+    fun sync_default_v2_falls_back_to_vpngate_when_primary_legacy_fails() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("legacy primary down") },
+                { sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))) }
+            )
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ApiConstants.primaryLegacyServersUrl(), api.calledUrls[0])
+        assertEquals(ApiConstants.FALLBACK_SERVERS_URL, api.calledUrls[1])
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
     // TS-7 (Legacy regression): Legacy CSV source is unaffected by the DEFAULT_V2 path.
     @Test
     fun sync_legacy_source_does_not_call_v2_selected_country_sync() = runBlocking {
@@ -225,6 +271,36 @@ class ServerSelectionSyncCoordinatorTest {
         ) = Unit
 
         override suspend fun clearCaches(context: Context) = Unit
+    }
+
+    private class ThrowingCountriesV2SyncCoordinator : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> {
+            throw IOException("v2 down")
+        }
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
+    }
+
+    private class SequenceApi(private val responses: List<() -> String>) : VpnServersApi {
+        val calledUrls: MutableList<String> = mutableListOf()
+        private var callCount: Int = 0
+
+        override suspend fun getServers(url: String): ResponseBody {
+            calledUrls += url
+            val block = responses.getOrElse(callCount) { { throw IOException("No more responses") } }
+            callCount += 1
+            return block().toResponseBody("text/plain".toMediaType())
+        }
     }
 
     private class TrackingV2SyncCoordinator : ServersV2SyncCoordinator {

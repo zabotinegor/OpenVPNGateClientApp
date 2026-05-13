@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
 import java.io.BufferedReader
@@ -160,9 +161,14 @@ class ServerRepository(
         }
     }
 
-    suspend fun getServers(context: Context, forceRefresh: Boolean = false, cacheOnly: Boolean = false): List<Server> =
+    suspend fun getServers(
+        context: Context,
+        forceRefresh: Boolean = false,
+        cacheOnly: Boolean = false,
+        settingsOverride: UserSettings? = null
+    ): List<Server> =
         withContext(Dispatchers.IO) {
-            val settings = settingsStore.load(context)
+            val settings = settingsOverride ?: settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
 
             if (urls.isEmpty()) {

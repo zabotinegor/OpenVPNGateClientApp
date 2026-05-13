@@ -22,8 +22,8 @@
   - `./gradlew testDebugUnitTestApp`
   - `./gradlew connectedDebugAndroidTestApp` (requires a connected ADB device; runs Espresso instrumented tests for core and mobile)
   - `./gradlew connectedDebugAndroidTestTv` (requires a Leanback-capable ADB target; runs Espresso instrumented tests for tv)
-  - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...`
-  - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...`
+  - `./gradlew assembleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
+  - `./gradlew bundleReleaseApp -PappVersionName=... -PappVersionCode=... -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...`
 - Signed release builds need `src/keystore.properties` and the referenced keystore file. Local release builds may be produced unsigned when this file is absent.
 - Before any build that touches resources or native code, initialize submodules: `git submodule update --init --recursive`.
 
@@ -65,7 +65,7 @@
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
 
 ## Project-Specific Pitfalls
-- `PRIMARY_SERVERS_URL`, `FALLBACK_SERVERS_URL`, and `PRIMARY_SERVERS_V2_URL` are required for builds through `src/core/build.gradle.kts`. Missing values fail the build.
+- `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are required for builds through `src/core/build.gradle.kts`. `PRIMARY_SERVERS_URL` is the trusted backend base URL, and the client derives legacy CSV, v2 API, release-note, and update-check routes from it. Missing values fail the build.
 - `src/copy_drawables.gradle.kts` copies required launcher assets from the `media` submodule. If the expected files are missing, builds fail before packaging.
 - `src/core/src/main/AndroidManifest.xml` contains the VPN service declaration for Android special-use foreground services. Be careful when editing service, permission, or exported settings there.
 - `src/external/OpenVPNEngine` is an upstream integration area. Avoid incidental edits there unless the task explicitly requires engine changes.

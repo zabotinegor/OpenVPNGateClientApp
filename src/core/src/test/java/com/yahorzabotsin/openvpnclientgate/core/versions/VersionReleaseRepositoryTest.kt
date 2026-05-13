@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
@@ -54,7 +55,7 @@ class VersionReleaseRepositoryTest {
 
         assertNotNull(result)
         assertEquals(
-            "https://api.example.com/api/v1/versions/number/1.2.3/build/42?locale=ru",
+            ApiConstants.primaryVersionByNumberAndBuildUrl("1.2.3", 42L, "ru"),
             api.requestedUrl
         )
         assertEquals(1, api.callCount)
@@ -149,7 +150,7 @@ class VersionReleaseRepositoryTest {
             repository.getLatestRelease()
 
             assertEquals(
-                "https://api.example.com/api/v1/versions/number/1.2.3/build/42?locale=en",
+                ApiConstants.primaryVersionByNumberAndBuildUrl("1.2.3", 42L, "en"),
                 api.requestedUrl
             )
         } finally {
@@ -158,7 +159,7 @@ class VersionReleaseRepositoryTest {
     }
 
     @Test
-    fun `getLatestRelease re-requests when server source urls change`() = runTest {
+    fun `getLatestRelease ignores server source changes for cache key and host selection`() = runTest {
         val api = CapturingVersionsApi()
         val repository = DefaultVersionReleaseRepository(context, api)
 
@@ -172,12 +173,18 @@ class VersionReleaseRepositoryTest {
         )
         repository.getLatestRelease()
 
-        UserSettingsStore.saveCustomServerUrl(context, "https://api-2.example.com/api/v1/servers/active")
+        UserSettingsStore.save(
+            context,
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.CUSTOM,
+                customServerUrl = "https://api-2.example.com/api/v1/servers/active"
+            )
+        )
         repository.getLatestRelease()
 
-        assertEquals(2, api.callCount)
-        assertFalse(api.requestedUrls.none { it.contains("api-1.example.com") })
-        assertFalse(api.requestedUrls.none { it.contains("api-2.example.com") })
+        assertEquals(1, api.callCount)
+        assertEquals(listOf(ApiConstants.primaryVersionByNumberAndBuildUrl("1.2.3", 42L, "en")), api.requestedUrls)
     }
 
     @Test
@@ -206,7 +213,7 @@ class VersionReleaseRepositoryTest {
     }
 
     @Test
-    fun `getLatestRelease keeps custom base path when building versions url`() = runTest {
+    fun `getLatestRelease keeps using the trusted primary host for custom sources`() = runTest {
         val api = CapturingVersionsApi()
         val repository = DefaultVersionReleaseRepository(context, api)
 
@@ -222,7 +229,7 @@ class VersionReleaseRepositoryTest {
         repository.getLatestRelease()
 
         assertEquals(
-            "https://api.example.com/custom/root/api/v1/versions/number/1.2.3/build/42?locale=en",
+            ApiConstants.primaryVersionByNumberAndBuildUrl("1.2.3", 42L, "en"),
             api.requestedUrl
         )
     }

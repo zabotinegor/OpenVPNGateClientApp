@@ -126,12 +126,19 @@ object UserSettingsStore {
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
+    fun resolveLegacyServerUrls(): List<String> = listOf(
+        ApiConstants.primaryLegacyServersUrl(),
+        ApiConstants.FALLBACK_SERVERS_URL
+    ).map { it.trim() }
+        .filter { it.isNotBlank() }
+        .filter { isUsableServerUrl(it) }
+
     fun resolveServerUrls(settings: UserSettings): List<String> {
         val rawUrls = when (settings.serverSource) {
-            ServerSource.LEGACY -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
+            ServerSource.LEGACY -> resolveLegacyServerUrls()
             ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
-            ServerSource.DEFAULT_V2 -> listOf(ApiConstants.PRIMARY_SERVERS_V2_URL)
+            ServerSource.DEFAULT_V2 -> emptyList()
         }
         return rawUrls.map { it.trim() }
             .filter { it.isNotBlank() }

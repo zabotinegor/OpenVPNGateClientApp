@@ -37,9 +37,14 @@ git submodule update --init --recursive
 
 ## Required Build Configuration
 The `core` module requires the following endpoints at build time:
-- `PRIMARY_SERVERS_URL`
-- `FALLBACK_SERVERS_URL`
-- `PRIMARY_SERVERS_V2_URL` — base URL for the v2 API (e.g. `https://openvpngateclient.azurewebsites.net`)
+- `PRIMARY_SERVERS_URL` — primary backend base URL only, for example `https://openvpngateclient.azurewebsites.net`
+- `FALLBACK_SERVERS_URL` — full VPN Gate CSV fallback URL, for example `https://www.vpngate.net/api/iphone/`
+
+Runtime routes are derived in code from `PRIMARY_SERVERS_URL`:
+- Legacy CSV: `{PRIMARY_SERVERS_URL}/api/v1/servers/active`
+- V2 countries: `{PRIMARY_SERVERS_URL}/api/v2/servers/countries/active`
+- V2 servers: `{PRIMARY_SERVERS_URL}/api/v2/servers`
+- Release notes and update checks stay on the trusted primary backend host regardless of the selected server source
 
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
@@ -51,9 +56,8 @@ Create `servers.local.json` in either repository root or `src/`:
 
 ```json
 {
-  "PRIMARY_SERVERS_URL": "https://example.com/api/v1/servers/active",
-  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/",
-  "PRIMARY_SERVERS_V2_URL": "https://openvpngateclient.azurewebsites.net"
+  "PRIMARY_SERVERS_URL": "https://openvpngateclient.azurewebsites.net",
+  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
 }
 ```
 
@@ -101,10 +105,10 @@ cd src
 .\gradlew.bat assembleDebugApp
 
 # Release APKs (mobile + tv)
-./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
+./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 
 # Release AABs (mobile + tv)
-./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
+./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 ```
 
 ### Version override per launcher
