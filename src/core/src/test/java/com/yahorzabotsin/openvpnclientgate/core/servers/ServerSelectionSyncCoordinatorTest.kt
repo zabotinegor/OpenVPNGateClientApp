@@ -210,6 +210,28 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
     }
 
+    @Test
+    fun sync_default_v2_vpngate_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = FallbackThenSourceSwitchingApi(
+            context = context,
+            switchedSource = ServerSource.CUSTOM,
+            body = sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1)))
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+    }
+
     // TS-7 (Legacy regression): Legacy CSV source is unaffected by the DEFAULT_V2 path.
     @Test
     fun sync_legacy_source_does_not_call_v2_selected_country_sync() = runBlocking {
@@ -391,6 +413,24 @@ class ServerSelectionSyncCoordinatorTest {
                 switched = true
             }
             return body.toResponseBody("text/plain".toMediaType())
+        }
+    }
+
+    private class FallbackThenSourceSwitchingApi(
+        private val context: Context,
+        private val switchedSource: ServerSource,
+        private val body: String
+    ) : VpnServersApi {
+        private var callCount = 0
+
+        override suspend fun getServers(url: String): ResponseBody {
+            callCount += 1
+            return if (callCount == 1) {
+                throw IOException("legacy primary down")
+            } else {
+                UserSettingsStore.saveServerSource(context, switchedSource)
+                body.toResponseBody("text/plain".toMediaType())
+            }
         }
     }
 }

@@ -72,7 +72,9 @@ class DefaultServerSelectionSyncCoordinator(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                     cacheOnly = cacheOnly,
-                    settingsOverride = fallbackSettings
+                    settingsOverride = fallbackSettings,
+                    persistResolvedSource = true,
+                    persistResolvedSourceOnlyIfCurrent = ServerSource.DEFAULT_V2
                 )
 
                 val persistedSource = UserSettingsStore.load(appContext).serverSource

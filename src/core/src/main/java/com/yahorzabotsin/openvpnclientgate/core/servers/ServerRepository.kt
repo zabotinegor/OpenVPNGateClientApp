@@ -165,7 +165,9 @@ class ServerRepository(
         context: Context,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false,
-        settingsOverride: UserSettings? = null
+        settingsOverride: UserSettings? = null,
+        persistResolvedSource: Boolean = true,
+        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
     ): List<Server> =
         withContext(Dispatchers.IO) {
             val settings = settingsOverride ?: settingsStore.load(context)
@@ -268,9 +270,20 @@ class ServerRepository(
                 saveLastCacheKey(context, fallbackCache.key)
             }
 
-            if (settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
-                settingsStore.saveServerSource(context, ServerSource.VPNGATE)
-                AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+            if (persistResolvedSource && settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
+                val currentPersistedSource = settingsStore.load(context).serverSource
+                val canPersistResolvedSource =
+                    persistResolvedSourceOnlyIfCurrent == null ||
+                        currentPersistedSource == persistResolvedSourceOnlyIfCurrent
+                if (canPersistResolvedSource) {
+                    settingsStore.saveServerSource(context, ServerSource.VPNGATE)
+                    AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
+                } else {
+                    AppLog.i(
+                        TAG,
+                        "Primary failed but source changed concurrently; skipping persisted VPN Gate fallback. current=$currentPersistedSource"
+                    )
+                }
             } else if (usedIndex >= 0) {
                 AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
