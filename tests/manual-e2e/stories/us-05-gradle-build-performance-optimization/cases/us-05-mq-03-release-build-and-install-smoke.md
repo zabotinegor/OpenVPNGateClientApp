@@ -8,13 +8,13 @@
 - Required Gradle properties available:
   - `-PappVersionName` (e.g., "11.0")
   - `-PappVersionCode` (e.g., "110")
-  - `-PPRIMARY_SERVERS_URL`, `-PFALLBACK_SERVERS_URL`, `-PPRIMARY_SERVERS_V2_URL`
+  - `-PPRIMARY_SERVERS_URL`, `-PFALLBACK_SERVERS_URL`
 - Android device/emulator connected via ADB (if install test required)
 
 ## Test Steps
 
 1. **Execute release build**
-   - Command: `.\gradlew assembleReleaseApp -PappVersionName=11.0 -PappVersionCode=110 -PPRIMARY_SERVERS_URL=<url> -PFALLBACK_SERVERS_URL=<url> -PPRIMARY_SERVERS_V2_URL=<url>`
+   - Command: `.\gradlew assembleReleaseApp -PappVersionName=11.0 -PappVersionCode=110 -PPRIMARY_SERVERS_URL=<url> -PFALLBACK_SERVERS_URL=<url>`
    - Capture:
      - Build output and duration
      - APK path (typically `src/mobile/build/outputs/apk/release/mobile-release.apk`)

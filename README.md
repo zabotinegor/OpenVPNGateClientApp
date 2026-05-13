@@ -46,6 +46,14 @@ Runtime routes are derived in code from `PRIMARY_SERVERS_URL`:
 - V2 servers: `{PRIMARY_SERVERS_URL}/api/v2/servers`
 - Release notes and update checks stay on the trusted primary backend host regardless of the selected server source
 
+### Fallback Behavior (DEFAULT_V2)
+When the app loads servers via the `DEFAULT_V2` source and the primary v2 route fails, the following fallback chain applies automatically:
+1. Primary v2 API (`{PRIMARY_SERVERS_URL}/api/v2/...`)
+2. Legacy CSV on primary domain (`{PRIMARY_SERVERS_URL}/api/v1/servers/active`)
+3. VPN Gate fallback CSV (`FALLBACK_SERVERS_URL`)
+
+If a lower-priority fallback succeeds, the working source is persisted. This chain applies to all shared sync entry points (splash, main foreground, settings source-switch, periodic background refresh). `CUSTOM` source failures do not fall back.
+
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
 2. Environment variable
