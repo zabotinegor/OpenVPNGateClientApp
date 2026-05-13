@@ -7,10 +7,14 @@ import java.nio.charset.StandardCharsets
 object ApiConstants {
     val PRIMARY_SERVERS_URL: String = BuildConfig.PRIMARY_SERVERS_URL
     val FALLBACK_SERVERS_URL: String = BuildConfig.FALLBACK_SERVERS_URL
+    private const val SAFE_RETROFIT_FALLBACK_BASE_URL = "https://openvpnclientgate.local/"
 
     fun primaryRetrofitBaseUrl(): String =
-        PrimaryDomainRoutes.retrofitBaseUrl(PRIMARY_SERVERS_URL)
-            ?: error("PRIMARY_SERVERS_URL is invalid: $PRIMARY_SERVERS_URL")
+        primaryRetrofitBaseUrlOrFallback(PRIMARY_SERVERS_URL)
+
+    internal fun primaryRetrofitBaseUrlOrFallback(primaryServersUrl: String): String =
+        PrimaryDomainRoutes.retrofitBaseUrl(primaryServersUrl)
+            ?: SAFE_RETROFIT_FALLBACK_BASE_URL
 
     fun primaryLegacyServersUrl(): String =
         PrimaryDomainRoutes.legacyServersUrl(PRIMARY_SERVERS_URL)
