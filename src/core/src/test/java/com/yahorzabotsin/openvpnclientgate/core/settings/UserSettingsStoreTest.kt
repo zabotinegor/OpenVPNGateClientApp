@@ -162,15 +162,22 @@ class UserSettingsStoreTest {
     }
 
     @Test
-    fun resolve_preferred_locale_system_uses_system_language_or_en_fallback() {
-        assertEquals(
-            "uk",
-            UserSettingsStore.resolvePreferredLocale(LanguageOption.SYSTEM, Locale.forLanguageTag("uk-UA"))
-        )
-        assertEquals(
-            "en",
-            UserSettingsStore.resolvePreferredLocale(LanguageOption.SYSTEM, Locale(""))
-        )
+    fun resolvePreferredLocale_systemFallbackToEn() {
+        val settings = UserSettings(language = LanguageOption.SYSTEM)
+        UserSettingsStore.save(context, settings)
+
+        val locale = UserSettingsStore.resolvePreferredLocale(context)
+        assertEquals("en", locale)
+    }
+
+    @Test
+    fun resolvePreferredLocale_systemUsesDeviceLocale() {
+        Locale.setDefault(Locale("pl"))
+        val settings = UserSettings(language = LanguageOption.SYSTEM)
+        UserSettingsStore.save(context, settings)
+
+        val locale = UserSettingsStore.resolvePreferredLocale(context)
+        assertEquals("pl", locale)
     }
 }
 

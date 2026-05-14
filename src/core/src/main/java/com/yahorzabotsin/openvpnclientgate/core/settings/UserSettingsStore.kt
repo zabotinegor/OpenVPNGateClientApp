@@ -126,14 +126,39 @@ object UserSettingsStore {
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
-    fun resolvePreferredLocale(
-        language: LanguageOption,
-        systemLocale: Locale = Locale.getDefault()
-    ): String = when (language) {
-        LanguageOption.SYSTEM -> systemLocale.language.ifBlank { "en" }
-        LanguageOption.ENGLISH -> "en"
-        LanguageOption.RUSSIAN -> "ru"
-        LanguageOption.POLISH -> "pl"
+    /**
+     * Dynamically resolves supported locales based on available resources.
+     */
+    private fun getSupportedLocales(ctx: Context): List<String> {
+        return ctx.resources.configuration.locales.toLanguageTags()
+            .split(",")
+            .map { it.substringBefore("-") }
+            .distinct()
+    }
+
+    /**
+     * Resolves the preferred locale based on the user's language setting.
+     * SYSTEM maps to the device/app locale, with fallback to 'en' if the locale is blank or unsupported.
+     */
+    fun resolvePreferredLocale(ctx: Context): String {
+        val settings = load(ctx)
+        val supportedLocales = getSupportedLocales(ctx)
+        return when (settings.language) {
+            LanguageOption.SYSTEM -> {
+                val systemLocale = Locale.getDefault().language
+                if (systemLocale.isBlank() || systemLocale !in supportedLocales) "en" else systemLocale
+            }
+            LanguageOption.ENGLISH -> "en"
+            LanguageOption.RUSSIAN -> "ru"
+            LanguageOption.POLISH -> "pl"
+        }
+    }
+
+    /**
+     * Checks if the given locale is supported.
+     */
+    private fun isSupportedLocale(locale: String): Boolean {
+        return locale in listOf("en", "ru", "pl")
     }
 
     fun resolveLegacyServerUrls(): List<String> = listOf(

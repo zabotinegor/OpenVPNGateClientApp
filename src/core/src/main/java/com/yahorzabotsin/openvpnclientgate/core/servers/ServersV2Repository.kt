@@ -83,7 +83,7 @@ class ServersV2Repository(
         cacheOnly: Boolean = false
     ): List<CountryV2> = countriesMutex.withLock {
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-        val locale = resolvePreferredLocale(context)
+        val locale = settingsStore.resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
         fetchWithCache(
             cacheFile = countriesCacheFile(context, normalizedLocale),
