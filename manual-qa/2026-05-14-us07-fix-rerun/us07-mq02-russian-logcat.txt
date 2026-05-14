@@ -1,0 +1,23 @@
+﻿
+05-14 08:47:26.834  4482  4516 D OpenVPNGateApp:ServersV2Repository: fetchAllPa
+ges[AU]: fetched 2 servers (raw=2)
+05-14 08:47:27.437  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.miu
+i.home, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection
+=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UN
+SPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsM
+ode=0, label=null, fieldId=2131361961, fieldName=null, extras=null, hintText=nu
+ll, hintLocales=[]}}, false)
+05-14 08:47:28.557  4634  4634 D AppCompatDelegate: Checking for metadata for A
+ppLocalesMetadataHolderService : Service not found
+05-14 08:47:28.751  4634  4634 D OpenVPNGateApp:ServersV2Repository: getCountri
+es[locale=ru]: fetching from network
+05-14 08:47:28.925  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.yah
+orzabotsin.openvpnclientgate, inputType=0, inputTypeString=NULL, enableLearning
+=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptio
+ns=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialS
+elEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=nul
+l, hintText=null, hintLocales=[]}}, false)
+
+

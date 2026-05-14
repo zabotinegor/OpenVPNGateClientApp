@@ -125,6 +125,34 @@ object UserSettingsStore {
         }
         AppCompatDelegate.setApplicationLocales(locales)
     }
+    /**
+     * Resolves the preferred locale based on the user's language setting.
+     * SYSTEM maps to the runtime locale, with fallback to 'en' if blank or unsupported.
+     */
+    fun resolvePreferredLocale(ctx: Context): String {
+        val settings = load(ctx)
+        return resolvePreferredLocale(settings.language, Locale.getDefault())
+    }
+
+    /**
+     * Checks if the given locale is supported.
+     */
+    private fun isSupportedLocale(locale: String): Boolean {
+        return locale in listOf("en", "ru", "pl")
+    }
+
+    fun resolvePreferredLocale(
+        language: LanguageOption,
+        systemLocale: Locale = Locale.getDefault()
+    ): String = when (language) {
+        LanguageOption.SYSTEM -> {
+            val normalized = systemLocale.language.lowercase(Locale.ROOT)
+            if (normalized.isBlank() || !isSupportedLocale(normalized)) "en" else normalized
+        }
+        LanguageOption.ENGLISH -> "en"
+        LanguageOption.RUSSIAN -> "ru"
+        LanguageOption.POLISH -> "pl"
+    }
 
     fun resolveLegacyServerUrls(): List<String> = listOf(
         ApiConstants.primaryLegacyServersUrl(),
@@ -154,4 +182,3 @@ object UserSettingsStore {
         return true
     }
 }
-

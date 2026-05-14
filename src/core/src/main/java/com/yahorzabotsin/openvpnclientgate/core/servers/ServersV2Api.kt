@@ -11,10 +11,13 @@ data class ServersPageResponse(
 
 interface ServersV2Api {
     @GET("api/v2/servers/countries/active")
-    suspend fun getCountries(): List<CountryV2>
+    suspend fun getCountries(
+        @Query("locale") locale: String
+    ): List<CountryV2>
 
     @GET("api/v2/servers")
     suspend fun getServers(
+        @Query("locale") locale: String,
         @Query("countryCode") countryCode: String,
         @Query("isActive") isActive: Boolean = true,
         @Query("skip") skip: Int = 0,

@@ -54,6 +54,17 @@ When the app loads servers via the `DEFAULT_V2` source and the primary v2 route 
 
 If a lower-priority fallback succeeds, the working source is persisted. This chain applies to all shared sync entry points (splash, main foreground, settings source-switch, periodic background refresh). `CUSTOM` source failures do not fall back.
 
+### Localization Behavior (DEFAULT_V2)
+`DEFAULT_V2` requests include an explicit `locale` query for both v2 countries and per-country v2 server lists.
+
+Locale mapping uses app language settings:
+- `SYSTEM` -> runtime locale language code (fallback `en` when blank)
+- `ENGLISH` -> `en`
+- `RUSSIAN` -> `ru`
+- `POLISH` -> `pl`
+
+This localization behavior is scoped to `DEFAULT_V2` only. `LEGACY`, `VPNGATE`, and `CUSTOM` request behavior is unchanged.
+
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
 2. Environment variable

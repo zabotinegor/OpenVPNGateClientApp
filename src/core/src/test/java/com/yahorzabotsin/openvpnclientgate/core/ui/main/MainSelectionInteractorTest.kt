@@ -152,8 +152,9 @@ class MainSelectionInteractorTest {
         private val countries: List<CountryV2>,
         private val serversPerCountry: Map<String, List<ServerV2>>
     ) : ServersV2Api {
-        override suspend fun getCountries(): List<CountryV2> = countries
+        override suspend fun getCountries(locale: String): List<CountryV2> = countries
         override suspend fun getServers(
+            locale: String,
             countryCode: String,
             isActive: Boolean,
             skip: Int,

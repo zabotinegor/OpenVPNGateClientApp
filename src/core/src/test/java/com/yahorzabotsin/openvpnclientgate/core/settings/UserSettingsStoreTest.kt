@@ -10,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class UserSettingsStoreTest {
@@ -151,6 +152,43 @@ class UserSettingsStoreTest {
         // setUp() already cleared prefs — no "server_source" key exists
         val settings = UserSettingsStore.load(context)
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    @Test
+    fun resolve_preferred_locale_maps_explicit_languages() {
+        assertEquals("en", UserSettingsStore.resolvePreferredLocale(LanguageOption.ENGLISH))
+        assertEquals("ru", UserSettingsStore.resolvePreferredLocale(LanguageOption.RUSSIAN))
+        assertEquals("pl", UserSettingsStore.resolvePreferredLocale(LanguageOption.POLISH))
+    }
+
+    @Test
+    fun resolvePreferredLocale_systemFallbackToEn() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("de"))
+            val settings = UserSettings(language = LanguageOption.SYSTEM)
+            UserSettingsStore.save(context, settings)
+
+            val locale = UserSettingsStore.resolvePreferredLocale(context)
+            assertEquals("en", locale)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
+    fun resolvePreferredLocale_systemUsesDeviceLocale() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("pl"))
+            val settings = UserSettings(language = LanguageOption.SYSTEM)
+            UserSettingsStore.save(context, settings)
+
+            val locale = UserSettingsStore.resolvePreferredLocale(context)
+            assertEquals("pl", locale)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 }
 

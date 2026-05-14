@@ -6,10 +6,12 @@ Reusable notes for manual E2E execution on MIUI devices (validated on Mi 9 SE).
 ## Findings
 - `adb shell uiautomator dump` can produce repeated `theme_compatibility.xml` stack traces on MIUI. The XML file is still created, but command output is noisy and can break scripted loops.
 - For readiness checks, prefer `dumpsys activity activities` over UI dump polling.
+- When the launchable app is present only for the owner user, activate it first with `adb shell pm install-existing --user 0 com.yahorzabotsin.openvpnclientgate` before launching `com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`.
+- For SYSTEM-language assertions, treat `persist.sys.locale` as the runtime locale source on MIUI devices. `ro.product.locale` can still reflect a factory/default locale and may differ from the active runtime value.
 
 ## Recommended readiness commands
 - Verify resumed activity:
-  - `adb shell dumpsys activity activities | findstr /I "mResumedActivity ResumedActivity"`
+  - `adb shell dumpsys activity activities | findstr /I "com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity"`
 - Launch app from exported splash:
   - `adb shell am start -W -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`
 - Confirm transition to main screen after splash:
@@ -19,6 +21,9 @@ Reusable notes for manual E2E execution on MIUI devices (validated on Mi 9 SE).
 - Read selected-country store evidence:
   - `adb shell run-as com.yahorzabotsin.openvpnclientgate ls shared_prefs`
   - `adb shell run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/vpn_selection_prefs.xml`
+- Capture locale diagnostics for SYSTEM-language checks:
+  - `adb shell getprop persist.sys.locale`
+  - `adb shell getprop ro.product.locale`
 
 ## Real-device observable flow (MIUI)
 Use this sequence when the tester expects visible UI actions on the phone screen:
@@ -28,7 +33,7 @@ Use this sequence when the tester expects visible UI actions on the phone screen
    - `adb -s <device> shell input keyevent 82`
    - `adb -s <device> shell am start -W -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`
 2. Verify the app resumed `MainActivity`:
-   - `adb -s <device> shell dumpsys activity activities | findstr /I "mResumedActivity ResumedActivity"`
+  - `adb -s <device> shell dumpsys activity activities | findstr /I "com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity"`
 3. Dump current UI tree for deterministic tap targets:
    - `adb -s <device> shell uiautomator dump /sdcard/current_ui.xml`
    - `adb -s <device> pull /sdcard/current_ui.xml manual-qa/<run-id>/current_ui.xml`
@@ -37,6 +42,10 @@ Use this sequence when the tester expects visible UI actions on the phone screen
    - Dismiss dialog: tap `ОТМЕНА`, then continue normal navigation checks.
 5. Capture screenshot after each visible transition:
    - splash/main, update dialog, "Что нового" page, and main-after-return.
+
+## Launcher activation note
+- If `pm list packages` shows `com.yahorzabotsin.openvpnclientgate` but the launcher still fails to start, run `adb shell pm install-existing --user 0 com.yahorzabotsin.openvpnclientgate` and retry the `/.mobile.SplashActivity` launch.
+- For UI evidence, wait until `dumpsys activity activities` shows `mResumedActivity` pointing at `com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity`; splash-only screenshots are not sufficient for list-label assertions.
 
 ## Source-switch regression pattern (DEFAULT_V2 / LEGACY / VPNGATE)
 Use this deterministic flow for source-specific fetch validation without UI flakiness in settings navigation:
@@ -59,6 +68,8 @@ Use this deterministic flow for source-specific fetch validation without UI flak
   - Workaround: explicitly handle the dialog first (`ОТМЕНА` or `ЧТО НОВОГО` then back), then continue navigation checks.
 - MIUI `uiautomator dump` prints `theme_compatibility.xml` stack trace noise.
   - Workaround: treat stderr as non-fatal when `UI hierchary dumped to ...` is present and XML pull succeeds.
+- SYSTEM-language locale assertions can be misread when using only `ro.product.locale`.
+  - Workaround: always capture both locale props and prioritize `persist.sys.locale` as the active runtime locale source.
 
 ## Known blockers
 - TV manual cases require a Leanback-capable target. Mobile device with `ro.build.characteristics=nosdcard` is not a valid TV substitute.
