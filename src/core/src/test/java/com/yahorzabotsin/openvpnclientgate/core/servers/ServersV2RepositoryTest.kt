@@ -345,6 +345,64 @@ class ServersV2RepositoryTest {
         assertEquals(callsAfterPrime, api.countriesCallCount)
     }
 
+    @Test
+    fun getCountries_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
+        val api = FakeServersV2Api(countriesJson = "[]")
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+        val legacyTs = System.currentTimeMillis()
+        val legacyCountriesJson = """[{"code":"NL","name":"Netherlands","serverCount":4}]"""
+
+        File(context.cacheDir, "v2_countries.json").writeText(legacyCountriesJson)
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_countries", legacyTs).commit()
+
+        val result = repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+
+        assertEquals(1, result.size)
+        assertEquals("NL", result[0].code)
+        assertEquals(0, api.countriesCallCount)
+        assertTrue(File(context.cacheDir, "v2_countries_${locale}.json").isFile)
+        assertEquals(
+            legacyTs,
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .getLong("ts_countries_${locale}", -1L)
+        )
+    }
+
+    @Test
+    fun getServersForCountry_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
+        val api = FakeServersV2Api(serversJson = "{\"items\":[]}")
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+        val legacyTs = System.currentTimeMillis()
+        val legacyServersJson = """[
+            {"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CONFIG1"},
+            {"ip":"10.2.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CONFIG2"}
+        ]"""
+
+        File(context.cacheDir, "v2_servers_jp.json").writeText(legacyServersJson)
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_jp", legacyTs).commit()
+
+        val result = repo.getServersForCountry(
+            context = context,
+            countryCode = "JP",
+            serverCount = 2,
+            forceRefresh = false,
+            cacheOnly = true
+        )
+
+        assertEquals(2, result.size)
+        assertEquals(0, api.serversCallCount)
+        assertTrue(File(context.cacheDir, "v2_servers_jp_${locale}.json").isFile)
+        assertEquals(
+            legacyTs,
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .getLong("ts_servers_jp_${locale}", -1L)
+        )
+    }
+
     // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a
     // controlled IOException that callers handle without a fatal crash loop.
     @Test(expected = IOException::class)

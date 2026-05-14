@@ -34,7 +34,9 @@ class ServersV2Repository(
     private companion object {
         private val TAG = LogTags.APP + ":ServersV2Repository"
         private const val CACHE_PREFS = "servers_v2_cache"
+        private const val KEY_COUNTRIES_TS_LEGACY = "ts_countries"
         private const val KEY_COUNTRIES_TS_PREFIX = "ts_countries_"
+        private const val COUNTRIES_CACHE_FILE_LEGACY = "v2_countries.json"
         private const val COUNTRIES_CACHE_FILE_PREFIX = "v2_countries_"
         private const val SERVERS_CACHE_FILE_PREFIX = "v2_servers_"
         private const val SERVERS_CACHE_FILE_SUFFIX = ".json"
@@ -85,6 +87,7 @@ class ServersV2Repository(
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val locale = settingsStore.resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
+        migrateLegacyCountriesCacheIfNeeded(context, prefs, normalizedLocale)
         fetchWithCache(
             cacheFile = countriesCacheFile(context, normalizedLocale),
             tsKey = "$KEY_COUNTRIES_TS_PREFIX$normalizedLocale",
@@ -120,6 +123,7 @@ class ServersV2Repository(
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
             val cacheKey = "ts_servers_${normalizedCountryCode}_$normalizedLocale"
+            migrateLegacyServersCacheIfNeeded(context, prefs, normalizedCountryCode, normalizedLocale)
             AppLog.d(
                 TAG,
                 "getServersForCountry[$countryCode]: serverCount=$serverCount locale=$normalizedLocale"
@@ -140,6 +144,78 @@ class ServersV2Repository(
 
     private fun resolvePreferredLocale(context: Context): String {
         return settingsStore.resolvePreferredLocale(context)
+    }
+
+    private fun migrateLegacyCountriesCacheIfNeeded(
+        context: Context,
+        prefs: SharedPreferences,
+        normalizedLocale: String
+    ) {
+        val localizedFile = countriesCacheFile(context, normalizedLocale)
+        val localizedTsKey = "$KEY_COUNTRIES_TS_PREFIX$normalizedLocale"
+        val hasLocalizedTimestamp = prefs.contains(localizedTsKey)
+        if (localizedFile.isFile || hasLocalizedTimestamp) {
+            return
+        }
+
+        val legacyFile = File(context.cacheDir, COUNTRIES_CACHE_FILE_LEGACY)
+        if (!legacyFile.isFile) {
+            return
+        }
+
+        runCatching {
+            legacyFile.copyTo(localizedFile, overwrite = false)
+        }.onSuccess {
+            val legacyTimestamp = prefs.getLong(KEY_COUNTRIES_TS_LEGACY, -1L)
+            if (legacyTimestamp > 0L) {
+                prefs.edit().putLong(localizedTsKey, legacyTimestamp).apply()
+            }
+            AppLog.d(TAG, "migrateLegacyCountriesCacheIfNeeded: migrated legacy cache to locale=$normalizedLocale")
+        }.onFailure {
+            AppLog.w(TAG, "migrateLegacyCountriesCacheIfNeeded: migration failed for locale=$normalizedLocale", it)
+        }
+    }
+
+    private fun migrateLegacyServersCacheIfNeeded(
+        context: Context,
+        prefs: SharedPreferences,
+        normalizedCountryCode: String,
+        normalizedLocale: String
+    ) {
+        val localizedFile = serversCacheFile(context, normalizedCountryCode, normalizedLocale)
+        val localizedTsKey = "ts_servers_${normalizedCountryCode}_$normalizedLocale"
+        val hasLocalizedTimestamp = prefs.contains(localizedTsKey)
+        if (localizedFile.isFile || hasLocalizedTimestamp) {
+            return
+        }
+
+        val legacyFile = File(
+            context.cacheDir,
+            "$SERVERS_CACHE_FILE_PREFIX${normalizedCountryCode}$SERVERS_CACHE_FILE_SUFFIX"
+        )
+        if (!legacyFile.isFile) {
+            return
+        }
+
+        runCatching {
+            legacyFile.copyTo(localizedFile, overwrite = false)
+        }.onSuccess {
+            val legacyTsKey = "ts_servers_${normalizedCountryCode}"
+            val legacyTimestamp = prefs.getLong(legacyTsKey, -1L)
+            if (legacyTimestamp > 0L) {
+                prefs.edit().putLong(localizedTsKey, legacyTimestamp).apply()
+            }
+            AppLog.d(
+                TAG,
+                "migrateLegacyServersCacheIfNeeded: migrated legacy cache for country=$normalizedCountryCode locale=$normalizedLocale"
+            )
+        }.onFailure {
+            AppLog.w(
+                TAG,
+                "migrateLegacyServersCacheIfNeeded: migration failed for country=$normalizedCountryCode locale=$normalizedLocale",
+                it
+            )
+        }
     }
 
     private suspend fun <T> fetchWithCache(
