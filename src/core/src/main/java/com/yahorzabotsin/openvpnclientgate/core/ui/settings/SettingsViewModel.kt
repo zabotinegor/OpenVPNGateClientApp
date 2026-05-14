@@ -13,6 +13,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ThemeOption
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -81,17 +82,16 @@ class SettingsViewModel(
         _state.value = current.copy(language = option)
         repository.saveLanguage(option)
         logger.logLanguageChanged(current.language, option)
-        
+
+        languageRelocalizationJob?.cancel()
+        languageRelocalizationJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            triggerDefaultV2LanguageRelocalization()
+        }
+
         emitEffects(
             SettingsEffect.ApplyThemeAndLocale,
             SettingsEffect.StopControllerIfIdle
         )
-        
-        // Trigger relocalization for DEFAULT_V2 if a country is selected
-        languageRelocalizationJob?.cancel()
-        languageRelocalizationJob = viewModelScope.launch {
-            triggerDefaultV2LanguageRelocalization()
-        }
     }
 
     private suspend fun triggerDefaultV2LanguageRelocalization() {
