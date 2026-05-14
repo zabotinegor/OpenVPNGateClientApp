@@ -65,6 +65,16 @@ Locale mapping uses app language settings:
 
 This localization behavior is scoped to `DEFAULT_V2` only. `LEGACY`, `VPNGATE`, and `CUSTOM` request behavior is unchanged.
 
+### Selected-Country Relocalization (DEFAULT_V2)
+When app language changes and the selected source is `DEFAULT_V2`, the app relocalizes an already selected country/server in the same session without requiring manual reselection.
+
+Relocalization behavior:
+- Country resolution is code-first (stable country code), avoiding stale matching by localized country name.
+- Persisted selected-country display name is rewritten to the active locale after server list alignment.
+- Current server identity and index are preserved when still present; if the server disappears, deterministic safe fallback is applied.
+
+This relocalization path is not executed for `LEGACY`, `VPNGATE`, or `CUSTOM` sources.
+
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
 2. Environment variable

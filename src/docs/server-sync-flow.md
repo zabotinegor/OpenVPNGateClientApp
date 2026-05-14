@@ -49,6 +49,14 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - Mapping: `SYSTEM` -> runtime locale language code with `en` fallback when blank, `ENGLISH` -> `en`, `RUSSIAN` -> `ru`, `POLISH` -> `pl`.
 - Locale parameterization applies only to `DEFAULT_V2`. CSV-backed sources (`LEGACY`, `VPNGATE`, `CUSTOM`) keep existing behavior.
 
+### Selected-Country Relocalization on Language Change
+- Trigger: language selection change in `SettingsViewModel` under `DEFAULT_V2` starts a forced selected-country synchronization path.
+- Country matching is code-first against the refreshed localized country list to avoid stale-name mismatches after locale switch.
+- Server list rewrite uses `SelectedCountryStore.saveSelectionPreservingIndex(...)` so current server identity/index is retained when available.
+- Display label rewrite uses `SelectedCountryStore.updateSelectedCountryName(...)`, which bumps `SelectedCountryVersionSignal` so main UI reloads selection state in-session.
+- If the previously selected server is missing in refreshed data, index selection falls back deterministically and safely.
+- Non-v2 sources do not execute this relocalization path and keep existing CSV-backed behavior.
+
 ### Cache Strategy
 - Countries cached per locale in `v2_countries_<locale>.json`; timestamp stored in SharedPrefs key `servers_v2_cache` / `ts_countries_<locale>`.
 - Servers cached per country and locale in `v2_servers_<code>_<locale>.json`; timestamp stored as `ts_servers_<code>_<locale>`.
