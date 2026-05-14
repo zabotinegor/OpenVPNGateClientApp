@@ -279,7 +279,20 @@ object SelectedCountryStore {
             AppLog.d(TAG, "updateSelectedCountryName: no change (already '$newCountryName')")
             return
         }
-        prefs(ctx).edit().putString(KEY_COUNTRY, newCountryName).apply()
+        val prefs = prefs(ctx)
+        val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+
+        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        if (lastSuccessCountry == currentName) {
+            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+        }
+
+        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        if (lastStartedCountry == currentName) {
+            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+        }
+
+        editor.apply()
         AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
         SelectedCountryVersionSignal.bump()
     }

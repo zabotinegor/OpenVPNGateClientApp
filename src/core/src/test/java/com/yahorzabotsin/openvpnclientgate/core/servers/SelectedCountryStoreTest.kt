@@ -335,5 +335,30 @@ class SelectedCountryStoreTest {
         assertNotNull(current)
         assertEquals("City3", current!!.city)
     }
+
+    @Test
+    fun updateSelectedCountryName_updates_last_country_metadata_when_matching_selection() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        SelectedCountryStore.saveSelection(ctx, "Russia", servers)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Russia", "config1", "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Russia", "config1", "1.1.1.1")
+
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Россия")
+
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+
+        val lastStarted = SelectedCountryStore.getLastStartedConfig(ctx)
+        assertNotNull(lastStarted)
+        assertEquals("Россия", lastStarted!!.country)
+        assertEquals("config1", lastStarted.config)
+
+        assertEquals("config1", SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx))
+        assertEquals("1.1.1.1", SelectedCountryStore.getLastSuccessfulIpForSelected(ctx))
+    }
 }
 
