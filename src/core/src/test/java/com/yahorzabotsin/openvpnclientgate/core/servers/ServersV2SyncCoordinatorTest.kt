@@ -5,6 +5,8 @@ import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryVersionSignal
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -404,11 +406,44 @@ class ServersV2SyncCoordinatorTest {
         assertTrue(currentIndex!! in SelectedCountryStore.getServers(context).indices)
     }
 
+    @Test
+    fun syncSelectedCountryServers_skips_relocalization_when_selection_changes_during_sync() = runBlocking {
+        val englishServers = listOf(
+            makeServer("conf-ru-1", "RU", "Russia", "6.6.6.1")
+        )
+        val germanyServers = listOf(
+            makeServer("conf-de-1", "DE", "Germany", "7.7.7.1")
+        )
+        SelectedCountryStore.saveSelection(context, "Russia", englishServers)
+
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"RU","name":"Россия","serverCount":1}]""",
+            serversJson = """{"items":[{"ip":"6.6.6.1","countryCode":"RU","countryName":"Россия","configData":"conf-ru-1"}],"total":1}""",
+            delayServersMs = 80L
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        val syncJob = launch {
+            coordinator.syncSelectedCountryServers(context, forceRefresh = true)
+        }
+
+        delay(10)
+        SelectedCountryStore.saveSelection(context, "Germany", germanyServers)
+
+        syncJob.join()
+
+        // Selection changed while sync was suspended; relocalization rename must not override it.
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals("conf-de-1", SelectedCountryStore.currentServer(context)?.config)
+    }
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
         var throwOnCountries: Exception? = null,
-        var throwOnServers: Exception? = null
+        var throwOnServers: Exception? = null,
+        var delayServersMs: Long = 0L
     ) : ServersV2Api {
         var countriesCallCount = 0
         var serversCallCount = 0
@@ -427,6 +462,9 @@ class ServersV2SyncCoordinatorTest {
             take: Int
         ): ServersPageResponse {
             throwOnServers?.let { throw it }
+            if (delayServersMs > 0L) {
+                delay(delayServersMs)
+            }
             serversCallCount++
             return Gson().fromJson(serversJson, ServersPageResponse::class.java)
         }

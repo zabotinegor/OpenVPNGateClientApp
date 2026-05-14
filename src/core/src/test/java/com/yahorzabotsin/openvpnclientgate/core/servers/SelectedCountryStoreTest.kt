@@ -360,5 +360,34 @@ class SelectedCountryStoreTest {
         assertEquals("config1", SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx))
         assertEquals("1.1.1.1", SelectedCountryStore.getLastSuccessfulIpForSelected(ctx))
     }
+
+    @Test
+    fun updateSelectedCountryNameIfCurrent_skips_when_selection_changed() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1)
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2)
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "Russia", russiaServers)
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        SelectedCountryStore.saveSelection(ctx, "Germany", germanyServers)
+
+        val updated = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Russia",
+            newCountryName = "Россия"
+        )
+
+        assertFalse(updated)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals("config-de", SelectedCountryStore.currentServer(ctx)?.config)
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
 }
 

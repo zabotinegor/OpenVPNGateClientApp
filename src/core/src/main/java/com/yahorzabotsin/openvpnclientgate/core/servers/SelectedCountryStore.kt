@@ -296,6 +296,28 @@ object SelectedCountryStore {
         AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
         SelectedCountryVersionSignal.bump()
     }
+
+    /**
+     * Updates country name only when current selected country is still [expectedCurrentCountryName].
+     * Prevents relocalization races from mutating a different active selection.
+     */
+    fun updateSelectedCountryNameIfCurrent(
+        ctx: Context,
+        expectedCurrentCountryName: String,
+        newCountryName: String
+    ): Boolean {
+        val currentName = getSelectedCountry(ctx)
+        if (currentName != expectedCurrentCountryName) {
+            AppLog.w(
+                TAG,
+                "updateSelectedCountryNameIfCurrent: selection changed, skip rename expected='$expectedCurrentCountryName' actual='${currentName ?: "<none>"}'"
+            )
+            return false
+        }
+
+        updateSelectedCountryName(ctx, newCountryName)
+        return true
+    }
 }
 
 

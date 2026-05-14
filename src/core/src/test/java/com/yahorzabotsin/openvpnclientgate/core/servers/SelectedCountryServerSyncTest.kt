@@ -122,6 +122,31 @@ class SelectedCountryServerSyncTest {
         assertEquals("10.2.0.2", current?.ip)
     }
 
+    @Test
+    fun `syncAfterRefresh matches selected country by name case-insensitively when code missing`() = runBlocking {
+        val servers = listOf(
+            makeServer(name = "srv-1", city = "City1", lineIndex = 1, country = "Australia", ip = "10.3.0.1", config = "config-1"),
+            makeServer(name = "srv-2", city = "City2", lineIndex = 2, country = "Australia", ip = "10.3.0.2", config = "config-2")
+        )
+        val repository = ServerRepository(FixedApi(sampleCsv(servers)))
+
+        SelectedCountryStore.saveSelection(
+            context,
+            "australia",
+            listOf(
+                makeServer(name = "old-1", city = "Old1", lineIndex = 1, country = "australia", ip = "10.3.0.1", config = "config-1")
+            )
+        )
+
+        val freshServers = repository.getServers(context, forceRefresh = true, cacheOnly = false)
+        val sync = SelectedCountryServerSync(context, repository)
+
+        sync.syncAfterRefresh(freshServers)
+
+        assertEquals("Australia", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals(2, SelectedCountryStore.getServers(context).size)
+    }
+
     private fun sampleCsv(servers: List<Server>): String {
         val header = "TITLE, SAMPLE\nHEADER, IGNORE\n"
         val body = servers.joinToString(separator = "\n") { s ->

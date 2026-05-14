@@ -20,7 +20,7 @@ class SelectedCountryServerSync(
         val countryServers = selectedCountryCode?.let { code ->
             freshServers.filter { it.country.code.equals(code, ignoreCase = true) }
         }.orEmpty().ifEmpty {
-            freshServers.filter { it.country.name == selectedCountry }
+            freshServers.filter { it.country.name.equals(selectedCountry, ignoreCase = true) }
         }
         if (countryServers.isEmpty()) {
             AppLog.w(
@@ -57,7 +57,11 @@ class SelectedCountryServerSync(
         )
 
         if (localizedCountryName != selectedCountry) {
-            SelectedCountryStore.updateSelectedCountryName(appContext, localizedCountryName)
+            SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+                ctx = appContext,
+                expectedCurrentCountryName = selectedCountry,
+                newCountryName = localizedCountryName
+            )
         }
 
         AppLog.i(

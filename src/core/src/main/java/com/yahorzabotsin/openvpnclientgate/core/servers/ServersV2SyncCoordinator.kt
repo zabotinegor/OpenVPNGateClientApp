@@ -134,8 +134,16 @@ class DefaultServersV2SyncCoordinator(
 
         // Relocalize display name after server list alignment.
         if (rawSelectedCountry != localizedCountryName) {
-            SelectedCountryStore.updateSelectedCountryName(context, localizedCountryName)
-            AppLog.i(tag, "syncSelectedCountryServers: relocalized country '$rawSelectedCountry' -> '$localizedCountryName'")
+            val renamed = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+                ctx = context,
+                expectedCurrentCountryName = rawSelectedCountry,
+                newCountryName = localizedCountryName
+            )
+            if (renamed) {
+                AppLog.i(tag, "syncSelectedCountryServers: relocalized country '$rawSelectedCountry' -> '$localizedCountryName'")
+            } else {
+                AppLog.w(tag, "syncSelectedCountryServers: skipped relocalization rename due to concurrent selection change")
+            }
         }
 
         AppLog.i(tag, "syncSelectedCountryServers: synced country=$localizedCountryName servers=${legacyServers.size}")
