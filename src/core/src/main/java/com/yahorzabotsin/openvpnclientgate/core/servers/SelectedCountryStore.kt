@@ -268,6 +268,21 @@ object SelectedCountryStore {
             }
         }
     }
+
+    /**
+     * Updates the persisted country name without modifying servers or index.
+     * Used for relocalization when the language changes.
+     */
+    fun updateSelectedCountryName(ctx: Context, newCountryName: String) {
+        val currentName = getSelectedCountry(ctx)
+        if (currentName == newCountryName) {
+            AppLog.d(TAG, "updateSelectedCountryName: no change (already '$newCountryName')")
+            return
+        }
+        prefs(ctx).edit().putString(KEY_COUNTRY, newCountryName).apply()
+        AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
+        SelectedCountryVersionSignal.bump()
+    }
 }
 
 

@@ -33,6 +33,7 @@ class SettingsViewModel(
 
     private var serverSourceSyncJob: Job? = null
     private var customUrlSyncJob: Job? = null
+    private var languageRelocalizationJob: Job? = null
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state = _state.asStateFlow()
@@ -80,10 +81,37 @@ class SettingsViewModel(
         _state.value = current.copy(language = option)
         repository.saveLanguage(option)
         logger.logLanguageChanged(current.language, option)
+        
         emitEffects(
             SettingsEffect.ApplyThemeAndLocale,
             SettingsEffect.StopControllerIfIdle
         )
+        
+        // Trigger relocalization for DEFAULT_V2 if a country is selected
+        languageRelocalizationJob?.cancel()
+        languageRelocalizationJob = viewModelScope.launch {
+            triggerDefaultV2LanguageRelocalization()
+        }
+    }
+
+    private suspend fun triggerDefaultV2LanguageRelocalization() {
+        val settings = repository.load()
+        if (settings.serverSource != ServerSource.DEFAULT_V2) {
+            return
+        }
+        
+        val isConnected = connectionStateProvider.isConnected()
+        val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isConnected)
+        
+        runCatching {
+            serverSyncCoordinator.syncSelectedCountryServersForRelocalization(
+                forceRefresh = false,
+                cacheOnly = cacheOnly
+            )
+        }.onFailure {
+            if (it is CancellationException) throw it
+            AppLog.w(tag, "DEFAULT_V2 selected country relocalization failed after language change", it)
+        }
     }
 
     private fun onThemeSelected(option: ThemeOption) {

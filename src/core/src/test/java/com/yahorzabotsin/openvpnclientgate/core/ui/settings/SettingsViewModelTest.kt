@@ -225,6 +225,50 @@ class SettingsViewModelTest {
         )
     }
 
+    @Test
+    fun `language change triggers relocalization for DEFAULT_V2`() = runTest {
+        val repo = FakeSettingsRepository(
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.DEFAULT_V2
+            )
+        )
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
+        advanceUntilIdle()
+
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+
+        vm.onAction(SettingsAction.SelectLanguage(LanguageOption.RUSSIAN))
+        advanceUntilIdle()
+
+        assertEquals(1, syncCoordinator.relocalizationCallCount)
+    }
+
+    @Test
+    fun `language change does not trigger relocalization for non-DEFAULT_V2 sources`() = runTest {
+        val repo = FakeSettingsRepository(
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.LEGACY
+            )
+        )
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
+        advanceUntilIdle()
+
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+
+        vm.onAction(SettingsAction.SelectLanguage(LanguageOption.RUSSIAN))
+        advanceUntilIdle()
+
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+    }
+
     private class FakeSettingsRepository(initial: UserSettings) : SettingsRepository {
         private var stored: UserSettings = initial
 
@@ -341,6 +385,15 @@ class SettingsViewModelTest {
             lastCacheOnly = cacheOnly
             lastClearCacheBeforeRefresh = clearCacheBeforeRefresh
             return emptyList()
+        }
+
+        var relocalizationCallCount = 0
+
+        override suspend fun syncSelectedCountryServersForRelocalization(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) {
+            relocalizationCallCount += 1
         }
     }
 

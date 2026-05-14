@@ -128,7 +128,7 @@ class ServersV2SyncCoordinatorTest {
         coordinator.syncSelectedCountryServers(context, forceRefresh = true)
 
         assertEquals(2, SelectedCountryStore.getServers(context).size)
-        assertEquals("United States", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals("United States of America", SelectedCountryStore.getSelectedCountry(context))
     }
 
     // AC-4.5 parity: cacheOnly sync must not force a network fetch for countries.
@@ -310,6 +310,98 @@ class ServersV2SyncCoordinatorTest {
 
         // Original store contents must be preserved
         assertEquals(1, SelectedCountryStore.getServers(context).size)
+    }
+
+    // AC-1: SelectedCountryServers syncSelectedCountryServers relocates country name when language changes
+    @Test
+    fun syncSelectedCountryServers_relocalizes_country_name_on_language_change() = runBlocking {
+        // Simulate selected country in English
+        val englishServers = listOf(
+            makeServer("conf-ru-1", "RU", "Russia", "3.3.3.1"),
+            makeServer("conf-ru-2", "RU", "Russia", "3.3.3.2")
+        )
+        SelectedCountryStore.saveSelection(context, "Russia", englishServers)
+        SelectedCountryStore.setCurrentIndex(context, 0)
+
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"RU","name":"Россия","serverCount":3}]""",
+            serversJson = """{"items":[{"ip":"3.3.3.1","countryCode":"RU","countryName":"Россия","configData":"conf-ru-1"},{"ip":"3.3.3.2","countryCode":"RU","countryName":"Россия","configData":"conf-ru-2"},{"ip":"3.3.3.3","countryCode":"RU","countryName":"Россия","configData":"conf-ru-3"}],"total":3}"""
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Relocalization on language change to Russian
+        coordinator.syncSelectedCountryServers(context, forceRefresh = false)
+
+        // Country name should be updated to Russian localization
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals(3, SelectedCountryStore.getServers(context).size)
+        // Current server should be preserved
+        val current = SelectedCountryStore.currentServer(context)
+        assertNotNull(current)
+        assertEquals("conf-ru-1", current!!.config)
+        assertEquals("3.3.3.1", current.ip)
+        // Version should be bumped
+        assertTrue(SelectedCountryVersionSignal.version.value > versionBefore)
+    }
+
+    // AC-1 & AC-2: Relocalization preserves server selection and index
+    @Test
+    fun syncSelectedCountryServers_relocalization_preserves_index() = runBlocking {
+        val englishServers = listOf(
+            makeServer("conf-ja-1", "JP", "Japan", "4.4.4.1"),
+            makeServer("conf-ja-2", "JP", "Japan", "4.4.4.2"),
+            makeServer("conf-ja-3", "JP", "Japan", "4.4.4.3")
+        )
+        SelectedCountryStore.saveSelection(context, "Japan", englishServers)
+        SelectedCountryStore.setCurrentIndex(context, 1) // Select second server
+
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"日本","serverCount":3}]""",
+            serversJson = """{"items":[{"ip":"4.4.4.1","countryCode":"JP","countryName":"日本","configData":"conf-ja-1"},{"ip":"4.4.4.2","countryCode":"JP","countryName":"日本","configData":"conf-ja-2"},{"ip":"4.4.4.3","countryCode":"JP","countryName":"日本","configData":"conf-ja-3"}],"total":3}"""
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        coordinator.syncSelectedCountryServers(context, forceRefresh = false)
+
+        // Country name should be updated
+        assertEquals("日本", SelectedCountryStore.getSelectedCountry(context))
+        // Server index should be preserved: conf-ja-2 should still be current
+        assertEquals((2 to 3), SelectedCountryStore.getCurrentPosition(context))
+        val current = SelectedCountryStore.currentServer(context)
+        assertNotNull(current)
+        assertEquals("conf-ja-2", current!!.config)
+    }
+
+    // AC-2: Relocalization safely handles when selected server disappears
+    @Test
+    fun syncSelectedCountryServers_relocalization_handles_removed_server() = runBlocking {
+        val englishServers = listOf(
+            makeServer("conf-old", "DE", "Germany", "5.5.5.1"),
+            makeServer("conf-de-1", "DE", "Germany", "5.5.5.2")
+        )
+        SelectedCountryStore.saveSelection(context, "Germany", englishServers)
+        SelectedCountryStore.setCurrentIndex(context, 0) // Select the old server that will disappear
+
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Deutschland","serverCount":2}]""",
+            // conf-old is no longer available in the new locale's list
+            serversJson = """{"items":[{"ip":"5.5.5.2","countryCode":"DE","countryName":"Deutschland","configData":"conf-de-1"},{"ip":"5.5.5.3","countryCode":"DE","countryName":"Deutschland","configData":"conf-de-2"}],"total":2}"""
+        )
+        val repo = ServersV2Repository(api)
+        val coordinator = DefaultServersV2SyncCoordinator(repo)
+
+        coordinator.syncSelectedCountryServers(context, forceRefresh = false)
+
+        // Country name should be updated
+        assertEquals("Deutschland", SelectedCountryStore.getSelectedCountry(context))
+        // Should not crash; index should be valid
+        val currentIndex = SelectedCountryStore.getCurrentIndex(context)
+        assertNotNull(currentIndex)
+        assertTrue(currentIndex!! in SelectedCountryStore.getServers(context).indices)
     }
 
     private class FakeServersV2Api(

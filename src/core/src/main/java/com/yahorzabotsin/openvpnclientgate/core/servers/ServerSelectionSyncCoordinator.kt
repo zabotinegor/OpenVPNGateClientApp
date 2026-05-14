@@ -12,6 +12,16 @@ interface ServerSelectionSyncCoordinator {
         cacheOnly: Boolean,
         clearCacheBeforeRefresh: Boolean = false
     ): List<Server>
+
+    /**
+     * Relocalize the selected DEFAULT_V2 country on language change.
+     * Syncs the selected country's servers in the new locale and updates the persisted
+     * country name to match the new locale without requiring manual reselection.
+     */
+    suspend fun syncSelectedCountryServersForRelocalization(
+        forceRefresh: Boolean = false,
+        cacheOnly: Boolean = false
+    )
 }
 
 class DefaultServerSelectionSyncCoordinator(
@@ -120,5 +130,24 @@ class DefaultServerSelectionSyncCoordinator(
             }
 
         return servers
+    }
+
+    override suspend fun syncSelectedCountryServersForRelocalization(
+        forceRefresh: Boolean,
+        cacheOnly: Boolean
+    ) {
+        AppLog.d(tag, "syncSelectedCountryServersForRelocalization(forceRefresh=$forceRefresh, cacheOnly=$cacheOnly)")
+        try {
+            serversV2SyncCoordinator.syncSelectedCountryServers(
+                context = appContext,
+                forceRefresh = forceRefresh,
+                cacheOnly = cacheOnly
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(tag, "Selected country relocalization failed on language change", e)
+            throw e
+        }
     }
 }
