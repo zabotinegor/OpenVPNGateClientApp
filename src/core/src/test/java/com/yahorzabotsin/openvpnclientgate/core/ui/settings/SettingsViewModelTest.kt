@@ -242,6 +242,10 @@ class SettingsViewModelTest {
         assertEquals(0, syncCoordinator.relocalizationCallCount)
 
         vm.onAction(SettingsAction.SelectLanguage(LanguageOption.RUSSIAN))
+
+        // Default launch schedules work; relocalization runs after dispatcher advances.
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+
         advanceUntilIdle()
 
         assertEquals(1, syncCoordinator.relocalizationCallCount)
