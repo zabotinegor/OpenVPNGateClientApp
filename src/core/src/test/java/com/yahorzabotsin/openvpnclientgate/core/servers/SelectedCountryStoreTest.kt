@@ -296,6 +296,25 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun updateSelectedCountryName_noop_when_no_selection() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        // No country is selected
+        assertNull(SelectedCountryStore.getSelectedCountry(ctx))
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Try to update when no selection exists
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Russia")
+
+        // Should not create a selection or update metadata
+        assertNull(SelectedCountryStore.getSelectedCountry(ctx))
+        assertTrue(SelectedCountryStore.getServers(ctx).isEmpty())
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
+
+    @Test
     fun updateSelectedCountryName_noop_when_name_unchanged() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()

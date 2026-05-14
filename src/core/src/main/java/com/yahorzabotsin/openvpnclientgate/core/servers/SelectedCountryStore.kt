@@ -275,8 +275,8 @@ object SelectedCountryStore {
      */
     fun updateSelectedCountryName(ctx: Context, newCountryName: String) {
         val currentName = getSelectedCountry(ctx)
-        if (currentName == newCountryName) {
-            AppLog.d(TAG, "updateSelectedCountryName: no change (already '$newCountryName')")
+        if (currentName.isNullOrBlank() || currentName == newCountryName) {
+            AppLog.d(TAG, "updateSelectedCountryName: no change or no selection (current='$currentName', new='$newCountryName')")
             return
         }
         val prefs = prefs(ctx)
