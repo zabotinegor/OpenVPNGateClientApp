@@ -36,6 +36,7 @@ class ServersV2Repository(
         private const val CACHE_PREFS = "servers_v2_cache"
         private const val KEY_COUNTRIES_TS_LEGACY = "ts_countries"
         private const val KEY_COUNTRIES_TS_PREFIX = "ts_countries_"
+        private const val KEY_SERVERS_TS_PREFIX = "ts_servers_"
         private const val COUNTRIES_CACHE_FILE_LEGACY = "v2_countries.json"
         private const val COUNTRIES_CACHE_FILE_PREFIX = "v2_countries_"
         private const val SERVERS_CACHE_FILE_PREFIX = "v2_servers_"
@@ -44,7 +45,7 @@ class ServersV2Repository(
         private const val MAX_PAGES_SAFETY_LIMIT = 200
 
         private fun normalizeCountryCode(countryCode: String): String =
-            countryCode.lowercase(Locale.ROOT)
+            countryCode.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
 
         private fun normalizeLocale(locale: String): String =
             locale.trim().lowercase(Locale.ROOT).ifBlank { "en" }
@@ -57,6 +58,9 @@ class ServersV2Repository(
                 "$SERVERS_CACHE_FILE_PREFIX${normalizedCountryCode}_${normalizedLocale}$SERVERS_CACHE_FILE_SUFFIX"
             )
         }
+
+        private fun serversTimestampKey(countryCode: String, locale: String): String =
+            "$KEY_SERVERS_TS_PREFIX${normalizeCountryCode(countryCode)}_${normalizeLocale(locale)}"
 
         private fun countriesCacheFile(ctx: Context, locale: String): File =
             File(ctx.cacheDir, "$COUNTRIES_CACHE_FILE_PREFIX${normalizeLocale(locale)}$SERVERS_CACHE_FILE_SUFFIX")
@@ -122,7 +126,7 @@ class ServersV2Repository(
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-            val cacheKey = "ts_servers_${normalizedCountryCode}_$normalizedLocale"
+            val cacheKey = serversTimestampKey(normalizedCountryCode, normalizedLocale)
             migrateLegacyServersCacheIfNeeded(context, prefs, normalizedCountryCode, normalizedLocale)
             AppLog.d(
                 TAG,
@@ -183,7 +187,7 @@ class ServersV2Repository(
         normalizedLocale: String
     ) {
         val localizedFile = serversCacheFile(context, normalizedCountryCode, normalizedLocale)
-        val localizedTsKey = "ts_servers_${normalizedCountryCode}_$normalizedLocale"
+        val localizedTsKey = serversTimestampKey(normalizedCountryCode, normalizedLocale)
         val hasLocalizedTimestamp = prefs.contains(localizedTsKey)
         if (localizedFile.isFile || hasLocalizedTimestamp) {
             return
@@ -200,7 +204,7 @@ class ServersV2Repository(
         runCatching {
             legacyFile.copyTo(localizedFile, overwrite = false)
         }.onSuccess {
-            val legacyTsKey = "ts_servers_${normalizedCountryCode}"
+            val legacyTsKey = "$KEY_SERVERS_TS_PREFIX${normalizedCountryCode}"
             val legacyTimestamp = prefs.getLong(legacyTsKey, -1L)
             if (legacyTimestamp > 0L) {
                 prefs.edit().putLong(localizedTsKey, legacyTimestamp).apply()
@@ -348,10 +352,11 @@ class ServersV2Repository(
     /** Clears the countries cache (timestamp only; file left until overwritten). */
     fun clearCountriesCache(context: Context) {
         context.cacheDir.listFiles()?.filter {
-            it.name.startsWith("v2_countries") && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
+            (it.name == COUNTRIES_CACHE_FILE_LEGACY || it.name.startsWith(COUNTRIES_CACHE_FILE_PREFIX)) &&
+                    it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
         }?.forEach { it.delete() }
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-        val keysToRemove = prefs.all.keys.filter { it.startsWith("ts_countries") }
+        val keysToRemove = prefs.all.keys.filter { it == KEY_COUNTRIES_TS_LEGACY || it.startsWith(KEY_COUNTRIES_TS_PREFIX) }
         prefs.edit().apply {
             keysToRemove.forEach { remove(it) }
         }.apply()

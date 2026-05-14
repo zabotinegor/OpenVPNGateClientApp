@@ -260,6 +260,24 @@ class ServersV2RepositoryTest {
         }
     }
 
+    @Test
+    fun getServersForCountry_sanitizes_country_code_for_cache_file_and_timestamp() = runBlocking {
+        val api = FakeServersV2Api(serversJson = buildServersJson("JP", 1))
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+
+        repo.getServersForCountry(context, "JP/../../evil", 1, forceRefresh = true)
+
+        val sanitizedCacheFile = File(context.cacheDir, "v2_servers_jpevil_${locale}.json")
+        val unsafeCacheFile = File(context.cacheDir, "v2_servers_jp/../../evil_${locale}.json")
+        assertTrue(sanitizedCacheFile.exists())
+        assertEquals(false, unsafeCacheFile.exists())
+        assertTrue(
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .contains("ts_servers_jpevil_${locale}")
+        )
+    }
+
     // UT-2.10 — expired server cache triggers new request
     @Test
     fun getServersForCountry_cache_expired() = runBlocking {
