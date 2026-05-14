@@ -1,0 +1,62 @@
+﻿
+05-14 08:47:34.722  4634  4667 I OpenVPNGateApp:VersionReleaseRepository: Loade
+d release notes for 1.0.4-beta.1(63) from https://openvpngateclient.azurewebsit
+es.net/api/v1/versions/number/1.0.4-beta.1/build/63?locale=ru; requestedLocale=
+ru, resolvedLocale=ru
+05-14 08:47:34.767  4634  4634 D OpenVPNGateApp:ServersV2Repository: getServers
+ForCountry[AU]: serverCount=2 locale=ru
+05-14 08:47:34.769  4634  4634 D OpenVPNGateApp:ServersV2Repository: getServers
+ForCountry[AU][ru]: fetching from network
+05-14 08:47:34.871  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.yah
+orzabotsin.openvpnclientgate, inputType=0, inputTypeString=NULL, enableLearning
+=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptio
+ns=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialS
+elEnd=-1, initialCapsMode=0, label=null, fieldId=2131296841, fieldName=null, ex
+tras=null, hintText=null, hintLocales=[]}}, false)
+05-14 08:47:34.906  4634  4668 D OpenVPNGateApp:ServersV2Repository: fetchAllPa
+ges[AU]: fetched 2 servers (raw=2)
+05-14 08:47:35.176  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.miu
+i.home, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection
+=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UN
+SPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsM
+ode=0, label=null, fieldId=2131361961, fieldName=null, extras=null, hintText=nu
+ll, hintLocales=[]}}, false)
+05-14 08:47:36.296  4775  4775 D AppCompatDelegate: Checking for metadata for A
+ppLocalesMetadataHolderService : Service not found
+05-14 08:47:36.483  4775  4775 D OpenVPNGateApp:ServersV2Repository: getCountri
+es[locale=pl]: fetching from network
+05-14 08:47:36.644  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.yah
+orzabotsin.openvpnclientgate, inputType=0, inputTypeString=NULL, enableLearning
+=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptio
+ns=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialS
+elEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=nul
+l, hintText=null, hintLocales=[]}}, false)
+05-14 08:47:42.151  4775  4775 D OpenVPNGateApp:ServersV2Repository: getCountri
+es[locale=pl]: cache hit
+05-14 08:47:42.172  4775  4808 D OpenVPNGateApp:VersionReleaseRepository: Relea
+se notes cache miss: version=1.0.4-beta.1, build=63, locale=pl, sourceKey=f792e
+dbe
+05-14 08:47:42.241  4775  4775 D OpenVPNGateApp:ServersV2Repository: getCountri
+es[locale=pl]: cache hit
+05-14 08:47:42.414  4775  4809 I OpenVPNGateApp:VersionReleaseRepository: Loade
+d release notes for 1.0.4-beta.1(63) from https://openvpngateclient.azurewebsit
+es.net/api/v1/versions/number/1.0.4-beta.1/build/63?locale=pl; requestedLocale=
+pl, resolvedLocale=pl
+05-14 08:47:42.473  4775  4775 D OpenVPNGateApp:ServersV2Repository: getServers
+ForCountry[AU]: serverCount=2 locale=pl
+05-14 08:47:42.475  4775  4775 D OpenVPNGateApp:ServersV2Repository: getServers
+ForCountry[AU][pl]: fetching from network
+05-14 08:47:42.544  4775  4809 D OpenVPNGateApp:ServersV2Repository: fetchAllPa
+ges[AU]: fetched 2 servers (raw=2)
+05-14 08:47:42.624  8885  8885 I GoogleInputMethodService: GoogleInputMethodSer
+vice.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.yah
+orzabotsin.openvpnclientgate, inputType=0, inputTypeString=NULL, enableLearning
+=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptio
+ns=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialS
+elEnd=-1, initialCapsMode=0, label=null, fieldId=2131296841, fieldName=null, ex
+tras=null, hintText=null, hintLocales=[]}}, false)
+
+

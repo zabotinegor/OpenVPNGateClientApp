@@ -1,0 +1,1294 @@
+﻿--------- beginning of main
+05-14 08:48:04.681  5064  5064 D OpenVPNGateApp:SelectedCountryStore: getLastStartedConfig: country=Australia hasConfig=true
+--------- beginning of system
+05-14 08:48:04.716  1551  9798 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState state = onResume
+05-14 08:48:04.716  1551  9798 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState r = ActivityRecord{3ae59a7 u0 com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity t4252}
+05-14 08:48:04.693  5064  5064 D OpenVPNGateApp:SelectedCountryStore: getLastStartedConfig: country=Australia hasConfig=true
+05-14 08:48:04.716  2731  2731 D RecentsImpl: mActivityStateObserver com.yahorzabotsin.openvpnclientgate.mobile.MainActivity
+05-14 08:48:04.716  2731  2731 W RecentsImpl: onResumed className=com.yahorzabotsin.openvpnclientgate.mobile.MainActivity   mIsInAnotherPro=false
+05-14 08:48:04.717  5064  5064 W Looper  : PerfMonitor looperActivity : package=com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity time=0ms latency=405ms running=0ms  procState=2 ClientTransaction{ callbacks=[android.app.servertransaction.TopResumedActivityChangeItem] } historyMsgCount=3 (msgIndex=3 wall=397ms seq=197 running=339ms runnable=8ms late=8ms h=android.app.ActivityThread$H w=159)
+05-14 08:48:04.718  5064  5064 D OpenVPNGateApp:ServersV2Repository: getCountries[locale=en]: cache hit
+05-14 08:48:04.748  5064  5064 I OpenVPNGateApp:MainViewModel: What's new loaded: 1.0.4-beta.1, title=Beta Release v1.0.4-beta.1-auto(63)
+05-14 08:48:04.786  1551  9798 V WindowManager: Orientation start waiting for draw, mDrawState=DRAW_PENDING in Window{4b9483e mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}, surfaceController Surface(name=com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity)/@0xc8c03ec
+05-14 08:48:04.787  1551  9798 I Timeline: Timeline: App_transition_ready time:372047458
+05-14 08:48:04.789  1551  9798 I Timeline: Timeline: App_transition_ready time:372047461
+05-14 08:48:04.791  1551  9798 D WindowManager: Input focus has changed to Window{4b9483e mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}
+05-14 08:48:04.813  5064  5096 I OpenVPNGateApp:UpdateCheckRepository: Update check result: hasUpdate=true, currentBuild=63, latestBuild=83, assetPlatform=mobile, hasAsset=true
+05-14 08:48:04.912  1551  9798 I ActivityManager: Force stopping com.yahorzabotsin.openvpnclientgate appid=10632 user=0: from process:5152
+05-14 08:48:04.912  1551  9798 D AutoStartManagerService: prepare force stop p:5064 s: 19
+05-14 08:48:04.912  1551  9798 I Process : Sending signal. PID: 5064 SIG: 19
+05-14 08:48:04.914  1551  1677 I Timeline: Timeline: App_transition_ready time:372047585
+05-14 08:48:04.914  1551  1684 I ActivityTaskManager: Displayed com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity: +636ms
+05-14 08:48:04.916  2288  2715 D MiuiPhoneStatusBarPolicy: updateManagedProfile: secondSpace = false
+05-14 08:48:04.917  1551  9798 I ActivityManager: Killing 5064:com.yahorzabotsin.openvpnclientgate/u0a632 (adj 0): stop com.yahorzabotsin.openvpnclientgate due to from process:5152
+05-14 08:48:04.922   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: killProcess is called for pid : 5064
+05-14 08:48:04.922   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: process with pid 5064 is service
+05-14 08:48:04.923   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: destroyService is called for service : com.yahorzabotsin.openvpnclientgate/.vpn.OpenVpnService
+05-14 08:48:04.923  1551  9798 W ActivityTaskManager: Force removing ActivityRecord{3ae59a7 u0 com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity t4252 f}}: app died, no saved state
+05-14 08:48:04.923  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateDESTROYED
+05-14 08:48:04.923  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateDESTROYED
+05-14 08:48:04.923   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 9
+05-14 08:48:04.923  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateDESTROYED
+05-14 08:48:04.924  1551  9798 D WindowManager: Input focus has changed to null
+05-14 08:48:04.926  1551  9798 W ActivityTaskManager: Force removing ActivityRecord{d36f0a0 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4252 f}}: app died, no saved state
+05-14 08:48:04.926  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateDESTROYED
+05-14 08:48:04.926  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateDESTROYED
+05-14 08:48:04.926  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateDESTROYED
+05-14 08:48:04.926  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:04.926   874 24460 I chatty  : uid=1000(system) HwBinder:874_6 identical 4 lines
+05-14 08:48:04.926   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 9
+05-14 08:48:04.926   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:04.927  1551  9798 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateRESUMED
+05-14 08:48:04.928   694   702 E statsd  : Predicate 5980654721335871649 dropping data for dimension key (10)0x2010101->10632[I] (10)0x30000->*launch*[S] 
+05-14 08:48:04.928   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:04.930 11275 11293 I GST     : forePkg: com.miui.home, preForePkg: com.yahorzabotsin.openvpnclientgate
+05-14 08:48:04.930 10638 20264 I ProcessMonitor: onForegroundInfoChanged: ForegroundInfo{mForegroundPackageName='com.miui.home', mForegroundUid=10111, mForegroundPid=2731, mLastForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mLastForegroundUid=10632, mLastForegroundPid=5064, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=0}
+05-14 08:48:04.931  1551  9019 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From null(0,0)  to Window{4b9483e mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}(1,1)
+05-14 08:48:04.931 11081 12198 D PerfEngineController: ForegroundInfo{mForegroundPackageName='com.miui.home', mForegroundUid=10111, mForegroundPid=2731, mLastForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mLastForegroundUid=10632, mLastForegroundPid=5064, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=0}
+05-14 08:48:04.932 10638 20264 I GameBoosterService: onForegroundInfoChanged: Cur=com.miui.home	 last=com.yahorzabotsin.openvpnclientgate
+05-14 08:48:04.932 10638 20264 I FreeformWindowUtils: has app list!
+05-14 08:48:04.932 10638 20264 D GameBoosterService: onGameStatusChange foreground:ForegroundInfo{mForegroundPackageName='com.miui.home', mForegroundUid=10111, mForegroundPid=2731, mLastForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mLastForegroundUid=10632, mLastForegroundPid=5064, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=0}
+05-14 08:48:04.932 10638 20264 I VideoBoxUtils: isSupportVideoBox: false
+05-14 08:48:04.932 10638 20264 I VideoToolBoxService: vtb is closed!!!
+05-14 08:48:04.936  1551  9798 I Timeline: Timeline: App_transition_ready time:372047608
+05-14 08:48:04.941  1551  9798 I WindowManager:   Force finishing activity ActivityRecord{3ae59a7 u0 com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity t4252 f} isExiting}
+05-14 08:48:04.941  1551  9798 W ActivityTaskManager: Duplicate finish request for r=ActivityRecord{3ae59a7 u0 com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity t4252 f} isExiting}
+05-14 08:48:04.941  1551  9798 I WindowManager:   Force finishing activity ActivityRecord{d36f0a0 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4252 f} isExiting}
+05-14 08:48:04.941  1551  9798 W ActivityTaskManager: Duplicate finish request for r=ActivityRecord{d36f0a0 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4252 f} isExiting}
+05-14 08:48:04.944  1551  1677 I Timeline: Timeline: App_transition_ready time:372047616
+05-14 08:48:04.928  1198  1198 W Binder:1198_7: type=1400 audit(0.0:628444): avc: denied { search } for name="820" dev="proc" ino=4117628 scontext=u:r:cameraserver:s0 tcontext=u:r:hal_camera_default:s0 tclass=dir permissive=0
+05-14 08:48:04.928  1198  1198 W Binder:1198_7: type=1400 audit(0.0:628445): avc: denied { search } for name="820" dev="proc" ino=4117628 scontext=u:r:cameraserver:s0 tcontext=u:r:hal_camera_default:s0 tclass=dir permissive=0
+05-14 08:48:04.945  1551  2119 I MiuiNetworkPolicy: removeUidState uid = 10632
+05-14 08:48:04.945  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10152, uidState = 3
+05-14 08:48:04.945  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10111, uidState = 2
+05-14 08:48:04.946  1551 25888 E ANDR-PERF-JNI: UXEngine Trigger - Returning null
+05-14 08:48:04.947  1551  9798 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From Window{4b9483e mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}(1,1)  to null(0,0)
+05-14 08:48:04.949 15664 15664 D AggregateListener: notifyAction action:android.intent.action.PACKAGE_RESTARTED
+05-14 08:48:04.949 15664 15664 D AggregateListener: onPackageRestarted packageName:com.yahorzabotsin.openvpnclientgate
+05-14 08:48:04.950  9064  9064 D RegisteredServicesCache: Intent action: android.intent.action.PACKAGE_RESTARTED
+05-14 08:48:04.956  1551  9201 I Timeline: Timeline: App_transition_ready time:372047628
+05-14 08:48:04.957 10196 17201 I com.xiaomi.xms: oneway function results will be dropped but finished with status UNKNOWN_TRANSACTION and parcel size 0
+05-14 08:48:04.957 10196 17201 D PMonitor:  onForegroundActivitiesChanged:pid = 2731,activity-uid=10111,foregroundActivities=true
+05-14 08:48:04.958  2697  2697 E PhoneInterfaceManager: [PhoneIntfMgr] getCarrierPackageNamesForIntentAndPhone: No UICC
+05-14 08:48:04.958  2697  2697 D CarrierSvcBindHelper: No carrier app for: 0
+05-14 08:48:04.961  2697  2697 D CarrierSvcBindHelper: No carrier app for: 1
+05-14 08:48:04.964  1551  9182 I Timeline: Timeline: App_transition_ready time:372047635
+05-14 08:48:04.970  2731  2731 D Launcher.Lifecycle: onStart:UserHandle{0},8217634,false
+05-14 08:48:04.971  9009  7388 I com.miui.daemo: oneway function results will be dropped but finished with status OK and parcel size 4
+05-14 08:48:04.972  2731  3111 I RenderThread: RenderThread resumed
+05-14 08:48:04.973  2731  3111 I RenderThread: All controllers paused.
+05-14 08:48:04.973  2731  3111 I RenderThread: RenderThread paused, waiting for signal
+05-14 08:48:04.974   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: bindService is called for service : com.mi.android.globalminusscreen/com.google.mi.apps.gsa.nowoverlayservice.DrawerOverlayService and for client com.miui.home
+05-14 08:48:04.974   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: total connections for service : com.mi.android.globalminusscreen/com.google.mi.apps.gsa.nowoverlayservice.DrawerOverlayServiceare :1
+05-14 08:48:04.974   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: total connections for client : com.miui.homeare :1
+05-14 08:48:04.981  2731  2731 D Launcher.Lifecycle: onResume:UserHandle{0},8217634,false
+05-14 08:48:04.981  2731  3111 I RenderThread: RenderThread resumed
+05-14 08:48:04.981  2731  3111 I RenderThread: All controllers paused.
+05-14 08:48:04.981  2731  3111 I RenderThread: RenderThread paused, waiting for signal
+05-14 08:48:04.982  2731  2843 D StatusBarController: handleMessage: flag 800000  disable false
+05-14 08:48:04.984  1551  1677 I Timeline: Timeline: App_transition_ready time:372047656
+05-14 08:48:04.985  1551  9019 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState state = onResume
+05-14 08:48:04.985  1551  9019 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState r = ActivityRecord{ab8e47f u0 com.miui.home/.launcher.Launcher t2}
+05-14 08:48:04.989  9009  7388 I com.miui.daemo: oneway function results will be dropped but finished with status OK and parcel size 4
+05-14 08:48:04.994  1551  9205 I WindowManager: WIN DEATH: Window{775d9e2 mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}
+05-14 08:48:04.994  1551  9205 W InputDispatcher: Attempted to unregister already unregistered input channel '775d9e2 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity (server)'
+05-14 08:48:04.995   696   696 I Zygote  : Process 5064 exited due to signal 9 (Killed)
+05-14 08:48:04.997  1551  9205 I Timeline: Timeline: App_transition_ready time:372047669
+05-14 08:48:04.998  1551  3050 I WindowManager: WIN DEATH: Window{4b9483e mode=0 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}
+05-14 08:48:04.998  1551  3050 W InputDispatcher: Attempted to unregister already unregistered input channel '4b9483e com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity (server)'
+05-14 08:48:04.999  1551  1687 I libprocessgroup: Successfully killed process cgroup uid 10632 pid 5064 in 81ms
+05-14 08:48:05.001  2288  2288 D NotifBadge: recevie broadbcast ACTION_APPLICATION_MESSAGE_QUERY, requestFirstTime=false
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null mute
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null screenshot
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null airplane
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null screenlock
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null hotspot
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null gps
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null rotation
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null scanner
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null papermode
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null night
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null quietmode
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null batterysaver
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null custom(com.miui.securitycenter/com.miui.superpower.notification.SuperPowerTileService)
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null custom(com.milink.service/com.milink.ui.service.MiLinkTileService)
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null custom(com.miui.mishare.connectivity/.tile.MiShareTileService)
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null freeformhang
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null custom(com.miui.screenrecorder/.service.QuickService)
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null vibrate
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null nfc
+05-14 08:48:05.001  2288  2288 E QSAnimator: tileView is null edit
+05-14 08:48:05.002  1551  3050 I Timeline: Timeline: App_transition_ready time:372047674
+05-14 08:48:05.005  1551  1677 I Timeline: Timeline: App_transition_ready time:372047677
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache: Adding service: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService} AIDs: [325041592E5359532E4444463031]
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache: Adding service: ComponentInfo{com.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService} AIDs: [F00000FE2C]
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache: Adding service: ComponentInfo{com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService} AIDs: []
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache: Adding service: ComponentInfo{com.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService} AIDs: [A000000809434343444B467631]
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache: Adding service: ComponentInfo{com.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService} AIDs: [A000000476B00003]
+05-14 08:48:05.009  9064  9064 D RegisteredServicesCache:  Reading service state data always from file
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache: ServiceStateFileVersion=1.0
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: Next Tag=services
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr component com.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr uid 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr state 1
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: installedServices no uidString 
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr component com.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr uid 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr state 1
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: installedServices contains uidString : 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr component com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr uid 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr state 1
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: installedServices contains uidString : 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr component com.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr uid 10186
+05-14 08:48:05.010  9064  9064 D RegisteredServicesCache:  curr state 1
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: installedServices contains uidString : 10186
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache: 1invalidateCache:WriteServiceStateToFile
+05-14 08:48:05.010  9064  9064 E RegisteredServicesCache:  Writing service state Data Always
+05-14 08:48:05.011  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService
+05-14 08:48:05.011  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService
+05-14 08:48:05.011  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService
+05-14 08:48:05.011  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService
+05-14 08:48:05.012   968  1047 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.012  1551  2464 I Timeline: Timeline: App_transition_ready time:372047684
+05-14 08:48:05.013   968   968 D SurfaceFlinger: Launcher Changed hasLauncher=1
+05-14 08:48:05.016  1551  2464 D WindowManager: Input focus has changed to Window{4a1df27 mode=0 rootTaskId=1 u0 com.miui.home/com.miui.home.launcher.Launcher}
+05-14 08:48:05.017  9064  9064 D CardEmulationManager: Current default: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService}
+05-14 08:48:05.017  9064  9064 D CardEmulationManager: Default payment service still ok.
+05-14 08:48:05.017  9064  9064 D RegisteredAidCache: onServicesUpdated
+05-14 08:48:05.019  9064  9064 D RegisteredAidCache: generateServiceMap component: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService}
+05-14 08:48:05.019  9064  9064 D RegisteredAidCache: generateServiceMap component: ComponentInfo{com.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService}
+05-14 08:48:05.019  9064  9064 D RegisteredAidCache: generateServiceMap component: ComponentInfo{com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService}
+05-14 08:48:05.019  9064  9064 D RegisteredAidCache: generateServiceMap component: ComponentInfo{com.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService}
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateServiceMap component: ComponentInfo{com.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService}
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid 4F53452E5641532E3031
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: making single handling service ComponentInfo{com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService} default.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [4F53452E5641532E3031] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid A00000047643276C1FDE7A39B9C05716
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: routing to payment default default ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService}, description: Google Pay, Static AID Groups: Category: payment, AIDs:325041592E5359532E4444463031, , Dynamic AID Groups: Category: payment, AIDs:A00000047643276C1FDE7A39B9C05716, A000000940BCB000, 
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A00000047643276C1FDE7A39B9C05716] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid A000000476B00003
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: making single handling service ComponentInfo{com.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService} default.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000476B00003] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid A000000476D0000111
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: making single handling service ComponentInfo{com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService} default.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000476D0000111] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid A000000809434343444B467631
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: making single handling service ComponentInfo{com.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService} default.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000809434343444B467631] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid A000000940BCB000
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: routing to payment default default ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService}, description: Google Pay, Static AID Groups: Category: payment, AIDs:325041592E5359532E4444463031, , Dynamic AID Groups: Category: payment, AIDs:A00000047643276C1FDE7A39B9C05716, A000000940BCB000, 
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000940BCB000] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: generateAidCacheLocked: starting with aid F00000FE2C
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact AID, resolving.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: resolveAidLocked: DECISION: making single handling service ComponentInfo{com.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService} default.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [F00000FE2C] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.F00000FE2C
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [F00000FE2C] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.A000000940BCB000
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000940BCB000] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.A000000809434343444B467631
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000809434343444B467631] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.A000000476D0000111
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000476D0000111] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.A000000476B00003
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A000000476B00003] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.A00000047643276C1FDE7A39B9C05716
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [A00000047643276C1FDE7A39B9C05716] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: Exact or Prefix AID.4F53452E5641532E3031
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache: AIDs: [4F53452E5641532E3031] were resolved.
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state before adding screen state1
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state after17
+05-14 08:48:05.020  9064  9064 D RegisteredAidCache:  AID power state17
+05-14 08:48:05.020  9064  9064 D BrcmNfcJni: nfcManager_getDefaultAidRoute: DEFAULT_AID_ROUTE: 2
+05-14 08:48:05.020  9064  9064 D NxpExtns: find found DEFAULT_AID_PWR_STATE=(0x19)
+05-14 08:48:05.020  9064  9064 D NfcService: defaultAidRoute : 537
+05-14 08:48:05.020  9064  9064 D NfcService: GetDefaultRouteLoc  :2
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: mAidMatchingPlatform=0x1
+05-14 08:48:05.020  9064  9064 I BrcmNfcNfa: nfa_ee_api_get_max_aid_config_length
+05-14 08:48:05.020  9064  9064 I BrcmNfcNfa: nfa_ee_api_get_max_aid_config_length: 800
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: mDefaultRoute=0x2
+05-14 08:48:05.020  9064  9064 D BrcmNfcJni: nfcManager_getDefaultAidRoute: DEFAULT_AID_ROUTE: 2
+05-14 08:48:05.020  9064  9064 D NxpExtns: find found DEFAULT_AID_PWR_STATE=(0x19)
+05-14 08:48:05.020  9064  9064 D NfcService: defaultAidRoute : 537
+05-14 08:48:05.020  9064  9064 D NfcService: GetDefaultRouteLoc  :2
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID A000000809434343444B467631 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID F00000FE2C to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID A00000047643276C1FDE7A39B9C05716 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID 4F53452E5641532E3031 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID A000000476D0000111 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID A000000940BCB000 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: #######Routing AID A000000476B00003 to route 0 with power 17
+05-14 08:48:05.020  9064  9064 D AidRoutingManager: Routing table unchanged, but commit the routing
+05-14 08:48:05.021  9064  9064 D NQApduServiceInfo: updateServiceCommitStatus:Description:Nearby:InternalState:1:commitStatus:true
+05-14 08:48:05.021  9064  9064 D NQApduServiceInfo: updateServiceCommitStatus:Description:Fido NFC Emulation Service:InternalState:1:commitStatus:true
+05-14 08:48:05.021  9064  9064 D NQApduServiceInfo: updateServiceCommitStatus:Description:Google ╨Ъ╨╛╤И╨╡╨╗╨╡╨║:InternalState:1:commitStatus:true
+05-14 08:48:05.021  9064  9064 D NQApduServiceInfo: updateServiceCommitStatus:Description:Android Digital Car Key (System Service):InternalState:1:commitStatus:true
+05-14 08:48:05.021  9064  9064 E RegisteredServicesCache: 3updateStatusOfServices:WriteServiceStateToFile
+05-14 08:48:05.021   968  1047 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.021  9064  9064 E RegisteredServicesCache:  Writing service state Data Always
+05-14 08:48:05.022  1551  1677 W WindowManager: Failed to deliver inset state change to w=Window{4b9483e mode=1 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity EXITING}
+05-14 08:48:05.022  1551  1677 W WindowManager: android.os.DeadObjectException
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.BinderProxy.transactNative(Native Method)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.BinderProxy.transact(BinderProxy.java:540)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.view.IWindow$Stub$Proxy.insetsControlChanged(IWindow.java:812)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.WindowState.notifyInsetsControlChanged(WindowState.java:3915)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.InsetsStateController.lambda$notifyPendingInsetsControlChanged$4$InsetsStateController(InsetsStateController.java:458)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.-$$Lambda$InsetsStateController$-1iOXDf-1s3wDHcMIHBKNk6MS3I.run(Unknown Source:2)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.executeAfterPrepareSurfacesRunnables(WindowAnimator.java:357)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.animate(WindowAnimator.java:238)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.lambda$new$1$WindowAnimator(WindowAnimator.java:109)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.wm.-$$Lambda$WindowAnimator$ddXU8gK8rmDqri0OZVMNa3Y4GHk.doFrame(Unknown Source:2)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.view.Choreographer$CallbackRecord.run(Choreographer.java:1074)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.view.Choreographer.doCallbacks(Choreographer.java:897)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.view.Choreographer.doFrame(Choreographer.java:822)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.view.Choreographer$FrameDisplayEventReceiver.run(Choreographer.java:1061)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:05.022  1551  1677 W WindowManager: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:05.022  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService
+05-14 08:48:05.022  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService
+05-14 08:48:05.022  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService
+05-14 08:48:05.022  9064  9064 E RegisteredServicesCache: component namecom.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService
+05-14 08:48:05.025  9064  9064 D RegisteredServicesCache: ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.tapandpay.hce.service.TpHceService}, description: Google Pay, Static AID Groups: Category: payment, AIDs:325041592E5359532E4444463031, , Dynamic AID Groups: Category: payment, AIDs:A00000047643276C1FDE7A39B9C05716, A000000940BCB000, 
+05-14 08:48:05.025   968  1047 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.025  9064  9064 D RegisteredServicesCache: ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.nearby.mediums.nearfieldcommunication.NfcAdvertisingService}, description: Nearby, Static AID Groups: Category: other, AIDs:F00000FE2C, , Dynamic AID Groups: 
+05-14 08:48:05.025  9064  9064 D RegisteredServicesCache: ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.pay.hce.service.PayHceService}, description: Google ╨Ъ╨╛╤И╨╡╨╗╨╡╨║, Static AID Groups: , Dynamic AID Groups: Category: other, AIDs:4F53452E5641532E3031, A000000476D0000111, 
+05-14 08:48:05.025  9064  9064 D RegisteredServicesCache: ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.dck.service.DckNfcApduService}, description: Android Digital Car Key (System Service), Static AID Groups: Category: other, AIDs:A000000809434343444B467631, , Dynamic AID Groups: 
+05-14 08:48:05.025  9064  9064 D RegisteredServicesCache: ApduService: ComponentInfo{com.google.android.gms/com.google.android.gms.fido.fido2.ui.hybrid.NfcEmulationService}, description: Fido NFC Emulation Service, Static AID Groups: Category: other, AIDs:A000000476B00003, , Dynamic AID Groups: 
+05-14 08:48:05.025  1551  1677 I Timeline: Timeline: App_transition_ready time:372047697
+05-14 08:48:05.025  9064  9064 D RegisteredNfcFServicesCache: Service unchanged, not updating
+05-14 08:48:05.025  9064  9064 E NfcService: applyRouting -9
+05-14 08:48:05.025  9064  9064 D NfcService: applyRouting - enter force = false mScreenState = 8
+05-14 08:48:05.026  9064  9064 E NfcService: computeDiscoveryParameters: enter. screenState=8
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: nfcManager_getDefaultDesfireRoute: enter; NAME_DEFAULT_DESFIRE_ROUTE = 02
+05-14 08:48:05.026  9064  9064 D NxpExtns: find found DEFAULT_DESFIRE_PWR_STATE=(0x1b)
+05-14 08:48:05.026  9064  9064 D NfcService: defaultMifareDesfireRoute : 539
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: nfcManager_getDefaultAidRoute: DEFAULT_AID_ROUTE: 2
+05-14 08:48:05.026  9064  9064 D NxpExtns: find found DEFAULT_AID_PWR_STATE=(0x19)
+05-14 08:48:05.026  9064  9064 D NfcService: defaultAidRoute : 537
+05-14 08:48:05.026  9064  9064 D NfcService: defaultroute = 537
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: nfcManager_getDefaultMifareCLTRoute: DEFAULT_MIFARE_CLT_ROUTE: 2
+05-14 08:48:05.026  9064  9064 D NxpExtns: find found DEFAULT_MIFARE_CLT_PWR_STATE=(0x1b)
+05-14 08:48:05.026  9064  9064 D NfcService: defaultMifateCLTRoute : 2587
+05-14 08:48:05.026  9064  9064 D NfcService: Set default Route Entry
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: nfcManager_setDefaultRoute : enter
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: transactionAttempt: Transaction attempted : setDefaultRoute when barrier is: 1
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: transactionLiveLockable: Performing check for long duration transaction
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: transactionAttempt: Transaction granted : setDefaultRoute 
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: transactionAttempt: Transaction granted : setDefaultRoute and barrier is: 0
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: startRfDiscovery: is start=0
+05-14 08:48:05.026  9064  9064 D BrcmNfcJni: SyncEventGuard: lock on 0x7e09f3dd10
+05-14 08:48:05.026  9064  9064 I BrcmNfcNfa: NFA_StopRfDiscovery ()
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: NFA got event 0x0110
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfa_dm_evt_hdlr event: NFA_DM_API_STOP_RF_DISCOVERY_EVT (0x10)
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfa_dm_act_stop_rf_discovery ()
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfa_dm_rf_deactivate () deactivate_type:0x0
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): state: DISCOVERY (1), event: DEACTIVATE_CMD(6) disc_flags: 0x2
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: NFC_Deactivate 4 (IDLE) deactivate_type:0
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfc_ncif_send_cmd()
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : Writing to HAL...
+05-14 08:48:05.026  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : cmd_size:1
+05-14 08:48:05.026  9064 10050 D NfcAdaptation: NfcAdaptation::HalWrite
+05-14 08:48:05.026   858   900 D NxpExtns: find found MIFARE_READER_ENABLE=(0x1)
+05-14 08:48:05.027   858 10132 D NxpTml  : PN54X - Write requested.....
+05-14 08:48:05.027   858 10132 D NxpTml  : PN54X - Invoking I2C Write.....
+05-14 08:48:05.028  2731  2731 D FancyDrawable: doResume:   [miui.maml.FancyDrawable@2dbe4c1]
+05-14 08:48:05.028  2731  2731 D MultipleRenderable: setPause: false miui.maml.FancyDrawable@2dbe4c1
+05-14 08:48:05.028  2731  2731 D RendererCore: self resume: miui.maml.RendererCore@cafc114
+05-14 08:48:05.028  2731  2731 D ScreenElementRoot: resume
+05-14 08:48:05.030   858 10132 E NxpTml  : _i2c_write() errno : 5
+05-14 08:48:05.030   858 10132 E NxpTml  : PN54X - Error in I2C Write.....
+05-14 08:48:05.030   858 10132 D NxpTml  : PN54X - Posting Fresh Write message.....
+05-14 08:48:05.030   858 10132 D NxpTml  : PN54X - Tml Writer Thread Running................
+05-14 08:48:05.030   858 10134 E NxpHal  : write error status = 0x1ff
+05-14 08:48:05.030   858   900 E NxpHal  : write_unlocked failed - PN54X Maybe in Standby Mode - Retry
+05-14 08:48:05.031   968  1047 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.037   858 10132 D NxpTml  : PN54X - Write requested.....
+05-14 08:48:05.037   858 10132 D NxpTml  : PN54X - Invoking I2C Write.....
+05-14 08:48:05.039   858 10132 D NxpNciX : len =   4 => 21060100
+05-14 08:48:05.039   858 10132 D NxpTml  : PN54X - I2C Write successful.....
+05-14 08:48:05.039   858 10132 D NxpTml  : PN54X - Posting Fresh Write message.....
+05-14 08:48:05.039   858 10132 D NxpTml  : PN54X - Tml Writer Thread Running................
+05-14 08:48:05.039   858 10134 D NxpHal  : write successful status = 0x0
+05-14 08:48:05.039  9064 10050 E power   : ISystemSuspend::getService() failed.
+05-14 08:48:05.039   858 10131 D NxpTml  : PN54X - I2C Read successful.....len = 4
+05-14 08:48:05.039   858 10131 D NxpTml  : PN54X - Posting read message.....
+05-14 08:48:05.039   858 10131 D NxpNciR : len =   4 <= 41060100
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): new state: DISCOVERY (1), disc_flags: 0x22
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_stop_timer b3bb8040
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: ptim timer stop
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: Stopped presence check timer (if started)
+05-14 08:48:05.039   858 10134 D NxpHal  : read successful status = 0x0
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: NFC received rsp gid:1
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: P2P_Prio_Logic
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_p2p_prio_logic event_type = 0x1
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: returning true
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfc_set_state 4 (IDLE)->4 (IDLE)
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_data_cback ()
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_discovery_cback (): event:0x4005
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): state: DISCOVERY (1), event: DEACTIVATE_RSP(7) disc_flags: 0x22
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_new_state (): old_state: DISCOVERY (1), new_state: IDLE (0) disc_flags: 0x2
+05-14 08:48:05.039  9064 10050 D BrcmNfcJni: nfaConnectionCallback: Connection Event = 31
+05-14 08:48:05.039  9064 10050 D BrcmNfcJni: nfaConnectionCallback: NFA_RF_DISCOVERY_STOPPED_EVT: status = 0x0
+05-14 08:48:05.039  9064 10050 D BrcmNfcJni: notifyPollingEventwhileNfcOff: sDiscCmdwhleNfcOff=0
+05-14 08:48:05.039  9064 10050 D BrcmNfcJni: getReconnectState = 0x0
+05-14 08:48:05.039  9064 10050 D BrcmNfcJni: SyncEventGuard: lock on 0x7e09f3dd10
+05-14 08:48:05.039  9064 10050 E BrcmNfcJni: notifyOne: 0x7e09f3dd10
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover (): enter
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover (): return
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): new state: IDLE (0), disc_flags: 0x0
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: startRfDiscovery: is exit=0
+05-14 08:48:05.039   858 10131 D NxpTml  : PN54X - Read requested.....
+05-14 08:48:05.039   858 10131 D NxpTml  : PN54X - Invoking I2C Read.....
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::setDefaultRoute: enter; defaultRoute:0x219 protoRoute:0x21B TechRoute:0xA1B HostListenMask:0x7
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::extractRouteLocationAndPowerStates:mDefaultIso7816SeID:0x200 mDefaultIsoDepSeID:0x200 mDefaultTechASeID 0x200
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: getUiccRoute: Enter slot num = 1
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::extractRouteLocationAndPowerStates:mDefaultIso7816SeID:0x402 mDefaultIso7816Powerstate:0x19
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: getUiccRoute: Enter slot num = 1
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::extractRouteLocationAndPowerStates:mDefaultIsoDepSeID:0x402 mDefaultIsoDepPowerstate:0x1B
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: getUiccRoute: Enter slot num = 1
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::extractRouteLocationAndPowerStates:mDefaultTechASeID:0x402 mDefaultTechAPowerstate:0x1B
+05-14 08:48:05.039  9064  9064 I BrcmNfcNfa: NFA_CeSetIsoDepListenTech (): 0x3
+05-14 08:48:05.039  9064  9064 I BrcmNfcNfa: NFA_CeRegisterAidOnDH ()
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: enter
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: NFA got event 0x0603
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_ce_handle_event event: NFA_CE_API_CFG_ISODEP_TECH_EVT (0x603), flags: 00000000
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: NFA got event 0x0601
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_ce_handle_event event: NFA_CE_API_REG_LISTEN_EVT (0x601), flags: 00000000
+05-14 08:48:05.039  9064  9064 D NxpExtns: find found NXP_CHECK_DEFAULT_PROTO_SE_ID=(0x1)
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: CHECK_DEFAULT_PROTO_SE_ID - 0x 1 
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 0 = 0x401
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 0 = 0x401
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_ce_api_reg_listen ():Registering UICC/ESE/Felica/Type-4 tag listener. Type=1
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: nfa_ce_api_reg_listen ():found free entry listen_info_idx = 3
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: NFA_CE: adding listen_info entry 3
+05-14 08:48:05.039  9064 10050 I BrcmNfcNfa: CE_T4tRegisterAID (): registering callback for wildcard AID 
+05-14 08:48:05.039  9064  9064 D BrcmNfcJni: 0x401: 0x1 0x1 0x0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 1 = 0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: Handle 1 = 0xC0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: count : 1
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getGenericEseId: enter; ESE-Handle = 0xC0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getGenericEseId: exit; ESE-Generic-ID = 0x01
+05-14 08:48:05.040  9064 10050 E BrcmNfcNfa: CE_T4tRegisterAID (): only one wildcard AID can be registered at time.
+05-14 08:48:05.040  9064 10050 E BrcmNfcNfa: Unable to register AID
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::stackCallback: event=0x15
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::stackCallback: NFA_CE_REGISTERED_EVT; status=0x3; h=0xFFFF
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: seId : 1
+05-14 08:48:05.040  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3eafc
+05-14 08:48:05.040  9064 10050 E com.android.nf: notifyOne: 0x7e09f3eafc
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEseHandleFromGenericId: enter; ESE-ID = 0x01
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEseHandleFromGenericId: enter; ESE-Handle = 0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: ActDevHandle : 0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID:isDefaultIsoDepSeIDPresent:0x0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::checkProtoSeID: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::initialiseTableEntries: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: enter; mbNewEE=0, mActualNumEe=2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeGetInfo em_state:1 cur_ee:3
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:0 max_ret:4, num_ret:0 ee_status:0x0, nfcee_id:0x1
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:1 max_ret:4, num_ret:1 ee_status:0x0, nfcee_id:0xc0
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:2 max_ret:4, num_ret:2 ee_status:0x2, nfcee_id:0x2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: num_ret:2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: num EEs discovered: 2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[0] Handle: 0x0401  Status: Connected/Active  Num I/f: 1: (0x01, 0x00)  Num TLVs: 0, Tech : (LA:0x00, LB:0x00, LF:0x00, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[1] Handle: 0x04c0  Status: Connected/Active  Num I/f: 1: (0x80, 0x00)  Num TLVs: 0, Tech : (LA:0x04, LB:0x04, LF:0x03, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: exit; mActualNumEe=2, mNumEePresent=1
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: enter; mbNewEE=0, mActualNumEe=2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeGetInfo em_state:1 cur_ee:3
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:0 max_ret:4, num_ret:0 ee_status:0x0, nfcee_id:0x1
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:1 max_ret:4, num_ret:1 ee_status:0x0, nfcee_id:0xc0
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:2 max_ret:4, num_ret:2 ee_status:0x2, nfcee_id:0x2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: num_ret:2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: num EEs discovered: 2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[0] Handle: 0x0401  Status: Connected/Active  Num I/f: 1: (0x01, 0x00)  Num TLVs: 0, Tech : (LA:0x00, LB:0x00, LF:0x00, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[1] Handle: 0x04c0  Status: Connected/Active  Num I/f: 1: (0x80, 0x00)  Num TLVs: 0, Tech : (LA:0x04, LB:0x04, LF:0x03, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: exit; mActualNumEe=2, mNumEePresent=1
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: enter; mbNewEE=0, mActualNumEe=2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeGetInfo em_state:1 cur_ee:3
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:0 max_ret:4, num_ret:0 ee_status:0x0, nfcee_id:0x1
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:1 max_ret:4, num_ret:1 ee_status:0x0, nfcee_id:0xc0
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: xx:2 max_ret:4, num_ret:2 ee_status:0x2, nfcee_id:0x2
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: num_ret:2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: num EEs discovered: 2
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[0] Handle: 0x0401  Status: Connected/Active  Num I/f: 1: (0x01, 0x00)  Num TLVs: 0, Tech : (LA:0x00, LB:0x00, LF:0x00, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: EE[1] Handle: 0x04c0  Status: Connected/Active  Num I/f: 1: (0x80, 0x00)  Num TLVs: 0, Tech : (LA:0x04, LB:0x04, LF:0x03, LBP:0x00)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeInfo: exit; mActualNumEe=2, mNumEePresent=1
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::initialiseTableEntries: exit; mTechSupportedByEse:0x7 mTechSupportedByUicc1:0x0 mTechSupportedByUicc2:0x0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::compileProtoEntries: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: --------------------Proto Table Entries------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=0|RouteLoc=0x400|Proto=0x04|Power=0x01|Enable=0x1|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=1|RouteLoc=0x400|Proto=0x08|Power=0x09|Enable=0x1|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=2|RouteLoc=0x400|Proto=0x20|Power=0x09|Enable=0x1|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: ---------------------------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::compileProtoEntries: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::consolidateProtoEntries: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: ----------------------------------------Lmrt Proto Entries------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=0|nfceeID=0x400|SWTCH-ON=0x2C|SWTCH-OFF=0x00|BAT-OFF=0x00|SCRN-LOCK=0x28|SCRN-OFF=0x00|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=1|nfceeID=0x4C0|SWTCH-ON=0x00|SWTCH-OFF=0x00|BAT-OFF=0x00|SCRN-LOCK=0x00|SCRN-OFF=0x00|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=2|nfceeID=0x402|SWTCH-ON=0x00|SWTCH-OFF=0x00|BAT-OFF=0x00|SCRN-LOCK=0x00|SCRN-OFF=0x00|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: ----------------------------------------------------------------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::consolidateProtoEntries: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: enter
+05-14 08:48:05.040  9064  9064 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: nfceeID:0x400
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: Clear Proto Routing Entries for nfceeID:0x400
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeSetDefaultProtoRouting(): handle:<0x400>protocol_mask:<0x0>/<0x0>/<0x0><0x0><0x0>
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: nfa_ee_find_ecb ()
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: NFA got event 0x0205
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event API_SET_PROTO_CFG(0x205), State: INIT_DONE(1)
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_update_route_size nfcee_id:0x0 size_mask:0
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:102
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_dm_is_active () flags:0x5
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_start_timer b3bb7a00
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: ptim timer start
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_SET_PROTO_CFG_EVT; status=0x0
+05-14 08:48:05.040  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064 10050 E com.android.nf: notifyOne: 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeSetDefaultProtoRouting(): handle:<0x400>protocol_mask:<0x2c>/<0x0>/<0x0><0x28><0x0>
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: nfa_ee_find_ecb ()
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: NFA got event 0x0205
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event API_SET_PROTO_CFG(0x205), State: INIT_DONE(1)
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_update_route_size nfcee_id:0x0 size_mask:15
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_dm_is_active () flags:0x5
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_start_timer b3bb7a00
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_SET_PROTO_CFG_EVT; status=0x0
+05-14 08:48:05.040  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064 10050 E com.android.nf: notifyOne: 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: nfceeID:0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: nfceeID:0x402
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: nfceeID:0x481
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setProtoRouting: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::compileTechEntries: enter
+05-14 08:48:05.040  9064  9064 D NxpExtns: find found DEFAULT_FELICA_CLT_ROUTE=(0x1)
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: --------------------Tech Table Entries------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=0|RouteLoc=0x402|Tech=0x01|Power=0x1B|Enable=0x0|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=1|RouteLoc=0x402|Tech=0x02|Power=0x1B|Enable=0x0|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=2|RouteLoc=0x4C0|Tech=0x04|Power=0x1B|Enable=0x1|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: --------------------------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: getUiccRoute: Enter slot num = 1
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::processTechEntriesForFwdfunctionality: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: --------------------Tech Table Entries------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=0|RouteLoc=0x402|Tech=0x01|Power=0x1B|Enable=0x0|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=1|RouteLoc=0x402|Tech=0x02|Power=0x1B|Enable=0x0|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=2|RouteLoc=0x4C0|Tech=0x04|Power=0x1B|Enable=0x1|
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: --------------------------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::processTechEntriesForFwdfunctionality: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::compileTechEntries: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::consolidateTechEntries: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: -----------------------------------------Lmrt Tech Entries------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=0|nfceeID=0x400|SWTCH-ON=0x00|SWTCH-OFF=0x00|BAT-OFF=0x00|SCRN-LOCK=0x00|SCRN-OFF=0x00|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=1|nfceeID=0x4C0|SWTCH-ON=0x04|SWTCH-OFF=0x04|BAT-OFF=0x00|SCRN-LOCK=0x04|SCRN-OFF=0x04|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: |Index=2|nfceeID=0x402|SWTCH-ON=0x00|SWTCH-OFF=0x00|BAT-OFF=0x00|SCRN-LOCK=0x00|SCRN-OFF=0x00|SCRN-OFF_LOCK=0x00
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: ----------------------------------------------------------------------------------------------
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::consolidateTechEntries: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setTechRouting: enter
+05-14 08:48:05.040  9064  9064 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setTechRouting: Clear Routing Entries for nfceeID:0x4C0
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeSetDefaultTechRouting(): handle:<0x4c0>technology_mask:<0x0>/<0x0>/<0x0><0x0><0x0>
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: nfa_ee_find_ecb ()
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: NFA got event 0x0204
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event API_SET_TECH_CFG(0x204), State: INIT_DONE(1)
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_update_route_size nfcee_id:0xc0 size_mask:0
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:112
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_dm_is_active () flags:0x5
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_start_timer b3bb7a00
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_SET_TECH_CFG_EVT; status=0x0
+05-14 08:48:05.040  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064 10050 E com.android.nf: notifyOne: 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: NFA_EeSetDefaultTechRouting(): handle:<0x4c0>technology_mask:<0x4>/<0x4>/<0x0><0x4><0x4>
+05-14 08:48:05.040  9064  9064 I BrcmNfcNfa: nfa_ee_find_ecb ()
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: NFA got event 0x0204
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event API_SET_TECH_CFG(0x204), State: INIT_DONE(1)
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_update_route_size nfcee_id:0xc0 size_mask:5
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_dm_is_active () flags:0x5
+05-14 08:48:05.040  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_start_timer b3bb7a00
+05-14 08:48:05.040  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_SET_TECH_CFG_EVT; status=0x0
+05-14 08:48:05.040  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ed04
+05-14 08:48:05.040  9064 10050 E com.android.nf: notifyOne: 0x7e09f3ed04
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setTechRouting: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::configureOffHostNfceeTechMask: enter
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 0 = 0x401
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 0 = 0x401
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: 0x401: 0x1 0x1 0x0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: 1 = 0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEeHandleList: Handle 1 = 0xC0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getGenericEseId: enter; ESE-Handle = 0xC0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getGenericEseId: exit; ESE-Generic-ID = 0x01
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEseHandleFromGenericId: enter; ESE-ID = 0x01
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: SecureElement::getEseHandleFromGenericId: enter; ESE-Handle = 0x4C0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::configureOffHostNfceeTechMask: ee_handleList[0] : 0xC0
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::configureOffHostNfceeTechMask: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::setDefaultRoute: exit
+05-14 08:48:05.040  9064  9064 D BrcmNfcJni: RoutingManager::commitRouting
+05-14 08:48:05.041  9064  9064 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ebf0
+05-14 08:48:05.041  9064  9064 I BrcmNfcNfa: NFA_EeUpdateNow()
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: NFA got event 0x0209
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event API_UPDATE_NOW(0x209), State: INIT_DONE(1)
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_sys_ptim_stop_timer b3bb7a00
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ptim timer stop
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_rout_timeout()
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_need_recfg() ee_cfged: 0x92 ee_cfg_sts: 0x10
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: 0: ecb_flags  : 0x04, mask: 0x10
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_need_recfg:Routing table dirty, update required...
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_update_rout ee_cfg_sts:0x10
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event CFG_TO_NFCC(0x21a), State: INIT_DONE(1)
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: max supported routing table size: 860
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: last_active: 0xc0
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: find_and_resolve_tech_conflict:Enter
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: find_and_resolve_tech_conflict:p_cb->nfcee_id=0x0,p_cb->tech_switch_on= 0x0,p_cb->tech_switch_off= 0x0,p_cb->tech_battery_off= 0x0
+05-14 08:48:05.041  9064 10050 D NfcAdaptation: find found DEFAULT_OFFHOST_ROUTE=(0x2)
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: find_and_resolve_tech_conflict:NXP_DEFAULT_OFFHOST_ROUTE=0x02;
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: find_and_resolve_tech_conflict:techF_found=0x4,techF_ee= 0xc0;
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: find_and_resolve_tech_conflict:techA_found=0x0,techA_ee= 0x0;
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:0, more:1, num_tlv:0,rout_type:- 1
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_add_aid_route_to_ecb - No AID entries available
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x10 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:0, more:1, num_tlv:0,rout_type:- 1
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_add_aid_route_to_ecb - No AID entries available
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for DH!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:0, more:1, num_tlv:0,rout_type:- 1
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_add_aid_route_to_ecb -  p_cb->aid_info0
+05-14 08:48:05.041  9064 10050 I chatty  : uid=1027(nfc) AsyncTask #1 identical 5 lines
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_add_aid_route_to_ecb -  p_cb->aid_info0
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 2
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 2
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for DH!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 2
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order -  Route type - NA:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order -  Route type - NA:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for DH!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order -  Route type - NA:- 3
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 4
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 4
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for DH!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:97, more:1, num_tlv:7,rout_type:- 4
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_add_proto_route_to_ecb - NFC DEP added for DH!!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order -ROUTING SET new_size=20, new_num_tlv=4
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:117, more:1, num_tlv:11,rout_type:- 5
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for NFCEEs!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:117, more:1, num_tlv:11,rout_type:- 5
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order -ROUTING SET new_size=5, new_num_tlv=1
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_lmrt_to_nfcc --add the routing for DH!!
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order - max_len:860, cur_offset:122, more:0, num_tlv:12,rout_type:- 5
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_total_lmrt_size size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: ee_cfg_sts:0x11 lmrt_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfa_ee_route_add_one_ecb_by_route_order : set routing num_tlv:12 tlv_size:117
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfc_ncif_send_cmd()
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : Writing to HAL...
+05-14 08:48:05.041  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : cmd_size:124
+05-14 08:48:05.041  9064 10050 D NfcAdaptation: NfcAdaptation::HalWrite
+05-14 08:48:05.041   858   900 D NxpExtns: find found MIFARE_READER_ENABLE=(0x1)
+05-14 08:48:05.041   858 10132 D NxpTml  : PN54X - Write requested.....
+05-14 08:48:05.041   858 10132 D NxpTml  : PN54X - Invoking I2C Write.....
+05-14 08:48:05.045   858 10131 D NxpTml  : PN54X - I2C Read successful.....len = 4
+05-14 08:48:05.045   858 10131 D NxpTml  : Delay Read if write thread is busy
+05-14 08:48:05.046   858 10132 D NxpNciX : len = 127 => 21017C000C02120041A00000047643276C1FDE7A39B9C05716020A0041A000000940BCB000020F0041A000000809434343444B467631020C00414F53452E5641532E3031020B0041A000000476D0000111020A0041A000000476B0000302070041F00000FE2C0103000103010300410401030041A001030001050003C0C302
+05-14 08:48:05.046   858 10132 D NxpTml  : PN54X - I2C Write successful.....
+05-14 08:48:05.046   858 10132 D NxpTml  : PN54X - Posting Fresh Write message.....
+05-14 08:48:05.046   858 10132 D NxpTml  : PN54X - Tml Writer Thread Running................
+05-14 08:48:05.046   858 10134 D NxpHal  : write successful status = 0x0
+05-14 08:48:05.047  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_ROUT_ERR_EVT  status=3
+05-14 08:48:05.047  9064 10050 I BrcmNfcNfa: nfa_ee_update_rout ee_cfg_sts:0x10 ee_cfged:0x12
+05-14 08:48:05.047   858 10131 D NxpTml  : PN54X - Posting read message.....
+05-14 08:48:05.047   858 10131 D NxpNciR : len =   4 <= 41010100
+05-14 08:48:05.047   858 10134 D NxpHal  : read successful status = 0x0
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: NFC received rsp gid:1
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: nfa_dm_nfc_response_cback () NFC_SET_ROUTING_REVT(0x500a)
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: nfa_ee_proc_evt: event=0x500a int_event:0x217
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: nfa_ee_evt_hdlr (): Event NCI_WAIT_RSP(0x217), State: INIT_DONE(1)
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: nfa_ee_nci_wait_rsp() ee_wait_evt:0x30 wait_rsp:1
+05-14 08:48:05.048  9064 10050 I BrcmNfcNfa: nfa_ee_report_update_evt ee_wait_evt:0x30 wait_rsp:0
+05-14 08:48:05.048  9064 10050 D BrcmNfcJni: RoutingManager::nfaEeCallback: NFA_EE_UPDATED_EVT
+05-14 08:48:05.048  9064 10050 D com.android.nf: SyncEventGuard: lock on 0x7e09f3ebf0
+05-14 08:48:05.048  9064 10050 E com.android.nf: notifyOne: 0x7e09f3ebf0
+05-14 08:48:05.049   858 10131 D NxpTml  : PN54X - Read requested.....
+05-14 08:48:05.049   858 10131 D NxpTml  : PN54X - Invoking I2C Read.....
+05-14 08:48:05.049  9064  9064 D BrcmNfcJni: startRfDiscovery: is start=1
+05-14 08:48:05.049  9064  9064 D BrcmNfcJni: SyncEventGuard: lock on 0x7e09f3dd10
+05-14 08:48:05.049  9064  9064 I BrcmNfcNfa: NFA_StartRfDiscovery ()
+05-14 08:48:05.049  9064 10050 I BrcmNfcNfa: NFA got event 0x010F
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_evt_hdlr event: NFA_DM_API_START_RF_DISCOVERY_EVT (0x0f)
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_act_start_rf_discovery ()
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover (): enter
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_ee_get_tech_route(): power state : 1
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: TechA route: 0x0, TechB route: 0x0, TechF route: 0xc0, TechB' route: 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: requested_disc_mask = 0x140000, xx=0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: poll_mask=0x0 listen_mask=0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-A = 0x40000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-B = 0x140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-F = 0x140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-B Prime = 0x140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: dm_disc_mask = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after T1T and T2T = 0x140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-DEP = 0x140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after setting from higher layer = 0xc140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_cb.disc_cb.entry[0].selected_disc_mask = 0xc140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: selected dm_disc_mask 0xC140000 for entry[0]
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: requested_disc_mask = 0x7d7f, xx=1
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: poll_mask=0x7D7F listen_mask=0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-A = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-B = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-F = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-B Prime = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: dm_disc_mask = 0xc140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after T1T and T2T = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after NFC-DEP = 0x0
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: listen_mask value after setting from higher layer = 0xc140000
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_cb.disc_cb.entry[1].selected_disc_mask = 0xc147d7f
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: selected dm_disc_mask 0xC147D7F for entry[1]
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: dm_disc_mask calculated finally for discovery: 0xC147D7F
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: find found NXP_FWD_FUNCTIONALITY_ENABLE=(0x1)
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: find found HOST_LISTEN_TECH_MASK=(0x7)
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover : override_hostListenMask = 0x2, HOST_LISTEN_TECH_MASK = 0x00;
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: find found UICC_LISTEN_TECH_MASK=(0x7)
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover:UICC_LISTEN_TECH_MASK = 0x07;
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: find found P2P_LISTEN_TECH_MASK=(0xC5)
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_start_rf_discover:P2P_LISTEN_TECH_MASK = 0x0C5;
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_ee_find_ecb ()
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: supported tech list is 0x00 for given nfcee_id: 0x2 
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_p2p_set_config ()
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: LLCP_GetDiscoveryConfig ()
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_check_set_config () tlv_len=22
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_check_set_config () tlv_len=25
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_check_set_config () tlv_len=3
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: dm_disc_mask before masking = 0xc147d7f
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: dm_disc_mask after masking = 0xc147d7f
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_get_rf_discover_config : dm_disc_mask = 0x0C147D7F
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_listen_mode_set_configs : tech_proto_mask = 0x0C147D7F
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: find found HOST_LISTEN_TECH_MASK=(0x7)
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_listen_mode_set_configs : override_hostListenMask = 0x2, HOST_LISTEN_TECH_MASK = 0x00;
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_listen_mode_set_configs : LA_SEL_INFO = 0x0;
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_listen_mode_set_configs : LB_SENSB_INFO = 0x0;
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_listen_mode_set_configs : LF_PROTOCOL_TYPE = 0x0;
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_check_set_config () tlv_len=9
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_set_total_duration ()
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: nfa_dm_check_set_config () tlv_len=4
+05-14 08:48:05.050  9064 10050 I BrcmNfcNfa: NFC_DiscoveryStart
+05-14 08:48:05.050  9064 10050 D NfcAdaptation: NfcAdaptation::HalPrediscover
+05-14 08:48:05.051  2731  2731 D RecentsImpl: mActivityStateObserver com.miui.home.launcher.Launcher
+05-14 08:48:05.051  2731  2731 W RecentsImpl: onResumed className=com.miui.home.launcher.Launcher   mIsInAnotherPro=false
+05-14 08:48:05.052 12989 13030 D HomeWallpaperRenderer: OFFSET  x: 0.5  y: 0.0
+05-14 08:48:05.053   968  1047 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.053  9064 10050 I BrcmNfcNfa: nfc_ncif_send_cmd()
+05-14 08:48:05.053  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : Writing to HAL...
+05-14 08:48:05.053  9064 10050 I BrcmNfcNfa: nfc_ncif_check_cmd_queue : cmd_size:23
+05-14 08:48:05.053  9064 10050 D NfcAdaptation: NfcAdaptation::HalWrite
+05-14 08:48:05.053   858   900 D NxpExtns: find found MIFARE_READER_ENABLE=(0x1)
+05-14 08:48:05.053   858   900 D NxpHal  : > Polling Loop Started
+05-14 08:48:05.053   858 10132 D NxpTml  : PN54X - Write requested.....
+05-14 08:48:05.053   858 10132 D NxpTml  : PN54X - Invoking I2C Write.....
+05-14 08:48:05.055  1551  1677 I Timeline: Timeline: App_transition_ready time:372047727
+05-14 08:48:05.056   858 10132 D NxpNciX : len =  26 => 2103170B00010101020103010501800181018301850106017001
+05-14 08:48:05.056   858 10132 D NxpTml  : PN54X - I2C Write successful.....
+05-14 08:48:05.056   858 10132 D NxpTml  : PN54X - Posting Fresh Write message.....
+05-14 08:48:05.056   858 10132 D NxpTml  : PN54X - Tml Writer Thread Running................
+05-14 08:48:05.056   858 10134 D NxpHal  : write successful status = 0x0
+05-14 08:48:05.056  9064 10050 I BrcmNfcNfa: NFC_DiscoveryStart status: 0xe3
+05-14 08:48:05.057   968  1183 D Layer   : ---setAlpha Launcher=1.000000
+05-14 08:48:05.057   858 10131 D NxpTml  : PN54X - I2C Read successful.....len = 4
+05-14 08:48:05.057   858 10131 D NxpTml  : PN54X - Posting read message.....
+05-14 08:48:05.057   858 10131 D NxpNciR : len =   4 <= 41030100
+05-14 08:48:05.057   858 10134 D NxpHal  : read successful status = 0x0
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: NFC received rsp gid:1
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: returning true
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: nfa_dm_disc_discovery_cback (): event:0x4000
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): state: IDLE (0), event: DISCOVER_RSP(1) disc_flags: 0x31
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: nfa_dm_disc_new_state (): old_state: IDLE (0), new_state: DISCOVERY (1) disc_flags: 0x11
+05-14 08:48:05.058  9064 10050 D BrcmNfcJni: nfaConnectionCallback: Connection Event = 30
+05-14 08:48:05.058  9064 10050 D BrcmNfcJni: nfaConnectionCallback: NFA_RF_DISCOVERY_STARTED_EVT: status = 0x0
+05-14 08:48:05.058  9064 10050 D BrcmNfcJni: SyncEventGuard: lock on 0x7e09f3dd10
+05-14 08:48:05.058  9064 10050 E BrcmNfcJni: notifyOne: 0x7e09f3dd10
+05-14 08:48:05.058  9064 10050 I BrcmNfcNfa: nfa_dm_disc_sm_execute (): new state: DISCOVERY (1), disc_flags: 0x1
+05-14 08:48:05.058  2288  7334 D CommandQueue: setStatus: setStatus: what = 0, action = upate_specail_mode, ext = Bundle[mParcelledData.dataSize=92][pkg = com.miui.home[enable_config = true
+05-14 08:48:05.058   858 10131 D NxpTml  : PN54X - Read requested.....
+05-14 08:48:05.058   858 10131 D NxpTml  : PN54X - Invoking I2C Read.....
+05-14 08:48:05.060  9064  9064 D BrcmNfcJni: startRfDiscovery: is exit=1
+05-14 08:48:05.060  9064  9064 D BrcmNfcJni: transactionEnd: Transaction ended : setDefaultRoute 
+05-14 08:48:05.060  9064  9064 D BrcmNfcJni: nfcManager_setDefaultRoute : exit
+05-14 08:48:05.060  9064  9064 D NfcService: Discovery configuration equal, not updating.
+05-14 08:48:05.060 12989 13057 D KeyguardWallpaperRenderer: OFFSET  x: 0.0  y: 0.0
+05-14 08:48:05.064  1551  2464 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From null(0,0)  to Window{4a1df27 mode=0 rootTaskId=1 u0 com.miui.home/com.miui.home.launcher.Launcher}(1,1)
+05-14 08:48:05.073  2731  2731 D Launcher.Lifecycle: onWindowFocusChanged:true,UserHandle{0},8217634,false
+05-14 08:48:05.073  2731  2731 D Launcher_UnlockAnimationStateMachine: onWindowFocus:IDLE
+05-14 08:48:05.085  8885  8885 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2259 
+05-14 08:48:05.086  8885  8885 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():103 repeatCheckTimes = 0, locked = false
+05-14 08:48:05.086  2288  2715 D MiuiPhoneStatusBarPolicy: updateManagedProfile: secondSpace = false
+05-14 08:48:05.087  8885  8885 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.miui.home, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131361961, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+05-14 08:48:05.087  8885  8885 I AndroidIME: LatinIMEBase.updateInputViewCoverNavigation():322 Update input view padding, isNavbarOverInputWindow=false, bottom inset=130
+05-14 08:48:05.087  8885  8885 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():103 repeatCheckTimes = 1, locked = false
+05-14 08:48:05.097  1551  1677 W WindowManager: Failed to deliver inset state change to w=Window{775d9e2 mode=1 rootTaskId=4252 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity EXITING}
+05-14 08:48:05.097  1551  1677 W WindowManager: android.os.DeadObjectException
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.BinderProxy.transactNative(Native Method)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.BinderProxy.transact(BinderProxy.java:540)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.view.IWindow$Stub$Proxy.insetsControlChanged(IWindow.java:812)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.WindowState.notifyInsetsControlChanged(WindowState.java:3915)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.InsetsStateController.lambda$notifyPendingInsetsControlChanged$4$InsetsStateController(InsetsStateController.java:458)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.-$$Lambda$InsetsStateController$-1iOXDf-1s3wDHcMIHBKNk6MS3I.run(Unknown Source:2)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.executeAfterPrepareSurfacesRunnables(WindowAnimator.java:357)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.animate(WindowAnimator.java:238)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.WindowAnimator.lambda$new$1$WindowAnimator(WindowAnimator.java:109)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.wm.-$$Lambda$WindowAnimator$ddXU8gK8rmDqri0OZVMNa3Y4GHk.doFrame(Unknown Source:2)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.view.Choreographer$CallbackRecord.run(Choreographer.java:1074)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.view.Choreographer.doCallbacks(Choreographer.java:897)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.view.Choreographer.doFrame(Choreographer.java:822)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.view.Choreographer$FrameDisplayEventReceiver.run(Choreographer.java:1061)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:05.097  1551  1677 W WindowManager: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:05.173  1551  9205 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity} from uid 2000
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: IntentStarted during UNKNOWN. Intent { flg=0x10000000 cmp=com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity }
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: java.lang.Throwable: EventSequenceValidator#getStackTrace
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.logWarningWithStackTrace(EventSequenceValidator.java:260)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.onIntentStarted(EventSequenceValidator.java:106)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.handleOnIntentStarted(LaunchObserverRegistryImpl.java:139)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.lambda$veRn_GhgLZLlOHOJ0ZYT6KcfYqo(Unknown Source:0)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.-$$Lambda$LaunchObserverRegistryImpl$veRn_GhgLZLlOHOJ0ZYT6KcfYqo.accept(Unknown Source:10)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.doInvoke(PooledLambdaImpl.java:292)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.invoke(PooledLambdaImpl.java:201)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.OmniFunction.run(OmniFunction.java:97)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:05.174  1551  9205 D MiuiMultiWindowAdapter: MiuiMultiWindowAdapter::getFreeformBlackList::sSmallWindowBlackList = [com.miui.securitycenter, com.miui.weather2, com.miui.miservice, com.android.calendar, com.xiaomi.calendar, com.android.contacts, com.miui.mishare.connectivity, com.android.settings, com.android.printspooler, com.miui.backup, com.miui.huanji, com.miui.calculator, com.android.deskclock, com.android.thememanager, com.mfashiongallery.emag, com.miui.virtualsim, com.miui.smarttravel, com.mi.health, com.android.camera, com.lbe.security.miui, com.miui.cleanmaster, com.miui.newhome, com.miui.voiceassist, com.android.phone, com.miui.yellowpage, com.android.updater, com.miui.tsmclient, com.miui.securitycore, com.xiaomi.account, com.xiaomi.shop, com.xiaomi.smarthome, com.mipay.wallet, com.xiaomi.youpin, com.xiaomi.hm.health, com.miui.bugreport, com.xiaomi.mibrain.speech, com.xiaomi.mimoji, com.xiaomi.scanner, com.duokan.phone.remotecontroller, com.miui.hybrid, com.android.incallui, com.miui.video, com.miui.videoplayer, com.miui.player, com.miui.fm, com.miui.packageinstaller, com.mi.android.globallauncher, com.mi.android.globallauncher-poco, com.google.android.dialer, com.google.android.apps.magazines, com.miui.compass, com.miui.greenguard, com.kiteguard, com.google.android.apps.prodcasts, com.google.ar.lens, com.xiangkan.android, com.android.bankabc, com.sohu.inputmethod.sogou, com.tencent.mtt, com.shyz.toutiao, com.netease.mc.mi, com.outfit7.talkingtomgoldrun.mi, com.doudz.mi, com.wepie.snake.new.mi, cn.jj, com.standddz002.mi, com.miHoYo.bh3.mi, com.qqgame.hlddz, com.happyelements.AndroidAnimal, com.minitech.miniworld.TMobile.mi, com.mfp.jelly.xiaomi, com.lilithgames.afk.mi, com.tencent.peng, com.teenpatti.hd.gold, blockpuzzle.jewelgames.jewelslegend, com.playgendary.tanks, com.chillingo.robberybobfree.android.row, com.episodeinteractive.android.catalog, com.playrix.township, com.ansangha.drdriving, com.google.android.youtube, com.gbits.atm.mi, com.tencent.tetris, com.sukhavati.gotoplaying.bubble.BubbleShooter.mint, com.block.puzzle.game.hippo.mi, com.youzu.bs.mi, com.appsomniacs.da2, com.miHoYo.Yuanshen, com.baidu.BaiduMap, com.google.android.googlequicksearchbox]
+05-14 08:48:05.174  1551  1676 D EventSequenceValidator: inc AccIntentStartedEvents to 3
+05-14 08:48:05.174  1551  9205 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateINITIALIZING
+05-14 08:48:05.174  1551  9205 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateINITIALIZING
+05-14 08:48:05.174   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 0
+05-14 08:48:05.176  1551  9205 V ActivityTaskManager: onConfigurationChanged overrideWindowingMode = 0 isMiuiMagicModeChanged = false prevWindowingMode = 0
+05-14 08:48:05.180  1551  9205 V ActivityTaskManager: onConfigurationChanged overrideWindowingMode = 0 isMiuiMagicModeChanged = false prevWindowingMode = 1
+05-14 08:48:05.174   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 0
+05-14 08:48:05.182   864   909 E ANDR-PERF-OPTSHANDLER: Perflock resource /sys/class/devfreq/soc:qcom,llccbw/min_freq not supported
+05-14 08:48:05.182   864   909 E ANDR-PERF-RESOURCEQS: Failed to apply optimization [12, 0]
+05-14 08:48:05.183  1551  9205 V ActivityTaskManager: Starting new activity ActivityRecord{339e276 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4253} in new task Task{fe99077 #4253 visible=true type=standard mode=fullscreen translucent=true A=10632:com.yahorzabotsin.openvpnclientgate U=0 StackId=4253 sz=1}
+05-14 08:48:05.186  1551  9205 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:05.186  1551  9205 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:05.186  1551  9205 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:05.187  1551  9205 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:05.188  1551  9205 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestatePAUSING
+05-14 08:48:05.188   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:05.188  1551  9205 D ActivityTrigger: ActivityTrigger activityPauseTrigger 
+05-14 08:48:05.188   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 3
+05-14 08:48:05.188  1551  9205 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestatePAUSING
+05-14 08:48:05.189   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 3
+05-14 08:48:05.190   694   702 E statsd  : Predicate 5980654721335871649 dropping data for dimension key (10)0x2010101->10632[I] (10)0x30000->*launch*[S] 
+05-14 08:48:05.196  2731  2731 D Launcher.Lifecycle: onPause:UserHandle{0},8217634,true
+05-14 08:48:05.196  2731  2731 D Launcher_UnlockAnimationStateMachine: setState:PAUSE_WAIT
+05-14 08:48:05.196  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestatePAUSED
+05-14 08:48:05.196  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestatePAUSED
+05-14 08:48:05.197  1551  1676 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 10632; state: DISABLED
+05-14 08:48:05.197   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 4
+05-14 08:48:05.197  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:05.197   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 4
+05-14 08:48:05.197   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:05.198  1551  1686 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10632; state: ENABLED
+05-14 08:48:05.206  2731  2843 D StatusBarController: handleMessage: flag 800000  disable false
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: onActivityLaunched during UNKNOWN.
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: java.lang.Throwable: EventSequenceValidator#getStackTrace
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.logWarningWithStackTrace(EventSequenceValidator.java:260)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.onActivityLaunched(EventSequenceValidator.java:149)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.handleOnActivityLaunched(LaunchObserverRegistryImpl.java:157)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.lambda$UGY1OclnLIQLMEL9B55qjERFf4o(Unknown Source:0)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.-$$Lambda$LaunchObserverRegistryImpl$UGY1OclnLIQLMEL9B55qjERFf4o.accept(Unknown Source:10)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.doInvoke(PooledLambdaImpl.java:292)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.invoke(PooledLambdaImpl.java:201)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.OmniFunction.run(OmniFunction.java:97)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:05.210  1551  1676 D EventSequenceValidator: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:05.213  1551  1612 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From Window{4a1df27 mode=0 rootTaskId=1 u0 com.miui.home/com.miui.home.launcher.Launcher}(1,1)  to null(0,0)
+05-14 08:48:05.214  2731  2731 D Launcher.Lifecycle: onWindowFocusChanged:false,UserHandle{0},8217634,true
+05-14 08:48:05.218  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10632, uidState = 19
+05-14 08:48:05.208  1198  1198 W Binder:1198_5: type=1400 audit(0.0:628446): avc: denied { search } for name="820" dev="proc" ino=4117628 scontext=u:r:cameraserver:s0 tcontext=u:r:hal_camera_default:s0 tclass=dir permissive=0
+05-14 08:48:05.223  1551  1677 V WindowManager: Orientation start waiting for draw, mDrawState=DRAW_PENDING in Window{de87905 mode=0 rootTaskId=4253 u0 Splash Screen com.yahorzabotsin.openvpnclientgate}, surfaceController Surface(name=Splash Screen com.yahorzabotsin.openvpnclientgate)/@0x2fca081
+05-14 08:48:05.224   696   696 D Zygote  : Forked child process 5171
+05-14 08:48:05.227  1551  1677 D WindowManager: Input focus has changed to null
+05-14 08:48:05.227  5171  5171 W Zygote  : Unable to open libbeluga.so: dlopen failed: library "libbeluga.so" not found.
+05-14 08:48:05.227  1551  1686 D Boost   : hostingType=pre-top-activity, hostingName={com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}, callerPackage=com.android.shell, isSystem=true, isBoostNeeded=false.
+05-14 08:48:05.228  1551  1686 I ActivityManager: Start proc 5171:com.yahorzabotsin.openvpnclientgate/u0a632 for pre-top-activity {com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity} caller=com.android.shell
+05-14 08:48:05.241  5171  5171 I envpnclientgat: Late-enabling -Xcheck:jni
+05-14 08:48:05.270  5171  5171 I envpnclientgat: Unquickening 20 vdex files!
+05-14 08:48:05.283 28700 28705 I adbd    : jdwp connection from 5171
+05-14 08:48:05.297  1551  2464 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:05.297  1551  2464 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:05.297  1551  2464 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:05.301  1551  2464 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:05.301  1551  2464 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:05.301  1551  2464 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:05.302  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:05.302 11081 12198 D PerfEngineController: ForegroundInfo{mForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mForegroundUid=10632, mForegroundPid=5171, mLastForegroundPackageName='com.miui.home', mLastForegroundUid=10111, mLastForegroundPid=2731, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=1}
+05-14 08:48:05.302 11275 11293 I GST     : forePkg: com.yahorzabotsin.openvpnclientgate, preForePkg: com.miui.home
+05-14 08:48:05.302  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateRESUMED
+05-14 08:48:05.302 10638 20264 I ProcessMonitor: onForegroundInfoChanged: ForegroundInfo{mForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mForegroundUid=10632, mForegroundPid=5171, mLastForegroundPackageName='com.miui.home', mLastForegroundUid=10111, mLastForegroundPid=2731, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=1}
+05-14 08:48:05.302   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:05.303   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:05.304 10638 20264 I GameBoosterService: onForegroundInfoChanged: Cur=com.yahorzabotsin.openvpnclientgate	 last=com.miui.home
+05-14 08:48:05.306 10638 20264 I FreeformWindowUtils: has app list!
+05-14 08:48:05.307  2288  2288 E QSAnimator: tileView is null mute
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null screenshot
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null airplane
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null screenlock
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null hotspot
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null gps
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null rotation
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null scanner
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null papermode
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null night
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null quietmode
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null batterysaver
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null custom(com.miui.securitycenter/com.miui.superpower.notification.SuperPowerTileService)
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null custom(com.milink.service/com.milink.ui.service.MiLinkTileService)
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null custom(com.miui.mishare.connectivity/.tile.MiShareTileService)
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null freeformhang
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null custom(com.miui.screenrecorder/.service.QuickService)
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null vibrate
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null nfc
+05-14 08:48:05.308  2288  2288 E QSAnimator: tileView is null edit
+05-14 08:48:05.313  1551  1677 I Timeline: Timeline: App_transition_ready time:372047984
+05-14 08:48:05.321 10638 10804 I SCTaskStackListener: onTaskStackChanged! inSplit = false
+05-14 08:48:05.323 10638 12188 I SCTaskStackListener: onTaskStackChanged! inSplit = false
+05-14 08:48:05.323  2288  2288 D AppMiniWindowManager: topActivity updated in onTaskStackChanged
+05-14 08:48:05.324  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10632, uidState = 2
+05-14 08:48:05.324  2288  2715 D MiuiPhoneStatusBarPolicy: updateManagedProfile: secondSpace = false
+05-14 08:48:05.324 10196 15632 D PMonitor:  onForegroundActivitiesChanged:pid = 5171,activity-uid=10632,foregroundActivities=true
+05-14 08:48:05.326 10638 20264 D GameBoosterService: onGameStatusChange foreground:ForegroundInfo{mForegroundPackageName='com.yahorzabotsin.openvpnclientgate', mForegroundUid=10632, mForegroundPid=5171, mLastForegroundPackageName='com.miui.home', mLastForegroundUid=10111, mLastForegroundPid=2731, mMultiWindowForegroundPackageName='null', mMultiWindowForegroundUid=-1, mFlags=1}
+05-14 08:48:05.326 10638 20264 I VideoBoxUtils: isSupportVideoBox: false
+05-14 08:48:05.326 10638 20264 I VideoToolBoxService: vtb is closed!!!
+05-14 08:48:05.432  2288  2318 D CommandQueue: setStatus: setStatus: what = 0, action = upate_specail_mode, ext = Bundle[mParcelledData.dataSize=136][pkg = com.yahorzabotsin.openvpnclientgate[enable_config = false
+05-14 08:48:05.440  1551  1676 W ActivityManager: setHasOverlayUi called on unknown pid: 5064
+05-14 08:48:05.468  3692  3692 W ThreadPoolForeg: type=1400 audit(0.0:628447): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=27834 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+05-14 08:48:05.496  2731  2731 D Launcher_UnlockAnimationStateMachine: mResetIdleStateRunnable
+05-14 08:48:05.593 15490 15536 D CCodecBufferChannel: [c2.android.opus.encoder#2] DEBUG: elapsed: n=4 [in=0 pipeline=0 out=0 smoothness=4]
+05-14 08:48:05.593 15490 15536 D PipelineWatcher: DEBUG: elapsed 1 / 4
+05-14 08:48:05.819  5171  5171 I Perf    : Connecting to perf service.
+05-14 08:48:05.829  5171  5171 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+05-14 08:48:05.830  5171  5171 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+05-14 08:48:05.855  5171  5171 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+05-14 08:48:05.881  1551  1677 I Timeline: Timeline: App_transition_stopped time:372048553
+05-14 08:48:05.911  5171  5171 I TetheringManager: registerTetheringEventCallback:com.yahorzabotsin.openvpnclientgate
+05-14 08:48:05.918  5171  5171 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+05-14 08:48:05.918  5171  5171 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+05-14 08:48:05.962  5171  5194 D WM-ForceStopRunnable: The default process name was not specified.
+05-14 08:48:05.964  5171  5194 D WM-ForceStopRunnable: Performing cleanup operations.
+05-14 08:48:05.987  5171  5171 I ContentProviderMonitor: PerfMonitor installContentProviders : before publish content providers
+05-14 08:48:05.989  5171  5194 D WM-SystemJobScheduler: Reconciling jobs
+05-14 08:48:05.996  5171  5194 D WM-ForceStopRunnable: Application was force-stopped, rescheduling.
+05-14 08:48:06.013  5171  5194 D WM-SystemJobScheduler: Scheduling work ID 4dbdee18-bee4-4130-a329-3d8935c65fa8Job ID 52
+05-14 08:48:06.052  5171  5171 I OpenVPNGateApp:ServerRefreshScheduler: Preparing periodic server refresh schedule. ttl_ms=1200000, interval_min=20, clamped_to_min=false
+05-14 08:48:06.067  5171  5196 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemalarm.RescheduleReceiver
+05-14 08:48:06.081  5171  5171 I OpenVPNGateApp:ServerRefreshScheduler: Periodic server refresh scheduled. work=server-list-periodic-refresh, policy=UPDATE, interval_min=20, backoff_min=30
+05-14 08:48:06.083  5171  5171 I OpenVPNGateApp:CoreApp: Periodic server refresh scheduling ensured
+05-14 08:48:06.085  5171  5171 D OpenVPNGateApp:CoreApp: Skipping OpenVpnService auto-start in Application
+05-14 08:48:06.095  5171  5194 D WM-GreedyScheduler: Cancelling work ID 4dbdee18-bee4-4130-a329-3d8935c65fa8
+05-14 08:48:06.095   968  2909 W DisplayIdentification: Invalid EDID: falling back to serial number due to missing display name.
+05-14 08:48:06.095   968  2909 W DisplayIdentification: Invalid EDID: falling back to ASCII text due to missing serial number.
+05-14 08:48:06.110  5171  5194 D WM-SystemJobScheduler: Scheduling work ID 4dbdee18-bee4-4130-a329-3d8935c65fa8Job ID 53
+05-14 08:48:06.152  5171  5171 D AppCompatDelegate: Checking for metadata for AppLocalesMetadataHolderService : Service not found
+05-14 08:48:06.236  5171  5171 W envpnclientgat: Accessing hidden method Landroid/view/ViewGroup;->makeOptionalFitsSystemWindows()V (greylist, reflection, allowed)
+05-14 08:48:06.266  5171  5171 I OpenVPNGateApp:SplashActivityCore: Starting server preload. vpn_connected=false, cache_only=false
+05-14 08:48:06.273  5171  5171 W envpnclientgat: Accessing hidden method Ljava/lang/invoke/MethodHandles$Lookup;-><init>(Ljava/lang/Class;I)V (greylist, reflection, allowed)
+05-14 08:48:06.336  5171  5171 D OpenVPNGateApp:ServersV2SyncCoordinator: syncCountries(forceRefresh=false, cacheOnly=false)
+05-14 08:48:06.340  5171  5171 D OpenVPNGateApp:ServersV2Repository: getCountries[locale=ru]: fetching from network
+05-14 08:48:06.389  1551  2464 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState state = onResume
+05-14 08:48:06.389  1551  2464 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState r = ActivityRecord{339e276 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4253}
+05-14 08:48:06.389  2731  2731 D RecentsImpl: mActivityStateObserver com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity
+05-14 08:48:06.390  2731  2731 W RecentsImpl: onResumed className=com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity   mIsInAnotherPro=false
+05-14 08:48:06.390  5171  5171 W Looper  : PerfMonitor looperActivity : package=com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity time=301ms latency=768ms running=267ms  procState=2 ClientTransaction{ callbacks=[android.app.servertransaction.LaunchActivityItem] lifecycleRequest=android.app.servertransaction.ResumeActivityItem } historyMsgCount=1 (msgIndex=1 wall=778ms seq=3 running=712ms runnable=22ms late=1ms h=android.app.ActivityThread$H w=110)
+05-14 08:48:06.390  5171  5171 W Looper  : PerfMonitor looperActivity : package=com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity time=0ms latency=1069ms running=0ms  procState=2 ClientTransaction{ callbacks=[android.app.servertransaction.TopResumedActivityChangeItem] } historyMsgCount=3 (msgIndex=1 wall=778ms seq=3 running=712ms runnable=22ms late=1ms h=android.app.ActivityThread$H w=110) (msgIndex=2 wall=301ms seq=4 running=267ms runnable=12ms late=768ms h=android.app.ActivityThread$H w=159)
+05-14 08:48:06.390  5171  5171 I Choreographer: Skipped 31 frames!  The application may be doing too much work on its main thread.
+05-14 08:48:06.396  5171  5171 V MiuiFrameworkFactory: get AllImpl object = android.common.MiuiFrameworkFactoryImpl@367ee26
+05-14 08:48:06.400  1551  2464 V WindowManager: Orientation start waiting for draw, mDrawState=DRAW_PENDING in Window{8aa5d12 mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}, surfaceController Surface(name=com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity)/@0x71d16e0
+05-14 08:48:06.403  1348 15544 D BufferPoolAccessor2.0: bufferpool2 0x738f27ca28 : 3(72000 size) total buffers - 1(24000 size) used buffers - 1573082/1573085 (recycle/alloc) - 655/1573083 (fetch/transfer)
+05-14 08:48:06.406  1551  2464 D WindowManager: Input focus has changed to Window{8aa5d12 mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: QUALCOMM build                   : 95db91f, Ifbc588260a
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Build Date                       : 09/24/20
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: OpenGL ES Shader Compiler Version: EV031.32.02.01
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Local Branch                     : mybrancheafe5b6d-fb5b-f1b0-b904-5cb90179c3e0
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Remote Branch                    : quic/gfx-adreno.lnx.1.0.r114-rel
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Remote Branch                    : NONE
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Reconstruct Branch               : NOTHING
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Build Config                     : S P 10.0.7 AArch64
+05-14 08:48:06.413  5171  5199 I AdrenoGLES-0: Driver Path                      : /vendor/lib64/egl/libGLESv2_adreno.so
+05-14 08:48:06.416  5171  5199 I AdrenoGLES-0: PFP: 0x016ee190, ME: 0x00000000
+05-14 08:48:06.434   558   558 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device manifest.
+05-14 08:48:06.435  5171  5199 I Gralloc4: mapper 4.x is not supported
+05-14 08:48:06.435   558   558 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@3.0::IMapper/default in either framework or device manifest.
+05-14 08:48:06.435  5171  5199 W Gralloc3: mapper 3.x is not supported
+05-14 08:48:06.441  5171  5199 E LB      : fail to open file: No such file or directory
+05-14 08:48:06.443  5171  5171 W Looper  : PerfMonitor doFrame : time=52ms vsyncFrame=9126267 latency=518ms procState=2 historyMsgCount=4 (msgIndex=1 wall=778ms seq=3 running=712ms runnable=22ms late=1ms h=android.app.ActivityThread$H w=110) (msgIndex=2 wall=301ms seq=4 running=267ms runnable=12ms late=768ms h=android.app.ActivityThread$H w=159)
+05-14 08:48:06.450  1551  1684 D ArtManagerInternalImpl: /data/misc/iorapd/com.yahorzabotsin.openvpnclientgate/63/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity/compiled_traces/compiled_trace.pb doesn't exist
+05-14 08:48:06.438  1017  1017 W /system/vendor/bin/ipacm: type=1400 audit(0.0:628448): avc: denied { write } for comm=6E65746C696E6B20736F636B6574 name="ipacm_log_file" dev="tmpfs" ino=27249 scontext=u:r:ipacm:s0 tcontext=u:object_r:ipacm_socket:s0 tclass=sock_file permissive=0
+05-14 08:48:06.438  1017  1017 I chatty  : uid=1001(radio) /system/vendor/bin/ipacm identical 1 line
+05-14 08:48:06.438  1017  1017 W /system/vendor/bin/ipacm: type=1400 audit(0.0:628450): avc: denied { write } for comm=6E65746C696E6B20736F636B6574 name="ipacm_log_file" dev="tmpfs" ino=27249 scontext=u:r:ipacm:s0 tcontext=u:object_r:ipacm_socket:s0 tclass=sock_file permissive=0
+05-14 08:48:06.450  1551  1684 I ActivityTaskManager: Displayed com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity: +1s275ms
+05-14 08:48:06.451  1551  1677 I Timeline: Timeline: Activity_windows_visible id: ActivityRecord{339e276 u0 com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity t4253} time:372049122
+05-14 08:48:06.438  1017  1017 W ipacm   : type=1400 audit(0.0:628451): avc: denied { write } for name="ipacm_log_file" dev="tmpfs" ino=27249 scontext=u:r:ipacm:s0 tcontext=u:object_r:ipacm_socket:s0 tclass=sock_file permissive=0
+05-14 08:48:06.438  1017  1017 I chatty  : uid=1001(radio) /system/vendor/bin/ipacm identical 1 line
+05-14 08:48:06.438  1017  1017 W ipacm   : type=1400 audit(0.0:628453): avc: denied { write } for name="ipacm_log_file" dev="tmpfs" ino=27249 scontext=u:r:ipacm:s0 tcontext=u:object_r:ipacm_socket:s0 tclass=sock_file permissive=0
+05-14 08:48:06.453  5162  5164 I cmd     : oneway function results will be dropped but finished with status OK and parcel size 4
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: onActivityLaunchFinished during UNKNOWN.
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: java.lang.Throwable: EventSequenceValidator#getStackTrace
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.logWarningWithStackTrace(EventSequenceValidator.java:260)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.onActivityLaunchFinished(EventSequenceValidator.java:185)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.handleOnActivityLaunchFinished(LaunchObserverRegistryImpl.java:175)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.lambda$QcawcFcJtEX4EhYptq_Vb4j368Y(Unknown Source:0)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.-$$Lambda$LaunchObserverRegistryImpl$QcawcFcJtEX4EhYptq_Vb4j368Y.accept(Unknown Source:10)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.doInvoke(PooledLambdaImpl.java:292)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.invoke(PooledLambdaImpl.java:201)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.OmniFunction.run(OmniFunction.java:97)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:06.453  1551  1676 D EventSequenceValidator: dec AccIntentStartedEvents to 2
+05-14 08:48:06.454  5162  5162 W BpBinder: PerfMonitor binderTransact :  time=1281ms interface=android.app.IActivityManager code=1598246212
+05-14 08:48:06.462  1551  9205 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From null(0,0)  to Window{8aa5d12 mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}(1,1)
+05-14 08:48:06.525  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateSTOPPING
+05-14 08:48:06.526  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateSTOPPING
+05-14 08:48:06.526   694   702 E statsd  : Predicate 5980654721335871649 dropping data for dimension key (10)0x2010101->10632[I] (10)0x30000->*launch*[S] 
+05-14 08:48:06.526   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 5
+05-14 08:48:06.527   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 5
+05-14 08:48:06.531  8885  8885 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2259 
+05-14 08:48:06.532  8885  8885 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():103 repeatCheckTimes = 0, locked = false
+05-14 08:48:06.533  8885  8885 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1446 onStartInput(EditorInfo{EditorInfo{packageName=com.yahorzabotsin.openvpnclientgate, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+05-14 08:48:06.533  8885  8885 I AndroidIME: LatinIMEBase.updateInputViewCoverNavigation():322 Update input view padding, isNavbarOverInputWindow=false, bottom inset=130
+05-14 08:48:06.534  8885  8885 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():103 repeatCheckTimes = 1, locked = false
+05-14 08:48:06.536  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10152, uidState = 4
+05-14 08:48:06.536  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10111, uidState = 5
+05-14 08:48:06.538  2731  2731 D Launcher.Lifecycle: onStop:UserHandle{0},8217634,false
+05-14 08:48:06.540   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: unbindService is called for service : com.mi.android.globalminusscreen/com.google.mi.apps.gsa.nowoverlayservice.DrawerOverlayService and for client com.miui.home
+05-14 08:48:06.544  1551  1588 W System  : A resource failed to call release. 
+05-14 08:48:06.564  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateSTOPPED
+05-14 08:48:06.565  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateSTOPPED
+05-14 08:48:06.549  1551  1588 I chatty  : uid=1000(system) FinalizerDaemon identical 26 lines
+05-14 08:48:06.549  1551  1588 W System  : A resource failed to call release. 
+05-14 08:48:06.565   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 6
+05-14 08:48:06.565   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 6
+05-14 08:48:06.570 10196 15632 D PMonitor:  onForegroundActivitiesChanged:pid = 2731,activity-uid=10111,foregroundActivities=false
+05-14 08:48:06.580   968   968 D SurfaceFlinger: Launcher Changed hasLauncher=0
+05-14 08:48:06.771   558   558 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device manifest.
+05-14 08:48:06.772  5214  5214 I Gralloc4: mapper 4.x is not supported
+05-14 08:48:06.772   558   558 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@3.0::IMapper/default in either framework or device manifest.
+05-14 08:48:06.772  5214  5214 W Gralloc3: mapper 3.x is not supported
+05-14 08:48:06.890  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10186, uidState = 3
+05-14 08:48:06.890  2232  2755 I BtGatt.ScanManager: msg.what = 6
+05-14 08:48:06.892 26398 26454 I FontLog : (REDACTED) Received query %s, URI %s
+05-14 08:48:06.892 26398 26454 I FontLog : (REDACTED) Query [%s] resolved to %s
+05-14 08:48:06.893 26398 26454 I FontLog : (REDACTED) Fetch %s end status %s
+05-14 08:48:06.902 26398 26454 I FontLog : (REDACTED) Pulling font file for id = %d, cache size = %d
+05-14 08:48:06.907 26398 26454 I FontLog : (REDACTED) Pulling font file for id = %d, cache size = %d
+05-14 08:48:07.436  5217  5217 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+05-14 08:48:07.442  5217  5217 E libc    : Access denied finding property "persist.device_config.runtime_native_boot.profilebootclasspath"
+05-14 08:48:07.442  5217  5217 E libc    : Access denied finding property "persist.device_config.runtime_native_boot.enable_apex_image"
+05-14 08:48:07.442  5217  5217 I AndroidRuntime: Using default boot image
+05-14 08:48:07.442  5217  5217 E libc    : Access denied finding property "persist.device_config.runtime_native_boot.disable_lock_profiling"
+05-14 08:48:07.442  5217  5217 I AndroidRuntime: Leaving lock profiling enabled
+05-14 08:48:07.442  5217  5217 E libc    : Access denied finding property "persist.device_config.runtime_native_boot.enable_generational_cc"
+05-14 08:48:07.541  5217  5217 D app_process: Time zone APEX ICU file found: /apex/com.android.tzdata/etc/icu/icu_tzdata.dat
+05-14 08:48:07.541  5217  5217 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt66l.dat
+05-14 08:48:07.578  5217  5217 W app_process: JNI RegisterNativeMethods: attempt to register 0 native methods for android.media.AudioAttributes
+05-14 08:48:07.587  5217  5217 D AndroidRuntime: Calling main entry com.android.commands.uiautomator.Launcher
+05-14 08:48:07.618  2288  2288 D CCTileAdapter: onAccessibilityStateChanged:true
+05-14 08:48:07.623  1551  1551 D AS.AudioService: Accessibility volume enabled = false
+05-14 08:48:07.637  2288  2288 D CCTileAdapter: onAccessibilityStateChanged:true
+05-14 08:48:07.918  1551  2119 I MiuiNetworkPolicy: updateUidState uid = 10186, uidState = 5
+05-14 08:48:07.918  2232  2755 I BtGatt.ScanManager: msg.what = 6
+05-14 08:48:08.667  5217  5217 D ThemeCompatibility: START loading theme compatibility config.
+05-14 08:48:08.667  5217  5217 D ThemeCompatibility: getVersion(): /data/system/theme_config/theme_compatibility.xml  java.io.FileNotFoundException: /data/system/theme_config/theme_compatibility.xml: open failed: ENOENT (No such file or directory)
+05-14 08:48:08.676  5217  5217 D ThemeCompatibility: getConfigDocumentTree(): 140 vs -1
+05-14 08:48:08.676  5217  5217 D ThemeCompatibility:     parse file: /system/media/theme/theme_compatibility.xml
+05-14 08:48:08.689  5217  5217 D ThemeCompatibility: END loading: version=140 size=48
+05-14 08:48:08.690  5217  5217 E AssetManager: WTF--create system assets with illegal uid: 2000, gid:2000
+05-14 08:48:08.690  5217  5217 E AssetManager: java.lang.RuntimeException
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.content.res.AssetManager.createSystemAssetsInZygoteLocked(AssetManager.java:254)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.content.res.AssetManager.getSystem(AssetManager.java:291)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.content.res.Resources.<init>(Resources.java:353)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.content.res.MiuiResources.<init>(MiuiResources.java:49)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.content.res.Resources.getSystem(Resources.java:233)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.util.MiuiMultiWindowAdapter.<clinit>(MiuiMultiWindowAdapter.java:83)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at android.view.Display.getSize(Display.java:725)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at com.android.commands.uiautomator.DumpCommand.run(DumpCommand.java:110)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at com.android.commands.uiautomator.Launcher.main(Launcher.java:83)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at com.android.internal.os.RuntimeInit.nativeFinishInit(Native Method)
+05-14 08:48:08.690  5217  5217 E AssetManager: 	at com.android.internal.os.RuntimeInit.main(RuntimeInit.java:463)
+05-14 08:48:08.708  5217  5217 W uiautomator: type=1400 audit(0.0:628472): avc: denied { execute } for name="idmap2" dev="dm-0" ino=1510 scontext=u:r:shell:s0 tcontext=u:object_r:idmap_exec:s0 tclass=file permissive=0
+05-14 08:48:08.726  5217  5217 W app_process: unable to execute idmap2: Permission denied
+05-14 08:48:08.726  5217  5217 W OverlayConfig: 'idmap2 create-multiple' failed: no mutable="false" overlays targeting "android" will be loaded
+05-14 08:48:08.718  5217  5217 W uiautomator: type=1400 audit(0.0:628473): avc: denied { execute } for name="idmap2" dev="dm-0" ino=1510 scontext=u:r:shell:s0 tcontext=u:object_r:idmap_exec:s0 tclass=file permissive=0
+05-14 08:48:08.729  5217  5217 W asset   : unable to execute idmap2: Permission denied
+05-14 08:48:08.729  5217  5217 W AssetManagerInjector: 'idmap2 --scan' failed: no static="true" overlays targeting "miui" will be loaded
+05-14 08:48:08.732  5217  5217 E app_process: Invalid ID 0x00000000.
+05-14 08:48:08.747  5217  5217 W AccessibilityNodeInfoDumper: Fetch time: 10ms
+05-14 08:48:08.749  1551  2464 W WindowManager: removeWindowToken: Attempted to remove non-existing token: android.os.Binder@5b23fd4
+05-14 08:48:08.764  2288  2288 D CCTileAdapter: onAccessibilityStateChanged:false
+05-14 08:48:08.766  2288  2288 D CCTileAdapter: onAccessibilityStateChanged:false
+05-14 08:48:08.776  5217  5217 D AndroidRuntime: Shutting down VM
+05-14 08:48:08.895 15490 15536 D CCodecBufferChannel: [c2.android.opus.encoder#2] DEBUG: elapsed: n=4 [in=0 pipeline=0 out=0 smoothness=4]
+05-14 08:48:08.895 15490 15536 D PipelineWatcher: DEBUG: elapsed 0 / 4
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null mute
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null screenshot
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null airplane
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null screenlock
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null hotspot
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null gps
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null rotation
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null scanner
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null papermode
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null night
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null quietmode
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null batterysaver
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null custom(com.miui.securitycenter/com.miui.superpower.notification.SuperPowerTileService)
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null custom(com.milink.service/com.milink.ui.service.MiLinkTileService)
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null custom(com.miui.mishare.connectivity/.tile.MiShareTileService)
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null freeformhang
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null custom(com.miui.screenrecorder/.service.QuickService)
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null vibrate
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null nfc
+05-14 08:48:09.018  2288  2288 E QSAnimator: tileView is null edit
+05-14 08:48:09.689 15490 15533 D BufferPoolAccessor2.0: bufferpool2 0x713f973228 : 7(26880 size) total buffers - 4(15360 size) used buffers - 1573246/1573253 (recycle/alloc) - 654/3146497 (fetch/transfer)
+05-14 08:48:10.100  3996  4034 I com.milink.runtime:new_milink:DataContentProvider: Call content://provider.milink.mi.com/messenger#poll from com.milink.service, content://provider.milink.mi.com/messenger#poll
+05-14 08:48:10.102  3943  4061 I com.milink.service:new_milink:MessengerClient: empty packet, skip it.
+05-14 08:48:10.170   818  3057 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+05-14 08:48:10.170   818  3057 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK ON
+05-14 08:48:10.171   818  3057 D vendor.qti.bluetooth@1.0-wake_lock: Acquire wakelock is acquired 
+05-14 08:48:10.171   818  3057 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Writing IBS_WAKE_ACK
+05-14 08:48:10.174  2232  3060 V bt_stack: [VERBOSE1:btm_ble_gap.cc(1924)] btm_ble_process_ext_adv_pkt: bda=cc:6d:5d:8b:1d:95
+05-14 08:48:10.174  2232  3060 V bt_stack: [VERBOSE1:btm_ble_gap.cc(1848)] btm_ble_process_adv_addr: bda=cc:6d:5d:8b:1d:95
+05-14 08:48:10.175  2232  3060 V bt_stack: [VERBOSE1:btm_ble_gap.cc(2058)]  Waiting for scan response cc:6d:5d:8b:1d:95
+05-14 08:48:10.179  2232  3060 V bt_stack: [VERBOSE1:btm_ble_gap.cc(1924)] btm_ble_process_ext_adv_pkt: bda=cc:6d:5d:8b:1d:95
+05-14 08:48:10.179  2232  3060 V bt_stack: [VERBOSE1:btm_ble_gap.cc(1848)] btm_ble_process_adv_addr: bda=cc:6d:5d:8b:1d:95
+05-14 08:48:10.179  2232  3060 V bt_stack: [VERBOSE1:btm_inq.cc(1019)] BTM_InqDbRead: bd addr cc:6d:5d:8b:1d:95
+05-14 08:48:10.185  3176  3290 E MiuiMiHomeConnectController: error 
+05-14 08:48:10.186  3176  3290 D MiuiMiHomeConnectController: cloud time is not ok
+05-14 08:48:10.214   818  3057 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+05-14 08:48:10.214   818  3057 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK OFF
+05-14 08:48:10.365   818  2794 D vendor.qti.bluetooth@1.0-wake_lock: Release wakelock is released 
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null mute
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null screenshot
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null airplane
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null screenlock
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null hotspot
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null gps
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null rotation
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null scanner
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null papermode
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null night
+05-14 08:48:11.359  2288  2288 E QSAnimator: tileView is null quietmode
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null batterysaver
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null custom(com.miui.securitycenter/com.miui.superpower.notification.SuperPowerTileService)
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null custom(com.milink.service/com.milink.ui.service.MiLinkTileService)
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null custom(com.miui.mishare.connectivity/.tile.MiShareTileService)
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null freeformhang
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null custom(com.miui.screenrecorder/.service.QuickService)
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null vibrate
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null nfc
+05-14 08:48:11.360  2288  2288 E QSAnimator: tileView is null edit
+05-14 08:48:11.503  1348 15544 D BufferPoolAccessor2.0: bufferpool2 0x738f27ca28 : 3(72000 size) total buffers - 1(24000 size) used buffers - 1573337/1573340 (recycle/alloc) - 655/1573338 (fetch/transfer)
+05-14 08:48:11.684  5171  5171 I Timeline: Timeline: Activity_launch_request time:372054356
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: IntentStarted during UNKNOWN. Intent { flg=0x24000000 cmp=com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity }
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: java.lang.Throwable: EventSequenceValidator#getStackTrace
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.logWarningWithStackTrace(EventSequenceValidator.java:260)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.onIntentStarted(EventSequenceValidator.java:106)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.handleOnIntentStarted(LaunchObserverRegistryImpl.java:139)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.lambda$veRn_GhgLZLlOHOJ0ZYT6KcfYqo(Unknown Source:0)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.-$$Lambda$LaunchObserverRegistryImpl$veRn_GhgLZLlOHOJ0ZYT6KcfYqo.accept(Unknown Source:10)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.doInvoke(PooledLambdaImpl.java:292)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.invoke(PooledLambdaImpl.java:201)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.OmniFunction.run(OmniFunction.java:97)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:11.688  1551  1612 I ActivityTaskManager: START u0 {flg=0x24000000 cmp=com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity} from uid 10632
+05-14 08:48:11.688  1551  1676 D EventSequenceValidator: inc AccIntentStartedEvents to 3
+05-14 08:48:11.688  1551  1612 D MiuiMultiWindowAdapter: MiuiMultiWindowAdapter::getFreeformBlackList::sSmallWindowBlackList = [com.miui.securitycenter, com.miui.weather2, com.miui.miservice, com.android.calendar, com.xiaomi.calendar, com.android.contacts, com.miui.mishare.connectivity, com.android.settings, com.android.printspooler, com.miui.backup, com.miui.huanji, com.miui.calculator, com.android.deskclock, com.android.thememanager, com.mfashiongallery.emag, com.miui.virtualsim, com.miui.smarttravel, com.mi.health, com.android.camera, com.lbe.security.miui, com.miui.cleanmaster, com.miui.newhome, com.miui.voiceassist, com.android.phone, com.miui.yellowpage, com.android.updater, com.miui.tsmclient, com.miui.securitycore, com.xiaomi.account, com.xiaomi.shop, com.xiaomi.smarthome, com.mipay.wallet, com.xiaomi.youpin, com.xiaomi.hm.health, com.miui.bugreport, com.xiaomi.mibrain.speech, com.xiaomi.mimoji, com.xiaomi.scanner, com.duokan.phone.remotecontroller, com.miui.hybrid, com.android.incallui, com.miui.video, com.miui.videoplayer, com.miui.player, com.miui.fm, com.miui.packageinstaller, com.mi.android.globallauncher, com.mi.android.globallauncher-poco, com.google.android.dialer, com.google.android.apps.magazines, com.miui.compass, com.miui.greenguard, com.kiteguard, com.google.android.apps.prodcasts, com.google.ar.lens, com.xiangkan.android, com.android.bankabc, com.sohu.inputmethod.sogou, com.tencent.mtt, com.shyz.toutiao, com.netease.mc.mi, com.outfit7.talkingtomgoldrun.mi, com.doudz.mi, com.wepie.snake.new.mi, cn.jj, com.standddz002.mi, com.miHoYo.bh3.mi, com.qqgame.hlddz, com.happyelements.AndroidAnimal, com.minitech.miniworld.TMobile.mi, com.mfp.jelly.xiaomi, com.lilithgames.afk.mi, com.tencent.peng, com.teenpatti.hd.gold, blockpuzzle.jewelgames.jewelslegend, com.playgendary.tanks, com.chillingo.robberybobfree.android.row, com.episodeinteractive.android.catalog, com.playrix.township, com.ansangha.drdriving, com.google.android.youtube, com.gbits.atm.mi, com.tencent.tetris, com.sukhavati.gotoplaying.bubble.BubbleShooter.mint, com.block.puzzle.game.hippo.mi, com.youzu.bs.mi, com.appsomniacs.da2, com.miHoYo.Yuanshen, com.baidu.BaiduMap, com.google.android.googlequicksearchbox]
+05-14 08:48:11.689  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateINITIALIZING
+05-14 08:48:11.690  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateINITIALIZING
+05-14 08:48:11.690   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 0
+05-14 08:48:11.690   874 27291 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 0
+05-14 08:48:11.700  1551  1612 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:11.700  1551  1612 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:11.700  1551  1612 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:11.701  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:11.701   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:11.701  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestatePAUSING
+05-14 08:48:11.702  1551  1612 D ActivityTrigger: ActivityTrigger activityPauseTrigger 
+05-14 08:48:11.702   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 3
+05-14 08:48:11.702  1551  1612 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestatePAUSING
+05-14 08:48:11.702   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 3
+05-14 08:48:11.703   694   702 E statsd  : Predicate 5980654721335871649 dropping data for dimension key (10)0x2010101->10632[I] (10)0x30000->*launch*[S] 
+05-14 08:48:11.706  2731  3014 D LauncherFsGestureCompat: componentName is com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: onIntentFailed during UNKNOWN.
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: java.lang.Throwable: EventSequenceValidator#getStackTrace
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.logWarningWithStackTrace(EventSequenceValidator.java:260)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.google.android.startop.iorap.EventSequenceValidator.onIntentFailed(EventSequenceValidator.java:130)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.handleOnIntentFailed(LaunchObserverRegistryImpl.java:147)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.LaunchObserverRegistryImpl.lambda$KukKmVpn5W_1xSV6Dnp8wW2H2Ks(Unknown Source:0)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.server.wm.-$$Lambda$LaunchObserverRegistryImpl$KukKmVpn5W_1xSV6Dnp8wW2H2Ks.accept(Unknown Source:2)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.doInvoke(PooledLambdaImpl.java:264)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.PooledLambdaImpl.invoke(PooledLambdaImpl.java:201)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.internal.util.function.pooled.OmniFunction.run(OmniFunction.java:97)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at android.os.Handler.handleCallback(Handler.java:938)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at android.os.Looper.loop(Looper.java:236)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: 	at com.android.server.ServiceThread.run(ServiceThread.java:45)
+05-14 08:48:11.708  1551  1676 D EventSequenceValidator: dec AccIntentStartedEvents to 2
+05-14 08:48:11.714  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestatePAUSED
+05-14 08:48:11.715  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestatePAUSED
+05-14 08:48:11.715  5171  5236 D ProfileInstaller: Installing profile for com.yahorzabotsin.openvpnclientgate
+05-14 08:48:11.715  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateSTOPPING
+05-14 08:48:11.715  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateSTOPPING
+05-14 08:48:11.715   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 4
+05-14 08:48:11.715   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 4
+05-14 08:48:11.715   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 5
+05-14 08:48:11.716  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:11.715   874 24460 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 5
+05-14 08:48:11.716   874   874 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:11.717  1551  2464 I ActivityTaskManager: The Process com.yahorzabotsin.openvpnclientgate Already Exists in BG. So sending its PID: 5171
+05-14 08:48:11.717  1551  2464 W ActivityTaskManager: Tried to set launchTime (0) < mLastActivityLaunchTime (372047972)
+05-14 08:48:11.718  1551  2464 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:11.718  1551  2464 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:11.718  1551  2464 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:11.718  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag truestateRESUMED
+05-14 08:48:11.719  1551  2464 V ActivityTaskManager: Calling mServicetracker.OnActivityStateChange with flag falsestateRESUMED
+05-14 08:48:11.719   874   874 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:11.719  1551  2464 D WindowManager: Input focus has changed to null
+05-14 08:48:11.722  1551  2464 I Timeline: Timeline: App_transition_ready time:372054394
+05-14 08:48:11.719   874   874 I vendor.qti.hardware.servicetracker@1.2-service: Activity state is changed to : 2
+05-14 08:48:11.708 26398 26398 W ThreadPoolForeg: type=1400 audit(0.0:628474): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=27834 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+05-14 08:48:11.740  1551  1612 D MIUIInput: [FoucsChange]: Display  0 FocusedWindow From Window{8aa5d12 mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.SplashActivity}(1,1)  to null(0,0)
+05-14 08:48:11.760  5171  5171 D OpenVPNGateApp:MainActivityCore: onCreate called.
+05-14 08:48:11.823  2288  2288 D AppMiniWindowManager: topActivity updated in onTaskStackChanged
+05-14 08:48:11.823 10638 12188 I SCTaskStackListener: onTaskStackChanged! inSplit = false
+05-14 08:48:11.823 10638 20368 I SCTaskStackListener: onTaskStackChanged! inSplit = false
+05-14 08:48:12.024  5171  5171 I OpenVPNGateApp:MainViewModel: Initial selection load mode resolved. vpn_connected=false, cache_only=false
+05-14 08:48:12.026  5171  5171 D OpenVPNGateApp:ServersV2SyncCoordinator: syncCountries(forceRefresh=false, cacheOnly=false)
+05-14 08:48:12.028  5171  5171 D OpenVPNGateApp:ServersV2Repository: getCountries[locale=ru]: cache hit
+05-14 08:48:12.036  5171  5203 I OpenVPNGateApp:VersionReleaseRepository: Using cached release notes for 1.0.4-beta.1(63) locale=ru matchedLocale=ru fallback=false
+05-14 08:48:12.038  5171  5205 I OpenVPNGateApp:UpdateCheckRepository: Checking updates: https://openvpngateclient.azurewebsites.net
+05-14 08:48:12.040  5171  5171 I OpenVPNGateApp:ScreenFlow: enter MainActivity
+05-14 08:48:12.043  5171  5171 D OpenVPNGateApp:VpnManager: syncStatus
+05-14 08:48:12.046  1551  9201 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:12.046  1551  9201 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:12.047  1551  9201 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:12.048   874   904 I vendor.qti.hardware.servicetracker@1.2-service: startService() is called for servicecom.yahorzabotsin.openvpnclientgate/.vpn.OpenVpnService
+05-14 08:48:12.052  5171  5205 I OpenVPNGateApp:UpdateCheckRepository: Checking updates: https://openvpngateclient.azurewebsites.net
+05-14 08:48:12.075  5171  5171 D OpenVPNGateApp:SelectedCountryStore: getLastStartedConfig: country=Australia hasConfig=true
+05-14 08:48:12.087  5171  5171 D OpenVPNGateApp:SelectedCountryStore: getLastStartedConfig: country=Australia hasConfig=true
+05-14 08:48:12.110  5171  5205 I OpenVPNGateApp:UpdateCheckRepository: Update check result: hasUpdate=true, currentBuild=63, latestBuild=83, assetPlatform=mobile, hasAsset=true
+05-14 08:48:12.110  1551  9201 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState state = onResume
+05-14 08:48:12.110  1551  9201 V MiuiActivityTaskManagerServiceEx: dispatchActivityLifeState r = ActivityRecord{498146 u0 com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity t4253}
+05-14 08:48:12.111  2731  2731 D RecentsImpl: mActivityStateObserver com.yahorzabotsin.openvpnclientgate.mobile.MainActivity
+05-14 08:48:12.111  2731  2731 W RecentsImpl: onResumed className=com.yahorzabotsin.openvpnclientgate.mobile.MainActivity   mIsInAnotherPro=false
+05-14 08:48:12.112  5171  5171 W Looper  : PerfMonitor looperActivity : package=com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity time=1ms latency=391ms running=0ms  procState=2 ClientTransaction{ callbacks=[android.app.servertransaction.TopResumedActivityChangeItem] } historyMsgCount=3 (msgIndex=3 wall=380ms seq=199 running=330ms runnable=7ms late=11ms h=android.app.ActivityThread$H w=159)
+05-14 08:48:12.114  5171  5171 D OpenVPNGateApp:ServersV2Repository: getCountries[locale=ru]: cache hit
+05-14 08:48:12.139  5171  5171 I OpenVPNGateApp:MainViewModel: What's new loaded: 1.0.4-beta.1, title=╨С╨╡╤В╨░-╤А╨╡╨╗╨╕╨╖ v1.0.4-beta.1-auto(63)
+05-14 08:48:12.153  5171  5171 I OpenVPNGateApp:OpenVpnService: Service created
+05-14 08:48:12.160  5171  5171 D openvpn : Loading openvpn native library $id$ compiled on May 12 2026 17:35:10
+05-14 08:48:12.165  5171  5171 I OpenVPNGateApp:OpenVpnService: Status source -> VPN_STATUS (VpnStatus update)
+05-14 08:48:12.166  5171  5171 D OpenVPNGateApp:OpenVpnService: Engine state (VPN_STATUS): level=LEVEL_NOTCONNECTED state=NOPROCESS
+05-14 08:48:12.170  1551  9201 D CompatibilityChangeReporter: Compat change id reported: 135634846; UID 10632; state: DISABLED
+05-14 08:48:12.170  1551  1686 D CompatibilityChangeReporter: Compat change id reported: 143937733; UID 10632; state: ENABLED
+05-14 08:48:12.172   874   904 I vendor.qti.hardware.servicetracker@1.2-service: bindService is called for service : com.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNStatusService and for client com.yahorzabotsin.openvpnclientgate
+05-14 08:48:12.173  5171  5171 D OpenVPNGateApp:OpenVpnService: Binding status service: true
+05-14 08:48:12.173   874   904 I vendor.qti.hardware.servicetracker@1.2-service: total connections for service : com.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNStatusServiceare :1
+05-14 08:48:12.173   874   904 I vendor.qti.hardware.servicetracker@1.2-service: total connections for client : com.yahorzabotsin.openvpnclientgateare :1
+05-14 08:48:12.176  5171  5171 D OpenVPNGateApp:OpenVpnService: ACTION_SYNC_STATUS
+05-14 08:48:12.189   696   696 D Zygote  : Forked child process 5248
+05-14 08:48:12.191  1551  1686 D Boost   : hostingType=service, hostingName={com.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNStatusService}, callerPackage=com.yahorzabotsin.openvpnclientgate, isSystem=false, isBoostNeeded=false.
+05-14 08:48:12.191  1551  1686 I ActivityManager: Start proc 5248:com.yahorzabotsin.openvpnclientgate:openvpn/u0a632 for service {com.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNStatusService} caller=com.yahorzabotsin.openvpnclientgate
+05-14 08:48:12.192  5248  5248 W Zygote  : Unable to open libbeluga.so: dlopen failed: library "libbeluga.so" not found.
+05-14 08:48:12.203  5248  5248 I entgate:openvp: Late-enabling -Xcheck:jni
+05-14 08:48:12.206 15490 15536 D CCodecBufferChannel: [c2.android.opus.encoder#2] DEBUG: elapsed: n=4 [in=0 pipeline=0 out=0 smoothness=4]
+05-14 08:48:12.206 15490 15536 D PipelineWatcher: DEBUG: elapsed 1 / 4
+05-14 08:48:12.220  5171  5205 I OpenVPNGateApp:UpdateCheckRepository: Update check result: hasUpdate=true, currentBuild=63, latestBuild=83, assetPlatform=mobile, hasAsset=true
+05-14 08:48:12.225  1551  9201 V WindowManager: Orientation start waiting for draw, mDrawState=DRAW_PENDING in Window{c35fe8a mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}, surfaceController Surface(name=com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity)/@0x8bc96c4
+05-14 08:48:12.226  1551  9201 I Timeline: Timeline: App_transition_ready time:372054898
+05-14 08:48:12.228  1551  9201 I Timeline: Timeline: App_transition_ready time:372054900
+05-14 08:48:12.231  5248  5248 I entgate:openvp: Unquickening 20 vdex files!
+05-14 08:48:12.231  1551  9201 D WindowManager: Input focus has changed to Window{c35fe8a mode=0 rootTaskId=4253 u0 com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.mobile.MainActivity}
+05-14 08:48:12.247 28700 28705 I adbd    : jdwp connection from 5248
+05-14 08:48:12.262  1551  9201 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:12.262  1551  9201 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:12.262  1551  9201 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:12.264  1551  9201 D CompatibilityChangeReporter: Compat change id reported: 136274596; UID 10632; state: ENABLED
+05-14 08:48:12.264  1551  9201 D CompatibilityInfo: mCompatibilityFlags - 0
+05-14 08:48:12.264  1551  9201 D CompatibilityInfo: applicationDensity - 480
+05-14 08:48:12.264  1551  9201 D CompatibilityInfo: applicationScale - 1.0
+05-14 08:48:12.265   874   904 I vendor.qti.hardware.servicetracker@1.2-service: startService() is called for servicecom.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNStatusService
