@@ -139,8 +139,7 @@ class ServersV2Repository(
     }
 
     private fun resolvePreferredLocale(context: Context): String {
-        val settings = settingsStore.load(context)
-        return settingsStore.resolvePreferredLocale(settings.language)
+        return settingsStore.resolvePreferredLocale(context)
     }
 
     private suspend fun <T> fetchWithCache(

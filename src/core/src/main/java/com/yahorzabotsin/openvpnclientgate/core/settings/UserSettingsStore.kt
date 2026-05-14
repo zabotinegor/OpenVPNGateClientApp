@@ -125,33 +125,13 @@ object UserSettingsStore {
         }
         AppCompatDelegate.setApplicationLocales(locales)
     }
-
-    /**
-     * Dynamically resolves supported locales based on available resources.
-     */
-    private fun getSupportedLocales(ctx: Context): List<String> {
-        return ctx.resources.configuration.locales.toLanguageTags()
-            .split(",")
-            .map { it.substringBefore("-") }
-            .distinct()
-    }
-
     /**
      * Resolves the preferred locale based on the user's language setting.
-     * SYSTEM maps to the device/app locale, with fallback to 'en' if the locale is blank or unsupported.
+     * SYSTEM maps to the runtime locale, with fallback to 'en' if blank or unsupported.
      */
     fun resolvePreferredLocale(ctx: Context): String {
         val settings = load(ctx)
-        val supportedLocales = getSupportedLocales(ctx)
-        return when (settings.language) {
-            LanguageOption.SYSTEM -> {
-                val systemLocale = Locale.getDefault().language
-                if (systemLocale.isBlank() || systemLocale !in supportedLocales) "en" else systemLocale
-            }
-            LanguageOption.ENGLISH -> "en"
-            LanguageOption.RUSSIAN -> "ru"
-            LanguageOption.POLISH -> "pl"
-        }
+        return resolvePreferredLocale(settings.language, Locale.getDefault())
     }
 
     /**
@@ -159,6 +139,19 @@ object UserSettingsStore {
      */
     private fun isSupportedLocale(locale: String): Boolean {
         return locale in listOf("en", "ru", "pl")
+    }
+
+    fun resolvePreferredLocale(
+        language: LanguageOption,
+        systemLocale: Locale = Locale.getDefault()
+    ): String = when (language) {
+        LanguageOption.SYSTEM -> {
+            val normalized = systemLocale.language.lowercase(Locale.ROOT)
+            if (normalized.isBlank() || !isSupportedLocale(normalized)) "en" else normalized
+        }
+        LanguageOption.ENGLISH -> "en"
+        LanguageOption.RUSSIAN -> "ru"
+        LanguageOption.POLISH -> "pl"
     }
 
     fun resolveLegacyServerUrls(): List<String> = listOf(
@@ -189,4 +182,3 @@ object UserSettingsStore {
         return true
     }
 }
-
