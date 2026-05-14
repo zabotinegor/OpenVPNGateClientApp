@@ -433,6 +433,52 @@ class ServersV2RepositoryTest {
     private fun currentLocaleCode(): String =
         UserSettingsStore.resolvePreferredLocale(UserSettingsStore.load(context).language)
 
+    // TS-4 (AC-4.2) — clearCountriesCache removes legacy and locale-scoped entries, preventing migration loop.
+    @Test
+    fun clearCountriesCache_removes_legacy_and_locale_scoped_entries() = runBlocking {
+        val locale = currentLocaleCode()
+        val legacyFile = File(context.cacheDir, "v2_countries.json")
+        val localizedFile = File(context.cacheDir, "v2_countries_${locale}.json")
+        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+
+        // Create both legacy and locale-scoped cache files
+        legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
+        localizedFile.writeText("""[{"code":"US","name":"United States","serverCount":30}]""")
+        prefs.edit().putLong("ts_countries", 12345L).putLong("ts_countries_$locale", 67890L).apply()
+
+        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+
+        // Clear cache
+        repo.clearCountriesCache(context)
+
+        // Verify both files are deleted
+        assertTrue("legacy file should be deleted", !legacyFile.exists())
+        assertTrue("localized file should be deleted", !localizedFile.exists())
+        // Verify both timestamp keys are removed
+        assertTrue("legacy ts key should be removed", !prefs.contains("ts_countries"))
+        assertTrue("localized ts key should be removed", !prefs.contains("ts_countries_$locale"))
+    }
+
+    // TS-5 (AC-4.2) — after clearCountriesCache, getCountries does not rehydrate from legacy cache.
+    @Test(expected = IOException::class)
+    fun getCountries_after_clear_does_not_rehydrate_from_legacy(): Unit = runBlocking {
+        val locale = currentLocaleCode()
+        val legacyFile = File(context.cacheDir, "v2_countries.json")
+        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+
+        // Create legacy cache but no localized file
+        legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
+        prefs.edit().putLong("ts_countries", System.currentTimeMillis()).apply()
+
+        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+
+        // Clear cache (removes legacy file)
+        repo.clearCountriesCache(context)
+
+        // Attempt cacheOnly read should fail (legacy was cleared, no localized cache exists)
+        repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+    }
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
