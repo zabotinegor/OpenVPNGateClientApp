@@ -273,6 +273,32 @@ class SettingsViewModelTest {
         assertEquals(0, syncCoordinator.relocalizationCallCount)
     }
 
+    @Test
+    fun `server source change cancels pending language relocalization`() = runTest {
+        val repo = FakeSettingsRepository(
+            UserSettings(
+                language = LanguageOption.ENGLISH,
+                serverSource = ServerSource.DEFAULT_V2
+            )
+        )
+        val logger = FakeSettingsLogger()
+        val scheduler = FakeServerRefreshScheduler()
+        val syncCoordinator = FakeServerSelectionSyncCoordinator()
+        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
+        advanceUntilIdle()
+
+        // Start language relocalization for DEFAULT_V2
+        vm.onAction(SettingsAction.SelectLanguage(LanguageOption.RUSSIAN))
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+
+        // Switch source before relocalization runs
+        vm.onAction(SettingsAction.SelectServerSource(ServerSource.LEGACY))
+        advanceUntilIdle()
+
+        // Relocalization should have been cancelled and not executed
+        assertEquals(0, syncCoordinator.relocalizationCallCount)
+    }
+
     private class FakeSettingsRepository(initial: UserSettings) : SettingsRepository {
         private var stored: UserSettings = initial
 
