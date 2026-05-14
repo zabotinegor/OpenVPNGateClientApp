@@ -461,22 +461,24 @@ class ServersV2RepositoryTest {
 
     // TS-5 (AC-4.2) — after clearCountriesCache, getCountries does not rehydrate from legacy cache.
     @Test(expected = IOException::class)
-    fun getCountries_after_clear_does_not_rehydrate_from_legacy(): Unit = runBlocking {
-        val locale = currentLocaleCode()
-        val legacyFile = File(context.cacheDir, "v2_countries.json")
-        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+    fun getCountries_after_clear_does_not_rehydrate_from_legacy() {
+        runBlocking {
+            val locale = currentLocaleCode()
+            val legacyFile = File(context.cacheDir, "v2_countries.json")
+            val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
 
-        // Create legacy cache but no localized file
-        legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
-        prefs.edit().putLong("ts_countries", System.currentTimeMillis()).apply()
+            // Create legacy cache but no localized file
+            legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
+            prefs.edit().putLong("ts_countries", System.currentTimeMillis()).apply()
 
-        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+            val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
 
-        // Clear cache (removes legacy file)
-        repo.clearCountriesCache(context)
+            // Clear cache (removes legacy file)
+            repo.clearCountriesCache(context)
 
-        // Attempt cacheOnly read should fail (legacy was cleared, no localized cache exists)
-        repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+            // Attempt cacheOnly read should fail (legacy was cleared, no localized cache exists)
+            repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+        }
     }
 
     private class FakeServersV2Api(

@@ -348,10 +348,10 @@ class ServersV2Repository(
     /** Clears the countries cache (timestamp only; file left until overwritten). */
     fun clearCountriesCache(context: Context) {
         context.cacheDir.listFiles()?.filter {
-            it.name.startsWith(COUNTRIES_CACHE_FILE_PREFIX) && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
+            it.name.startsWith("v2_countries") && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
         }?.forEach { it.delete() }
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
-        val keysToRemove = prefs.all.keys.filter { it.startsWith(KEY_COUNTRIES_TS_PREFIX) }
+        val keysToRemove = prefs.all.keys.filter { it.startsWith("ts_countries") }
         prefs.edit().apply {
             keysToRemove.forEach { remove(it) }
         }.apply()
@@ -360,7 +360,7 @@ class ServersV2Repository(
     /** Clears all per-country server caches (timestamps and files). */
     fun clearAllServersCaches(context: Context) {
         context.cacheDir.listFiles()?.filter {
-            it.name.startsWith(SERVERS_CACHE_FILE_PREFIX) && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
+            it.name.startsWith("v2_servers_") && it.name.endsWith(SERVERS_CACHE_FILE_SUFFIX)
         }?.forEach { it.delete() }
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val keysToRemove = prefs.all.keys.filter { it.startsWith("ts_servers_") }
