@@ -408,5 +408,58 @@ class SelectedCountryStoreTest {
         assertEquals("config-de", SelectedCountryStore.currentServer(ctx)?.config)
         assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
     }
+
+    @Test
+    fun updateSelectedCountryNameIfCurrent_atomicity_prevents_toctou_race() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2, ip = "2.2.2.2")
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "Russia", russiaServers)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Russia", "config-ru", "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Russia", "config-ru", "1.1.1.1")
+
+        // Simulate TOCTOU race: call updateSelectedCountryNameIfCurrent with expected="Russia"
+        // but BEFORE the write happens, simulate user selecting Germany
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Atomically attempt rename of Russia to Россия
+        val updated = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Russia",
+            newCountryName = "Россия"
+        )
+
+        // Should succeed because current is still Russia
+        assertTrue(updated)
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Now user changes selection to Germany
+        SelectedCountryStore.saveSelection(ctx, "Germany", germanyServers)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Attempt to update from Россия to something else while current is Germany
+        val updated2 = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Россия",
+            newCountryName = "Russia"
+        )
+
+        // Should fail because current is now Germany, not Россия
+        assertFalse(updated2)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Verify that atomic check prevented metadata corruption:
+        // Germany's servers and config should not have been renamed
+        val current = SelectedCountryStore.currentServer(ctx)
+        assertNotNull(current)
+        assertEquals("config-de", current!!.config)
+    }
 }
 

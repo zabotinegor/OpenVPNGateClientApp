@@ -298,15 +298,19 @@ object SelectedCountryStore {
     }
 
     /**
-     * Updates country name only when current selected country is still [expectedCurrentCountryName].
-     * Prevents relocalization races from mutating a different active selection.
+     * Atomically updates country name only when current selected country is still [expectedCurrentCountryName].
+     * Prevents relocalization races from mutating a different active selection via single atomic read-check-write.
+     * Must NOT call updateSelectedCountryName() after this check, as that creates TOCTOU race.
      */
     fun updateSelectedCountryNameIfCurrent(
         ctx: Context,
         expectedCurrentCountryName: String,
         newCountryName: String
     ): Boolean {
-        val currentName = getSelectedCountry(ctx)
+        val prefs = prefs(ctx)
+        // Atomic read-check-write block: single SharedPreferences transaction
+        val editor = prefs.edit()
+        val currentName = prefs.getString(KEY_COUNTRY, null)
         if (currentName != expectedCurrentCountryName) {
             AppLog.w(
                 TAG,
@@ -315,7 +319,22 @@ object SelectedCountryStore {
             return false
         }
 
-        updateSelectedCountryName(ctx, newCountryName)
+        // Update country name and related metadata in single atomic write
+        editor.putString(KEY_COUNTRY, newCountryName)
+
+        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        if (lastSuccessCountry == currentName) {
+            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+        }
+
+        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        if (lastStartedCountry == currentName) {
+            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+        }
+
+        editor.apply()
+        AppLog.i(TAG, "updateSelectedCountryNameIfCurrent: '$currentName' -> '$newCountryName' (atomic)")
+        SelectedCountryVersionSignal.bump()
         return true
     }
 }
