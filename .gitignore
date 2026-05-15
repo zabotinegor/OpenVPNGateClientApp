@@ -45,6 +45,7 @@ servers.local.json
 **/.kotlin/
 src/.kotlin/
 src/.kotlin/errors/*.log
+hs_err_pid*.log
 
 # Local overlay files — machine-specific paths and context, never committed
 AGENTS.local.md
