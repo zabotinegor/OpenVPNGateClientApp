@@ -268,6 +268,75 @@ object SelectedCountryStore {
             }
         }
     }
+
+    /**
+     * Updates the persisted country name without modifying servers or index.
+     * Used for relocalization when the language changes.
+     */
+    fun updateSelectedCountryName(ctx: Context, newCountryName: String) {
+        val currentName = getSelectedCountry(ctx)
+        if (currentName.isNullOrBlank() || currentName == newCountryName) {
+            AppLog.d(TAG, "updateSelectedCountryName: no change or no selection (current='$currentName', new='$newCountryName')")
+            return
+        }
+        val prefs = prefs(ctx)
+        val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+
+        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        if (lastSuccessCountry == currentName) {
+            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+        }
+
+        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        if (lastStartedCountry == currentName) {
+            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+        }
+
+        editor.apply()
+        AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
+        SelectedCountryVersionSignal.bump()
+    }
+
+    /**
+     * Atomically updates country name only when current selected country is still [expectedCurrentCountryName].
+     * Prevents relocalization races from mutating a different active selection via single atomic read-check-write.
+     * Must NOT call updateSelectedCountryName() after this check, as that creates TOCTOU race.
+     */
+    fun updateSelectedCountryNameIfCurrent(
+        ctx: Context,
+        expectedCurrentCountryName: String,
+        newCountryName: String
+    ): Boolean {
+        val prefs = prefs(ctx)
+        // Atomic read-check-write block: single SharedPreferences transaction
+        val editor = prefs.edit()
+        val currentName = prefs.getString(KEY_COUNTRY, null)
+        if (currentName != expectedCurrentCountryName) {
+            AppLog.w(
+                TAG,
+                "updateSelectedCountryNameIfCurrent: selection changed, skip rename expected='$expectedCurrentCountryName' actual='${currentName ?: "<none>"}'"
+            )
+            return false
+        }
+
+        // Update country name and related metadata in single atomic write
+        editor.putString(KEY_COUNTRY, newCountryName)
+
+        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        if (lastSuccessCountry == currentName) {
+            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+        }
+
+        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        if (lastStartedCountry == currentName) {
+            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+        }
+
+        editor.apply()
+        AppLog.i(TAG, "updateSelectedCountryNameIfCurrent: '$currentName' -> '$newCountryName' (atomic)")
+        SelectedCountryVersionSignal.bump()
+        return true
+    }
 }
 
 

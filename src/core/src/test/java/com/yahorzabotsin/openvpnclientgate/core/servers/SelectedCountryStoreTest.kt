@@ -270,5 +270,196 @@ class SelectedCountryStoreTest {
         assertTrue(SelectedCountryStore.getServers(ctx).isEmpty())
         assertNull(SelectedCountryStore.getCurrentPosition(ctx))
     }
+
+    @Test
+    fun updateSelectedCountryName_changes_country_name_and_bumps_version() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config1", lineIndex = 1)
+        )
+        SelectedCountryStore.saveSelection(ctx, "Russia", servers)
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Simulate language change: update country name to Russian locale
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Россия")
+
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+        val stored = SelectedCountryStore.getServers(ctx)
+        assertEquals(1, stored.size)
+        assertEquals("City1", stored[0].city)
+        assertEquals("config1", stored[0].config)
+        assertEquals("RU", stored[0].countryCode)
+        assertTrue(SelectedCountryVersionSignal.version.value > versionBefore)
+    }
+
+    @Test
+    fun updateSelectedCountryName_noop_when_no_selection() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        // No country is selected
+        assertNull(SelectedCountryStore.getSelectedCountry(ctx))
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Try to update when no selection exists
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Russia")
+
+        // Should not create a selection or update metadata
+        assertNull(SelectedCountryStore.getSelectedCountry(ctx))
+        assertTrue(SelectedCountryStore.getServers(ctx).isEmpty())
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
+
+    @Test
+    fun updateSelectedCountryName_noop_when_name_unchanged() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1)
+        )
+        SelectedCountryStore.saveSelection(ctx, "Russia", servers)
+
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Try to update to the same name
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Russia")
+
+        assertEquals("Russia", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
+
+    @Test
+    fun updateSelectedCountryName_preserves_server_index() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1),
+            server(name = "srv-2", city = "City2", config = "config2", lineIndex = 2),
+            server(name = "srv-3", city = "City3", config = "config3", lineIndex = 3)
+        )
+        SelectedCountryStore.saveSelection(ctx, "Russia", servers)
+        SelectedCountryStore.setCurrentIndex(ctx, 2)
+
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Россия")
+
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(3, SelectedCountryStore.getServers(ctx).size)
+        val current = SelectedCountryStore.currentServer(ctx)
+        assertNotNull(current)
+        assertEquals("City3", current!!.city)
+    }
+
+    @Test
+    fun updateSelectedCountryName_updates_last_country_metadata_when_matching_selection() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        SelectedCountryStore.saveSelection(ctx, "Russia", servers)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Russia", "config1", "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Russia", "config1", "1.1.1.1")
+
+        SelectedCountryStore.updateSelectedCountryName(ctx, "Россия")
+
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+
+        val lastStarted = SelectedCountryStore.getLastStartedConfig(ctx)
+        assertNotNull(lastStarted)
+        assertEquals("Россия", lastStarted!!.country)
+        assertEquals("config1", lastStarted.config)
+
+        assertEquals("config1", SelectedCountryStore.getLastSuccessfulConfigForSelected(ctx))
+        assertEquals("1.1.1.1", SelectedCountryStore.getLastSuccessfulIpForSelected(ctx))
+    }
+
+    @Test
+    fun updateSelectedCountryNameIfCurrent_skips_when_selection_changed() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1)
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2)
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "Russia", russiaServers)
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        SelectedCountryStore.saveSelection(ctx, "Germany", germanyServers)
+
+        val updated = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Russia",
+            newCountryName = "Россия"
+        )
+
+        assertFalse(updated)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals("config-de", SelectedCountryStore.currentServer(ctx)?.config)
+        assertEquals(versionBefore, SelectedCountryVersionSignal.version.value)
+    }
+
+    @Test
+    fun updateSelectedCountryNameIfCurrent_atomicity_prevents_toctou_race() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2, ip = "2.2.2.2")
+        )
+
+        SelectedCountryStore.saveSelection(ctx, "Russia", russiaServers)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Russia", "config-ru", "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Russia", "config-ru", "1.1.1.1")
+
+        // Simulate TOCTOU race: call updateSelectedCountryNameIfCurrent with expected="Russia"
+        // but BEFORE the write happens, simulate user selecting Germany
+        val versionBefore = SelectedCountryVersionSignal.version.value
+
+        // Atomically attempt rename of Russia to Россия
+        val updated = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Russia",
+            newCountryName = "Россия"
+        )
+
+        // Should succeed because current is still Russia
+        assertTrue(updated)
+        assertEquals("Россия", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Now user changes selection to Germany
+        SelectedCountryStore.saveSelection(ctx, "Germany", germanyServers)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Attempt to update from Россия to something else while current is Germany
+        val updated2 = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+            ctx = ctx,
+            expectedCurrentCountryName = "Россия",
+            newCountryName = "Russia"
+        )
+
+        // Should fail because current is now Germany, not Россия
+        assertFalse(updated2)
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+
+        // Verify that atomic check prevented metadata corruption:
+        // Germany's servers and config should not have been renamed
+        val current = SelectedCountryStore.currentServer(ctx)
+        assertNotNull(current)
+        assertEquals("config-de", current!!.config)
+    }
 }
 

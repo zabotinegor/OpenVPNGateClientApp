@@ -14,9 +14,19 @@ class SelectedCountryServerSync(
         val selectedCountry = SelectedCountryStore.getSelectedCountry(appContext)
         if (selectedCountry.isNullOrBlank()) return
 
-        val countryServers = freshServers.filter { it.country.name == selectedCountry }
+        val selectedCountryCode = SelectedCountryStore.currentServer(appContext)?.countryCode
+            ?: SelectedCountryStore.getServers(appContext).firstOrNull()?.countryCode
+
+        val countryServers = selectedCountryCode?.let { code ->
+            freshServers.filter { it.country.code.equals(code, ignoreCase = true) }
+        }.orEmpty().ifEmpty {
+            freshServers.filter { it.country.name.equals(selectedCountry, ignoreCase = true) }
+        }
         if (countryServers.isEmpty()) {
-            AppLog.w(tag, "Skipping selected country sync: country not found in fresh list")
+            AppLog.w(
+                tag,
+                "Skipping selected country sync: country not found in fresh list (selectedCountry=$selectedCountry, selectedCountryCode=${selectedCountryCode ?: "<none>"})"
+            )
             return
         }
 
@@ -38,12 +48,25 @@ class SelectedCountryServerSync(
             return
         }
 
+        val localizedCountryName = resolved.first().country.name
+
         SelectedCountryStore.saveSelectionPreservingIndex(
             ctx = appContext,
             country = selectedCountry,
             servers = resolved
         )
 
-        AppLog.i(tag, "Selected country sync completed. country=$selectedCountry, servers=${resolved.size}")
+        if (localizedCountryName != selectedCountry) {
+            SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+                ctx = appContext,
+                expectedCurrentCountryName = selectedCountry,
+                newCountryName = localizedCountryName
+            )
+        }
+
+        AppLog.i(
+            tag,
+            "Selected country sync completed. country=$localizedCountryName, selectedCountryCode=${selectedCountryCode ?: "<none>"}, servers=${resolved.size}"
+        )
     }
 }

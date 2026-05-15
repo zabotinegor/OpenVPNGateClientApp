@@ -71,6 +71,15 @@ Use this deterministic flow for source-specific fetch validation without UI flak
 - SYSTEM-language locale assertions can be misread when using only `ro.product.locale`.
   - Workaround: always capture both locale props and prioritize `persist.sys.locale` as the active runtime locale source.
 
+## Settings automation pattern (US-08)
+- On Mi 9 SE layout, the navigation drawer item `Settings` is reachable from main after opening drawer (`Open navigation drawer` button bounds near `[0,129][144,297]`) and tapping the `Settings` row (around y=537..681 in drawer XML).
+- In `SettingsActivity`, language and source controls are directly addressable by resource IDs in UI dump:
+  - Language header: `id/language_header`
+  - Language options: `id/language_en`, `id/language_ru`, `id/language_pl`, `id/language_system`
+  - Server source header: `id/server_header`
+  - Source options: `id/server_default_v2`, `id/server_default`, `id/server_vpngate`, `id/server_custom`
+- Reliable flow for automation: dump current UI XML, resolve bounds for target resource ID, then tap center of bounds instead of hardcoded coordinates.
+
 ## Known blockers
 - TV manual cases require a Leanback-capable target. Mobile device with `ro.build.characteristics=nosdcard` is not a valid TV substitute.
 - Local `mobile-release-unsigned.apk` cannot be installed directly (`INSTALL_PARSE_FAILED_NO_CERTIFICATES`). Use a signed release artifact for release-path install validation.

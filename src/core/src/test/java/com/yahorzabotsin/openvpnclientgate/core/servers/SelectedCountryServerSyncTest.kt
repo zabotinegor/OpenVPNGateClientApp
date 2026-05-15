@@ -89,6 +89,64 @@ class SelectedCountryServerSyncTest {
         assertEquals((2 to 2), SelectedCountryStore.getCurrentPosition(context))
     }
 
+    @Test
+    fun `syncAfterRefresh relocalizes by country code when stored name is stale`() = runBlocking {
+        val servers = listOf(
+            makeServer(name = "srv-au-1", city = "Sydney", lineIndex = 1, country = "Australia", countryCode = "AU", ip = "10.2.0.1", config = "config-au-1"),
+            makeServer(name = "srv-au-2", city = "Melbourne", lineIndex = 2, country = "Australia", countryCode = "AU", ip = "10.2.0.2", config = "config-au-2")
+        )
+        val repository = ServerRepository(FixedApi(sampleCsv(servers)))
+
+        SelectedCountryStore.saveSelection(
+            context,
+            "Australia",
+            listOf(
+                makeServer(name = "old-1", city = "OldSydney", lineIndex = 1, country = "Australia", countryCode = "AU", ip = "10.2.0.1", config = "config-au-1"),
+                makeServer(name = "old-2", city = "OldMelbourne", lineIndex = 2, country = "Australia", countryCode = "AU", ip = "10.2.0.2", config = "config-au-2")
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(context, 1)
+
+        val freshServers = repository.getServers(context, forceRefresh = true, cacheOnly = false)
+        val sync = SelectedCountryServerSync(context, repository)
+
+        // Simulate the stored name being stale while the stable country code remains the same.
+        SelectedCountryStore.updateSelectedCountryName(context, "Australia-old")
+        sync.syncAfterRefresh(freshServers)
+
+        assertEquals("Australia", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals((2 to 2), SelectedCountryStore.getCurrentPosition(context))
+        val current = SelectedCountryStore.currentServer(context)
+        assertNotNull(current)
+        assertEquals("config-au-2", current?.config)
+        assertEquals("10.2.0.2", current?.ip)
+    }
+
+    @Test
+    fun `syncAfterRefresh matches selected country by name case-insensitively when code missing`() = runBlocking {
+        val servers = listOf(
+            makeServer(name = "srv-1", city = "City1", lineIndex = 1, country = "Australia", ip = "10.3.0.1", config = "config-1"),
+            makeServer(name = "srv-2", city = "City2", lineIndex = 2, country = "Australia", ip = "10.3.0.2", config = "config-2")
+        )
+        val repository = ServerRepository(FixedApi(sampleCsv(servers)))
+
+        SelectedCountryStore.saveSelection(
+            context,
+            "australia",
+            listOf(
+                makeServer(name = "old-1", city = "Old1", lineIndex = 1, country = "australia", ip = "10.3.0.1", config = "config-1")
+            )
+        )
+
+        val freshServers = repository.getServers(context, forceRefresh = true, cacheOnly = false)
+        val sync = SelectedCountryServerSync(context, repository)
+
+        sync.syncAfterRefresh(freshServers)
+
+        assertEquals("Australia", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals(2, SelectedCountryStore.getServers(context).size)
+    }
+
     private fun sampleCsv(servers: List<Server>): String {
         val header = "TITLE, SAMPLE\nHEADER, IGNORE\n"
         val body = servers.joinToString(separator = "\n") { s ->
@@ -118,13 +176,14 @@ class SelectedCountryServerSyncTest {
         city: String,
         lineIndex: Int,
         country: String = "Country",
+        countryCode: String? = null,
         ip: String,
         config: String
     ) = Server(
         lineIndex = lineIndex,
         name = name,
         city = city,
-        country = Country(country),
+        country = if (countryCode.isNullOrBlank()) Country(country) else Country(country, countryCode),
         ping = 50,
         signalStrength = SignalStrength.STRONG,
         ip = ip,

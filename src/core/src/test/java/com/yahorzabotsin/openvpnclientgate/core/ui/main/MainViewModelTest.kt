@@ -960,6 +960,11 @@ class MainViewModelTest {
             lastForceRefresh = forceRefresh
             return emptyList()
         }
+
+        override suspend fun syncSelectedCountryServersForRelocalization(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
     }
 
     private fun sampleRelease() = LatestReleaseInfo(
