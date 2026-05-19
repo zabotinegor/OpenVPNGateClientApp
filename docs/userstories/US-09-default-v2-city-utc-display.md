@@ -59,33 +59,39 @@ Use backend city and UTC for DEFAULT_V2 to render user-visible server location t
 
 | ID | Criterion |
 | --- | --- |
-| AC-1.1 | Client v2 server model parses nullable city and UTC fields from api/v2/servers response without breaking existing required fields. |
-| AC-1.2 | Mapping from ServerV2 into shared client selection models preserves city and UTC data when present, and remains null-safe when either field is absent. |
-| AC-1.3 | Parse or mapping issues for city/UTC must not crash server loading flows; existing graceful error behavior is preserved. |
+| AC-1.1 | Client v2 server model (`ServerV2`) parses nullable `city` and `utc` fields from `api/v2/servers` response without breaking existing required fields (`ip`, `countryCode`, `countryName`, `configData`). |
+| AC-1.2 | Shared server model (`Server`) carries a `utc` field so that UTC survives the `ServerV2.toLegacyServer()` mapping and is available for UI rendering. |
+| AC-1.3 | Selected-country storage persists `utc` alongside `city` so that both values are reloaded correctly after app restart or sync refresh. |
+| AC-1.4 | Mapping and storage for `city`/`utc` are null-safe; absent or null values are treated as empty strings without crashing server loading flows. |
 
 ### AC-2 - Server list card rendering (country server list)
 
 | ID | Criterion |
 | --- | --- |
-| AC-2.1 | When source is DEFAULT_V2 and both city and UTC are non-null and non-blank, each server card displays city with UTC in the requested format (for example: Canberra (UTC+10)). |
-| AC-2.2 | When source is DEFAULT_V2 and city or UTC is null/blank, server card falls back to existing display semantics rather than showing malformed placeholders (for example empty parentheses). |
-| AC-2.3 | Card ping/signal/flag behavior remains unchanged. |
+| AC-2.1 | Server card rendering is source-scoped: the city/UTC two-line layout applies only when the active source is `DEFAULT_V2`. Non-DEFAULT_V2 sources use the prior single-line behavior (city-or-name title + IP subtitle). |
+| AC-2.2 | When source is `DEFAULT_V2` and both city and a valid UTC offset are present: card shows two lines — line 1 is city; line 2 is the timezone formatted as `+HH:MM UTC` or `-HH:MM UTC` (for example `+09:00 UTC`). |
+| AC-2.3 | When source is `DEFAULT_V2` and city is present but UTC is absent or blank: card shows one line with city; the timezone line is hidden. |
+| AC-2.4 | When source is `DEFAULT_V2` and city is absent or blank: card shows one line with server IP; the timezone line is hidden. |
+| AC-2.5 | UTC normalization accepts varied backend formats (for example `UTC+9`, `UTC+5:30`, `GMT+12`, `+05:00`) and produces a canonical `+/-HH:MM UTC` output; malformed or unrecognisable inputs are treated as absent. |
+| AC-2.6 | Card ping, signal, and flag behavior remains unchanged regardless of source or city/UTC availability. |
 
 ### AC-3 - Selected server section rendering
 
 | ID | Criterion |
 | --- | --- |
-| AC-3.1 | In selected server section, when active source is DEFAULT_V2 and selected server has city and UTC, UI shows city with UTC in the same formatting style as mockup intent. |
-| AC-3.2 | If selected DEFAULT_V2 server lacks city or UTC, section uses safe fallback text and remains readable. |
-| AC-3.3 | Selection interactions and intent extras used by selection screens continue to work with no regression. |
+| AC-3.1 | Selected server section is source-gated: city/UTC location text is shown only when the active source is `DEFAULT_V2`. |
+| AC-3.2 | When source is `DEFAULT_V2` and selected server has both city and a valid UTC offset, the section renders city with formatted UTC (using the same `+/-HH:MM UTC` normalization as AC-2.5). |
+| AC-3.3 | When source is `DEFAULT_V2` and city or UTC is absent, the section falls back to the server IP/address and remains readable with no malformed placeholders. |
+| AC-3.4 | Selection interactions and intent extras used by selection screens continue to work with no regression. |
 
 ### AC-4 - Main screen rendering
 
 | ID | Criterion |
 | --- | --- |
-| AC-4.1 | Main screen displays city and UTC for selected server when source is DEFAULT_V2 and both values are present. |
-| AC-4.2 | Main screen keeps existing IP/address and server-position behavior unless explicitly changed by this story requirements; no unrelated metric/status regressions are introduced. |
-| AC-4.3 | On app restart and on selected-country sync refresh, city/UTC display remains consistent with persisted selected server data. |
+| AC-4.1 | Main screen location rendering is source-gated: city/UTC is shown only when the active source is `DEFAULT_V2`. |
+| AC-4.2 | When source is `DEFAULT_V2` and selected server has both city and a valid UTC offset, the main screen displays location text using the same `+/-HH:MM UTC` formatting. |
+| AC-4.3 | When source is `DEFAULT_V2` and city or UTC is absent, the main screen falls back to IP/address display; no unrelated metric or status regressions are introduced. |
+| AC-4.4 | On app restart and on selected-country sync refresh, city/UTC display remains consistent with persisted selected server data (AC-1.3 guarantees UTC survives store round-trip). |
 
 ### AC-5 - Source-scoped behavior and regressions
 
@@ -99,10 +105,13 @@ Use backend city and UTC for DEFAULT_V2 to render user-visible server location t
 
 | ID | Criterion |
 | --- | --- |
-| AC-6.1 | Tests cover DEFAULT_V2 city+UTC render-ready mapping from API model through selection/shared models. |
-| AC-6.2 | Tests cover null/blank fallback behavior for city/UTC. |
-| AC-6.3 | Tests explicitly verify Legacy CSV regression stability (no behavior change required). |
-| AC-6.4 | Tests explicitly verify VPN Gate regression stability (no behavior change required). |
+| AC-6.1 | Tests cover `ServerV2` model parsing of nullable `city` and `utc` fields and their propagation through `toLegacyServer()` into the shared `Server` model. |
+| AC-6.2 | Tests cover UTC normalization for representative input formats (`UTC+9`, `UTC+5:30`, `GMT+12`, `+05:00`) and confirm canonical `+/-HH:MM UTC` output; malformed input is confirmed absent/hidden. |
+| AC-6.3 | Tests cover `SelectedCountryStore` UTC persistence: `utc` is serialized on save and deserialized correctly on reload. |
+| AC-6.4 | Tests cover all three server list card rendering cases for `DEFAULT_V2`: (a) city+UTC → two-line layout, (b) city only → one-line city with timezone hidden, (c) no city → one-line IP with timezone hidden. |
+| AC-6.5 | Tests explicitly verify that non-`DEFAULT_V2` source rendering for server list cards is unchanged (city-or-name title + IP subtitle, no UTC line). |
+| AC-6.6 | Tests cover Legacy CSV regression stability: server list, selected section, and main screen behavior unchanged. |
+| AC-6.7 | Tests cover VPN Gate regression stability: server list, selected section, and main screen behavior unchanged. |
 
 ## Out of scope
 
@@ -150,21 +159,28 @@ These notes are guidance for likely implementation surfaces, not a mandatory des
 
 | ID | Scenario |
 | --- | --- |
-| TS-1 | DEFAULT_V2 response contains city and UTC -> mapped selected server data exposes both for rendering. |
-| TS-2 | DEFAULT_V2 response has null city or null UTC -> UI formatting fallback is used with no malformed text. |
-| TS-3 | Country server list card for DEFAULT_V2 renders city+UTC text where available. |
-| TS-4 | Main screen and selected server section render city+UTC after selection and after store reload. |
-| TS-5 | Legacy CSV regression tests for same screens remain green without expectation changes except where explicitly justified. |
-| TS-6 | VPN Gate regression tests for same screens remain green without expectation changes except where explicitly justified. |
+| TS-1 | `ServerV2` parses `city` and `utc` from backend response and `toLegacyServer()` copies both to shared `Server` model. |
+| TS-2 | `ServerV2` with null `city` and null `utc` maps to empty strings; no crash, no malformed text anywhere downstream. |
+| TS-3 | UTC normalization: `UTC+9` → `+09:00 UTC`; `UTC+5:30` → `+05:30 UTC`; `GMT+12` → `+12:00 UTC`; `+05:00` → `+05:00 UTC`; malformed input → empty/hidden. |
+| TS-4 | `SelectedCountryStore` round-trip: server saved with non-blank `utc` is reloaded with the same `utc` value. |
+| TS-5 | `DEFAULT_V2` card: city + valid UTC → two lines (city line 1, `+09:00 UTC` line 2, IP hidden). |
+| TS-6 | `DEFAULT_V2` card: city present, UTC absent → one line city, timezone line hidden. |
+| TS-7 | `DEFAULT_V2` card: city absent → one line IP, timezone line hidden. |
+| TS-8 | Non-`DEFAULT_V2` card (Legacy/VPN Gate): city-or-name title + IP subtitle, no UTC line rendered. |
+| TS-9 | Main screen and selected server section render city+UTC after selection and after store reload for `DEFAULT_V2`. |
+| TS-10 | Legacy CSV and VPN Gate regression: existing tests for list, selected section, and main screen remain green. |
 
 ### Manual QA focus
 
 | ID | Scenario |
 | --- | --- |
-| MQ-1 | DEFAULT_V2 selected, open country server list and verify cards show city+UTC per mockup intent when backend fields are populated. |
-| MQ-2 | Select a DEFAULT_V2 server and verify selected server section shows city+UTC. |
-| MQ-3 | Return to main screen and verify city+UTC is visible and stable after reconnect/reopen. |
-| MQ-4 | Switch to Legacy CSV and VPN Gate and verify no new city+UTC artifacts appear and existing behavior is unchanged. |
+| MQ-1 | `DEFAULT_V2` selected, open country server list. Verify: servers with city + UTC show two lines (city top, `+/-HH:MM UTC` bottom); card ping/signal/flag unchanged. |
+| MQ-2 | `DEFAULT_V2` selected, open country server list. Verify: servers with city but no UTC show one line (city); timezone row not visible. |
+| MQ-3 | `DEFAULT_V2` selected, open country server list. Verify: servers with no city show one line (IP); timezone row not visible. |
+| MQ-4 | Select a `DEFAULT_V2` server with city+UTC and return to main screen. Verify selected server section and main screen show city with formatted UTC text. |
+| MQ-5 | Restart app with a `DEFAULT_V2` selection that includes city+UTC. Verify city+UTC display is consistent after restart (UTC survived store round-trip). |
+| MQ-6 | Switch source to Legacy CSV. Verify server list cards show city-or-name title + IP subtitle with no UTC line artifacts. |
+| MQ-7 | Switch source to VPN Gate. Verify server list cards show city-or-name title + IP subtitle with no UTC line artifacts. |
 
 ## Definition of done
 
