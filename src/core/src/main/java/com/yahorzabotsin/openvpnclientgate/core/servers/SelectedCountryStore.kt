@@ -12,7 +12,8 @@ data class StoredServer(
     val city: String,
     val config: String,
     val countryCode: String? = null,
-    val ip: String? = null
+    val ip: String? = null,
+    val utc: String? = null
 )
 
 data class LastConfig(
@@ -37,6 +38,7 @@ object SelectedCountryStore {
     private const val KEY_JSON_CONFIG = "config"
     private const val KEY_JSON_CODE = "code"
     private const val KEY_JSON_IP = "ip"
+    private const val KEY_JSON_UTC = "utc"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -49,6 +51,7 @@ object SelectedCountryStore {
                 .put(KEY_JSON_CONFIG, s.configData)
                 .put(KEY_JSON_CODE, s.country.code)
                 .put(KEY_JSON_IP, s.ip)
+                .put(KEY_JSON_UTC, s.utc)
             arr.put(o)
         }
         prefs(ctx).edit()
@@ -95,7 +98,8 @@ object SelectedCountryStore {
                     city = o.optString(KEY_JSON_CITY),
                     config = o.optString(KEY_JSON_CONFIG),
                     countryCode = o.optString(KEY_JSON_CODE, null),
-                    ip = o.optString(KEY_JSON_IP, null)
+                    ip = o.optString(KEY_JSON_IP, null),
+                    utc = o.optString(KEY_JSON_UTC, null)
                 )
             }
         } catch (e: JSONException) {

@@ -39,7 +39,15 @@ class ServerPickerAdapter(
         fun bind(server: Server) {
             val city = server.city.takeIf { it.isNotBlank() } ?: server.name
             title.text = city
-            subtitle.text = server.ip
+            
+            // Build subtitle with IP and UTC if available
+            val subtitleText = if (!server.utc.isNullOrBlank()) {
+                "${server.ip} (${server.utc})"
+            } else {
+                server.ip
+            }
+            subtitle.text = subtitleText
+            
             chevron.visibility = View.VISIBLE
             val flagEmoji = countryFlagEmoji(server.country.code)
             flag.text = flagEmoji ?: ""

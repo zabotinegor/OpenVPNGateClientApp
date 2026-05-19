@@ -29,7 +29,8 @@ data class PauseButtonModel(
 data class ConnectionServerSync(
     val country: String?,
     val ip: String?,
-    val cityText: String
+    val cityText: String,
+    val utc: String? = null
 )
 
 class ConnectionControlsPresenter(
@@ -187,10 +188,13 @@ class ConnectionControlsPresenter(
             }
             ?: serverPositionPlaceholder
 
+        val utc = current?.utc?.takeIf { it.isNotBlank() }
+
         return ConnectionServerSync(
             country = resolvedCountry,
             ip = ip,
-            cityText = cityText
+            cityText = cityText,
+            utc = utc
         )
     }
 

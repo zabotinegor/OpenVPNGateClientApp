@@ -435,6 +435,10 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.cityValue.text = city
     }
 
+    override fun updateUtc(utc: String?) {
+        binding.connectionDetails.utcValue?.text = utc ?: ""
+    }
+
     override fun updateAddress(address: String) {
         binding.connectionDetails.addressValue.text = address
     }

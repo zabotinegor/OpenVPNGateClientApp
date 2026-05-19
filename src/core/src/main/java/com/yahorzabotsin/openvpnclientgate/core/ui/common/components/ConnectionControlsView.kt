@@ -257,6 +257,7 @@ class ConnectionControlsView @JvmOverloads constructor(
             updateAddress(selectedServerIp)
         }
         connectionDetailsListener?.updateCity(sync.cityText)
+        connectionDetailsListener?.updateUtc(sync.utc)
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
@@ -372,6 +373,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private fun updateServerPosition() {
         val sync = buildServerSync()
         connectionDetailsListener?.updateCity(sync?.cityText.orEmpty())
+        connectionDetailsListener?.updateUtc(sync?.utc)
     }
 
     private fun buildServerSync(): ConnectionServerSync? {
@@ -388,6 +390,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         fun updateDuration(text: String)
         fun updateTraffic(downloaded: String, uploaded: String)
         fun updateCity(city: String)
+        fun updateUtc(utc: String?)
         fun updateAddress(address: String)
         fun updateStatus(text: String)
     }
