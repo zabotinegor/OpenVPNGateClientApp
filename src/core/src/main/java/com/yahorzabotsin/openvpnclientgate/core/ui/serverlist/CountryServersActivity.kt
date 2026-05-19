@@ -13,6 +13,8 @@ import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentCountryServersBinding
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
@@ -27,6 +29,7 @@ class CountryServersActivity : AppCompatActivity() {
     private val viewModel: CountryServersViewModel by viewModel()
     private var adapter: ServerPickerAdapter? = null
     private var lastRenderedServers = emptyList<com.yahorzabotsin.openvpnclientgate.core.servers.Server>()
+    private var lastRenderedDefaultV2Source: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,10 +64,12 @@ class CountryServersActivity : AppCompatActivity() {
         contentBinding.progressBar.isVisible = state.isLoading
         contentBinding.serversRecyclerView.isVisible = !state.isLoading
         state.countryName?.let { templateBinding.toolbarTitle.text = it }
+        val isDefaultV2Source = UserSettingsStore.load(this).serverSource == ServerSource.DEFAULT_V2
 
-        if (adapter == null || state.servers != lastRenderedServers) {
+        if (adapter == null || state.servers != lastRenderedServers || lastRenderedDefaultV2Source != isDefaultV2Source) {
             lastRenderedServers = state.servers
-            adapter = ServerPickerAdapter(state.servers) { selected ->
+            lastRenderedDefaultV2Source = isDefaultV2Source
+            adapter = ServerPickerAdapter(state.servers, isDefaultV2Source) { selected ->
                 viewModel.onAction(CountryServersAction.ServerSelected(selected))
             }
             contentBinding.serversRecyclerView.adapter = adapter

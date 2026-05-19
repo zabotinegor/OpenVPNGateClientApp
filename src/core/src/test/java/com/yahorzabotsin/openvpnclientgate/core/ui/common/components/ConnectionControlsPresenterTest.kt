@@ -1,8 +1,12 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.LastConfig
 import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +30,7 @@ class ConnectionControlsPresenterTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
     }
 
@@ -125,6 +130,52 @@ class ConnectionControlsPresenterTest {
     }
 
     @Test
+    fun `syncServer ignores position-like selected city and uses store city`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Belarus",
+            currentServer = StoredServer(city = "Minsk", config = "cfg-1", ip = "1.2.3.4", utc = "UTC+3"),
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = null
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Belarus",
+            selectedCity = "1/1",
+            selectedServerIp = "1.2.3.4",
+            vpnConfig = "cfg-1"
+        )
+
+        assertNotNull(sync)
+        assertEquals("Minsk", sync?.cityText)
+        assertEquals("UTC+3", sync?.utc)
+    }
+
+    @Test
+    fun `syncServer keeps city data while position stays separate in view`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Russia",
+            currentServer = StoredServer(city = "Kraskino", config = "cfg-1", ip = "86.102.211.17", utc = "+10:00"),
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = 9 to 12
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Russia",
+            selectedCity = null,
+            selectedServerIp = "86.102.211.17",
+            vpnConfig = "cfg-1"
+        )
+
+        assertNotNull(sync)
+        assertEquals("Kraskino", sync?.cityText)
+        assertEquals("+10:00", sync?.utc)
+    }
+
+    @Test
     fun `resolveIpForConfig falls back to selected ip when store has no match`() {
         val store = FakeSelectionStore(
             selectedCountry = "Japan",
@@ -209,6 +260,60 @@ class ConnectionControlsPresenterTest {
         )
 
         assertNull(sync)
+    }
+
+    @Test
+    fun `buildLocationField uses city label and city plus utc for default v2`() {
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.DEFAULT_V2))
+
+        val field = presenter.buildLocationField(
+            sync = ConnectionServerSync(
+                country = "Belarus",
+                ip = "134.17.157.103",
+                cityText = "Minsk",
+                utc = "+3"
+            ),
+            selectedServerIp = "134.17.157.103"
+        )
+
+        assertEquals(R.string.connection_detail_city_value_label, field.labelResId)
+        assertEquals("Minsk (+03:00 UTC)", field.value)
+    }
+
+    @Test
+    fun `buildLocationField uses city label and city only when utc missing for default v2`() {
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.DEFAULT_V2))
+
+        val field = presenter.buildLocationField(
+            sync = ConnectionServerSync(
+                country = "Belarus",
+                ip = "134.17.157.103",
+                cityText = "Minsk",
+                utc = null
+            ),
+            selectedServerIp = "134.17.157.103"
+        )
+
+        assertEquals(R.string.connection_detail_city_value_label, field.labelResId)
+        assertEquals("Minsk", field.value)
+    }
+
+    @Test
+    fun `buildLocationField keeps address and ip for non v2 source`() {
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.LEGACY))
+
+        val field = presenter.buildLocationField(
+            sync = ConnectionServerSync(
+                country = "Belarus",
+                ip = "134.17.157.103",
+                cityText = "Minsk",
+                utc = "+3"
+            ),
+            selectedServerIp = "134.17.157.103"
+        )
+
+        assertEquals(R.string.connection_detail_address_label, field.labelResId)
+        assertEquals("134.17.157.103", field.value)
     }
 
     private class FakeSelectionStore(

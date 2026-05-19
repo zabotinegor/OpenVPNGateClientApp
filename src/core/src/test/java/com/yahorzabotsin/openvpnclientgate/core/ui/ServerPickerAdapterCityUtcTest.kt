@@ -30,14 +30,14 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_rendersCityAndUtc_whenBothPresent() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Tokyo", utc = "UTC+9", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
 
-        assertEquals("Tokyo (UTC+9)", title.text.toString())
-        assertEquals("10.0.0.1", subtitle.text.toString())
+        assertEquals("Tokyo", title.text.toString())
+        assertEquals("+09:00 UTC", subtitle.text.toString())
     }
 
     // AC-2.1 — Server card renders city and UTC in expected format
@@ -45,11 +45,13 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_rendersCityAndUtc_inCorrectFormat() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Paris", utc = "UTC+1", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
-        assertEquals("Paris (UTC+1)", title.text.toString())
+        val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
+        assertEquals("Paris", title.text.toString())
+        assertEquals("+01:00 UTC", subtitle.text.toString())
     }
 
     // AC-2.2 — Server card falls back to IP only when UTC is null
@@ -57,13 +59,13 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_fallsBackToIpOnly_whenUtcIsNull() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Berlin", utc = null, name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
         assertEquals("Berlin", title.text.toString())
-        assertEquals("10.0.0.1", subtitle.text.toString())
+        assertEquals(View.GONE, subtitle.visibility)
     }
 
     // AC-2.2 — Server card falls back to IP only when UTC is blank
@@ -71,13 +73,13 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_fallsBackToIpOnly_whenUtcIsBlank() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Amsterdam", utc = "", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
         assertEquals("Amsterdam", title.text.toString())
-        assertEquals("10.0.0.1", subtitle.text.toString())
+        assertEquals(View.GONE, subtitle.visibility)
     }
 
     // AC-2.2 — Server card shows IP and blank UTC doesn't show empty parentheses
@@ -85,13 +87,13 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_doesNotShowEmptyParentheses_whenUtcBlank() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Madrid", utc = "   ", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
         assertEquals("Madrid", title.text.toString())
-        assertEquals("10.0.0.1", subtitle.text.toString())
+        assertEquals(View.GONE, subtitle.visibility)
     }
 
     // AC-5.1 — Legacy server without UTC shows IP as before
@@ -100,10 +102,12 @@ class ServerPickerAdapterCityUtcTest {
         val context = RuntimeEnvironment.getApplication()
         // Simulate legacy server with no UTC
         val server = buildServer(city = "NewYork", utc = null, name = "LegacyServer")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
         holder.bind(server)
 
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
+        assertEquals("NewYork", title.text.toString())
         assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
@@ -112,13 +116,13 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_handlesNegativeUtc() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "SanFrancisco", utc = "UTC-8", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-        assertEquals("SanFrancisco (UTC-8)", title.text.toString())
-        assertEquals("10.0.0.1", subtitle.text.toString())
+        assertEquals("SanFrancisco", title.text.toString())
+        assertEquals("-08:00 UTC", subtitle.text.toString())
     }
 
     // AC-2.3 — Ping and signal behavior remain unchanged with UTC display
@@ -126,7 +130,7 @@ class ServerPickerAdapterCityUtcTest {
     fun bind_preservesPingAndSignal_withUtc() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Sydney", utc = "UTC+10", name = "ServerName", ping = 55)
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
         holder.bind(server)
 
         val ping = holder.itemView.findViewById<TextView>(R.id.server_ping)
@@ -142,21 +146,22 @@ class ServerPickerAdapterCityUtcTest {
         val context = RuntimeEnvironment.getApplication()
 
         val formats = listOf(
-            Pair("UTC+0", "Test (UTC+0)"),
-            Pair("UTC+5:30", "Test (UTC+5:30)"),
-            Pair("GMT+12", "Test (GMT+12)"),
-            Pair("+05:00", "Test (+05:00)")
+            Pair("UTC+0", "Test (+00:00 UTC)"),
+            Pair("UTC+5:30", "Test (+05:30 UTC)"),
+            Pair("GMT+12", "Test (+12:00 UTC)"),
+            Pair("+05:00", "Test (+05:00 UTC)")
         )
 
         for ((utc, expected) in formats) {
             val server = buildServer(city = "Test", utc = utc, name = "ServerName")
-            val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+            val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = true)
             holder.bind(server)
 
             val title = holder.itemView.findViewById<TextView>(R.id.server_title)
             val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-            assertEquals("Expected format for $utc", expected, title.text.toString())
-            assertEquals("10.0.0.1", subtitle.text.toString())
+            val expectedUtc = expected.substringAfter("Test ").trim().removePrefix("(").removeSuffix(")")
+            assertEquals("Expected city for $utc", "Test", title.text.toString())
+            assertEquals("Expected UTC for $utc", expectedUtc, subtitle.text.toString())
         }
     }
 

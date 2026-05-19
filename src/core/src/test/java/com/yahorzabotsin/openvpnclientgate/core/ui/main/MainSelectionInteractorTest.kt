@@ -18,6 +18,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -109,6 +110,66 @@ class MainSelectionInteractorTest {
         assertEquals(1, SelectedCountryStore.getCurrentIndex(context))
     }
 
+    @Test
+    fun loadInitialSelection_v2_with_position_like_city_rehydrates_from_v2_servers() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "Belarus",
+            listOf(
+                makeStoredServer(
+                    config = "legacy-config",
+                    countryCode = "BY",
+                    ip = "213.184.224.127",
+                    city = "1/1"
+                )
+            )
+        )
+
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("BY", "Belarus", 2)),
+            serversPerCountry = mapOf(
+                "BY" to listOf(
+                    ServerV2(
+                        ip = "213.184.224.127",
+                        countryCode = "BY",
+                        countryName = "Belarus",
+                        configData = "v2-config",
+                        city = "Minsk",
+                        utc = "UTC+3"
+                    ),
+                    ServerV2(
+                        ip = "213.184.224.128",
+                        countryCode = "BY",
+                        countryName = "Belarus",
+                        configData = "v2-config-2",
+                        city = "Grodno",
+                        utc = "UTC+3"
+                    )
+                )
+            )
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNotNull(result)
+        assertEquals("Belarus", result!!.country)
+        assertEquals("Minsk", result.city)
+        assertEquals("v2-config", result.config)
+        assertEquals("BY", result.countryCode)
+        assertEquals("213.184.224.127", result.ip)
+
+        val stored = SelectedCountryStore.currentServer(context)
+        assertNotNull(stored)
+        assertEquals("Minsk", stored!!.city)
+        assertEquals("UTC+3", stored.utc)
+        assertTrue(SelectedCountryStore.getServers(context).size >= 2)
+    }
+
     // Verify that null is returned gracefully when no countries are available (AC-1.3 edge case)
     @Test
     fun loadInitialSelection_v2_empty_countries_returns_null() = runBlocking {
@@ -127,11 +188,12 @@ class MainSelectionInteractorTest {
     private fun makeStoredServer(
         config: String,
         countryCode: String,
-        ip: String
+        ip: String,
+        city: String = ""
     ) = com.yahorzabotsin.openvpnclientgate.core.servers.Server(
         lineIndex = 0,
         name = ip,
-        city = "",
+        city = city,
         country = com.yahorzabotsin.openvpnclientgate.core.servers.Country("Germany", countryCode),
         ping = 0,
         signalStrength = com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength.WEAK,

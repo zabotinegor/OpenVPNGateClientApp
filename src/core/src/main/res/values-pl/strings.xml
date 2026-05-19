@@ -136,6 +136,7 @@
     <string name="connection_detail_status_label">STATUS</string>
     <string name="connection_detail_uploaded_label">WYSŁANO</string>
     <string name="connection_detail_address_label">ADRES</string>
+    <string name="connection_detail_city_value_label">MIASTO</string>
 
     <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d sek)</string>

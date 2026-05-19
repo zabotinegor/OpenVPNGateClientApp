@@ -10,15 +10,17 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ServerDisplayFormatter
 
 class ServerPickerAdapter(
     private val servers: List<Server>,
+    private val isDefaultV2Source: Boolean,
     private val onClick: (Server) -> Unit
 ) : RecyclerView.Adapter<ServerPickerAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_server_row, parent, false)
-        return ViewHolder(v)
+        return ViewHolder(v, isDefaultV2Source)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -29,7 +31,10 @@ class ServerPickerAdapter(
 
     override fun getItemCount(): Int = servers.size
 
-    class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+    class ViewHolder(
+        itemView: View,
+        private val isDefaultV2Source: Boolean
+    ) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.server_title)
         private val subtitle: TextView = itemView.findViewById(R.id.server_subtitle)
         private val chevron: ImageView = itemView.findViewById(R.id.chevron_icon)
@@ -37,14 +42,33 @@ class ServerPickerAdapter(
         private val pingView: TextView = itemView.findViewById(R.id.server_ping)
         private val signalView: ImageView = itemView.findViewById(R.id.server_signal)
         fun bind(server: Server) {
-            val city = server.city.takeIf { it.isNotBlank() }
-            val utc = server.utc?.takeIf { it.isNotBlank() }
-            title.text = if (city != null && utc != null) {
-                "$city ($utc)"
+            if (isDefaultV2Source) {
+                val city = server.city.trim()
+                val utc = ServerDisplayFormatter.formatUtc(server.utc)
+                when {
+                    city.isNotEmpty() && utc != null -> {
+                        title.text = city
+                        subtitle.text = utc
+                        subtitle.visibility = View.VISIBLE
+                    }
+
+                    city.isNotEmpty() -> {
+                        title.text = city
+                        subtitle.text = ""
+                        subtitle.visibility = View.GONE
+                    }
+
+                    else -> {
+                        title.text = server.ip
+                        subtitle.text = ""
+                        subtitle.visibility = View.GONE
+                    }
+                }
             } else {
-                city ?: server.name
+                title.text = server.city.takeIf { it.isNotBlank() } ?: server.name
+                subtitle.text = server.ip
+                subtitle.visibility = View.VISIBLE
             }
-            subtitle.text = server.ip
 
             chevron.visibility = View.VISIBLE
             val flagEmoji = countryFlagEmoji(server.country.code)
