@@ -45,6 +45,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
     private var selectedCountryCode: String? = null
+    private var selectedCity: String? = null
     private var selectedServerIp: String? = null
     private var openServerList: (() -> Unit)? = null
     private var onConnectionButtonClick: (() -> Unit)? = null
@@ -118,10 +119,11 @@ class ConnectionControlsView @JvmOverloads constructor(
         openServerList = handler
     }
 
-    fun setServer(country: String, countryCode: String? = null, ip: String? = null) {
+    fun setServer(country: String, countryCode: String? = null, city: String? = null, ip: String? = null) {
         AppLog.d(TAG, "Server set: $country, ip=$ip")
         selectedCountry = country
         selectedCountryCode = countryCode
+        selectedCity = city
         updateAddress(ip)
         applyServerSelectionLabel(country, ip)
         updateServerPosition()
@@ -380,6 +382,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         return presenter.syncServer(
             selectionStore = selectionStore,
             selectedCountry = selectedCountry,
+            selectedCity = selectedCity,
             selectedServerIp = selectedServerIp,
             vpnConfig = vpnConfig,
             reconnectingHint = runtime.reconnectingHint.value

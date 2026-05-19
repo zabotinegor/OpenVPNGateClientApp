@@ -37,17 +37,15 @@ class ServerPickerAdapter(
         private val pingView: TextView = itemView.findViewById(R.id.server_ping)
         private val signalView: ImageView = itemView.findViewById(R.id.server_signal)
         fun bind(server: Server) {
-            val city = server.city.takeIf { it.isNotBlank() } ?: server.name
-            title.text = city
-            
-            // Build subtitle with IP and UTC if available
-            val subtitleText = if (!server.utc.isNullOrBlank()) {
-                "${server.ip} (${server.utc})"
+            val city = server.city.takeIf { it.isNotBlank() }
+            val utc = server.utc?.takeIf { it.isNotBlank() }
+            title.text = if (city != null && utc != null) {
+                "$city ($utc)"
             } else {
-                server.ip
+                city ?: server.name
             }
-            subtitle.text = subtitleText
-            
+            subtitle.text = server.ip
+
             chevron.visibility = View.VISIBLE
             val flagEmoji = countryFlagEmoji(server.country.code)
             flag.text = flagEmoji ?: ""

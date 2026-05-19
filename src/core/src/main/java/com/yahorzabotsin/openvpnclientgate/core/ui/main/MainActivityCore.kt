@@ -296,7 +296,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         if (selection == null) return
         if (lastAppliedSelectionVersion == selection.version) return
         lastAppliedSelectionVersion = selection.version
-        connectionControlsView.setServer(selection.country, selection.countryCode, selection.ip)
+        connectionControlsView.setServer(selection.country, selection.countryCode, selection.city, selection.ip)
         if (selection.fromUserSelection) {
             connectionControlsView.setVpnConfigFromUser(selection.config)
         } else {

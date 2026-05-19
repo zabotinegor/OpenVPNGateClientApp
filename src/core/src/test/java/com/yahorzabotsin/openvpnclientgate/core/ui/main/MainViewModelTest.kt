@@ -68,6 +68,7 @@ class MainViewModelTest {
         assertTrue(interactor.lastCacheOnly == false)
         val selected = viewModel.state.value.selectedServer
         assertEquals("France", selected?.country)
+        assertEquals("Paris", selected?.city)
         assertEquals("config", selected?.config)
         assertEquals(false, selected?.fromUserSelection)
     }
@@ -280,6 +281,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects.first() is MainEffect.StopVpn)
+        assertEquals("B", viewModel.state.value.selectedServer?.city)
         assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
         job.cancel()
     }
@@ -672,6 +674,7 @@ class MainViewModelTest {
 
         val selected = viewModel.state.value.selectedServer
         assertEquals("Russian Federation", selected?.country)
+        assertEquals("Moscow", selected?.city)
         assertEquals("RU", selected?.countryCode)
         assertEquals("new-config", selected?.config)
         assertEquals("5.5.5.5", selected?.ip)

@@ -153,6 +153,7 @@ class ConnectionControlsPresenter(
     fun syncServer(
         selectionStore: ConnectionControlsSelectionStore,
         selectedCountry: String?,
+        selectedCity: String?,
         selectedServerIp: String?,
         vpnConfig: String?,
         reconnectingHint: Boolean = false
@@ -181,11 +182,9 @@ class ConnectionControlsPresenter(
             else -> null
         }
 
-        val cityText = runCatching { selectionStore.getCurrentPosition(context) }
-            .getOrNull()
-            ?.let { (index, total) ->
-                context.getString(R.string.connection_detail_server_position, index, total)
-            }
+        val cityText = selectedCity
+            ?.takeIf { it.isNotBlank() }
+            ?: current?.city?.takeIf { it.isNotBlank() }
             ?: serverPositionPlaceholder
 
         val utc = current?.utc?.takeIf { it.isNotBlank() }

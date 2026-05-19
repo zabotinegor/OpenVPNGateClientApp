@@ -19,13 +19,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 class ConnectionControlsPresenterTest {
-    companion object {
-        // Hard-coded ASCII fallback — mirrors what ConnectionControlsPresenter returns when
-        // @Config(manifest = Config.NONE) prevents Robolectric from loading module resources,
-        // causing Resources.NotFoundException in the presenter's try-catch and using the
-        // ASCII fallback instead of the em-dash resource (—/—) seen in production.
-        private const val PLACEHOLDER = "--/--"
-    }
 
     private lateinit var context: Context
     private lateinit var presenter: ConnectionControlsPresenter
@@ -98,6 +91,7 @@ class ConnectionControlsPresenterTest {
         val sync = presenter.syncServer(
             selectionStore = store,
             selectedCountry = null,
+            selectedCity = null,
             selectedServerIp = "11.11.11.11",
             vpnConfig = "cfg-1"
         )
@@ -105,7 +99,29 @@ class ConnectionControlsPresenterTest {
         assertNotNull(sync)
         assertEquals("Japan", sync?.country)
         assertEquals("1.2.3.4", sync?.ip)
-        assertEquals(PLACEHOLDER, sync?.cityText)
+        assertEquals("Tokyo", sync?.cityText)
+    }
+
+    @Test
+    fun `syncServer prefers selected city over store city`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Japan",
+            currentServer = StoredServer(city = "Tokyo", config = "cfg-1", ip = "1.2.3.4"),
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = null
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Japan",
+            selectedCity = "Kyoto",
+            selectedServerIp = "1.2.3.4",
+            vpnConfig = "cfg-1"
+        )
+
+        assertNotNull(sync)
+        assertEquals("Kyoto", sync?.cityText)
     }
 
     @Test
@@ -142,6 +158,7 @@ class ConnectionControlsPresenterTest {
         val sync = presenter.syncServer(
             selectionStore = store,
             selectedCountry = "Canada",
+            selectedCity = null,
             selectedServerIp = "2.2.2.2",
             vpnConfig = "cfg-2"
         )
@@ -163,6 +180,7 @@ class ConnectionControlsPresenterTest {
         val sync = presenter.syncServer(
             selectionStore = store,
             selectedCountry = "Canada",
+            selectedCity = null,
             selectedServerIp = "2.2.2.2",
             vpnConfig = "cfg-2",
             reconnectingHint = true
@@ -185,6 +203,7 @@ class ConnectionControlsPresenterTest {
         val sync = presenter.syncServer(
             selectionStore = store,
             selectedCountry = null,
+            selectedCity = null,
             selectedServerIp = null,
             vpnConfig = null
         )

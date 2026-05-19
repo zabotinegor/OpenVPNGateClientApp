@@ -36,8 +36,8 @@ class ServerPickerAdapterCityUtcTest {
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
 
-        assertEquals("Tokyo", title.text.toString())
-        assertEquals("10.0.0.1 (UTC+9)", subtitle.text.toString())
+        assertEquals("Tokyo (UTC+9)", title.text.toString())
+        assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
     // AC-2.1 — Server card renders city and UTC in expected format
@@ -48,9 +48,8 @@ class ServerPickerAdapterCityUtcTest {
         val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
         holder.bind(server)
 
-        val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-        val expected = "10.0.0.1 (UTC+1)"
-        assertEquals(expected, subtitle.text.toString())
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
+        assertEquals("Paris (UTC+1)", title.text.toString())
     }
 
     // AC-2.2 — Server card falls back to IP only when UTC is null
@@ -61,7 +60,9 @@ class ServerPickerAdapterCityUtcTest {
         val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
         holder.bind(server)
 
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
+        assertEquals("Berlin", title.text.toString())
         assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
@@ -73,7 +74,9 @@ class ServerPickerAdapterCityUtcTest {
         val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
         holder.bind(server)
 
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
+        assertEquals("Amsterdam", title.text.toString())
         assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
@@ -85,8 +88,9 @@ class ServerPickerAdapterCityUtcTest {
         val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
         holder.bind(server)
 
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-        // The test should fail if "()" appears in the subtitle
+        assertEquals("Madrid", title.text.toString())
         assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
@@ -111,8 +115,10 @@ class ServerPickerAdapterCityUtcTest {
         val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
         holder.bind(server)
 
+        val title = holder.itemView.findViewById<TextView>(R.id.server_title)
         val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-        assertEquals("10.0.0.1 (UTC-8)", subtitle.text.toString())
+        assertEquals("SanFrancisco (UTC-8)", title.text.toString())
+        assertEquals("10.0.0.1", subtitle.text.toString())
     }
 
     // AC-2.3 — Ping and signal behavior remain unchanged with UTC display
@@ -136,10 +142,10 @@ class ServerPickerAdapterCityUtcTest {
         val context = RuntimeEnvironment.getApplication()
 
         val formats = listOf(
-            Pair("UTC+0", "10.0.0.1 (UTC+0)"),
-            Pair("UTC+5:30", "10.0.0.1 (UTC+5:30)"),
-            Pair("GMT+12", "10.0.0.1 (GMT+12)"),
-            Pair("+05:00", "10.0.0.1 (+05:00)")
+            Pair("UTC+0", "Test (UTC+0)"),
+            Pair("UTC+5:30", "Test (UTC+5:30)"),
+            Pair("GMT+12", "Test (GMT+12)"),
+            Pair("+05:00", "Test (+05:00)")
         )
 
         for ((utc, expected) in formats) {
@@ -147,8 +153,10 @@ class ServerPickerAdapterCityUtcTest {
             val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
             holder.bind(server)
 
+            val title = holder.itemView.findViewById<TextView>(R.id.server_title)
             val subtitle = holder.itemView.findViewById<TextView>(R.id.server_subtitle)
-            assertEquals("Expected format for $utc", expected, subtitle.text.toString())
+            assertEquals("Expected format for $utc", expected, title.text.toString())
+            assertEquals("10.0.0.1", subtitle.text.toString())
         }
     }
 
