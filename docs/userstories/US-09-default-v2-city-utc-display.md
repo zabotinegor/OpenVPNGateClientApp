@@ -1,14 +1,15 @@
-# US-09 - DEFAULT_V2 City and UTC Display Across Server Selection Surfaces
+# US-09 - Server Position and Address Display Contract Across Sources
 
 ## Chat title
 
-Story Spec - US-09 DEFAULT_V2 city and UTC display
+Story Spec - US-09 server position and address display contract
 
 ## User story
 
 As an OpenVPN client user,
-I want server city and UTC to be shown when I use Client for OpenVPN Gate v2,
-so that I can understand server location and time zone before and after selection.
+I want the main details view to show the current server position as index/total under the Server label,
+and the selected server IP under the Address label,
+so that server selection status is consistent and easy to understand regardless of source.
 
 ## Start gate
 
@@ -26,108 +27,94 @@ Do not start work before reading .sdlc/status.json and verifying the required pr
 
 ### Current repository evidence
 
-- The local backend latest commit on main is b6a1975 with message "Add city and UTC fields to v2 server list response".
-- Backend v2 DTO now includes nullable fields:
-  - OpenVPNClientServer/OpenVPNGate/OpenVPNGate.Domain/DTOs/VpnServerV2ListItemDto.cs
-  - public string? City { get; set; }
-  - public string? Utc { get; set; }
-- Backend route remains the v2 servers endpoint:
-  - OpenVPNClientServer/OpenVPNGate/OpenVPNGate/Controllers/ServersV2Controller.cs
-  - Route api/v{version}/servers returns PagedResult<VpnServerV2ListItemDto>.
-- On the Android client, v2 model and mapping do not currently carry city or UTC:
-  - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerV2.kt has only ip, countryCode, countryName, configData.
-  - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerV2.kt maps city to empty string in toLegacyServer().
-- Server-card rendering currently shows title from city-or-name fallback and subtitle as IP only:
-  - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerPickerAdapter.kt.
-- Main/selected server text is driven through shared connection controls and selection store:
+- Main details rendering is driven through shared connection controls and selection store:
   - src/core/src/main/res/layout/view_connection_controls.xml
   - src/core/src/main/res/layout/view_connection_details.xml
   - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/ConnectionControlsView.kt
   - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/ConnectionControlsPresenter.kt
+- User-facing contract for this story is now source-agnostic in the main details surface:
+  - Server field: current index and total count in selected country (`current/total`, for example `6/7`)
+  - Address field: selected server IP
+- Legacy, DEFAULT_V2, VPN Gate, and Custom must all follow the same details contract.
 
 ### Problem
 
-DEFAULT_V2 now provides city and UTC from backend, but the client currently drops these fields and cannot render the expected city plus UTC combination in server list and selected/main surfaces.
+Main details behavior diverged between sources and prior changes mixed city/UTC rendering with server-position rendering. The UI contract must be explicit and stable across all sources.
 
 ### Goal
 
-Use backend city and UTC for DEFAULT_V2 to render user-visible server location text in the three requested surfaces while preserving Legacy CSV and VPN Gate behavior unchanged.
+Enforce one shared contract for the main details view: Server always shows `current/total` for the selected country and Address always shows server IP, regardless of source.
 
 ## Acceptance criteria
 
-### AC-1 - DEFAULT_V2 contract alignment for city and UTC
+### AC-1 - Main details contract alignment
 
 | ID | Criterion |
 | --- | --- |
-| AC-1.1 | Client v2 server model (`ServerV2`) parses nullable `city` and `utc` fields from `api/v2/servers` response without breaking existing required fields (`ip`, `countryCode`, `countryName`, `configData`). |
-| AC-1.2 | Shared server model (`Server`) carries a `utc` field so that UTC survives the `ServerV2.toLegacyServer()` mapping and is available for UI rendering. |
-| AC-1.3 | Selected-country storage persists `utc` alongside `city` so that both values are reloaded correctly after app restart or sync refresh. |
-| AC-1.4 | Mapping and storage for `city`/`utc` are null-safe; absent or null values are treated as empty strings without crashing server loading flows. |
+| AC-1.1 | In the main details view, the value under `Server` is rendered as `currentIndex/totalCount` for the selected country (for example `6/7`). |
+| AC-1.2 | The `Server` position format is source-agnostic and applies to `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM`. |
+| AC-1.3 | In the main details view, the value under `Address` is always the selected server IP. |
+| AC-1.4 | Details rendering is null-safe and must not show malformed placeholders when the selected list is unavailable or empty. |
 
-### AC-2 - Server list card rendering (country server list)
-
-| ID | Criterion |
-| --- | --- |
-| AC-2.1 | Server card rendering is source-scoped: the city/UTC two-line layout applies only when the active source is `DEFAULT_V2`. Non-DEFAULT_V2 sources use the prior single-line behavior (city-or-name title + IP subtitle). |
-| AC-2.2 | When source is `DEFAULT_V2` and both city and a valid UTC offset are present: card shows two lines — line 1 is city; line 2 is the timezone formatted as `+HH:MM UTC` or `-HH:MM UTC` (for example `+09:00 UTC`). |
-| AC-2.3 | When source is `DEFAULT_V2` and city is present but UTC is absent or blank: card shows one line with city; the timezone line is hidden. |
-| AC-2.4 | When source is `DEFAULT_V2` and city is absent or blank: card shows one line with server IP; the timezone line is hidden. |
-| AC-2.5 | UTC normalization accepts varied backend formats (for example `UTC+9`, `UTC+5:30`, `GMT+12`, `+05:00`) and produces a canonical `+/-HH:MM UTC` output; malformed or unrecognisable inputs are treated as absent. |
-| AC-2.6 | Card ping, signal, and flag behavior remains unchanged regardless of source or city/UTC availability. |
-
-### AC-3 - Selected server section rendering
+### AC-2 - Server list and selection flow consistency
 
 | ID | Criterion |
 | --- | --- |
-| AC-3.1 | Selected server section is source-gated: city/UTC location text is shown only when the active source is `DEFAULT_V2`. |
-| AC-3.2 | When source is `DEFAULT_V2` and selected server has both city and a valid UTC offset, the section renders city with formatted UTC (using the same `+/-HH:MM UTC` normalization as AC-2.5). |
-| AC-3.3 | When source is `DEFAULT_V2` and city or UTC is absent, the section falls back to the server IP/address and remains readable with no malformed placeholders. |
-| AC-3.4 | Selection interactions and intent extras used by selection screens continue to work with no regression. |
+| AC-2.1 | Selecting any server updates the details view so `Server` shows the selected server position in the current list as `current/total`. |
+| AC-2.2 | Selecting any server updates the details view so `Address` shows the selected server IP. |
+| AC-2.3 | Existing server list card layout, ping/signal/flag behavior, and navigation remain unchanged unless explicitly required by this contract. |
+| AC-2.4 | The contract remains correct after country changes and subsequent server reselection. |
 
-### AC-4 - Main screen rendering
-
-| ID | Criterion |
-| --- | --- |
-| AC-4.1 | Main screen location rendering is source-gated: city/UTC is shown only when the active source is `DEFAULT_V2`. |
-| AC-4.2 | When source is `DEFAULT_V2` and selected server has both city and a valid UTC offset, the main screen displays location text using the same `+/-HH:MM UTC` formatting. |
-| AC-4.3 | When source is `DEFAULT_V2` and city or UTC is absent, the main screen falls back to IP/address display; no unrelated metric or status regressions are introduced. |
-| AC-4.4 | On app restart and on selected-country sync refresh, city/UTC display remains consistent with persisted selected server data (AC-1.3 guarantees UTC survives store round-trip). |
-
-### AC-5 - Source-scoped behavior and regressions
+### AC-3 - Persistence and refresh behavior
 
 | ID | Criterion |
 | --- | --- |
-| AC-5.1 | Legacy CSV behavior remains unchanged for server list cards, selected server section, and main screen fields. |
-| AC-5.2 | VPN Gate behavior remains unchanged for server list cards, selected server section, and main screen fields. |
-| AC-5.3 | No city/UTC formatting logic is forced onto non-v2 sources when those fields are unavailable. |
+| AC-3.1 | After reconnect, manual refresh, app background/foreground, and app reopen, `Server=current/total` remains consistent with the restored selection state. |
+| AC-3.2 | After reconnect, manual refresh, app background/foreground, and app reopen, `Address=IP` remains consistent with the restored selection state. |
+| AC-3.3 | Selection interactions and intent extras used by selection screens continue to work with no regression. |
+
+### AC-4 - Cross-source regression safety
+
+| ID | Criterion |
+| --- | --- |
+| AC-4.1 | `Server=current/total` contract remains correct for `DEFAULT_V2`. |
+| AC-4.2 | `Server=current/total` contract remains correct for `LEGACY`. |
+| AC-4.3 | `Server=current/total` contract remains correct for `VPNGATE`. |
+| AC-4.4 | `Server=current/total` contract remains correct for `CUSTOM`. |
+| AC-4.5 | `Address=IP` contract remains correct for all sources. |
+
+### AC-5 - UI contract clarity
+
+| ID | Criterion |
+| --- | --- |
+| AC-5.1 | Under the `Server` label, only position text `current/total` is shown. |
+| AC-5.2 | Under the `Address` label, only the selected server IP is shown. |
+| AC-5.3 | The main details view does not repurpose `Server` for city/time-zone text in this story scope. |
 
 ### AC-6 - Automated regression coverage
 
 | ID | Criterion |
 | --- | --- |
-| AC-6.1 | Tests cover `ServerV2` model parsing of nullable `city` and `utc` fields and their propagation through `toLegacyServer()` into the shared `Server` model. |
-| AC-6.2 | Tests cover UTC normalization for representative input formats (`UTC+9`, `UTC+5:30`, `GMT+12`, `+05:00`) and confirm canonical `+/-HH:MM UTC` output; malformed input is confirmed absent/hidden. |
-| AC-6.3 | Tests cover `SelectedCountryStore` UTC persistence: `utc` is serialized on save and deserialized correctly on reload. |
-| AC-6.4 | Tests cover all three server list card rendering cases for `DEFAULT_V2`: (a) city+UTC → two-line layout, (b) city only → one-line city with timezone hidden, (c) no city → one-line IP with timezone hidden. |
-| AC-6.5 | Tests explicitly verify that non-`DEFAULT_V2` source rendering for server list cards is unchanged (city-or-name title + IP subtitle, no UTC line). |
-| AC-6.6 | Tests cover Legacy CSV regression stability: server list, selected section, and main screen behavior unchanged. |
-| AC-6.7 | Tests cover VPN Gate regression stability: server list, selected section, and main screen behavior unchanged. |
+| AC-6.1 | Presenter/view-model tests cover details rendering where `Server` shows `current/total` for valid selected server lists. |
+| AC-6.2 | Presenter/view-model tests cover details rendering where `Address` shows selected server IP. |
+| AC-6.3 | Tests cover source-agnostic parity for `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM` under the same details contract. |
+| AC-6.4 | Tests cover reconnect/reopen or equivalent rehydration paths to ensure details contract remains stable after state restoration. |
+| AC-6.5 | Existing tests unrelated to this contract remain green or are updated only where required by the new UI contract. |
 
 ## Out of scope
 
-- Backend API contract redesign beyond already added City and Utc fields
+- Backend API contract redesign
 - New server-source types or source-selection UX changes
-- Redesign of speedometer/status/traffic blocks unrelated to city/UTC display
+- Redesign of speedometer/status/traffic blocks unrelated to Server/Address details values
 - OpenVPN engine module changes
 
 ## Risks and open questions
 
 | ID | Risk or question | Current handling |
 | --- | --- | --- |
-| R-1 | UTC format from backend may vary (for example UTC+10 vs GMT+10). | Treat backend UTC as display payload for this story; avoid client-side timezone recomputation unless required by future stories. |
-| R-2 | Shared model currently stores city but has no explicit UTC field. | Implementation should add minimal data-path changes required for persistence/display while preserving existing selection behavior. |
-| R-3 | Main-screen details currently blend server-position and location text responsibilities. | Keep story scope focused on requested display surfaces and require no unrelated behavior shifts. |
-| R-4 | Non-v2 sources do not provide city/UTC. | Enforce source-scoped logic and mandatory regression tests for Legacy and VPN Gate. |
+| R-1 | Main details values may drift between sources if formatting is source-conditional. | Enforce source-agnostic contract with explicit multi-source tests (AC-4, AC-6). |
+| R-2 | Selection rehydration may restore stale details text after reopen. | Require reconnect/reopen stability checks in tests and manual QA (AC-3, AC-6). |
+| R-3 | Existing text bindings may swap Server and Address values. | Keep explicit assertions that `Server=current/total` and `Address=IP`. |
 
 ## Implementation notes
 
@@ -135,23 +122,21 @@ These notes are guidance for likely implementation surfaces, not a mandatory des
 
 ### Likely affected areas
 
-- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerV2.kt
-- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServersV2Repository.kt (if normalization/serialization adaptation is needed)
-- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/SelectedCountryStore.kt (if UTC persistence is introduced there)
-- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerPickerAdapter.kt
+- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainContract.kt
+- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt
+- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt
 - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/ConnectionControlsView.kt
 - src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/ConnectionControlsPresenter.kt
-- src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt
-- src/core/src/main/res/layout/item_server_row.xml
 - src/core/src/main/res/layout/view_connection_controls.xml
 - src/core/src/main/res/layout/view_connection_details.xml
-- src/core/src/main/res/values/strings.xml and localized resources if new labels/formats are required
+- src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/ConnectionControlsPresenterTest.kt
+- src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModelTest.kt
 
 ### Design intent
 
-- Keep DEFAULT_V2-specific city/UTC formatting logic centralized in shared UI/presenter helpers rather than duplicated per screen.
-- Preserve legacy/shared server selection data flow unless minimal extension is needed for UTC.
-- Prefer deterministic formatting and explicit fallback rules for null/blank city/UTC values.
+- Keep one shared details contract across all sources for Server/Address values.
+- Preserve existing server list card UX while aligning main details semantics.
+- Prefer deterministic rendering rules for empty selection or unavailable server lists.
 
 ## Test scenarios
 
@@ -159,35 +144,29 @@ These notes are guidance for likely implementation surfaces, not a mandatory des
 
 | ID | Scenario |
 | --- | --- |
-| TS-1 | `ServerV2` parses `city` and `utc` from backend response and `toLegacyServer()` copies both to shared `Server` model. |
-| TS-2 | `ServerV2` with null `city` and null `utc` maps to empty strings; no crash, no malformed text anywhere downstream. |
-| TS-3 | UTC normalization: `UTC+9` → `+09:00 UTC`; `UTC+5:30` → `+05:30 UTC`; `GMT+12` → `+12:00 UTC`; `+05:00` → `+05:00 UTC`; malformed input → empty/hidden. |
-| TS-4 | `SelectedCountryStore` round-trip: server saved with non-blank `utc` is reloaded with the same `utc` value. |
-| TS-5 | `DEFAULT_V2` card: city + valid UTC → two lines (city line 1, `+09:00 UTC` line 2, IP hidden). |
-| TS-6 | `DEFAULT_V2` card: city present, UTC absent → one line city, timezone line hidden. |
-| TS-7 | `DEFAULT_V2` card: city absent → one line IP, timezone line hidden. |
-| TS-8 | Non-`DEFAULT_V2` card (Legacy/VPN Gate): city-or-name title + IP subtitle, no UTC line rendered. |
-| TS-9 | Main screen and selected server section render city+UTC after selection and after store reload for `DEFAULT_V2`. |
-| TS-10 | Legacy CSV and VPN Gate regression: existing tests for list, selected section, and main screen remain green. |
+| TS-1 | Selected server index 0 in a 1-item list -> `Server` renders `1/1`; `Address` renders the selected IP. |
+| TS-2 | Selected server index 5 in a 7-item list -> `Server` renders `6/7`; `Address` renders the selected IP. |
+| TS-3 | Switching sources (`DEFAULT_V2`, `LEGACY`, `VPNGATE`, `CUSTOM`) preserves `Server=current/total` + `Address=IP` contract. |
+| TS-4 | Reconnect/rehydration path preserves `Server=current/total` + `Address=IP` for current selection. |
+| TS-5 | Empty or invalid selection state does not crash and does not produce malformed details text. |
 
 ### Manual QA focus
 
 | ID | Scenario |
 | --- | --- |
-| MQ-1 | `DEFAULT_V2` selected, open country server list. Verify: servers with city + UTC show two lines (city top, `+/-HH:MM UTC` bottom); card ping/signal/flag unchanged. |
-| MQ-2 | `DEFAULT_V2` selected, open country server list. Verify: servers with city but no UTC show one line (city); timezone row not visible. |
-| MQ-3 | `DEFAULT_V2` selected, open country server list. Verify: servers with no city show one line (IP); timezone row not visible. |
-| MQ-4 | Select a `DEFAULT_V2` server with city+UTC and return to main screen. Verify selected server section and main screen show city with formatted UTC text. |
-| MQ-5 | Restart app with a `DEFAULT_V2` selection that includes city+UTC. Verify city+UTC display is consistent after restart (UTC survived store round-trip). |
-| MQ-6 | Switch source to Legacy CSV. Verify server list cards show city-or-name title + IP subtitle with no UTC line artifacts. |
-| MQ-7 | Switch source to VPN Gate. Verify server list cards show city-or-name title + IP subtitle with no UTC line artifacts. |
+| MQ-1 | Select a server and verify main details `Server` shows selected position as `current/total` (for example `6/7`). |
+| MQ-2 | Verify main details `Address` shows the selected server IP and not position text. |
+| MQ-3 | Restart app and verify `Server=current/total` and `Address=IP` remain consistent for restored selection. |
+| MQ-4 | Switch source to Legacy CSV and verify the same details contract (`Server=current/total`, `Address=IP`). |
+| MQ-5 | Switch source to VPN Gate and verify the same details contract (`Server=current/total`, `Address=IP`). |
+| MQ-6 | Switch source to Custom and verify the same details contract (`Server=current/total`, `Address=IP`). |
 
 ## Definition of done
 
 - AC-1 through AC-6 are implemented and validated.
-- DEFAULT_V2 shows city+UTC in server cards, selected server section, and main screen when both fields are present.
-- Null/blank city/UTC behavior is safe and visually clean.
-- Mandatory Legacy CSV and VPN Gate regression coverage passes without unintended behavior changes.
+- Main details consistently show `Server=current/total` and `Address=IP` for all supported sources.
+- Restart/reconnect/source-switch manual checks confirm the same contract.
+- Mandatory cross-source regression coverage passes without unintended behavior changes.
 
 ## Code Implementator handoff seed
 

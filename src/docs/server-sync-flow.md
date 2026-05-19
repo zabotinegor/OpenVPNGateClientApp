@@ -3,6 +3,13 @@
 ## Scope
 This document describes how server-list synchronization is orchestrated around the shared main UI (speedometer and connection controls) for both mobile and TV launchers.
 
+## Main Details Display Contract
+The shared connection details surface uses one source-agnostic rendering contract:
+- `Server` value: selected server position as `current/total` in the selected country list.
+- `Address` value: selected server IP.
+
+This contract applies to `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM`.
+
 ## Source of Truth
 Use `ServerSelectionSyncCoordinator` as the single synchronization entrypoint:
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt`

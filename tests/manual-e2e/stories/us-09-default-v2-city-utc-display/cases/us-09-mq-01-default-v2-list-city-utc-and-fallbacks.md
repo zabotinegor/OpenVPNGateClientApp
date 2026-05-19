@@ -1,6 +1,6 @@
 ---
 id: US-09-MQ-01
-title: DEFAULT_V2 list cards show city and UTC with clean fallbacks
+title: Main details show Server as selected position (current/total)
 area: Android
 surface: android
 ---
@@ -9,34 +9,35 @@ surface: android
 - App is installed and launched on the Android phone target.
 - Server source is set to DEFAULT_V2.
 - Network is available and the server list can refresh.
-- At least one country with DEFAULT_V2 servers has both city and UTC populated, and at least one row can be checked for missing city or UTC fallback behavior.
+- At least one country has more than one server so position text can be validated as `current/total`.
 
 ## Steps
 1. Open the country server list for a DEFAULT_V2 country.
-2. Inspect rows that have both city and UTC values.
-3. Inspect at least one row where city or UTC is missing or blank.
-4. Rotate once between portrait and landscape if the device and app allow it without interrupting the list.
-5. Capture screenshots of the populated row and the fallback row.
+2. Select a server that is not the first entry when possible.
+3. Return to the main details surface.
+4. Verify the `Server` field value format is `current/total` (for example `6/7`).
+5. Rotate once between portrait and landscape if the device and app allow it without interrupting the flow.
+6. Capture screenshots before and after orientation change.
 
 ## Assertions
-- Rows with both values show the combined title in the form `City (UTC...)`.
-- The subtitle remains IP only.
-- Rows with missing city or UTC do not show empty parentheses or malformed punctuation.
-- Fallback rows retain the existing city-or-name display semantics.
+- `Server` value is shown as `current/total`.
+- `Server` value reflects the currently selected server position in the selected country list.
+- Orientation change does not break or swap the `Server` value.
+- No malformed placeholder text is shown in the `Server` field.
 
 ## Evidence Required
-- Screenshot of a populated DEFAULT_V2 row.
-- Screenshot of a fallback DEFAULT_V2 row.
-- Optional UI tree or log snippet if the row text is ambiguous.
+- Screenshot of main details showing `Server=current/total`.
+- Screenshot after orientation change showing the same contract.
+- Optional UI tree dump if the value is ambiguous.
 
 ## Cleanup
 - Return the device to portrait orientation if it was rotated.
 - Leave the app on the main screen for the next case.
 
 ## Actual Result
-- FAILED.
-- Source was verified as DEFAULT_V2 in settings (`server_summary` = `Client for OpenVPN Gate`), but list cards still rendered raw IP as both title and subtitle for sampled countries.
-- In captured country server list snapshots, `server_title` and `server_subtitle` were identical IP values (for example `185.249.198.156` / `185.249.198.156`) and no `City (UTC...)` pattern was present.
+- SUPERSEDED.
+- Previous execution in this file used the old city/UTC expectation set and is no longer the active contract.
+- Rerun required with current assertions (`Server=current/total`).
 - Evidence:
 	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-settings-screen.xml
 	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-country-list-2.xml

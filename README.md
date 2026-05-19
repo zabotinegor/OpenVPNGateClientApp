@@ -174,6 +174,9 @@ For more details on the performance baseline and validation evidence, refer to t
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
 - If preload outlives GIF playback, splash shows a loading spinner until preload completes.
 - If preload fails, startup still continues to main screen; fallback is logged as a warning.
+- Main details display contract is source-agnostic:
+  - `Server` field shows selected position as `current/total` within the selected country list (for example `6/7`).
+  - `Address` field shows the selected server IP.
 - Server source modes in settings:
   - `LEGACY`: primary then fallback URL
   - `DEFAULT_V2`: v2 API (default for fresh installs)
