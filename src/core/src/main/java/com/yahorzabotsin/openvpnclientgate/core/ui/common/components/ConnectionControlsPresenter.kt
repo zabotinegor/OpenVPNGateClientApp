@@ -190,9 +190,9 @@ class ConnectionControlsPresenter(
             else -> null
         }
 
-        val cityText = selectedCity
+        val cityText = current?.city
             ?.takeIf { isUsableCityText(it) }
-            ?: current?.city?.takeIf { isUsableCityText(it) }
+            ?: selectedCity?.takeIf { isUsableCityText(it) }
             ?: serverPositionPlaceholder
 
         val utc = current?.utc?.takeIf { it.isNotBlank() }

@@ -108,10 +108,32 @@ class ConnectionControlsPresenterTest {
     }
 
     @Test
-    fun `syncServer prefers selected city over store city`() {
+    fun `syncServer prefers store city over selected city`() {
         val store = FakeSelectionStore(
             selectedCountry = "Japan",
             currentServer = StoredServer(city = "Tokyo", config = "cfg-1", ip = "1.2.3.4"),
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = null
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Japan",
+            selectedCity = "Kyoto",
+            selectedServerIp = "1.2.3.4",
+            vpnConfig = "cfg-1"
+        )
+
+        assertNotNull(sync)
+        assertEquals("Tokyo", sync?.cityText)
+    }
+
+    @Test
+    fun `syncServer falls back to selected city when store city missing`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Japan",
+            currentServer = StoredServer(city = "", config = "cfg-1", ip = "1.2.3.4"),
             lastStarted = null,
             lastSuccessfulIp = null,
             position = null
