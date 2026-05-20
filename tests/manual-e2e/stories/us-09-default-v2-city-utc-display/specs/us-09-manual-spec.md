@@ -5,12 +5,12 @@
 - Surfaces: Android mobile mandatory.
 - Focus: 
   - Server select list cards show city/UTC (2 lines), city-only (1 line), or IP fallback (1 line) for DEFAULT_V2
-  - Main screen shows "City" label with city/UTC format, or "Address" with IP for non-DEFAULT_V2 sources
+  - Main screen shows "City" label with city/UTC format for DEFAULT_V2 when city metadata exists, city only when UTC is missing, or "Address" with IP for non-DEFAULT_V2 sources or missing city metadata
   - Source switching behavior and persistence after reopen
 
 ## Acceptance Criteria Mapping
 - AC-1: Server select cards render city/UTC (2 lines), city-only (1 line), or IP fallback (1 line) for DEFAULT_V2
-- AC-2: Main screen shows "City" label with city/UTC format, or "Address" with IP based on source and data
+- AC-2: Main screen shows "City" label with city/UTC format for DEFAULT_V2 when city metadata exists, city only when UTC is missing, or "Address" with IP for non-DEFAULT_V2 sources or missing city metadata
 - AC-3: Label switching ("Address" ↔ "City") occurs when source changes
 - AC-4: Persistence after source switch and app reopen
 - AC-5: Non-DEFAULT_V2 sources show IP-only with no city/UTC rendering

@@ -182,7 +182,8 @@ These notes are guidance for likely implementation surfaces, not a mandatory des
 ## Definition of done
 
 - AC-1 through AC-6 are implemented and validated.
-- Main details consistently show `Server=current/total` and `Address=IP` for all supported sources.
+- Main details consistently show `Server=current/total` for all supported sources.
+- Main `Address`/city field shows city + UTC for `DEFAULT_V2` when city metadata is available, city only when UTC is missing, and IP for non-`DEFAULT_V2` sources or when city metadata is unavailable.
 - Restart/reconnect/source-switch manual checks confirm the same contract.
 - Mandatory cross-source regression coverage passes without unintended behavior changes.
 

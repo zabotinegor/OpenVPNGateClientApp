@@ -4,11 +4,12 @@
 This document describes how server-list synchronization is orchestrated around the shared main UI (speedometer and connection controls) for both mobile and TV launchers.
 
 ## Main Details Display Contract
-The shared connection details surface uses one source-agnostic rendering contract:
-- `Server` value: selected server position as `current/total` in the selected country list.
-- `Address` value: selected server IP.
+The shared connection details surface uses a split contract:
+- `Server` value: selected server position as `current/total` in the selected country list for all sources.
+- `Address` value: city + UTC for `DEFAULT_V2` when city metadata is available, city only when UTC is missing, and selected server IP for non-`DEFAULT_V2` sources or when city metadata is unavailable.
 
-This contract applies to `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM`.
+The `Server` value applies to `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM`.
+The `Address` value is source-aware and only switches to city/UTC formatting for `DEFAULT_V2`.
 
 ## Source of Truth
 Use `ServerSelectionSyncCoordinator` as the single synchronization entrypoint:
