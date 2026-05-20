@@ -1,45 +1,46 @@
 ---
 id: US-09-MQ-01
-title: Main details show Server as selected position (current/total)
+title: DEFAULT_V2 server list shows city/UTC on cards (2-line), city-only (1-line), or IP fallback
 area: Android
 surface: android
 ---
 
 ## Preconditions
 - App is installed and launched on the Android phone target.
-- Server source is set to DEFAULT_V2.
-- Network is available and the server list can refresh.
-- At least one country has more than one server so position text can be validated as `current/total`.
+- Server source is set to "Client for OpenVPN Gate" (DEFAULT_V2).
+- Network is available and the DEFAULT_V2 server list can refresh with city/UTC metadata.
+- At least one country has multiple servers with mixed city/UTC availability (some with both, some with city-only, some IP-only).
 
 ## Steps
-1. Open the country server list for a DEFAULT_V2 country.
-2. Select a server that is not the first entry when possible.
-3. Return to the main details surface.
-4. Verify the `Server` field value format is `current/total` (for example `6/7`).
-5. Rotate once between portrait and landscape if the device and app allow it without interrupting the flow.
-6. Capture screenshots before and after orientation change.
+1. Open the country server list for a DEFAULT_V2 country (preferably Vietnam with known city/UTC data).
+2. Observe server cards in the list:
+   - Identify cards with BOTH city and timezone data → should render 2 lines (city on line 1, timezone on line 2)
+   - Identify cards with city-only data → should render 1 line with city name
+   - Identify cards with missing city → should render 1 line with server IP
+3. Capture screenshot of the full server list showing mixed card formats.
+4. Tap on a server with city+UTC data to select it.
+5. Capture screenshot of selection.
 
 ## Assertions
-- `Server` value is shown as `current/total`.
-- `Server` value reflects the currently selected server position in the selected country list.
-- Orientation change does not break or swap the `Server` value.
-- No malformed placeholder text is shown in the `Server` field.
+- **For servers WITH city+UTC**: Card displays exactly 2 lines: (1) city name, (2) timezone in format `±HH:MM UTC`
+  - Example: Line 1: "Ho Chi Minh City", Line 2: "+07:00 UTC"
+- **For servers WITH city-only**: Card displays exactly 1 line with city name
+  - Example: "Hanoi"
+- **For servers WITHOUT city**: Card displays exactly 1 line with server IP
+  - Example: "203.0.113.45"
+- No malformed placeholder text or mixed city/IP on single cards
+- Card layout, country flag, ping/signal indicators remain unchanged
 
 ## Evidence Required
-- Screenshot of main details showing `Server=current/total`.
-- Screenshot after orientation change showing the same contract.
-- Optional UI tree dump if the value is ambiguous.
+- Screenshot of DEFAULT_V2 server list showing mixed card formats (2-line with UTC, 1-line city, 1-line IP)
+- Annotated XML tree dump if card text content is unclear in screenshot
+- Evidence that source is confirmed as DEFAULT_V2
 
 ## Cleanup
-- Return the device to portrait orientation if it was rotated.
-- Leave the app on the main screen for the next case.
+- Leave the app on the selected server screen for the next case.
 
 ## Actual Result
-- SUPERSEDED.
-- Previous execution in this file used the old city/UTC expectation set and is no longer the active contract.
-- Rerun required with current assertions (`Server=current/total`).
-- Evidence:
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-settings-screen.xml
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-country-list-2.xml
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-vietnam-servers.xml
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-vietnam-servers.png
+- UPDATED TO NEW SPECIFICATION (2026-05-20)
+- Previous city/UTC implementation was incomplete; server list cards missing UTC subtitle rendering
+- Evidence of previous run (FAILED):
+  - artifacts/manual-qa/2026-05-20-us09-manual-qa-rerun/mq1-vn-servers.xml (no server_subtitle with UTC found)

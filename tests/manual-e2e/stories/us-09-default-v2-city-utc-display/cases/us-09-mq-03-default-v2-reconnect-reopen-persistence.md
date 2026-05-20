@@ -1,40 +1,43 @@
 ---
 id: US-09-MQ-03
-title: Reconnect and reopen preserve Server/Address details contract
+title: City/UTC display persists after app reopen and state restoration
 area: Android
 surface: android
 ---
 
 ## Preconditions
-- A DEFAULT_V2 server is already selected from the previous case.
-- The app is connected or can be toggled through its normal connection controls.
-- App restart is possible from the device without clearing app data.
+- A DEFAULT_V2 server with city/UTC is selected from the previous case.
+- App is running on the main screen with city/UTC display visible.
+- App can be backgrounded and relaunched without data wipe.
 
 ## Steps
-1. Reconnect or refresh the selected server flow using the app controls.
-2. Confirm the selected server details still show `Server=current/total` and `Address=IP` for the same selection.
-3. Background or close the app, then reopen it from the launcher or exported splash.
-4. Confirm the main screen still shows `Server=current/total` and `Address=IP` after relaunch.
-5. Capture screenshots before and after the relaunch.
+1. Confirm main screen shows the city/UTC format (e.g., "Ho Chi Minh City (+07:00 UTC)") with "City" label.
+2. Capture screenshot of current main screen state.
+3. Background the app (press Home or use system switcher).
+4. Wait 5-10 seconds.
+5. Relaunch the app from the launcher or app switcher.
+6. Wait for app to restore the previous selection and main screen to update.
+7. Confirm main screen still shows the same city/UTC format for the previously selected server.
+8. Capture screenshot of main screen after relaunch.
 
 ## Assertions
-- Reconnect does not break `Server=current/total` and `Address=IP` rendering.
-- App reopen preserves the same `Server=current/total` and `Address=IP` display for restored selection.
-- No crash or broken selection flow occurs during reconnect or relaunch.
+- Main screen after relaunch shows the SAME city/UTC value as before backgrounding
+  - Example: Before "Ho Chi Minh City (+07:00 UTC)" → After "Ho Chi Minh City (+07:00 UTC)"
+- Label remains "City" (not reset to "Address")
+- No crash or blank/placeholder values appear during rehydration
+- Orientation is preserved or recovers without loss of display data
 
 ## Evidence Required
-- Screenshot before reconnect or refresh showing `Server` and `Address` values.
-- Screenshot after reconnect.
-- Screenshot after app reopen.
-- Optional logcat snippet if the flow needs confirmation.
+- Screenshot before backgrounding showing city/UTC display
+- Screenshot after app relaunch showing same city/UTC value
+- Annotated XML tree dump if persistence is unclear
+- Optional logcat snippet showing successful state restoration
 
 ## Cleanup
-- Leave the app in a stable main-screen state for the source-switch regression case.
+- Leave the app on main screen with selected DEFAULT_V2 server for next case.
 
 ## Actual Result
-- SUPERSEDED.
-- Previous execution in this file used the old city/UTC expectation set and is no longer the active contract.
-- Rerun required with current assertions (`Server=current/total`, `Address=IP`).
-- Evidence:
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-current.xml
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-current.png
+- UPDATED TO NEW SPECIFICATION (2026-05-20)
+- Previous run showed city-only value persisting but UTC not rendered (FAILED)
+- Evidence of previous persistence issue:
+  - artifacts/manual-qa/2026-05-20-us09-manual-qa-rerun/mq5-main-after-restart.xml (city-only, no UTC)

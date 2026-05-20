@@ -1,44 +1,64 @@
 ---
 id: US-09-MQ-04
-title: Source switch parity keeps Server/Address contract for non-v2 and custom
+title: Source switch shows correct label/value: "City" for DEFAULT_V2, "Address" for other sources
 area: Android
 surface: android
 ---
 
 ## Preconditions
 - App is installed and working on the Android phone target.
+- Currently on DEFAULT_V2 source with a selected server showing city/UTC.
 - Source switching is available in Settings.
-- A country with server cards is available for Legacy CSV, VPN Gate, and Custom.
+- Legacy CSV, VPN Gate, and Custom sources are available.
 
 ## Steps
-1. Switch the server source from DEFAULT_V2 to Legacy CSV.
-2. Open the country server list and select a server.
-3. Verify main details show `Server=current/total` and `Address=IP`.
-4. Switch the server source from Legacy CSV to VPN Gate.
-5. Repeat the same checks on VPN Gate.
-6. Switch source to Custom (with a valid custom endpoint already configured) and repeat the same checks.
-7. Capture screenshots for all checked sources.
+1. Confirm current main screen shows "City" label with city/UTC format (from previous case).
+2. Capture screenshot of DEFAULT_V2 main screen.
+3. Open Settings and switch server source from DEFAULT_V2 to Legacy CSV.
+4. Wait for server list to refresh/reload.
+5. Select a server from Legacy CSV country list.
+6. Observe main screen: should now show "Address" label (not "City") with IP value.
+7. Capture screenshot of Legacy main screen.
+8. Repeat steps 3-7 for VPN Gate source.
+9. Repeat steps 3-7 for Custom source (if configured).
+10. Return to DEFAULT_V2 source and reselect a server.
+11. Confirm main screen reverts back to "City" label with city/UTC format.
+12. Capture screenshot of reverted main screen.
 
 ## Assertions
-- Legacy CSV details follow `Server=current/total` and `Address=IP`.
-- VPN Gate details follow `Server=current/total` and `Address=IP`.
-- Custom details follow `Server=current/total` and `Address=IP`.
-- Selection and navigation remain stable across all source switches.
+- **DEFAULT_V2 source**:
+  - Label shows "City"
+  - Value shows city/UTC format (example: "Ho Chi Minh City (+07:00 UTC)")
+- **Legacy CSV source**:
+  - Label shows "Address"
+  - Value shows server IP
+  - NO city/UTC rendering or "City" label
+- **VPN Gate source**:
+  - Label shows "Address"
+  - Value shows server IP
+  - NO city/UTC rendering or "City" label
+- **Custom source**:
+  - Label shows "Address"
+  - Value shows server IP
+  - NO city/UTC rendering or "City" label
+- **Switching back to DEFAULT_V2**:
+  - Label reverts to "City"
+  - Value shows city/UTC format again
 
 ## Evidence Required
-- Screenshot of main details for Legacy CSV.
-- Screenshot of main details for VPN Gate.
-- Screenshot of main details for Custom.
-- Optional list-card screenshots if a source-specific rendering issue is suspected.
+- Screenshot of DEFAULT_V2 main screen with "City" label
+- Screenshot of Legacy main screen with "Address" label and IP
+- Screenshot of VPN Gate main screen with "Address" label and IP
+- Screenshot of Custom main screen with "Address" label and IP (if available)
+- Screenshot of DEFAULT_V2 after switch-back showing "City" label restored
+- Annotated XML tree dumps if label switching is unclear
 
 ## Cleanup
-- Return the source to DEFAULT_V2 if needed for later debugging.
+- Leave source at DEFAULT_V2 for documentation clarity.
 
 ## Actual Result
-- SUPERSEDED.
-- Previous execution in this file used the old city/UTC expectation set and did not include Custom source parity under the new details contract.
-- Rerun required with current assertions (`Server=current/total`, `Address=IP`) across Legacy/VPN Gate/Custom.
-- Evidence:
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-source-dialog-open.xml
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-source-dialog-open.png
-	- artifacts/manual-qa/2026-05-19-us09-manual-qa/us09-settings-screen.xml
+- UPDATED TO NEW SPECIFICATION (2026-05-20)
+- Previous run showed navigation drift during source switching (BLOCKED on MQ-7)
+- City/UTC requirement now explicitly scoped to DEFAULT_V2 only
+- Evidence of previous issue:
+  - artifacts/manual-qa/2026-05-20-us09-manual-qa-rerun/mq6-source-dialog.xml
