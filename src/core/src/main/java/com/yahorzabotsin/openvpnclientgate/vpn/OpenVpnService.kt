@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
 import androidx.core.app.NotificationCompat
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
@@ -45,6 +46,9 @@ import de.blinkt.openvpn.core.StatusSnapshot
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URI
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -71,6 +75,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
         private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
+        private const val WATCHDOG_POLL_INTERVAL_MS = 2_000L
+        private const val WATCHDOG_MIN_TRAFFIC_DELTA_BYTES = 256L
+        private const val WATCHDOG_PROBE_TIMEOUT_MS = 2_000
+        private const val WATCHDOG_FAILURE_THRESHOLD = 3
+        private const val WATCHDOG_RECOVERY_COOLDOWN_MS = 15_000L
+        private const val WATCHDOG_CONNECTED_WARMUP_MS = 10_000L
+        private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
+        private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -121,6 +133,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
     private var lastPolledState: ConnectionState? = null
+    private data class HealthWatchdogState(
+        var connectedSinceMs: Long = 0L,
+        var consecutiveFailures: Int = 0,
+        var lastHealthyTimestamp: Long = 0L,
+        var lastRecoveryTimestamp: Long = 0L,
+        var recoveryAttempts: Int = 0,
+        var degraded: Boolean = false
+    )
+    private data class WatchdogProbeTarget(
+        val host: String,
+        val port: Int
+    )
+    private data class WatchdogRecoveryTarget(
+        val config: String,
+        val title: String?
+    )
+    private var watchdogState = HealthWatchdogState()
+    internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
+    internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
+        performReachabilityProbe(host, port, timeoutMs)
+    }
+    internal var watchdogRecoveryStarter: (Context, String, String?) -> Unit = { ctx, config, title ->
+        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+    }
     
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
@@ -939,7 +975,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try {
                 val snapshotBinder = statusBinder
                 if (snapshotBinder != null) {
-                    val now = System.currentTimeMillis()
+                    val now = watchdogNowMs()
                     if (lastStatusSnapshotMs == 0L || now - lastStatusSnapshotMs > 5_000L) {
                         trySyncStatusSnapshot()
                     }
@@ -947,14 +983,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
                 val currentState = ConnectionStateManager.state.value
                 if (currentState != lastPolledState) {
-                    if (currentState != ConnectionState.CONNECTED) {
+                    if (currentState == ConnectionState.CONNECTED) {
+                        resetHealthWatchdog(nowMs = watchdogNowMs())
+                    } else {
                         lastPolledDatapoint = null
+                        resetHealthWatchdog()
                     }
                     lastPolledState = currentState
                 }
 
                 if (currentState == ConnectionState.CONNECTED) {
                     val trafficBinder = statusBinder
+                    var sampleAdvanced = false
+                    var trafficDelta = 0L
                     if (trafficBinder != null) {
                         val history = try {
                             trafficBinder.trafficHistory
@@ -972,11 +1013,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                                 val previous = lastPolledDatapoint
 
                                 if (previous != null && latest.timestamp > previous.timestamp) {
-                                    val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
+                                    sampleAdvanced = true
                                     val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
                                     val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
-                                    val totalDiffBytes = diffIn + diffOut
-                                    val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
+                                    trafficDelta = diffIn + diffOut
+                                    val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
+                                    val bitsPerSec = (trafficDelta * 8.0) * (1000.0 / deltaMs.toDouble())
                                     val mbps = bitsPerSec / 1_000_000.0
                                     ConnectionStateManager.updateSpeedMbps(mbps)
                                 }
@@ -986,6 +1028,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                             }
                         }
                     }
+                    evaluateConnectedHealth(sampleAdvanced = sampleAdvanced, trafficDeltaBytes = trafficDelta)
                 }
             } catch (e: Exception) {
                 if (BuildConfig.DEBUG) {
@@ -993,7 +1036,161 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             }
 
-            trafficHandler.postDelayed(this, 2_000L)
+            trafficHandler.postDelayed(this, WATCHDOG_POLL_INTERVAL_MS)
+        }
+    }
+
+    private fun evaluateConnectedHealth(sampleAdvanced: Boolean, trafficDeltaBytes: Long) {
+        val now = watchdogNowMs()
+        if (watchdogState.connectedSinceMs == 0L) {
+            watchdogState.connectedSinceMs = now
+            watchdogState.lastHealthyTimestamp = now
+        }
+
+        if (sampleAdvanced && trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES) {
+            markWatchdogHealthy(now, "traffic", trafficDeltaBytes)
+            return
+        }
+
+        if (now - watchdogState.connectedSinceMs < WATCHDOG_CONNECTED_WARMUP_MS) {
+            AppLog.dThrottled(TAG, "Watchdog: warm-up active", key = "watchdog-warmup")
+            return
+        }
+
+        if (watchdogState.lastRecoveryTimestamp > 0L && now - watchdogState.lastRecoveryTimestamp < WATCHDOG_RECOVERY_COOLDOWN_MS) {
+            AppLog.dThrottled(TAG, "Watchdog: cooldown active", key = "watchdog-cooldown")
+            return
+        }
+
+        val probeTarget = resolveWatchdogProbeTarget()
+        if (probeTarget == null) {
+            AppLog.w(TAG, "Watchdog: trusted probe target unavailable; skipping probe")
+            return
+        }
+
+        val probeSucceeded = runCatching {
+            watchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
+        }.getOrElse { error ->
+            AppLog.w(TAG, "Watchdog: probe failed with exception", error)
+            false
+        }
+
+        if (probeSucceeded) {
+            markWatchdogHealthy(now, "probe", trafficDeltaBytes)
+            return
+        }
+
+        watchdogState.consecutiveFailures += 1
+        AppLog.w(
+            TAG,
+            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false failures=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attempts=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+        )
+
+        if (watchdogState.consecutiveFailures < WATCHDOG_FAILURE_THRESHOLD) return
+
+        if (watchdogState.recoveryAttempts >= WATCHDOG_MAX_RECOVERY_ATTEMPTS) {
+            AppLog.e(TAG, "Watchdog: bounded recovery exhausted; entering fail-safe disconnect")
+            triggerWatchdogFailSafeDisconnect("attempt_limit_reached")
+            return
+        }
+
+        val recoveryTarget = resolveWatchdogRecoveryTarget()
+        if (recoveryTarget == null) {
+            AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
+            triggerWatchdogFailSafeDisconnect("missing_recovery_target")
+            return
+        }
+
+        watchdogState.degraded = true
+        watchdogState.recoveryAttempts += 1
+        watchdogState.lastRecoveryTimestamp = now
+        AppLog.i(
+            TAG,
+            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+        )
+        try {
+            watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Watchdog: failed to dispatch recovery", e)
+            triggerWatchdogFailSafeDisconnect("recovery_dispatch_failed")
+        }
+    }
+
+    private fun markWatchdogHealthy(nowMs: Long, source: String, trafficDeltaBytes: Long) {
+        val hadRecoveryState = watchdogState.degraded || watchdogState.recoveryAttempts > 0 || watchdogState.consecutiveFailures > 0
+        watchdogState.consecutiveFailures = 0
+        watchdogState.degraded = false
+        watchdogState.recoveryAttempts = 0
+        watchdogState.lastHealthyTimestamp = nowMs
+        watchdogState.lastRecoveryTimestamp = 0L
+        AppLog.iThrottled(
+            TAG,
+            "Watchdog: healthy source=${source} trafficDelta=${trafficDeltaBytes} recovered=${hadRecoveryState}",
+            key = "watchdog-healthy-${source}-${hadRecoveryState}"
+        )
+    }
+
+    private fun resetHealthWatchdog(nowMs: Long = 0L) {
+        watchdogState = if (nowMs > 0L) {
+            HealthWatchdogState(
+                connectedSinceMs = nowMs,
+                lastHealthyTimestamp = nowMs
+            )
+        } else {
+            HealthWatchdogState()
+        }
+    }
+
+    private fun resolveWatchdogProbeTarget(): WatchdogProbeTarget? {
+        val baseUrl = runCatching { ApiConstants.primaryRetrofitBaseUrl() }.getOrNull() ?: return null
+        val uri = runCatching { URI(baseUrl) }.getOrNull() ?: return null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        val port = if (uri.port > 0) uri.port else WATCHDOG_FALLBACK_HTTPS_PORT
+        return WatchdogProbeTarget(host = host, port = port)
+    }
+
+    private fun resolveWatchdogRecoveryTarget(): WatchdogRecoveryTarget? {
+        val selectedCountry = runCatching { SelectedCountryStore.getSelectedCountry(applicationContext) }.getOrNull()
+        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(applicationContext) }.getOrNull()
+        if (!lastStarted?.config.isNullOrBlank()) {
+            return WatchdogRecoveryTarget(
+                config = lastStarted!!.config!!,
+                title = lastStarted.country ?: selectedCountry
+            )
+        }
+
+        val lastSuccessfulConfig = runCatching {
+            SelectedCountryStore.getLastSuccessfulConfigForSelected(applicationContext)
+        }.getOrNull()
+        return if (!lastSuccessfulConfig.isNullOrBlank()) {
+            WatchdogRecoveryTarget(lastSuccessfulConfig, selectedCountry)
+        } else {
+            null
+        }
+    }
+
+    private fun triggerWatchdogFailSafeDisconnect(reason: String) {
+        AppLog.e(TAG, "Watchdog: fail-safe disconnect reason=${reason}")
+        try {
+            ConnectionStateManager.setReconnectingHint(false)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Watchdog: failed to clear reconnecting hint before fail-safe disconnect", e)
+        }
+        userInitiatedStart = false
+        userInitiatedStop = true
+        ignoreConnectedUntilNotConnected = true
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+        requestStopIcsOpenVpn()
+    }
+
+    private fun performReachabilityProbe(host: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, port), timeoutMs)
+            socket.close()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
