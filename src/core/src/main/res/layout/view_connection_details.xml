@@ -88,7 +88,7 @@
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/city_value"
+                android:id="@+id/server_position_value"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />

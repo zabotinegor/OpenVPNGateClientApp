@@ -254,7 +254,7 @@ class ConnectionControlsView @JvmOverloads constructor(
             updateAddress(selectedServerIp)
             applyServerSelectionLabel(sync.country ?: context.getString(R.string.current_country))
         }
-        connectionDetailsListener?.updateCity(buildServerPositionText())
+        connectionDetailsListener?.updateServerPosition(buildServerPositionText())
         renderLocationField(sync)
     }
 
@@ -369,7 +369,7 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun updateServerPosition() {
         val sync = buildServerSync()
-        connectionDetailsListener?.updateCity(buildServerPositionText())
+        connectionDetailsListener?.updateServerPosition(buildServerPositionText())
         renderLocationField(sync)
         applyServerSelectionLabel(
             sync?.country ?: selectedCountry ?: context.getString(R.string.current_country)
@@ -405,7 +405,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     interface ConnectionDetailsListener {
         fun updateDuration(text: String)
         fun updateTraffic(downloaded: String, uploaded: String)
-        fun updateCity(city: String)
+        fun updateServerPosition(serverPosition: String)
         fun updateAddressLabel(label: String)
         fun updateAddress(address: String)
         fun updateStatus(text: String)

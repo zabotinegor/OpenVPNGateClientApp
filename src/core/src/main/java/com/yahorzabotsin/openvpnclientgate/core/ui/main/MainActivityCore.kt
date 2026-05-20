@@ -431,8 +431,8 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.uploadedValue.text = uploaded
     }
 
-    override fun updateCity(city: String) {
-        binding.connectionDetails.cityValue.text = city
+    override fun updateServerPosition(serverPosition: String) {
+        binding.connectionDetails.serverPositionValue.text = serverPosition
     }
 
     override fun updateAddressLabel(label: String) {
