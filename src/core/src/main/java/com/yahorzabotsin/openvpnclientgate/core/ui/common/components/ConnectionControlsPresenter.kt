@@ -5,6 +5,8 @@ import android.content.res.Resources
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -26,10 +28,16 @@ data class PauseButtonModel(
     val text: CharSequence
 )
 
+data class LocationFieldModel(
+    val labelResId: Int,
+    val value: String
+)
+
 data class ConnectionServerSync(
     val country: String?,
     val ip: String?,
-    val cityText: String
+    val cityText: String,
+    val utc: String? = null
 )
 
 class ConnectionControlsPresenter(
@@ -38,6 +46,7 @@ class ConnectionControlsPresenter(
 ) {
     companion object {
         private val TAG = LogTags.APP + ':' + "ConnectionControlsPresenter"
+        private val serverPositionTextRegex = Regex("^\\d+/\\d+$")
     }
 
     private val durationPlaceholder = "00:00:00"
@@ -152,6 +161,7 @@ class ConnectionControlsPresenter(
     fun syncServer(
         selectionStore: ConnectionControlsSelectionStore,
         selectedCountry: String?,
+        selectedCity: String?,
         selectedServerIp: String?,
         vpnConfig: String?,
         reconnectingHint: Boolean = false
@@ -180,18 +190,27 @@ class ConnectionControlsPresenter(
             else -> null
         }
 
-        val cityText = runCatching { selectionStore.getCurrentPosition(context) }
-            .getOrNull()
-            ?.let { (index, total) ->
-                context.getString(R.string.connection_detail_server_position, index, total)
-            }
+        val cityText = current?.city
+            ?.takeIf { isUsableCityText(it) }
             ?: serverPositionPlaceholder
+
+        val utc = current?.utc?.takeIf { it.isNotBlank() }
 
         return ConnectionServerSync(
             country = resolvedCountry,
             ip = ip,
-            cityText = cityText
+            cityText = cityText,
+            utc = utc
         )
+    }
+
+    private fun isUsableCityText(value: String): Boolean {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return false
+        if (trimmed == serverPositionPlaceholder) return false
+        if (trimmed == "\u2014/\u2014") return false
+        if (trimmed == "--/--") return false
+        return !serverPositionTextRegex.matches(trimmed)
     }
 
     fun resolveIpForConfig(
@@ -207,6 +226,34 @@ class ConnectionControlsPresenter(
         if (!lastSuccessfulIp.isNullOrBlank() && lastSuccessfulConfig == config) return lastSuccessfulIp
         return runCatching { selectionStore.getIpForConfig(context, config) }.getOrNull()
             ?: selectedServerIp
+    }
+
+    fun buildLocationField(sync: ConnectionServerSync?, selectedServerIp: String?): LocationFieldModel {
+        val ipValue = selectedServerIp.orEmpty()
+        val isDefaultV2 = runCatching {
+            UserSettingsStore.load(context).serverSource == ServerSource.DEFAULT_V2
+        }.getOrDefault(false)
+
+        if (!isDefaultV2) {
+            return LocationFieldModel(
+                labelResId = R.string.connection_detail_address_label,
+                value = ipValue
+            )
+        }
+
+        val city = sync?.cityText?.takeIf { isUsableCityText(it) }
+        if (city.isNullOrBlank()) {
+            return LocationFieldModel(
+                labelResId = R.string.connection_detail_address_label,
+                value = ipValue
+            )
+        }
+
+        val formatted = ServerDisplayFormatter.formatCityWithUtc(city, sync.utc) ?: city
+        return LocationFieldModel(
+            labelResId = R.string.connection_detail_city_value_label,
+            value = formatted
+        )
     }
 
     private fun engineDetailToText(detail: String?): CharSequence {

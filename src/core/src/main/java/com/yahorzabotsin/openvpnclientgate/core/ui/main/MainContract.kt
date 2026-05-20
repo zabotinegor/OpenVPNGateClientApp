@@ -15,6 +15,7 @@ data class MainUiState(
 data class MainSelectedServer(
     val country: String,
     val countryCode: String?,
+    val city: String,
     val config: String,
     val ip: String?,
     val fromUserSelection: Boolean,

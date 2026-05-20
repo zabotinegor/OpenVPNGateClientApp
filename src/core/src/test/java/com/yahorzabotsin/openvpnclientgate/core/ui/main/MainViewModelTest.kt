@@ -68,6 +68,7 @@ class MainViewModelTest {
         assertTrue(interactor.lastCacheOnly == false)
         val selected = viewModel.state.value.selectedServer
         assertEquals("France", selected?.country)
+        assertEquals("Paris", selected?.city)
         assertEquals("config", selected?.config)
         assertEquals(false, selected?.fromUserSelection)
     }
@@ -280,6 +281,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects.first() is MainEffect.StopVpn)
+        assertEquals("B", viewModel.state.value.selectedServer?.city)
         assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
         job.cancel()
     }
@@ -348,6 +350,27 @@ class MainViewModelTest {
         assertTrue(effects.any { it is MainEffect.ReopenDrawer })
         assertEquals(true, viewModel.state.value.selectedServer?.fromUserSelection)
         job.cancel()
+    }
+
+    @Test
+    fun `server selection result with null city does not update selected server`() = runTest {
+        val viewModel = createViewModel()
+
+        // State should remain with no selected server
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Japan",
+                    countryCode = "JP",
+                    city = null,  // null city → guard fails → selection is not applied
+                    config = "cfg-jp",
+                    ip = "1.2.3.4"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.selectedServer)
     }
 
     @Test
@@ -672,6 +695,7 @@ class MainViewModelTest {
 
         val selected = viewModel.state.value.selectedServer
         assertEquals("Russian Federation", selected?.country)
+        assertEquals("Moscow", selected?.city)
         assertEquals("RU", selected?.countryCode)
         assertEquals("new-config", selected?.config)
         assertEquals("5.5.5.5", selected?.ip)

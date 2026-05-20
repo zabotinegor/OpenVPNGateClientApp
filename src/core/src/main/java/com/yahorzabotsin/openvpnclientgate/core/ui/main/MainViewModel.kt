@@ -99,6 +99,7 @@ class MainViewModel(
                 updateSelectedServer(
                     country = selection.country,
                     countryCode = selection.countryCode,
+                    city = selection.city,
                     config = selection.config,
                     ip = selection.ip,
                     fromUserSelection = false
@@ -139,6 +140,7 @@ class MainViewModel(
                 updateSelectedServer(
                     country = selection.country,
                     countryCode = selection.countryCode,
+                    city = selection.city,
                     config = selection.config,
                     ip = selection.ip,
                     fromUserSelection = false
@@ -216,6 +218,7 @@ class MainViewModel(
     private fun updateSelectedServer(
         country: String,
         countryCode: String?,
+        city: String,
         config: String,
         ip: String?,
         fromUserSelection: Boolean,
@@ -232,6 +235,7 @@ class MainViewModel(
                 selectedServer = MainSelectedServer(
                     country = country,
                     countryCode = countryCode,
+                    city = city,
                     config = config,
                     ip = ip,
                     fromUserSelection = fromUserSelection,
@@ -327,6 +331,7 @@ class MainViewModel(
                     updateSelectedServer(
                         country = selected!!.country,
                         countryCode = selected.countryCode,
+                        city = selected.city,
                         config = prepared.config,
                         ip = prepared.ip ?: selected.ip,
                         fromUserSelection = false
@@ -362,6 +367,7 @@ class MainViewModel(
                 updateSelectedServer(
                     country = country,
                     countryCode = resolvedSelection.countryCode,
+                    city = requireNotNull(resolvedSelection.city),
                     config = config,
                     ip = resolvedSelection.ip,
                     fromUserSelection = true
@@ -412,6 +418,7 @@ class MainViewModel(
             updateSelectedServer(
                 country = selection.country,
                 countryCode = selection.countryCode,
+                city = selection.city,
                 config = selection.config,
                 ip = selection.ip,
                 fromUserSelection = false,

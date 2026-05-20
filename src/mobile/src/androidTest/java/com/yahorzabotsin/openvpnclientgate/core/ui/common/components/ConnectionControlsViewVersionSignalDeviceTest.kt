@@ -159,15 +159,17 @@ class ConnectionControlsViewVersionSignalDeviceTest {
     }
 
     private class FakeDetailsListener : ConnectionControlsView.ConnectionDetailsListener {
-        var lastCity: String = ""
+        var lastServerPosition: String = ""
 
         override fun updateDuration(text: String) = Unit
 
         override fun updateTraffic(downloaded: String, uploaded: String) = Unit
 
-        override fun updateCity(city: String) {
-            lastCity = city
+        override fun updateServerPosition(serverPosition: String) {
+            lastServerPosition = serverPosition
         }
+
+        override fun updateAddressLabel(label: String) = Unit
 
         override fun updateAddress(address: String) = Unit
 

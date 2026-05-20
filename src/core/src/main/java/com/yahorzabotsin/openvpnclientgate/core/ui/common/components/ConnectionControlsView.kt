@@ -45,6 +45,7 @@ class ConnectionControlsView @JvmOverloads constructor(
     private var vpnConfig: String? = null
     private var selectedCountry: String? = null
     private var selectedCountryCode: String? = null
+    private var selectedCity: String? = null
     private var selectedServerIp: String? = null
     private var openServerList: (() -> Unit)? = null
     private var onConnectionButtonClick: (() -> Unit)? = null
@@ -118,12 +119,13 @@ class ConnectionControlsView @JvmOverloads constructor(
         openServerList = handler
     }
 
-    fun setServer(country: String, countryCode: String? = null, ip: String? = null) {
+    fun setServer(country: String, countryCode: String? = null, city: String? = null, ip: String? = null) {
         AppLog.d(TAG, "Server set: $country, ip=$ip")
         selectedCountry = country
         selectedCountryCode = countryCode
+        selectedCity = city
         updateAddress(ip)
-        applyServerSelectionLabel(country, ip)
+        applyServerSelectionLabel(country)
         updateServerPosition()
 
         if (runtime.state.value == ConnectionState.DISCONNECTED) {
@@ -145,7 +147,7 @@ class ConnectionControlsView @JvmOverloads constructor(
         val resolvedIp = resolveIpForConfig(config)
         if (!resolvedIp.isNullOrBlank()) {
             updateAddress(resolvedIp)
-            applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country), resolvedIp)
+            applyServerSelectionLabel(selectedCountry ?: context.getString(R.string.current_country))
         }
         updateServerPosition()
     }
@@ -225,21 +227,16 @@ class ConnectionControlsView @JvmOverloads constructor(
         this.selectionStore = selectionStore
     }
 
-    private fun applyServerSelectionLabel(country: String, ip: String? = selectedServerIp) {
+    private fun applyServerSelectionLabel(country: String) {
         val primary = country.ifBlank { context.getString(R.string.current_country) }
         val flag = countryFlagEmoji(selectedCountryCode)
         val primaryWithFlag = if (!flag.isNullOrEmpty()) "$flag $primary" else primary
-        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag, ip)
-        val description = listOf(primaryWithFlag, ip.orEmpty())
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .joinToString(separator = ", ")
-        binding.serverSelectionContainer.contentDescription = description
+        binding.serverSelectionContainer.text = buildServerSelectionLabel(primaryWithFlag)
+        binding.serverSelectionContainer.contentDescription = primaryWithFlag
         updateServerButtonIcons(showGlobe = flag.isNullOrEmpty())
     }
 
-    private fun buildServerSelectionLabel(country: String, ip: String?): CharSequence =
+    private fun buildServerSelectionLabel(country: String): CharSequence =
         buildSpannedString {
             inSpans(android.text.style.TextAppearanceSpan(context, R.style.TextAppearance_OpenVPNClientGate_BodyAdditional)) {
                 append(country.trim())
@@ -252,11 +249,13 @@ class ConnectionControlsView @JvmOverloads constructor(
 
         if (!sync.ip.isNullOrBlank() && sync.ip != selectedServerIp) {
             updateAddress(sync.ip)
-            applyServerSelectionLabel(sync.country ?: context.getString(R.string.current_country), sync.ip)
+            applyServerSelectionLabel(sync.country ?: context.getString(R.string.current_country))
         } else if (!selectedServerIp.isNullOrBlank()) {
             updateAddress(selectedServerIp)
+            applyServerSelectionLabel(sync.country ?: context.getString(R.string.current_country))
         }
-        connectionDetailsListener?.updateCity(sync.cityText)
+        connectionDetailsListener?.updateServerPosition(buildServerPositionText())
+        renderLocationField(sync)
     }
 
     private fun updateStatusLabel(state: ConnectionState) {
@@ -320,12 +319,11 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun updateLocationPlaceholders() {
         updateServerPosition()
-        connectionDetailsListener?.updateAddress(selectedServerIp.orEmpty())
+        renderLocationField(buildServerSync())
     }
 
     private fun updateAddress(ip: String?) {
         selectedServerIp = ip
-        connectionDetailsListener?.updateAddress(ip.orEmpty())
     }
 
     private fun resolveIpForConfig(config: String?): String? {
@@ -371,13 +369,33 @@ class ConnectionControlsView @JvmOverloads constructor(
 
     private fun updateServerPosition() {
         val sync = buildServerSync()
-        connectionDetailsListener?.updateCity(sync?.cityText.orEmpty())
+        connectionDetailsListener?.updateServerPosition(buildServerPositionText())
+        renderLocationField(sync)
+        applyServerSelectionLabel(
+            sync?.country ?: selectedCountry ?: context.getString(R.string.current_country)
+        )
+    }
+
+    private fun renderLocationField(sync: ConnectionServerSync?) {
+        val model = presenter.buildLocationField(sync, selectedServerIp)
+        connectionDetailsListener?.updateAddressLabel(context.getString(model.labelResId))
+        connectionDetailsListener?.updateAddress(model.value)
+    }
+
+    private fun buildServerPositionText(): String {
+        val position = runCatching { selectionStore.getCurrentPosition(context) }.getOrNull()
+        return if (position != null) {
+            context.getString(R.string.connection_detail_server_position, position.first, position.second)
+        } else {
+            context.getString(R.string.connection_detail_server_position_placeholder)
+        }
     }
 
     private fun buildServerSync(): ConnectionServerSync? {
         return presenter.syncServer(
             selectionStore = selectionStore,
             selectedCountry = selectedCountry,
+            selectedCity = selectedCity,
             selectedServerIp = selectedServerIp,
             vpnConfig = vpnConfig,
             reconnectingHint = runtime.reconnectingHint.value
@@ -387,7 +405,8 @@ class ConnectionControlsView @JvmOverloads constructor(
     interface ConnectionDetailsListener {
         fun updateDuration(text: String)
         fun updateTraffic(downloaded: String, uploaded: String)
-        fun updateCity(city: String)
+        fun updateServerPosition(serverPosition: String)
+        fun updateAddressLabel(label: String)
         fun updateAddress(address: String)
         fun updateStatus(text: String)
     }

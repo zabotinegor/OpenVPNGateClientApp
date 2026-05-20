@@ -29,7 +29,7 @@ class ServerPickerAdapterTest {
     fun bind_usesCityWhenPresent_andShowsFlag() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "Seattle", name = "ServerName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)
@@ -49,7 +49,7 @@ class ServerPickerAdapterTest {
     fun bind_fallsBackToNameWhenCityBlank() {
         val context = RuntimeEnvironment.getApplication()
         val server = buildServer(city = "", name = "FallbackName")
-        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context))
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
         holder.bind(server)
 
         val title = holder.itemView.findViewById<TextView>(R.id.server_title)

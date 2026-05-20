@@ -10,6 +10,157 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Invoke-ExternalCommand {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$FailureMessage
+    )
+
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & $FilePath @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
+    if ($exitCode -ne 0) {
+        $details = (($output | Out-String).Trim())
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            throw "$FailureMessage ExitCode=$exitCode."
+        }
+
+        throw "$FailureMessage ExitCode=$exitCode. Output: $details"
+    }
+
+    return @($output)
+}
+
+function Write-AllLinesUtf8WithRetry {
+    param(
+        [string]$Path,
+        [string[]]$Lines,
+        [int]$MaxAttempts = 5,
+        [int]$DelayMs = 150
+    )
+
+    $directory = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $content = [string]::Join("`r`n", $Lines)
+    if ($Lines.Count -gt 0) {
+        $content += "`r`n"
+    }
+
+    $attempt = 0
+    while ($attempt -lt $MaxAttempts) {
+        try {
+            $encoding = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($Path, $content, $encoding)
+            return
+        }
+        catch [System.IO.IOException] {
+            $attempt++
+            if ($attempt -ge $MaxAttempts) {
+                throw
+            }
+            Start-Sleep -Milliseconds $DelayMs
+        }
+    }
+}
+
+function Get-SectionFromSourceFile {
+    param(
+        [string]$SourcePath,
+        [string]$BeginMarker = '<!-- BEGIN COPILOT SYNC -->',
+        [string]$EndMarker = '<!-- END COPILOT SYNC -->'
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        throw "Source section file '$SourcePath' does not exist."
+    }
+
+    $sourceLines = @(Get-Content -LiteralPath $SourcePath)
+    $beginIdx = $sourceLines.IndexOf($BeginMarker)
+    $endIdx = $sourceLines.IndexOf($EndMarker)
+    if ($beginIdx -ge 0 -and $endIdx -gt $beginIdx) {
+        if ($endIdx -eq $beginIdx + 1) {
+            return @()
+        }
+
+        return @($sourceLines[($beginIdx + 1)..($endIdx - 1)])
+    }
+
+    return $sourceLines
+}
+
+function Set-FileSectionByMarkers {
+    param(
+        [string]$TargetPath,
+        [string]$SourceSectionPath,
+        [string]$BeginMarker = '<!-- BEGIN COPILOT SYNC -->',
+        [string]$EndMarker = '<!-- END COPILOT SYNC -->',
+        [switch]$DryRun
+    )
+
+    $sourceSection = @(Get-SectionFromSourceFile -SourcePath $SourceSectionPath -BeginMarker $BeginMarker -EndMarker $EndMarker)
+
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        $newLines = @($BeginMarker)
+        $newLines += $sourceSection
+        $newLines += $EndMarker
+        if (-not $DryRun) {
+            Write-AllLinesUtf8WithRetry -Path $TargetPath -Lines $newLines
+        }
+
+        return [pscustomobject]@{
+            changed = $true
+            action = 'created-file'
+        }
+    }
+
+    $targetLines = @(Get-Content -LiteralPath $TargetPath)
+    $beginIdx = $targetLines.IndexOf($BeginMarker)
+    $endIdx = $targetLines.IndexOf($EndMarker)
+
+    if ($beginIdx -lt 0 -or $endIdx -lt 0 -or $endIdx -le $beginIdx) {
+        $newLines = @($targetLines)
+        if ($newLines.Count -gt 0 -and $newLines[$newLines.Count - 1] -ne '') {
+            $newLines += ''
+        }
+        $newLines += $BeginMarker
+        $newLines += $sourceSection
+        $newLines += $EndMarker
+        $action = 'added-markers'
+    }
+    else {
+        $prefix = @($targetLines[0..$beginIdx])
+        $suffix = @($targetLines[$endIdx..($targetLines.Count - 1)])
+        $newLines = @()
+        $newLines += $prefix
+        $newLines += $sourceSection
+        $newLines += $suffix
+        $action = 'replaced-section'
+    }
+
+    $before = [string]::Join("`n", $targetLines)
+    $after = [string]::Join("`n", $newLines)
+    $changed = $before -ne $after
+
+    if ($changed -and -not $DryRun) {
+        Write-AllLinesUtf8WithRetry -Path $TargetPath -Lines $newLines
+    }
+
+    return [pscustomobject]@{
+        changed = $changed
+        action = if ($changed) { $action } else { 'no-change' }
+    }
+}
+
 function Convert-ToRepoRelativePath {
     param([string]$Path)
     return ($Path -replace '\\', '/').TrimStart('/')
@@ -113,7 +264,7 @@ function Set-ExactGitignoreEntries {
         }
         $next.Add($endMarker)
 
-        Set-Content -LiteralPath $gitignorePath -Value $next
+        Write-AllLinesUtf8WithRetry -Path $gitignorePath -Lines @($next)
     }
 
     return $entries.Count
@@ -172,7 +323,7 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         }
         $next.Add($endMarker)
 
-        Set-Content -LiteralPath $gitignorePath -Value $next
+        Write-AllLinesUtf8WithRetry -Path $gitignorePath -Lines @($next)
     }
 
     return $entries.Count
@@ -251,7 +402,7 @@ if ($requestedProtectedRootMd.Count -gt 0 -and -not $AllowRootMdSync) {
 }
 
 $remoteRef = "refs/heads/$SourceRef"
-$lsRemote = git ls-remote $SourceRepo $remoteRef
+$lsRemote = Invoke-ExternalCommand -FilePath 'git' -Arguments @('ls-remote', $SourceRepo, $remoteRef) -FailureMessage "Unable to resolve $SourceRepo $remoteRef."
 if (-not $lsRemote) {
     throw "Unable to resolve $SourceRepo $remoteRef"
 }
@@ -265,18 +416,23 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("copilottools-sync-" + 
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 try {
-    git clone --quiet --no-checkout --depth 1 --branch $SourceRef $SourceRepo $tempRoot
-    git -C $tempRoot checkout --quiet $sourceCommit
+    Invoke-ExternalCommand -FilePath 'git' -Arguments @('clone', '--quiet', '--no-checkout', '--depth', '1', '--branch', $SourceRef, $SourceRepo, $tempRoot) -FailureMessage 'git clone failed.' | Out-Null
+    Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $tempRoot, 'checkout', '--quiet', $sourceCommit) -FailureMessage 'git checkout failed.' | Out-Null
 
     $sourceFiles = Get-RelativeFileMap -Root $tempRoot -ScopePaths $normalizedScope
     $targetFiles = Get-RelativeFileMap -Root $targetRootResolved -ScopePaths $normalizedScope
+
+    if ($sourceFiles.Count -eq 0) {
+        throw 'Source scope resolved to zero files. Aborting to prevent destructive deletions.'
+    }
 
     $added = New-Object System.Collections.Generic.List[string]
     $changed = New-Object System.Collections.Generic.List[string]
     $deleted = New-Object System.Collections.Generic.List[string]
 
     foreach ($relativePath in ($sourceFiles.Keys | Sort-Object)) {
-        if (-not $AllowRootMdSync -and @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0) {
+        $isRootMd = @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+        if ($isRootMd -and -not $AllowRootMdSync) {
             throw "Protected root markdown path '$relativePath' cannot be synced without -AllowRootMdSync."
         }
 
@@ -288,17 +444,30 @@ try {
             $added.Add($relativePath)
             if (-not $DryRun) {
                 New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
-                Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+                if ($isRootMd) {
+                    # Create root markdown with managed sync markers
+                    Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
+                } else {
+                    Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+                }
             }
             continue
         }
 
-        $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
-        $targetHash = (Get-FileHash -LiteralPath $targetFiles[$relativePath] -Algorithm SHA256).Hash
-        if ($sourceHash -ne $targetHash) {
-            $changed.Add($relativePath)
-            if (-not $DryRun) {
-                Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+        if ($isRootMd) {
+            # Update only the section between sync markers
+            $result = Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
+            if ($result.changed) {
+                $changed.Add($relativePath)
+            }
+        } else {
+            $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+            $targetHash = (Get-FileHash -LiteralPath $targetFiles[$relativePath] -Algorithm SHA256).Hash
+            if ($sourceHash -ne $targetHash) {
+                $changed.Add($relativePath)
+                if (-not $DryRun) {
+                    Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+                }
             }
         }
     }
@@ -338,6 +507,15 @@ try {
         foreach ($relativePath in ($sourceFiles.Keys | Sort-Object)) {
             if (-not $postTargetFiles.ContainsKey($relativePath)) {
                 $mismatches.Add($relativePath)
+                continue
+            }
+
+            $isRootMd = @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+            if ($isRootMd -and $AllowRootMdSync) {
+                $check = Set-FileSectionByMarkers -TargetPath $postTargetFiles[$relativePath] -SourceSectionPath $sourceFiles[$relativePath] -DryRun
+                if ($check.changed) {
+                    $mismatches.Add($relativePath)
+                }
                 continue
             }
 
