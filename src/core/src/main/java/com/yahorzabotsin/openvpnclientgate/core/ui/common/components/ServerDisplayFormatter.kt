@@ -1,5 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
+import java.util.Locale
+
 internal object ServerDisplayFormatter {
     private val utcPattern = Regex("^(?:UTC|GMT)?\\s*([+-])(\\d{1,2})(?::?(\\d{2}))?$", RegexOption.IGNORE_CASE)
 
@@ -21,6 +23,6 @@ internal object ServerDisplayFormatter {
         val minutes = match.groupValues[3].ifBlank { "00" }.toIntOrNull() ?: return null
         if (hours !in 0..23 || minutes !in 0..59) return null
 
-        return String.format("%s%02d:%02d UTC", sign, hours, minutes)
+        return String.format(Locale.US, "%s%02d:%02d UTC", sign, hours, minutes)
     }
 }

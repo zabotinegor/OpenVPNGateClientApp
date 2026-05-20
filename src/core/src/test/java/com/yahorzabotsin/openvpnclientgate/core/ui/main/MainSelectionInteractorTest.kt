@@ -209,6 +209,44 @@ class MainSelectionInteractorTest {
         assertEquals("v2-fr", result.config)
     }
 
+    @Test
+    fun loadInitialSelection_v2_with_em_dash_placeholder_city_rehydrates_from_v2_servers() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "France",
+            listOf(
+                makeStoredServer(config = "legacy-fr", countryCode = "FR", ip = "1.2.3.4", city = "\u2014/\u2014")
+            )
+        )
+
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("FR", "France", 1)),
+            serversPerCountry = mapOf(
+                "FR" to listOf(
+                    ServerV2(
+                        ip = "1.2.3.4",
+                        countryCode = "FR",
+                        countryName = "France",
+                        configData = "v2-fr",
+                        city = "Paris",
+                        utc = "UTC+1"
+                    )
+                )
+            )
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNotNull(result)
+        assertEquals("Paris", result!!.city)
+        assertEquals("v2-fr", result.config)
+    }
+
     // TS-4: Position-like city when V2 repo is absent — falls back to stored selection as-is.
     @Test
     fun loadInitialSelection_v2_position_like_city_without_v2_repo_falls_back_to_stored() = runBlocking {

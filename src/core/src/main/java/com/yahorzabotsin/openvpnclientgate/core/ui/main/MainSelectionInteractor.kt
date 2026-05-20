@@ -148,6 +148,7 @@ class DefaultMainSelectionInteractor(
     private fun String.isPositionLikeCityText(): Boolean {
         val value = trim()
         if (value.isBlank()) return false
+        if (value == "\u2014/\u2014") return true
         if (value == "--/--") return true
         return serverPositionTextRegex.matches(value)
     }

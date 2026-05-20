@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.util.Locale
 
 /**
  * Unit tests for [ServerDisplayFormatter] formatting logic.
@@ -92,6 +93,17 @@ class ServerDisplayFormatterTest {
     @Test
     fun `formatUtc is case insensitive for prefix`() {
         assertEquals("+09:00 UTC", ServerDisplayFormatter.formatUtc("utc+9"))
+    }
+
+    @Test
+    fun `formatUtc uses locale independent digits`() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("ar", "EG"))
+            assertEquals("+09:00 UTC", ServerDisplayFormatter.formatUtc("UTC+9"))
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 
     // --------------- formatCityWithUtc ---------------
