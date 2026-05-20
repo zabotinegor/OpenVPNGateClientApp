@@ -1091,7 +1091,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         watchdogState.consecutiveFailures += 1
         AppLog.w(
             TAG,
-            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=false boundedExhaustedDetected=false failSafeDisconnectDetected=false attempts=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD}"
         )
 
         if (watchdogState.consecutiveFailures < WATCHDOG_FAILURE_THRESHOLD) return
@@ -1099,16 +1099,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (watchdogState.recoveryAttempts >= WATCHDOG_MAX_RECOVERY_ATTEMPTS) {
             AppLog.e(
                 TAG,
-                "Watchdog: bounded recovery exhausted; entering fail-safe disconnect thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=false boundedExhaustedDetected=true failSafeDisconnectDetected=true"
+                "Watchdog: bounded recovery exhausted; entering fail-safe disconnect"
             )
             triggerWatchdogFailSafeDisconnect("attempt_limit_reached")
-            return
-        }
-
-        val recoveryTarget = resolveWatchdogRecoveryTarget()
-        if (recoveryTarget == null) {
-            AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
-            triggerWatchdogFailSafeDisconnect("missing_recovery_target")
             return
         }
 
@@ -1117,8 +1110,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         watchdogState.lastRecoveryTimestamp = now
         AppLog.i(
             TAG,
-            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=${watchdogState.recoveryAttempts == 1} boundedExhaustedDetected=false failSafeDisconnectDetected=false recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
         )
+
+        val recoveryTarget = resolveWatchdogRecoveryTarget()
+        if (recoveryTarget == null) {
+            AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
+            triggerWatchdogFailSafeDisconnect("missing_recovery_target")
+            return
+        }
         try {
             watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
         } catch (e: Exception) {

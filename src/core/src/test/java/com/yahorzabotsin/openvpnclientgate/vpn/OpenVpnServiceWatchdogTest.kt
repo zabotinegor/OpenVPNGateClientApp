@@ -111,7 +111,8 @@ class OpenVpnServiceWatchdogTest {
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
 
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
-        assertTrue(logs.any { it.contains("thresholdCount=3/3") && it.contains("attemptOneDetected=true") })
+        assertTrue(logs.any { it.contains("Watchdog: unhealthy trafficDelta=0 probe=false") && it.contains("thresholdCount=3/3") })
+        assertTrue(logs.any { it.contains("Watchdog: threshold reached") && it.contains("recoveryAttempt=1/3") })
     }
 
     @Test
@@ -164,7 +165,29 @@ class OpenVpnServiceWatchdogTest {
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
 
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
-        assertTrue(logs.any { it.contains("bounded recovery exhausted") && it.contains("boundedExhaustedDetected=true") && it.contains("failSafeDisconnectDetected=true") })
+        assertTrue(logs.any { it.contains("bounded recovery exhausted; entering fail-safe disconnect") })
+        assertTrue(logs.any { it.contains("Watchdog: fail-safe disconnect reason=attempt_limit_reached") })
+    }
+
+    @Test
+    fun inducedDegradation_emitsConsistentMarkers() {
+        val service = buildConnectedService(nowMs = 100_000L)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
+
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("Watchdog: unhealthy trafficDelta=0 probe=false") })
+        assertTrue(logs.any { it.contains("thresholdCount=3/3") })
+
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 3)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        val updatedLogs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(updatedLogs.any { it.contains("Watchdog: threshold reached") })
+        assertTrue(updatedLogs.any { it.contains("recoveryAttempt=1/3") })
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {
