@@ -15,6 +15,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 
@@ -22,9 +23,11 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 @Config(manifest = Config.NONE)
 class OpenVpnServiceWatchdogTest {
     private val appContext = RuntimeEnvironment.getApplication()
+    private val logTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ":" + "OpenVpnService"
 
     @Before
     fun setUp() {
+        ShadowLog.clear()
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
@@ -32,6 +35,7 @@ class OpenVpnServiceWatchdogTest {
 
     @After
     fun tearDown() {
+        ShadowLog.clear()
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
@@ -105,6 +109,9 @@ class OpenVpnServiceWatchdogTest {
         assertEquals(1, recoveryDispatches)
         assertEquals("client\n", recoveryConfig)
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("thresholdCount=3/3") && it.contains("attemptOneDetected=true") })
     }
 
     @Test
@@ -155,6 +162,9 @@ class OpenVpnServiceWatchdogTest {
         invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
 
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("bounded recovery exhausted") && it.contains("boundedExhaustedDetected=true") && it.contains("failSafeDisconnectDetected=true") })
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {

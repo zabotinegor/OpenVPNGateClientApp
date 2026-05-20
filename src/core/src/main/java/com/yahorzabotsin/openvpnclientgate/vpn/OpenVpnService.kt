@@ -392,6 +392,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+                pauseActionInFlight = false
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
@@ -441,6 +445,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+                pauseActionInFlight = false
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
                     AppLog.d(TAG, "Preserving reconnect hint/state for retry stop")
@@ -1083,13 +1091,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         watchdogState.consecutiveFailures += 1
         AppLog.w(
             TAG,
-            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false failures=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attempts=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=false boundedExhaustedDetected=false failSafeDisconnectDetected=false attempts=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
         )
 
         if (watchdogState.consecutiveFailures < WATCHDOG_FAILURE_THRESHOLD) return
 
         if (watchdogState.recoveryAttempts >= WATCHDOG_MAX_RECOVERY_ATTEMPTS) {
-            AppLog.e(TAG, "Watchdog: bounded recovery exhausted; entering fail-safe disconnect")
+            AppLog.e(
+                TAG,
+                "Watchdog: bounded recovery exhausted; entering fail-safe disconnect thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=false boundedExhaustedDetected=true failSafeDisconnectDetected=true"
+            )
             triggerWatchdogFailSafeDisconnect("attempt_limit_reached")
             return
         }
@@ -1106,7 +1117,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         watchdogState.lastRecoveryTimestamp = now
         AppLog.i(
             TAG,
-            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} attemptOneDetected=${watchdogState.recoveryAttempts == 1} boundedExhaustedDetected=false failSafeDisconnectDetected=false recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
         )
         try {
             watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
@@ -1125,7 +1136,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         watchdogState.lastRecoveryTimestamp = 0L
         AppLog.iThrottled(
             TAG,
-            "Watchdog: healthy source=${source} trafficDelta=${trafficDeltaBytes} recovered=${hadRecoveryState}",
+            "Watchdog: healthy source=${source} trafficDelta=${trafficDeltaBytes} recovered=${hadRecoveryState} reconnectAfterRestore=${hadRecoveryState}",
             key = "watchdog-healthy-${source}-${hadRecoveryState}"
         )
     }
@@ -1179,6 +1190,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         userInitiatedStart = false
         userInitiatedStop = true
         ignoreConnectedUntilNotConnected = true
+        pauseActionInFlight = false
+        resumeActionInFlight = false
+        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
         requestStopIcsOpenVpn()
     }
