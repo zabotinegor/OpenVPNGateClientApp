@@ -353,6 +353,27 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `server selection result with null city does not update selected server`() = runTest {
+        val viewModel = createViewModel()
+
+        // State should remain with no selected server
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Japan",
+                    countryCode = "JP",
+                    city = null,  // null city → guard fails → selection is not applied
+                    config = "cfg-jp",
+                    ip = "1.2.3.4"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.selectedServer)
+    }
+
+    @Test
     fun `multi window mode updates details visibility in state`() = runTest {
         val viewModel = createViewModel()
 
