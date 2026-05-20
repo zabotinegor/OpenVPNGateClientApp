@@ -175,6 +175,29 @@ class ConnectionControlsPresenterTest {
     }
 
     @Test
+    fun `syncServer ignores em dash placeholder selected city and uses store city`() {
+        val store = FakeSelectionStore(
+            selectedCountry = "Belarus",
+            currentServer = StoredServer(city = "Minsk", config = "cfg-1", ip = "1.2.3.4", utc = "UTC+3"),
+            lastStarted = null,
+            lastSuccessfulIp = null,
+            position = null
+        )
+
+        val sync = presenter.syncServer(
+            selectionStore = store,
+            selectedCountry = "Belarus",
+            selectedCity = "\u2014/\u2014",
+            selectedServerIp = "1.2.3.4",
+            vpnConfig = "cfg-1"
+        )
+
+        assertNotNull(sync)
+        assertEquals("Minsk", sync?.cityText)
+        assertEquals("UTC+3", sync?.utc)
+    }
+
+    @Test
     fun `syncServer keeps city data while position stays separate in view`() {
         val store = FakeSelectionStore(
             selectedCountry = "Russia",

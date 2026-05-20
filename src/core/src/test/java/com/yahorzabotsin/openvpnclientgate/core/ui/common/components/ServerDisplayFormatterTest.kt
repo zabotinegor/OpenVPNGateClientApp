@@ -56,6 +56,11 @@ class ServerDisplayFormatterTest {
     }
 
     @Test
+    fun `formatUtc parses already formatted value with UTC suffix`() {
+        assertEquals("+07:00 UTC", ServerDisplayFormatter.formatUtc("+07:00 UTC"))
+    }
+
+    @Test
     fun `formatUtc parses offset with no colon separator`() {
         assertEquals("+05:30 UTC", ServerDisplayFormatter.formatUtc("UTC+530"))
     }

@@ -60,7 +60,7 @@ class DefaultMainSelectionInteractor(
         val stored = SelectedCountryStore.currentServer(appContext)
         if (stored != null) {
             val country = SelectedCountryStore.getSelectedCountry(appContext) ?: return null
-            if (stored.city.isPositionLikeCityText()) {
+            if (stored.city.isBlank() || stored.city.isPositionLikeCityText()) {
                 val hydrated = hydrateStoredSelectionFromV2(
                     selectedCountryName = country,
                     selectedCountryCode = stored.countryCode,

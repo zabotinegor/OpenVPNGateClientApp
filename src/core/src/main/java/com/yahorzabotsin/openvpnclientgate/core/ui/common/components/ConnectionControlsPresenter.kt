@@ -209,6 +209,7 @@ class ConnectionControlsPresenter(
         val trimmed = value.trim()
         if (trimmed.isEmpty()) return false
         if (trimmed == serverPositionPlaceholder) return false
+        if (trimmed == "\u2014/\u2014") return false
         if (trimmed == "--/--") return false
         return !serverPositionTextRegex.matches(trimmed)
     }

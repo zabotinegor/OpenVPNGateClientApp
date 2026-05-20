@@ -3,7 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 import java.util.Locale
 
 internal object ServerDisplayFormatter {
-    private val utcPattern = Regex("^(?:UTC|GMT)?\\s*([+-])(\\d{1,2})(?::?(\\d{2}))?$", RegexOption.IGNORE_CASE)
+    private val utcPattern = Regex("^(?:UTC|GMT)?\\s*([+-])(\\d{1,2})(?::?(\\d{2}))?\\s*(?:UTC)?$", RegexOption.IGNORE_CASE)
 
     fun formatCityWithUtc(city: String?, utc: String?): String? {
         val cityText = city?.trim().orEmpty()
