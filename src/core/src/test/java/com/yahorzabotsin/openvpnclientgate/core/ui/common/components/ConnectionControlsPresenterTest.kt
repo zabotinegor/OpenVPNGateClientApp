@@ -130,7 +130,7 @@ class ConnectionControlsPresenterTest {
     }
 
     @Test
-    fun `syncServer falls back to selected city when store city missing`() {
+    fun `syncServer does not fall back to selected city when store city missing`() {
         val store = FakeSelectionStore(
             selectedCountry = "Japan",
             currentServer = StoredServer(city = "", config = "cfg-1", ip = "1.2.3.4"),
@@ -148,7 +148,7 @@ class ConnectionControlsPresenterTest {
         )
 
         assertNotNull(sync)
-        assertEquals("Kyoto", sync?.cityText)
+        assertEquals("--/--", sync?.cityText)
     }
 
     @Test
