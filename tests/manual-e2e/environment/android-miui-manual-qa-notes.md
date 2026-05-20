@@ -86,3 +86,7 @@ Use this deterministic flow for source-specific fetch validation without UI flak
 - On some MIUI sessions, `:mobile:connectedDebugAndroidTest` can stall at `99% EXECUTING` after printing `Starting N tests ...`. If this happens, collect partial runner artifacts from `src/mobile/build/outputs/androidTest-results/connected/debug/` (XML + `testlog/test-results.log`) and terminate the stuck Gradle session before retrying.
 - In some sessions Gradle can also stall during daemon/configuration before tests start.
   - Workaround: run manual real-device observable flow above and attach screenshot + UI XML evidence.
+- `tests/manual-e2e/automation/run-mobile-pause-button-qa.ps1` may complete with PASS while expected PNG evidence files are missing on MIUI (`adb: failed to stat remote object '/sdcard/<name>.png'`).
+  - Workaround: treat the script result as execution status only, then verify screenshot presence explicitly and capture mandatory checkpoints with `adb exec-out screencap -p > manual-qa/<run-id>/<name>.png`.
+- In some MIUI runs, `run-mobile-pause-button-qa.ps1` can produce only a minimal `logcat-suite.txt` header because of strict tag filtering while stderr is dominated by `theme_compatibility.xml` noise.
+  - Workaround: keep the suite report as primary assertion evidence and run an additional unfiltered logcat capture (`adb logcat -d -t <N>`) when watchdog decision logs are required.
