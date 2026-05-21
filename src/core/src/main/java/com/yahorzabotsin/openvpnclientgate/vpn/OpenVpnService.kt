@@ -1435,20 +1435,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun triggerWatchdogFailSafeDisconnect(reason: String) {
         AppLog.e(TAG, "Watchdog: fail-safe disconnect reason=${reason}")
-        try {
-            ConnectionStateManager.setReconnectingHint(false)
-        } catch (e: Exception) {
-            AppLog.w(TAG, "Watchdog: failed to clear reconnecting hint before fail-safe disconnect", e)
-        }
-        userInitiatedStart = false
-        userInitiatedStop = true
-        ignoreConnectedUntilNotConnected = true
-        pauseActionInFlight = false
-        resumeActionInFlight = false
-        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
-        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
-        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
-        requestStopIcsOpenVpn()
+        startUserStopTeardown("watchdog_fail_safe", forceReset = true)
     }
 
     private fun performReachabilityProbe(host: String, port: Int, timeoutMs: Int): Boolean {

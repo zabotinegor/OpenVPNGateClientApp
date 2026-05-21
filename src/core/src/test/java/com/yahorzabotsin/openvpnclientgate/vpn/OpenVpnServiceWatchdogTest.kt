@@ -176,6 +176,7 @@ class OpenVpnServiceWatchdogTest {
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
         ReflectionHelpers.setField(watchdogState, "recoveryAttempts", 3)
+        ReflectionHelpers.setField(service, "stopAttempt", 3)
         ReflectionHelpers.setField(
             service,
             "engineBinder",
@@ -193,6 +194,8 @@ class OpenVpnServiceWatchdogTest {
         invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
 
         assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+        assertEquals(1, ReflectionHelpers.getField<Int>(service, "stopAttempt"))
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "userInitiatedStop"))
 
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("bounded recovery exhausted; entering fail-safe disconnect") })
