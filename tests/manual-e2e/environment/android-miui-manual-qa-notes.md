@@ -90,3 +90,10 @@ Use this deterministic flow for source-specific fetch validation without UI flak
   - Workaround: treat the script result as execution status only, then verify screenshot presence explicitly and capture mandatory checkpoints with `adb exec-out screencap -p > manual-qa/<run-id>/<name>.png`.
 - In some MIUI runs, `run-mobile-pause-button-qa.ps1` can produce only a minimal `logcat-suite.txt` header because of strict tag filtering while stderr is dominated by `theme_compatibility.xml` noise.
   - Workaround: keep the suite report as primary assertion evidence and run an additional unfiltered logcat capture (`adb logcat -d -t <N>`) when watchdog decision logs are required.
+- For US-10 phase-2 watchdog validation, `adb shell svc wifi disable; adb shell svc data disable` and a bogus `http_proxy` both collapsed the tunnel before watchdog markers appeared.
+  - Workaround: use a false-connected degradation path that preserves the VPN tunnel and only breaks the trusted probe path; the straightforward radio/proxy disables are too strong on this device.
+- In some MIUI sessions, phase-2 watchdog scripts that poll `uiautomator dump` can enter a noisy non-terminating loop (`theme_compatibility.xml` FileNotFoundException spam) and produce no scenario artifacts.
+  - Workaround: replace or gate UI polling with `dumpsys activity activities` readiness checks, treat `uiautomator` stderr as non-fatal only when XML output is confirmed, and stop the run when output directory remains empty after readiness timeout.
+- For the US-10 phase-2 watchdog retest on Mi 9 SE, the validated connect tap on the 1080x2340 display was `input tap 540 2100`.
+  - The server picker loaded successfully after moving to the V2 source, but touch-only country selection remained flaky and the baseline run still fell back to the Australia server (`202.65.78.119`) without reaching CONNECTED.
+  - When a retest must prove the watchdog markers, prefer a known-good server/source setup first and verify the active server in logcat before starting the 180s baseline wait.
