@@ -119,6 +119,37 @@ class OpenVpnServiceWatchdogTest {
     }
 
     @Test
+    fun shouldForceConnectedState_requiresVerifiedTrafficEvidence() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val withoutSample = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "shouldForceConnectedState",
+            ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_CONNECTED),
+            ClassParameter.from(Boolean::class.javaPrimitiveType!!, false),
+            ClassParameter.from(Long::class.javaPrimitiveType!!, 0L)
+        )
+        val withLowDelta = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "shouldForceConnectedState",
+            ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_CONNECTED),
+            ClassParameter.from(Boolean::class.javaPrimitiveType!!, true),
+            ClassParameter.from(Long::class.javaPrimitiveType!!, 32L)
+        )
+        val withHealthyDelta = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "shouldForceConnectedState",
+            ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_CONNECTED),
+            ClassParameter.from(Boolean::class.javaPrimitiveType!!, true),
+            ClassParameter.from(Long::class.javaPrimitiveType!!, 512L)
+        )
+
+        assertFalse(withoutSample)
+        assertFalse(withLowDelta)
+        assertTrue(withHealthyDelta)
+    }
+
+    @Test
     fun executeWatchdogProbe_rethrowsCancellationException() {
         val service = buildConnectedService(nowMs = 67_000L)
         ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int ->

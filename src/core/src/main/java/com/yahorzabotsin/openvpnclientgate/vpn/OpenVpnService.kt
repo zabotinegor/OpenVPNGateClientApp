@@ -1266,9 +1266,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     }
                 }
 
-                // If engine reports connected and traffic is healthy, but state is not CONNECTED, force CONNECTED
+                // Only force CONNECTED when we have verified health evidence from traffic samples.
                 val engineLevel = ConnectionStateManager.engineLevel.value
-                if (engineLevel == de.blinkt.openvpn.core.ConnectionStatus.LEVEL_CONNECTED &&
+                if (shouldForceConnectedState(engineLevel, sampleAdvanced, trafficDelta) &&
                     ConnectionStateManager.state.value != ConnectionState.CONNECTED &&
                     !pauseActionInFlight && !resumeActionInFlight && !userInitiatedStop) {
                     AppLog.i(TAG, "Hardened: Forcing CONNECTED state after engine connected and healthy traffic")
@@ -1286,6 +1286,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
             trafficHandler.postDelayed(this, WATCHDOG_POLL_INTERVAL_MS)
         }
+    }
+
+    private fun shouldForceConnectedState(
+        engineLevel: ConnectionStatus?,
+        sampleAdvanced: Boolean,
+        trafficDeltaBytes: Long
+    ): Boolean {
+        return engineLevel == ConnectionStatus.LEVEL_CONNECTED &&
+            sampleAdvanced &&
+            trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES
     }
 
     private fun evaluateConnectedHealth(sampleAdvanced: Boolean, trafficDeltaBytes: Long) {
