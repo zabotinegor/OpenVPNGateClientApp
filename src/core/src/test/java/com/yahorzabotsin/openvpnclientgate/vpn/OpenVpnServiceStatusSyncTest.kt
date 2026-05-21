@@ -234,6 +234,50 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun failedStopThenFreshStart_doesNotReusePendingStopIntentOnConnectedCallbacks() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        val failingStopBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun protect(fd: Int) = false
+            override fun userPause(b: Boolean) {}
+            override fun stopVPN(replaceConnection: Boolean) = false
+            override fun addAllowedExternalApp(packagename: String?) {}
+            override fun isAllowedExternalApp(packagename: String?) = false
+            override fun challengeResponse(repsonse: String?) {}
+        }
+        ReflectionHelpers.setField(service, "engineBinder", failingStopBinder)
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        val stopIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP)
+        }
+        service.onStartCommand(stopIntent, 0, 1)
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        val prefs = appContext.getSharedPreferences("vpn_stop_teardown", android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.getBoolean("pending_stop_intent", false))
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+
+        val startIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(startIntent, 0, 2)
+
+        val refreshedPrefs = appContext.getSharedPreferences("vpn_stop_teardown", android.content.Context.MODE_PRIVATE)
+        assertFalse(refreshedPrefs.getBoolean("pending_stop_intent", false))
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+        callbacks.updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ReflectionHelpers.getField(service, "userInitiatedStop"))
+    }
+
+    @Test
     fun forwardsPauseActionToEngineService() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()

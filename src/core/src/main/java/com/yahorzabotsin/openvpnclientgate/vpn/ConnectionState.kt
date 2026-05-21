@@ -44,7 +44,11 @@ object ConnectionStateManager {
         ConnectionState.DISCONNECTING,
         ConnectionState.DISCONNECTED
     )
-    private val allowedFromDisconnecting = setOf(ConnectionState.DISCONNECTED)
+    private val allowedFromDisconnecting = setOf(
+        ConnectionState.CONNECTING,
+        ConnectionState.CONNECTED,
+        ConnectionState.DISCONNECTED
+    )
     internal val engineTeardownDetails = setOf("NOPROCESS", "EXITING", "DISCONNECTED")
     @Volatile
     private var resumeTransitionInFlight = false

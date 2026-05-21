@@ -245,7 +245,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun hasPendingStopIntent(): Boolean = stopPrefs.getBoolean(PREF_PENDING_STOP_INTENT, false)
 
     private fun persistPendingStopIntent(pending: Boolean) {
-        stopPrefs.edit().putBoolean(PREF_PENDING_STOP_INTENT, pending).apply()
+        stopPrefs.edit().putBoolean(PREF_PENDING_STOP_INTENT, pending).commit()
     }
 
     private fun incrementStopFailureCounter(): Int {
@@ -557,6 +557,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 AppLog.i(TAG, "ACTION_START")
+                stopAwaitingConfirmation = false
+                stopBindPending = false
+                stopLastFailureReason = null
+                stopRequestId = null
+                userInitiatedStop = false
+                ignoreConnectedUntilNotConnected = false
+                statusHandler.removeCallbacks(stopRetryRunnable)
+                statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+                statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+                ConnectionStateManager.clearStopFailure()
+                if (hasPendingStopIntent()) {
+                    persistPendingStopIntent(false)
+                    AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START")
+                }
                 if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
@@ -569,9 +583,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
-                userInitiatedStop = false
-                ignoreConnectedUntilNotConnected = false
-                ConnectionStateManager.clearStopFailure()
+                if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTING) {
+                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                }
                 val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
                 try {
                     ConnectionStateManager.setReconnectingHint(isReconnect)
