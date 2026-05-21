@@ -17,11 +17,12 @@ Do not start implementation before reading `.sdlc/status.json` and verifying pri
 ## SDLC handoff metadata
 
 - Flow status path: `.sdlc/status.json`
-- Selected flow ID: `dev::US-10`
+- Selected flow ID: `feature/us-10-connected-state-health-watchdog-and-auto-recovery::US-10`
+- Active branch: `feature/us-10-connected-state-health-watchdog-and-auto-recovery`
 - Required prior step for story phase: none (story is the first required step)
 - Bug-intake routing note: no existing flow matched this defect class; missing prior flow metadata was handled by creating this new story flow from retained Manual QA evidence
 - Story status update command:
-  - `.github/scripts/update-sdlc-status.ps1 -FlowId "dev::US-10" -Branch "dev" -Step "story" -Status "ready" -StoryId "US-10" -StoryPath "docs/userstories/US-10-connected-state-health-watchdog-and-auto-recovery.md" -Evidence "docs/userstories/US-10-connected-state-health-watchdog-and-auto-recovery.md"`
+  - `.github/scripts/update-sdlc-status.ps1 -FlowId "feature/us-10-connected-state-health-watchdog-and-auto-recovery::US-10" -Branch "feature/us-10-connected-state-health-watchdog-and-auto-recovery" -Step "story" -Status "ready" -StoryId "US-10" -StoryPath "docs/userstories/US-10-connected-state-health-watchdog-and-auto-recovery.md" -Evidence "docs/userstories/US-10-connected-state-health-watchdog-and-auto-recovery.md"`
 
 ## Background
 
@@ -90,7 +91,7 @@ Do not start implementation before reading `.sdlc/status.json` and verifying pri
 | R-2 | Aggressive retries could interrupt valid sessions. | Add bounded retry policy and cooldown interval. |
 | R-3 | Vendor-specific Android networking behavior may differ by device/OEM. | Include OEM-focused manual QA scenario on MIUI real device and preserve detailed diagnostics. |
 | R-4 | Reachability check target choice may be brittle. | Use existing trusted endpoint strategy already configured in app runtime; avoid hardcoded ad-hoc hosts. |
-| R-5 | Missing historical flow metadata for this bug-intake could reduce traceability. | New flow `dev::US-10` starts from retained bug evidence and records artifacts in SDLC evidence fields. |
+| R-5 | Missing historical flow metadata for this bug-intake could reduce traceability. | Active flow `feature/us-10-connected-state-health-watchdog-and-auto-recovery::US-10` records retained bug evidence and SDLC artifacts. |
 
 ## Implementation notes
 

@@ -186,11 +186,16 @@ For more details on the performance baseline and validation evidence, refer to t
 - If VPN is connected, server refresh is locked to cache.
 - DNS provider selection is applied on next VPN connection.
 - Auto-switch within selected country with stall timeout settings.
+- Connected-state health watchdog evaluates traffic delta and trusted endpoint probe while connected.
+- Sustained unhealthy connected state triggers bounded auto-recovery with cooldown/debounce; success resets watchdog counters and reconnecting hints.
+- Recovery retry exhaustion transitions to a deterministic fail-safe disconnect state instead of indefinite false-connected presentation.
+- A fresh start action clears stale pending-stop intent so previous stop teardown state cannot suppress a new user start.
 - Shared package/application ID across mobile and tv modules.
 
 ## Logging and Diagnostics
 - Screen flow logs and VPN session logs are written via app logging trees.
 - Startup fallback paths (for example, splash preload or splash GIF load failures) are recorded as warning-level logs.
+- Watchdog decision logs include privacy-safe context for unhealthy thresholds, recovery attempt index, and healthy recovery restoration.
 - About screen supports exporting recent logcat archive for diagnostics.
 
 ## AI Agent Documentation
