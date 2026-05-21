@@ -32,6 +32,7 @@ import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -240,7 +241,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!userInitiatedStop || !stopBindPending) return@Runnable
         stopBindPending = false
         stopLastFailureReason = "bind_timeout"
-        AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=${stopAttempt + 1} dispatch=not_sent reason=bind_timeout")
+        stopAttempt += 1
+        AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=not_sent reason=bind_timeout")
         scheduleStopRetryOrFail("bind_timeout")
     }
 
@@ -845,7 +847,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Binding engine to stop: $bound")
             if (!bound) {
                 stopLastFailureReason = "bind_failed"
-                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=${stopAttempt + 1} dispatch=not_sent reason=bind_failed")
+                stopAttempt += 1
+                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=not_sent reason=bind_failed")
                 scheduleStopRetryOrFail("bind_failed")
                 return
             }
@@ -1319,16 +1322,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         watchdogProbeJob = serviceScope.launch(watchdogProbeDispatcher) {
-            val probeSucceeded = runCatching {
-                watchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
-            }.getOrElse { error ->
-                AppLog.w(TAG, "Watchdog: probe failed with exception", error)
-                false
-            }
+            val probeSucceeded = executeWatchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
             statusHandler.post {
                 if (ConnectionStateManager.state.value != ConnectionState.CONNECTED) return@post
                 handleConnectedProbeResult(probeSucceeded, trafficDeltaBytes)
             }
+        }
+    }
+
+    private fun executeWatchdogProbe(host: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            watchdogProbe(host, port, timeoutMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Watchdog: probe failed with exception", e)
+            false
         }
     }
 

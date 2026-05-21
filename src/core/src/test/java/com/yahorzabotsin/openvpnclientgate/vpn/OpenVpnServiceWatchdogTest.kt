@@ -8,6 +8,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,6 +21,7 @@ import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 import kotlinx.coroutines.CoroutineDispatcher
+import java.util.concurrent.CancellationException
 import java.net.ServerSocket
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
@@ -114,6 +116,24 @@ class OpenVpnServiceWatchdogTest {
 
         assertEquals(0, queuedDispatcher.size())
         assertTrue(ReflectionHelpers.getField<Int>(watchdogState, "consecutiveFailures") >= 2)
+    }
+
+    @Test
+    fun executeWatchdogProbe_rethrowsCancellationException() {
+        val service = buildConnectedService(nowMs = 67_000L)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int ->
+            throw CancellationException("cancelled")
+        } as (String, Int, Int) -> Boolean))
+
+        assertThrows(CancellationException::class.java) {
+            ReflectionHelpers.callInstanceMethod<Boolean>(
+                service,
+                "executeWatchdogProbe",
+                ClassParameter.from(String::class.java, "127.0.0.1"),
+                ClassParameter.from(Int::class.javaPrimitiveType!!, 443),
+                ClassParameter.from(Int::class.javaPrimitiveType!!, 200)
+            )
+        }
     }
 
     @Test

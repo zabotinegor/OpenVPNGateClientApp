@@ -146,6 +146,25 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun stopBindTimeoutCountsTowardRetryLimitAndMarksFailure() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        ReflectionHelpers.setField(service, "userInitiatedStop", true)
+        ReflectionHelpers.setField(service, "stopBindPending", true)
+        ReflectionHelpers.setField(service, "stopAttempt", 2)
+        ReflectionHelpers.setField(service, "stopLastFailureReason", null)
+        ReflectionHelpers.setField(service, "stopRequestId", "bind1234")
+
+        val timeoutRunnable = ReflectionHelpers.getField<Runnable>(service, "stopBindTimeoutRunnable")
+        timeoutRunnable.run()
+
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+        assertEquals(3, ReflectionHelpers.getField<Int>(service, "stopAttempt"))
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "stopBindPending"))
+    }
+
+    @Test
     fun userStopAfterStopFailed_resetsAttemptCounterAndDispatchesAgain() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
