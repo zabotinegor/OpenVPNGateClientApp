@@ -1000,42 +1000,53 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     lastPolledState = currentState
                 }
 
-                if (currentState == ConnectionState.CONNECTED) {
-                    val trafficBinder = statusBinder
-                    var sampleAdvanced = false
-                    var trafficDelta = 0L
-                    if (trafficBinder != null) {
-                        val history = try {
-                            trafficBinder.trafficHistory
-                        } catch (_: Exception) {
-                            null
-                        }
+                // Harden baseline CONNECTED state establishment
+                val trafficBinder = statusBinder
+                var sampleAdvanced = false
+                var trafficDelta = 0L
+                if (trafficBinder != null) {
+                    val history = try {
+                        trafficBinder.trafficHistory
+                    } catch (_: Exception) {
+                        null
+                    }
 
-                        if (history != null) {
-                            val seconds = history.seconds
-                            val minutes = history.minutes
-                            val hours = history.hours
-                            val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
-                            if (nonEmptyLists.isNotEmpty()) {
-                                val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
-                                val previous = lastPolledDatapoint
+                    if (history != null) {
+                        val seconds = history.seconds
+                        val minutes = history.minutes
+                        val hours = history.hours
+                        val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
+                        if (nonEmptyLists.isNotEmpty()) {
+                            val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
+                            val previous = lastPolledDatapoint
 
-                                if (previous != null && latest.timestamp > previous.timestamp) {
-                                    sampleAdvanced = true
-                                    val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
-                                    val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
-                                    trafficDelta = diffIn + diffOut
-                                    val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
-                                    val bitsPerSec = (trafficDelta * 8.0) * (1000.0 / deltaMs.toDouble())
-                                    val mbps = bitsPerSec / 1_000_000.0
-                                    ConnectionStateManager.updateSpeedMbps(mbps)
-                                }
-
-                                ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
-                                lastPolledDatapoint = latest
+                            if (previous != null && latest.timestamp > previous.timestamp) {
+                                sampleAdvanced = true
+                                val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
+                                val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
+                                trafficDelta = diffIn + diffOut
+                                val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
+                                val bitsPerSec = (trafficDelta * 8.0) * (1000.0 / deltaMs.toDouble())
+                                val mbps = bitsPerSec / 1_000_000.0
+                                ConnectionStateManager.updateSpeedMbps(mbps)
                             }
+
+                            ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
+                            lastPolledDatapoint = latest
                         }
                     }
+                }
+
+                // If engine reports connected and traffic is healthy, but state is not CONNECTED, force CONNECTED
+                val engineLevel = ConnectionStateManager.engineLevel.value
+                if (engineLevel == de.blinkt.openvpn.core.ConnectionStatus.LEVEL_CONNECTED &&
+                    ConnectionStateManager.state.value != ConnectionState.CONNECTED &&
+                    !pauseActionInFlight && !resumeActionInFlight && !userInitiatedStop) {
+                    AppLog.i(TAG, "Hardened: Forcing CONNECTED state after engine connected and healthy traffic")
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                }
+
+                if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
                     evaluateConnectedHealth(sampleAdvanced = sampleAdvanced, trafficDeltaBytes = trafficDelta)
                 }
             } catch (e: Exception) {

@@ -190,6 +190,40 @@ class OpenVpnServiceWatchdogTest {
         assertTrue(updatedLogs.any { it.contains("recoveryAttempt=1/3") })
     }
 
+    @Test
+    fun sustainedFailures_triggerRecoveryAndFailSafe() {
+        var nowMs = 100_000L
+        val service = buildConnectedService(nowMs = nowMs)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ nowMs } as () -> Long))
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        var recoveryDispatches = 0
+        ReflectionHelpers.setField(service, "watchdogRecoveryStarter", ({ _: Context, _: String, _: String? -> recoveryDispatches++ } as (Context, String, String?) -> Unit))
+        val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
+
+        // Simulate sustained failures
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
+        ReflectionHelpers.setField(watchdogState, "recoveryAttempts", 0)
+
+        // Trigger health evaluation
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        // Verify recovery triggered
+        assertEquals(1, ReflectionHelpers.getField<Int>(watchdogState, "recoveryAttempts"))
+        assertEquals(1, recoveryDispatches)
+
+        // Simulate reaching retry limit
+        nowMs += 20_000L
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
+        ReflectionHelpers.setField(watchdogState, "recoveryAttempts", 3)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        // Verify fail-safe disconnect triggered
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("Watchdog: bounded recovery exhausted; entering fail-safe disconnect") })
+        assertTrue(logs.any { it.contains("Watchdog: fail-safe disconnect reason=attempt_limit_reached") })
+    }
+
     private fun buildConnectedService(nowMs: Long): OpenVpnService {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()

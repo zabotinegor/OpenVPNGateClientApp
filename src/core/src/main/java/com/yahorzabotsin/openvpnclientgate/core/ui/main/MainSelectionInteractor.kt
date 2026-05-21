@@ -1,13 +1,17 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectionBootstrap
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Repository
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.toLegacyServer
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.CancellationException
 
 interface MainSelectionInteractor {
     suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection?
@@ -27,6 +31,7 @@ class DefaultMainSelectionInteractor(
     private val serversV2Repository: ServersV2Repository? = null
 ) : MainSelectionInteractor {
     private companion object {
+        private val TAG = LogTags.APP + ":MainSelectionInteractor"
         private val serverPositionTextRegex = Regex("^\\d+/\\d+$")
     }
 
@@ -79,16 +84,14 @@ class DefaultMainSelectionInteractor(
             )
         }
         val repo = serversV2Repository ?: return null
-        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
+        val countries = loadV2CountriesOrNull(repo, cacheOnly) ?: return null
         if (countries.isEmpty()) return null
         val firstCountry = countries.first()
-        val v2Servers = repo.getServersForCountry(
-            context = appContext,
-            countryCode = firstCountry.code,
-            serverCount = firstCountry.serverCount,
-            forceRefresh = false,
+        val v2Servers = loadV2ServersOrNull(
+            repo = repo,
+            country = firstCountry,
             cacheOnly = cacheOnly
-        )
+        ) ?: return null
         if (v2Servers.isEmpty()) return null
         val legacyServers = v2Servers.map { it.toLegacyServer() }
         SelectedCountryStore.saveSelection(appContext, firstCountry.name, legacyServers)
@@ -102,6 +105,41 @@ class DefaultMainSelectionInteractor(
         )
     }
 
+    private suspend fun loadV2CountriesOrNull(
+        repo: ServersV2Repository,
+        cacheOnly: Boolean
+    ): List<CountryV2>? {
+        return try {
+            repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "DEFAULT_V2 startup country load failed", e)
+            null
+        }
+    }
+
+    private suspend fun loadV2ServersOrNull(
+        repo: ServersV2Repository,
+        country: CountryV2,
+        cacheOnly: Boolean
+    ): List<com.yahorzabotsin.openvpnclientgate.core.servers.ServerV2>? {
+        return try {
+            repo.getServersForCountry(
+                context = appContext,
+                countryCode = country.code,
+                serverCount = country.serverCount,
+                forceRefresh = false,
+                cacheOnly = cacheOnly
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "DEFAULT_V2 startup server load failed for country=${country.code}", e)
+            null
+        }
+    }
+
     private suspend fun hydrateStoredSelectionFromV2(
         selectedCountryName: String,
         selectedCountryCode: String?,
@@ -110,20 +148,14 @@ class DefaultMainSelectionInteractor(
         cacheOnly: Boolean
     ): InitialSelection? {
         val repo = serversV2Repository ?: return null
-        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
+        val countries = loadV2CountriesOrNull(repo, cacheOnly) ?: return null
         val country = selectedCountryCode
             ?.takeIf { it.isNotBlank() }
             ?.let { code -> countries.firstOrNull { it.code.equals(code, ignoreCase = true) } }
             ?: countries.firstOrNull { it.name.equals(selectedCountryName, ignoreCase = true) }
             ?: return null
 
-        val servers = repo.getServersForCountry(
-            context = appContext,
-            countryCode = country.code,
-            serverCount = country.serverCount,
-            forceRefresh = false,
-            cacheOnly = cacheOnly
-        )
+        val servers = loadV2ServersOrNull(repo, country, cacheOnly) ?: return null
         if (servers.isEmpty()) return null
 
         val legacyServers = servers.map { it.toLegacyServer() }

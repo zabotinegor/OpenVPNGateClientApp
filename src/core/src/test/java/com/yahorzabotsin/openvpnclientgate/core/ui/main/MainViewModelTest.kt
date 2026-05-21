@@ -74,6 +74,37 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `load initial selection does not log error when interactor safely returns null`() = runTest {
+        var errorCalls = 0
+        val logger = object : MainLogger {
+            override fun logInitialSelectionLoaded(selection: InitialSelection) = Unit
+            override fun logInitialSelectionError(error: Exception) {
+                errorCalls += 1
+            }
+            override fun logWhatsNewLoaded(release: MainWhatsNew) = Unit
+            override fun logWhatsNewUnavailable() = Unit
+            override fun logWhatsNewLoadError(error: Exception) = Unit
+            override fun logUpdateLoaded(update: MainAvailableUpdate) = Unit
+            override fun logUpdateUnavailable() = Unit
+            override fun logUpdateLoadError(error: Exception) = Unit
+            override fun logServerSelectionApplied(selection: SelectedServerResult) = Unit
+            override fun logIncompleteServerSelection(selection: SelectedServerResult) = Unit
+        }
+
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(initialSelection = null),
+            connectionState = ConnectionState.DISCONNECTED,
+            logger = logger
+        )
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        assertEquals(0, errorCalls)
+        assertNull(viewModel.state.value.selectedServer)
+    }
+
+    @Test
     fun `load initial selection keeps whats new and update independent`() = runTest {
         val versionReleaseInteractor = FakeVersionReleaseInteractor(latest = sampleRelease())
         val updateCheckInteractor = FakeUpdateCheckInteractor(latest = sampleUpdate())

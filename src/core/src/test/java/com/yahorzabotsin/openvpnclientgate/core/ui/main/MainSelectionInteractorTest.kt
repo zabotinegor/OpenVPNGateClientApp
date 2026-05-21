@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.io.IOException
 
 /**
  * Unit tests for DEFAULT_V2 initial selection parity (AC-1, TS-1, TS-2).
@@ -386,6 +387,69 @@ class MainSelectionInteractorTest {
         val result = interactor.loadInitialSelection(cacheOnly = false)
 
         assertNull(result)
+    }
+
+    @Test
+    fun loadInitialSelection_v2_network_failure_returns_null_without_throw() = runBlocking {
+        val v2Api = object : ServersV2Api {
+            override suspend fun getCountries(locale: String): List<CountryV2> {
+                throw IOException("network unavailable")
+            }
+
+            override suspend fun getServers(
+                locale: String,
+                countryCode: String,
+                isActive: Boolean,
+                skip: Int,
+                take: Int
+            ): ServersPageResponse {
+                throw AssertionError("servers should not be requested when countries fail")
+            }
+        }
+        val v2Repo = ServersV2Repository(v2Api)
+        val serverRepo = ServerRepository(EmptyCsvApi())
+        val interactor = DefaultMainSelectionInteractor(context, serverRepo, v2Repo)
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNull(result)
+    }
+
+    @Test
+    fun loadInitialSelection_v2_stored_selection_survives_country_fetch_failure() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "Japan",
+            listOf(
+                makeStoredServer(config = "cfg-jp", countryCode = "JP", ip = "5.5.5.5", city = "Tokyo")
+            )
+        )
+
+        val v2Api = object : ServersV2Api {
+            override suspend fun getCountries(locale: String): List<CountryV2> {
+                throw IOException("network unavailable")
+            }
+
+            override suspend fun getServers(
+                locale: String,
+                countryCode: String,
+                isActive: Boolean,
+                skip: Int,
+                take: Int
+            ): ServersPageResponse {
+                throw AssertionError("servers should not be requested when stored selection is reused")
+            }
+        }
+        val v2Repo = ServersV2Repository(v2Api)
+        val serverRepo = ServerRepository(EmptyCsvApi())
+        val interactor = DefaultMainSelectionInteractor(context, serverRepo, v2Repo)
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNotNull(result)
+        assertEquals("Japan", result!!.country)
+        assertEquals("cfg-jp", result.config)
+        assertEquals("5.5.5.5", result.ip)
     }
 
     // --------------- helpers ---------------

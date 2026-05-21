@@ -207,6 +207,22 @@ class ServerListViewModelTest {
     }
 
     @Test
+    fun `init_v2_source_network_no_cache_error_is_suppressed`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = IOException("getCountries[locale=ru]: network failed and no cache available")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val logger = CountingLogger()
+        val vm = ServerListViewModel(interactor, connection, logger)
+
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.countries.size)
+        assertEquals(0, logger.loadErrorCalls)
+    }
+
+    @Test
     fun `paused state is treated as vpn connected`() = runTest {
         val interactor = FakeInteractor(loaded = emptyList())
         val connection = FakeConnectionProvider(ConnectionState.PAUSED)
@@ -278,6 +294,19 @@ class ServerListViewModelTest {
     private class FakeLogger : ServerListLogger {
         override fun logLoadSuccess(count: Int) = Unit
         override fun logLoadError(error: Exception) = Unit
+        override fun logNoServers(countryName: String) = Unit
+        override fun logSelectionError(countryName: String, error: Exception) = Unit
+    }
+
+    private class CountingLogger : ServerListLogger {
+        var loadErrorCalls: Int = 0
+
+        override fun logLoadSuccess(count: Int) = Unit
+
+        override fun logLoadError(error: Exception) {
+            loadErrorCalls += 1
+        }
+
         override fun logNoServers(countryName: String) = Unit
         override fun logSelectionError(countryName: String, error: Exception) = Unit
     }
