@@ -32,9 +32,11 @@ import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -170,12 +172,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     )
     private var watchdogState = HealthWatchdogState()
     internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
+    internal var watchdogProbeDispatcher: CoroutineDispatcher = Dispatchers.IO
     internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
         performReachabilityProbe(host, port, timeoutMs)
     }
     internal var watchdogRecoveryStarter: (Context, String, String?) -> Unit = { ctx, config, title ->
         ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
     }
+    private var watchdogProbeJob: Job? = null
     
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
@@ -260,8 +264,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return next
     }
 
-    private fun startUserStopTeardown(reason: String) {
-        if (!userInitiatedStop) {
+    private fun startUserStopTeardown(reason: String, forceReset: Boolean = false) {
+        if (!userInitiatedStop || forceReset) {
             userInitiatedStop = true
             userInitiatedStart = false
             ignoreConnectedUntilNotConnected = true
@@ -645,7 +649,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
                     requestStopIcsOpenVpn()
                 } else {
-                    startUserStopTeardown("user_action")
+                    startUserStopTeardown("user_action", forceReset = true)
                 }
             }
             VpnManager.ACTION_STOP_IF_IDLE -> {
@@ -1303,19 +1307,33 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return
         }
 
+        if (watchdogProbeJob?.isActive == true) {
+            AppLog.dThrottled(TAG, "Watchdog: probe already in flight", key = "watchdog-probe-in-flight")
+            return
+        }
+
         val probeTarget = resolveWatchdogProbeTarget()
         if (probeTarget == null) {
             AppLog.w(TAG, "Watchdog: trusted probe target unavailable; skipping probe")
             return
         }
 
-        val probeSucceeded = runCatching {
-            watchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
-        }.getOrElse { error ->
-            AppLog.w(TAG, "Watchdog: probe failed with exception", error)
-            false
+        watchdogProbeJob = serviceScope.launch(watchdogProbeDispatcher) {
+            val probeSucceeded = runCatching {
+                watchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
+            }.getOrElse { error ->
+                AppLog.w(TAG, "Watchdog: probe failed with exception", error)
+                false
+            }
+            statusHandler.post {
+                if (ConnectionStateManager.state.value != ConnectionState.CONNECTED) return@post
+                handleConnectedProbeResult(probeSucceeded, trafficDeltaBytes)
+            }
         }
+    }
 
+    private fun handleConnectedProbeResult(probeSucceeded: Boolean, trafficDeltaBytes: Long) {
+        val now = watchdogNowMs()
         if (probeSucceeded) {
             markWatchdogHealthy(now, "probe", trafficDeltaBytes)
             return
@@ -1375,6 +1393,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun resetHealthWatchdog(nowMs: Long = 0L) {
+        watchdogProbeJob?.cancel()
+        watchdogProbeJob = null
         watchdogState = if (nowMs > 0L) {
             HealthWatchdogState(
                 connectedSinceMs = nowMs,

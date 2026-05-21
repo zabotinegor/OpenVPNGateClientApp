@@ -146,6 +146,49 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun userStopAfterStopFailed_resetsAttemptCounterAndDispatchesAgain() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        val failingBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun protect(fd: Int) = false
+            override fun userPause(b: Boolean) {}
+            override fun stopVPN(replaceConnection: Boolean) = false
+            override fun addAllowedExternalApp(packagename: String?) {}
+            override fun isAllowedExternalApp(packagename: String?) = false
+            override fun challengeResponse(repsonse: String?) {}
+        }
+        ReflectionHelpers.setField(service, "engineBinder", failingBinder)
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        val stopIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP)
+        }
+        service.onStartCommand(stopIntent, 0, 1)
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+        assertEquals(3, ReflectionHelpers.getField<Int>(service, "stopAttempt"))
+
+        val succeedingBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun protect(fd: Int) = false
+            override fun userPause(b: Boolean) {}
+            override fun stopVPN(replaceConnection: Boolean) = true
+            override fun addAllowedExternalApp(packagename: String?) {}
+            override fun isAllowedExternalApp(packagename: String?) = false
+            override fun challengeResponse(repsonse: String?) {}
+        }
+        ReflectionHelpers.setField(service, "engineBinder", succeedingBinder)
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        service.onStartCommand(stopIntent, 0, 2)
+
+        assertEquals(ConnectionStateManager.VpnError.NONE, ConnectionStateManager.error.value)
+        assertEquals(1, ReflectionHelpers.getField<Int>(service, "stopAttempt"))
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "stopAwaitingConfirmation"))
+    }
+
+    @Test
     fun userStopRequiresEngineConfirmationBeforeDisconnected() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
