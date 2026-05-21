@@ -73,3 +73,12 @@ Entry template:
 - Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
 - Last validated: 2026-05-21
 - Notes: Country selection by touch was flaky on this MIUI device; V2 server list loading worked, but the baseline server still did not reach CONNECTED.
+
+## MIUI stale-stop pref simulation write path
+- Service repo: zabotinegor/OpenVPNGateClientApp
+- Surface: android
+- When to use: Manual QA needs to simulate stale `pending_stop_intent` for stop/start carry-over validation and `run-as ... sh -c "cat ... > shared_prefs/..."` fails.
+- Reusable workaround/setup: use `run-as ... tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/vpn_stop_teardown.xml` and verify via `run-as ... cat shared_prefs/vpn_stop_teardown.xml`; avoid fragile chained wrappers that can miscompose `adb shell am` calls.
+- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
+- Last validated: 2026-05-21
+- Notes: Observed during US-10 stale pending-stop remediation QA on Mi 9 SE.

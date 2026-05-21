@@ -97,3 +97,7 @@ Use this deterministic flow for source-specific fetch validation without UI flak
 - For the US-10 phase-2 watchdog retest on Mi 9 SE, the validated connect tap on the 1080x2340 display was `input tap 540 2100`.
   - The server picker loaded successfully after moving to the V2 source, but touch-only country selection remained flaky and the baseline run still fell back to the Australia server (`202.65.78.119`) without reaching CONNECTED.
   - When a retest must prove the watchdog markers, prefer a known-good server/source setup first and verify the active server in logcat before starting the 180s baseline wait.
+- For manual stale-stop preference simulation, shell redirection through `run-as ... sh -c "cat ... > shared_prefs/..."` can fail with `No such file or directory` on MIUI sessions.
+  - Workaround: pipe the XML payload to `run-as ... tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/vpn_stop_teardown.xml`, then verify with `run-as ... cat shared_prefs/vpn_stop_teardown.xml`.
+- In long one-line terminal command chains, malformed command composition may produce `adb.exe: unknown command am` even when `adb shell am ...` is intended.
+  - Workaround: run `adb shell am ...` commands as explicit standalone steps when collecting Manual QA evidence.
