@@ -1440,9 +1440,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun performReachabilityProbe(host: String, port: Int, timeoutMs: Int): Boolean {
         return try {
-            val socket = Socket()
-            socket.connect(InetSocketAddress(host, port), timeoutMs)
-            socket.close()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
+            }
             true
         } catch (_: Exception) {
             false

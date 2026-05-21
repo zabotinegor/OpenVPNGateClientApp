@@ -20,6 +20,8 @@ import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 import kotlinx.coroutines.CoroutineDispatcher
+import java.net.ServerSocket
+import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
 
 @RunWith(RobolectricTestRunner::class)
@@ -256,6 +258,41 @@ class OpenVpnServiceWatchdogTest {
         // The fail-safe path is covered by repeatedFailures_triggerFailSafeDisconnectAtRetryLimit;
         // this scenario verifies the sustained-failure branch stays stable under async dispatch.
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun performReachabilityProbe_handlesSuccessAndFailurePaths() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        ServerSocket(0).use { server ->
+            val accepted = thread(start = true) {
+                server.accept().use { socket ->
+                    socket.getInputStream().readNBytes(0)
+                }
+            }
+
+            val success = ReflectionHelpers.callInstanceMethod<Boolean>(
+                service,
+                "performReachabilityProbe",
+                ClassParameter.from(String::class.java, "127.0.0.1"),
+                ClassParameter.from(Int::class.javaPrimitiveType!!, server.localPort),
+                ClassParameter.from(Int::class.javaPrimitiveType!!, 500)
+            )
+
+            assertTrue(success)
+            accepted.join(1_000)
+        }
+
+        val closedPort = ServerSocket(0).use { it.localPort }
+        val failure = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "performReachabilityProbe",
+            ClassParameter.from(String::class.java, "127.0.0.1"),
+            ClassParameter.from(Int::class.javaPrimitiveType!!, closedPort),
+            ClassParameter.from(Int::class.javaPrimitiveType!!, 200)
+        )
+
+        assertFalse(failure)
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {
