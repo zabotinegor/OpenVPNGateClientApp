@@ -18,7 +18,12 @@ enum class ConnectionState {
 
 object ConnectionStateManager {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ConnectionState"
-    private val allowedFromDisconnected = setOf(ConnectionState.CONNECTING, ConnectionState.CONNECTED, ConnectionState.PAUSED)
+    private val allowedFromDisconnected = setOf(
+        ConnectionState.CONNECTING,
+        ConnectionState.CONNECTED,
+        ConnectionState.PAUSED,
+        ConnectionState.DISCONNECTING
+    )
     private val allowedFromConnecting = setOf(ConnectionState.CONNECTED, ConnectionState.PAUSED, ConnectionState.DISCONNECTING, ConnectionState.DISCONNECTED)
     private val allowedFromConnected = setOf(
         ConnectionState.CONNECTING,
@@ -46,7 +51,7 @@ object ConnectionStateManager {
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     val state = _state.asStateFlow()
-    enum class VpnError { NONE, AUTH }
+    enum class VpnError { NONE, AUTH, STOP_FAILED }
     private val _error = MutableStateFlow(VpnError.NONE)
     val error = _error.asStateFlow()
     private val _engineLevel = MutableStateFlow<ConnectionStatus?>(null)
@@ -68,6 +73,18 @@ object ConnectionStateManager {
 
     fun setReconnectingHint(value: Boolean) {
         _reconnectingHint.value = value
+    }
+
+    @MainThread
+    internal fun setStopFailure() {
+        _error.value = VpnError.STOP_FAILED
+    }
+
+    @MainThread
+    internal fun clearStopFailure() {
+        if (_error.value == VpnError.STOP_FAILED) {
+            _error.value = VpnError.NONE
+        }
     }
 
     @MainThread

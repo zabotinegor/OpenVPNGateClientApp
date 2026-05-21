@@ -9,6 +9,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager.VpnError
 import de.blinkt.openvpn.core.ConnectionStatus
 import java.util.Locale
 
@@ -64,6 +65,9 @@ class ConnectionControlsPresenter(
         engineLevel: ConnectionStatus?,
         remainingSeconds: Int?
     ): String {
+        if (state == ConnectionState.DISCONNECTING && ConnectionStateManager.error.value == VpnError.STOP_FAILED) {
+            return context.getString(R.string.main_status_stop_failed)
+        }
         val statusRes = when (state) {
             ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
             ConnectionState.CONNECTING -> R.string.main_status_connecting

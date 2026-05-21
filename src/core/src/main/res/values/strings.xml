@@ -139,6 +139,7 @@
     <string name="main_status_pausing">Pausing…</string>
     <string name="main_status_paused">Paused</string>
     <string name="main_status_disconnecting">Disconnecting…</string>
+    <string name="main_status_stop_failed">Stop failed. Tap Stop again to retry.</string>
 
     <!-- Section: Connection details (landscape) -->
     <string name="connection_detail_duration_label">DURATION</string>
