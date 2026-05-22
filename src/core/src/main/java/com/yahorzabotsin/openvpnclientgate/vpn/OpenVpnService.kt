@@ -70,6 +70,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED
         )
+        private val STOP_TERMINAL_LEVELS = setOf(
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.UNKNOWN_LEVEL
+        )
         private val numberRegex = Regex("\\d+")
         private val ipv4Regex = Regex("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b")
         private val urlRegex = Regex("\\bhttps?://\\S+\\b")
@@ -371,6 +377,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return true
     }
 
+    private fun maybeClearStaleStopIntentOnIdleLevel(level: ConnectionStatus, source: String) {
+        if (level !in STOP_TERMINAL_LEVELS) return
+        if (!hasPendingStopIntent()) return
+        if (userInitiatedStop || userInitiatedStart) return
+
+        persistPendingStopIntent(false)
+        ConnectionStateManager.clearStopFailure()
+        AppLog.i(
+            TAG,
+            "stop_flow pending intent cleared on idle engine level=$level source=$source pending_stop_intent=false"
+        )
+    }
+
     private fun totalServersStr(): String =
         if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
     
@@ -575,7 +594,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 ConnectionStateManager.clearStopFailure()
                 if (hasPendingStopIntent()) {
                     persistPendingStopIntent(false)
-                    AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START")
+                    AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
                 }
                 if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
@@ -1020,6 +1039,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         }
         if (maybeStartStaleStopReconciliation(level, "VPN_STATUS")) return
+        maybeClearStaleStopIntentOnIdleLevel(level, "VPN_STATUS")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         ConnectionStateManager.updateFromEngine(level, state)
         handleEngineLevelForStop(level, "VPN_STATUS")
@@ -1327,7 +1347,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
         val probeTarget = resolveWatchdogProbeTarget()
         if (probeTarget == null) {
-            AppLog.w(TAG, "Watchdog: trusted probe target unavailable; skipping probe")
+            AppLog.w(TAG, "Watchdog: trusted probe target unavailable; treating as failed probe")
+            handleConnectedProbeResult(probeSucceeded = false, trafficDeltaBytes = trafficDeltaBytes)
             return
         }
 
@@ -1593,6 +1614,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             exitControllerForeground()
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
+        maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
             try {

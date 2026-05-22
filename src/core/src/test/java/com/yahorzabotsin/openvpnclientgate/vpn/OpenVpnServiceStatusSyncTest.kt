@@ -265,6 +265,28 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun stalePendingStopIntentClearsOnIdleNotConnectedLevel() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        val prefs = appContext.getSharedPreferences("vpn_stop_teardown", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean("pending_stop_intent", true)
+            .putInt("stop_failure_count", 1)
+            .apply()
+        ConnectionStateManager.setStopFailure()
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(prefs.getBoolean("pending_stop_intent", false))
+        assertEquals(ConnectionStateManager.VpnError.NONE, ConnectionStateManager.error.value)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("pending intent cleared on idle engine level") && it.contains("pending_stop_intent=false") })
+    }
+
+    @Test
     fun stopFromPausedUsesSameEngineConfirmedTeardown() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
