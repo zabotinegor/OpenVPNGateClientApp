@@ -20,10 +20,20 @@ Validate runtime watchdog behavior that detects false-connected data-path degrad
 - AC-9: Runtime scenarios align with expected regression coverage.
 
 ## Case Set
-- MQ-US10-001: Historical lifecycle repro flow.
-- MQ-US10-002: Long-running no-internet soak with self-recovery.
-- MQ-US10-003: Watchdog log verification.
-- MQ-US10-004: No reboot required to restore connectivity.
+- MQ-US10-001: Historical lifecycle repro flow (control-state stability).
+- MQ-US10-002: Connected foreground operability baseline during watchdog observation.
+- MQ-US10-003: Watchdog telemetry verification from runtime logs.
+- MQ-US10-004: No reboot required for recovery after induced degraded state.
+
+## Execution Model (Reorganized)
+- Phase A (deterministic baseline): run MQ-US10-001, MQ-US10-002, MQ-US10-003 without forcing network degradation.
+- Phase B (induced degradation): run MQ-US10-004 with explicit degradation trigger and evidence capture.
+- Supplementary stale-stop gate: verify stale `pending_stop_intent` remediation in the same run folder as a merge blocker.
+
+## Evidence Requirements
+- Every case must attach UI evidence (`*.xml` plus `*.png`) and `logcat` excerpts from the same run window.
+- If a setup step fails (for example stale payload write), mark as setup failure and do not report app-behavior PASS/FAIL for that step.
+- Historical pass artifacts remain reference-only; merge decisions must use latest run artifacts.
 
 ## Notes
 - Device focus: MIUI real device variance.

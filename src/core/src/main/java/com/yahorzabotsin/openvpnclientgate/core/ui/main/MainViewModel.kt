@@ -297,9 +297,11 @@ class MainViewModel(
     private fun onConnectionButtonClicked(hasNotificationPermission: Boolean, hasVpnPermission: Boolean) {
         viewModelScope.launch {
             when (connectionStateProvider.state.value) {
+                ConnectionState.PAUSED -> {
+                    _effects.send(MainEffect.ResumeVpn)
+                }
                 ConnectionState.CONNECTED,
                 ConnectionState.PAUSING,
-                ConnectionState.PAUSED,
                 ConnectionState.CONNECTING,
                 ConnectionState.DISCONNECTING -> {
                     _effects.send(MainEffect.StopVpn)
