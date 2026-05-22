@@ -298,7 +298,7 @@ class MainViewModel(
         viewModelScope.launch {
             when (connectionStateProvider.state.value) {
                 ConnectionState.PAUSED -> {
-                    _effects.send(MainEffect.ResumeVpn)
+                    _effects.send(MainEffect.StopVpn)
                 }
                 ConnectionState.CONNECTED,
                 ConnectionState.PAUSING,

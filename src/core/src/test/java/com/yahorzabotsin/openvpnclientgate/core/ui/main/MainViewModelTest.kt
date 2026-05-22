@@ -544,7 +544,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `connection click when paused emits resume vpn`() = runTest {
+    fun `connection click when paused emits stop vpn`() = runTest {
         val viewModel = createViewModel(connectionState = ConnectionState.PAUSED)
 
         val effects = mutableListOf<MainEffect>()
@@ -560,7 +560,7 @@ class MainViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(effects.first() is MainEffect.ResumeVpn)
+        assertTrue(effects.first() is MainEffect.StopVpn)
         job.cancel()
     }
 
