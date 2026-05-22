@@ -129,6 +129,15 @@ class ConnectionStateManagerTest {
     }
 
     @Test
+    fun stopFailureErrorCanBeSetAndCleared() {
+        ConnectionStateManager.setStopFailure()
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+
+        ConnectionStateManager.clearStopFailure()
+        assertEquals(ConnectionStateManager.VpnError.NONE, ConnectionStateManager.error.value)
+    }
+
+    @Test
     fun syncConnectionStartTimeOverridesWhenDifferent() {
         val initial = 1_000L
         val updated = 20_000L
