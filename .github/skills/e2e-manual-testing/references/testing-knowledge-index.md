@@ -91,3 +91,12 @@ Entry template:
 - Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
 - Last validated: 2026-05-22
 - Notes: Observed on Mi 9 SE during base-main US-10 rerun where stale-stop phase also stalled before summary emission.
+
+## US-11 notification tap MIUI readiness blockers
+- Service repo: zabotinegor/OpenVPNGateClientApp
+- Surface: android
+- When to use: US-11 notification-tap validation blocks before MQ execution on Mi 9 SE.
+- Reusable workaround/setup: dismiss startup update dialog (`android:id/button2`) before connect flow; if notification-shade `uiautomator dump` returns `could not get idle state`, use screenshot + fixed notification tap fallback and confirm app foreground by `dumpsys activity activities`.
+- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
+- Last validated: 2026-05-22
+- Notes: Used in US-11 run `manual-qa/2026-05-22-us11-notification-tap-fix/runs/20260522-205126`.
