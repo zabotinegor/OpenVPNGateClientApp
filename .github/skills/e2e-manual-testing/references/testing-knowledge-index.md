@@ -82,3 +82,12 @@ Entry template:
 - Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
 - Last validated: 2026-05-21
 - Notes: Observed during US-10 stale pending-stop remediation QA on Mi 9 SE.
+
+## MIUI host-reachable endpoint but in-app connect failure
+- Service repo: zabotinegor/OpenVPNGateClientApp
+- Surface: android
+- When to use: US-10 rerun shows repeated connect failure (`pause_connection_button` never appears) while the selected endpoint is unchanged.
+- Reusable workaround/setup: verify external reachability first with `Test-NetConnection 124.150.75.98 -Port 1940`; if reachable but app still cannot transition to connected controls, classify as app/runtime defect evidence instead of pure endpoint outage and keep rerun marked failed.
+- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
+- Last validated: 2026-05-22
+- Notes: Observed on Mi 9 SE during base-main US-10 rerun where stale-stop phase also stalled before summary emission.

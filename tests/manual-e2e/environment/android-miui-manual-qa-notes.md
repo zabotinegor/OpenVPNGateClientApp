@@ -101,3 +101,6 @@ Use this deterministic flow for source-specific fetch validation without UI flak
   - Workaround: pipe the XML payload to `run-as ... tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/vpn_stop_teardown.xml`, then verify with `run-as ... cat shared_prefs/vpn_stop_teardown.xml`.
 - In long one-line terminal command chains, malformed command composition may produce `adb.exe: unknown command am` even when `adb shell am ...` is intended.
   - Workaround: run `adb shell am ...` commands as explicit standalone steps when collecting Manual QA evidence.
+- On Mi 9 SE US-10 base-main reruns (2026-05-22), host reachability to the selected VPN endpoint `124.150.75.98:1940` was confirmed, but in-app connect flow still failed to reach `pause_connection_button` and stale-stop phase could stall before summary generation.
+  - Workaround: treat this as an app/runtime behavior defect signal rather than pure external endpoint outage when both conditions hold: `Test-NetConnection 124.150.75.98 -Port 1940` is successful and UI repeatedly stays in start/disconnected controls.
+  - Evidence commands: `Test-NetConnection 124.150.75.98 -Port 1940`, `adb shell run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/vpn_selection_prefs.xml`, and per-case logs in `manual-qa/<run-id>/mq-us10-001.log`.
