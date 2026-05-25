@@ -378,6 +378,21 @@ class OpenVpnServiceWatchdogTest {
     }
 
     @Test
+    fun parseRemoteEndpointFromConfig_acceptsTabSeparatedRemoteDirective() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val target = ReflectionHelpers.callInstanceMethod<Any?>(
+            service,
+            "parseRemoteEndpointFromConfig",
+            ClassParameter.from(String::class.java, "client\nremote\t198.51.100.11\t443\n")
+        )
+
+        assertNotNull(target)
+        assertEquals("198.51.100.11", ReflectionHelpers.getField<String>(target, "host"))
+        assertEquals(443, ReflectionHelpers.getField<Int>(target, "port"))
+    }
+
+    @Test
     fun resolveWatchdogProbeTargets_prioritizesActiveTunnelEndpoint() {
         val service = buildConnectedService(nowMs = 108_000L)
         SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\nremote 198.51.100.20 443\n", null)

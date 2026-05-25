@@ -178,6 +178,7 @@ class ServersV2Repository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            runCatching { localizedFile.delete() }
             AppLog.w(TAG, "migrateLegacyCountriesCacheIfNeeded: migration failed for locale=$normalizedLocale", e)
         }
     }
@@ -217,6 +218,7 @@ class ServersV2Repository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            runCatching { localizedFile.delete() }
             AppLog.w(
                 TAG,
                 "migrateLegacyServersCacheIfNeeded: migration failed for country=$normalizedCountryCode locale=$normalizedLocale",

@@ -1479,7 +1479,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 line.isNotBlank() &&
                     !line.startsWith("#") &&
                     !line.startsWith(";") &&
-                    line.startsWith("remote ")
+                    line.startsWith("remote") &&
+                    line.getOrNull("remote".length)?.isWhitespace() == true
             }
             ?: return null
 

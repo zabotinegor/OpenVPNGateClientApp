@@ -9,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -412,6 +413,33 @@ class ServersV2RepositoryTest {
     }
 
     @Test
+    fun getCountries_migration_failure_deletes_partial_target_file() = runBlocking {
+        val locale = currentLocaleCode()
+        val localizedFile = File(context.cacheDir, "v2_countries_${locale}.json")
+        File(context.cacheDir, "v2_countries.json").writeText("""[{"code":"JP","name":"Japan","serverCount":1}]""")
+        localizedFile.delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_countries_${locale}").putLong("ts_countries", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(countriesJson = "[]"),
+            fileCopy = { _, target ->
+                target.writeText("partial")
+                throw IOException("simulated copy failure")
+            }
+        )
+
+        try {
+            repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+            fail("Expected IOException")
+        } catch (_: IOException) {
+            // expected: no cache remains after the migration failure cleanup
+        }
+
+        assertFalse("partial countries cache file should be deleted after migration failure", localizedFile.exists())
+    }
+
+    @Test
     fun getServersForCountry_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
         val api = FakeServersV2Api(serversJson = "{\"items\":[]}")
         val repo = ServersV2Repository(api)
@@ -463,6 +491,33 @@ class ServersV2RepositoryTest {
         } catch (e: CancellationException) {
             assertEquals("cancel-migration-servers", e.message)
         }
+    }
+
+    @Test
+    fun getServersForCountry_migration_failure_deletes_partial_target_file() = runBlocking {
+        val locale = currentLocaleCode()
+        val localizedFile = File(context.cacheDir, "v2_servers_jp_${locale}.json")
+        File(context.cacheDir, "v2_servers_jp.json").writeText("""[{"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CFG"}]""")
+        localizedFile.delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_servers_jp_${locale}").putLong("ts_servers_jp", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(serversJson = "{\"items\":[]}"),
+            fileCopy = { _, target ->
+                target.writeText("partial")
+                throw IOException("simulated copy failure")
+            }
+        )
+
+        try {
+            repo.getServersForCountry(context, "JP", serverCount = 1, forceRefresh = false, cacheOnly = true)
+            fail("Expected IOException")
+        } catch (_: IOException) {
+            // expected: no cache remains after the migration failure cleanup
+        }
+
+        assertFalse("partial servers cache file should be deleted after migration failure", localizedFile.exists())
     }
 
     // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a
