@@ -42,14 +42,15 @@ class ServerListViewModelTest {
             getError = CancellationException("cancelled")
         )
         val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val logger = CountingLogger()
+        val vm = ServerListViewModel(interactor, connection, logger)
 
-        try {
-            ServerListViewModel(interactor, connection, FakeLogger())
-            advanceUntilIdle()
-            throw AssertionError("Expected CancellationException")
-        } catch (e: CancellationException) {
-            assertEquals("cancelled", e.message)
-        }
+        advanceUntilIdle()
+
+        // CancellationException must not be swallowed as an error — no snackbar and no error log
+        assertEquals(0, logger.loadErrorCalls)
+        assertEquals(false, vm.state.value.isLoading)
+        assertEquals(0, vm.state.value.countries.size)
     }
 
     @Test
