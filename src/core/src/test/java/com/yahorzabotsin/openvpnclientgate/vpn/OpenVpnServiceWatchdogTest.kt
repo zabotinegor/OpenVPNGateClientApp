@@ -7,6 +7,7 @@ import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -344,6 +345,49 @@ class OpenVpnServiceWatchdogTest {
         )
 
         assertFalse(failure)
+    }
+
+    @Test
+    fun resolveWatchdogProbeTarget_parsesHostAndExplicitPort() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val target = ReflectionHelpers.callInstanceMethod<Any?>(
+            service,
+            "resolveWatchdogProbeTarget",
+            ClassParameter.from(String::class.java, "https://example.com:8443/api/v1/servers/active")
+        )
+
+        assertNotNull(target)
+        assertEquals("example.com", ReflectionHelpers.getField<String>(target, "host"))
+        assertEquals(8443, ReflectionHelpers.getField<Int>(target, "port"))
+    }
+
+    @Test
+    fun evaluateConnectedHealth_usesSecondaryProbeTarget_whenPrimaryFails() {
+        val service = buildConnectedService(nowMs = 110_000L)
+        val targets = ReflectionHelpers.callInstanceMethod<List<Any>>(
+            service,
+            "resolveWatchdogProbeTargets"
+        )
+        assertTrue(targets.size >= 2)
+
+        val firstHost = ReflectionHelpers.getField<String>(targets[0], "host")
+        val secondHost = ReflectionHelpers.getField<String>(targets[1], "host")
+        val calledHosts = mutableListOf<String>()
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ host: String, _: Int, _: Int ->
+            calledHosts += host
+            host == secondHost
+        } as (String, Int, Int) -> Boolean))
+
+        val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
+
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertTrue(calledHosts.contains(firstHost))
+        assertTrue(calledHosts.contains(secondHost))
+        assertEquals(0, ReflectionHelpers.getField<Int>(watchdogState, "consecutiveFailures"))
+        assertFalse(ReflectionHelpers.getField<Boolean>(watchdogState, "degraded"))
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {

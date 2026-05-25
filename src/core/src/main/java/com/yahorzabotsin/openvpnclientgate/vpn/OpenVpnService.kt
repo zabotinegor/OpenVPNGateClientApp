@@ -1345,15 +1345,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return
         }
 
-        val probeTarget = resolveWatchdogProbeTarget()
-        if (probeTarget == null) {
+        val probeTargets = resolveWatchdogProbeTargets()
+        if (probeTargets.isEmpty()) {
             AppLog.w(TAG, "Watchdog: trusted probe target unavailable; treating as failed probe")
             handleConnectedProbeResult(probeSucceeded = false, trafficDeltaBytes = trafficDeltaBytes)
             return
         }
 
         watchdogProbeJob = serviceScope.launch(watchdogProbeDispatcher) {
-            val probeSucceeded = executeWatchdogProbe(probeTarget.host, probeTarget.port, WATCHDOG_PROBE_TIMEOUT_MS)
+            val probeSucceeded = probeTargets.any { target ->
+                executeWatchdogProbe(target.host, target.port, WATCHDOG_PROBE_TIMEOUT_MS)
+            }
             statusHandler.post {
                 if (ConnectionStateManager.state.value != ConnectionState.CONNECTED) return@post
                 handleConnectedProbeResult(probeSucceeded, trafficDeltaBytes)
@@ -1445,9 +1447,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun resolveWatchdogProbeTarget(): WatchdogProbeTarget? {
-        val baseUrl = runCatching { ApiConstants.primaryRetrofitBaseUrl() }.getOrNull() ?: return null
-        val uri = runCatching { URI(baseUrl) }.getOrNull() ?: return null
+    private fun resolveWatchdogProbeTargets(): List<WatchdogProbeTarget> {
+        val candidates = listOfNotNull(
+            runCatching { ApiConstants.primaryRetrofitBaseUrl() }.getOrNull(),
+            ApiConstants.FALLBACK_SERVERS_URL
+        )
+        return candidates
+            .mapNotNull { resolveWatchdogProbeTarget(it) }
+            .distinctBy { "${it.host}:${it.port}" }
+    }
+
+    private fun resolveWatchdogProbeTarget(rawUrl: String): WatchdogProbeTarget? {
+        val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
         val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
         val port = if (uri.port > 0) uri.port else WATCHDOG_FALLBACK_HTTPS_PORT
         return WatchdogProbeTarget(host = host, port = port)

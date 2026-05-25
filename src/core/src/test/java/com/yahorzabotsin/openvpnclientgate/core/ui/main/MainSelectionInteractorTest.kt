@@ -452,6 +452,34 @@ class MainSelectionInteractorTest {
         assertEquals("5.5.5.5", result.ip)
     }
 
+    @Test
+    fun loadInitialSelection_v2_runs_network_fetch_off_caller_thread() = runBlocking {
+        val callerThreadName = Thread.currentThread().name
+        var countriesThreadName: String? = null
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("JP", "Japan", 1)),
+            serversPerCountry = mapOf(
+                "JP" to listOf(
+                    ServerV2("1.2.3.4", "JP", "Japan", "cfg-jp")
+                )
+            ),
+            threadRecorder = { method, threadName ->
+                if (method == "countries") countriesThreadName = threadName
+            }
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNotNull(result)
+        assertNotNull(countriesThreadName)
+        assertTrue(countriesThreadName != callerThreadName)
+    }
+
     // --------------- helpers ---------------
 
     private fun makeStoredServer(
@@ -481,9 +509,13 @@ class MainSelectionInteractorTest {
 
     private class FakeServersV2Api(
         private val countries: List<CountryV2>,
-        private val serversPerCountry: Map<String, List<ServerV2>>
+        private val serversPerCountry: Map<String, List<ServerV2>>,
+        private val threadRecorder: ((method: String, threadName: String) -> Unit)? = null
     ) : ServersV2Api {
-        override suspend fun getCountries(locale: String): List<CountryV2> = countries
+        override suspend fun getCountries(locale: String): List<CountryV2> {
+            threadRecorder?.invoke("countries", Thread.currentThread().name)
+            return countries
+        }
         override suspend fun getServers(
             locale: String,
             countryCode: String,
@@ -491,6 +523,7 @@ class MainSelectionInteractorTest {
             skip: Int,
             take: Int
         ): ServersPageResponse {
+            threadRecorder?.invoke("servers", Thread.currentThread().name)
             val items = serversPerCountry[countryCode.uppercase()] ?: emptyList()
             return ServersPageResponse(items = items, total = items.size)
         }

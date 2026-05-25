@@ -12,6 +12,8 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.toLegacyServer
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 interface MainSelectionInteractor {
     suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection?
@@ -36,29 +38,31 @@ class DefaultMainSelectionInteractor(
     }
 
     override suspend fun loadInitialSelection(cacheOnly: Boolean): InitialSelection? {
-        val source = UserSettingsStore.load(appContext).serverSource
-        if (source == ServerSource.DEFAULT_V2) {
-            return loadInitialSelectionV2(cacheOnly)
-        }
-        var result: InitialSelection? = null
-        SelectionBootstrap.ensureSelection(
-            context = appContext,
-            getServers = {
-                serverRepository.getServers(appContext, cacheOnly = cacheOnly)
-            },
-            loadConfigs = { servers ->
-                serverRepository.loadConfigs(appContext, servers)
+        return withContext(Dispatchers.IO) {
+            val source = UserSettingsStore.load(appContext).serverSource
+            if (source == ServerSource.DEFAULT_V2) {
+                return@withContext loadInitialSelectionV2(cacheOnly)
             }
-        ) { country, city, config, countryCode, ip ->
-            result = InitialSelection(
-                country = country,
-                city = city,
-                config = config,
-                countryCode = countryCode,
-                ip = ip
-            )
+            var result: InitialSelection? = null
+            SelectionBootstrap.ensureSelection(
+                context = appContext,
+                getServers = {
+                    serverRepository.getServers(appContext, cacheOnly = cacheOnly)
+                },
+                loadConfigs = { servers ->
+                    serverRepository.loadConfigs(appContext, servers)
+                }
+            ) { country, city, config, countryCode, ip ->
+                result = InitialSelection(
+                    country = country,
+                    city = city,
+                    config = config,
+                    countryCode = countryCode,
+                    ip = ip
+                )
+            }
+            result
         }
-        return result
     }
 
     private suspend fun loadInitialSelectionV2(cacheOnly: Boolean): InitialSelection? {
