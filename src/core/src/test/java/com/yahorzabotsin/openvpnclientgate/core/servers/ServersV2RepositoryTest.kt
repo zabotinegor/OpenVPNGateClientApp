@@ -521,6 +521,17 @@ class ServersV2RepositoryTest {
         assertTrue("localized ts key should be removed", !prefs.contains("ts_countries_$locale"))
     }
 
+    @Test
+    fun clearCountriesCache_keeps_unrelated_timestamp_keys() = runBlocking {
+        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+        prefs.edit().putLong("ts_servers_jp", 555L).apply()
+
+        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+        repo.clearCountriesCache(context)
+
+        assertTrue("non-country ts key should remain untouched", prefs.contains("ts_servers_jp"))
+    }
+
     // TS-5 (AC-4.2) — after clearCountriesCache, getCountries does not rehydrate from legacy cache.
     @Test(expected = IOException::class)
     fun getCountries_after_clear_does_not_rehydrate_from_legacy() {

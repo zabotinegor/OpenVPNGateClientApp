@@ -363,6 +363,36 @@ class OpenVpnServiceWatchdogTest {
     }
 
     @Test
+    fun parseRemoteEndpointFromConfig_parsesHostAndPort() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val target = ReflectionHelpers.callInstanceMethod<Any?>(
+            service,
+            "parseRemoteEndpointFromConfig",
+            ClassParameter.from(String::class.java, "client\nremote 198.51.100.10 1194\n")
+        )
+
+        assertNotNull(target)
+        assertEquals("198.51.100.10", ReflectionHelpers.getField<String>(target, "host"))
+        assertEquals(1194, ReflectionHelpers.getField<Int>(target, "port"))
+    }
+
+    @Test
+    fun resolveWatchdogProbeTargets_prioritizesActiveTunnelEndpoint() {
+        val service = buildConnectedService(nowMs = 108_000L)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\nremote 198.51.100.20 443\n", null)
+
+        val targets = ReflectionHelpers.callInstanceMethod<List<Any>>(
+            service,
+            "resolveWatchdogProbeTargets"
+        )
+
+        assertTrue(targets.isNotEmpty())
+        assertEquals("198.51.100.20", ReflectionHelpers.getField<String>(targets[0], "host"))
+        assertEquals(443, ReflectionHelpers.getField<Int>(targets[0], "port"))
+    }
+
+    @Test
     fun evaluateConnectedHealth_usesSecondaryProbeTarget_whenPrimaryFails() {
         val service = buildConnectedService(nowMs = 110_000L)
         val targets = ReflectionHelpers.callInstanceMethod<List<Any>>(

@@ -1448,13 +1448,49 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun resolveWatchdogProbeTargets(): List<WatchdogProbeTarget> {
+        val targets = mutableListOf<WatchdogProbeTarget>()
+        resolveActiveTunnelProbeTarget()?.let { targets += it }
+
         val candidates = listOfNotNull(
             runCatching { ApiConstants.primaryRetrofitBaseUrl() }.getOrNull(),
             ApiConstants.FALLBACK_SERVERS_URL
         )
-        return candidates
+        targets += candidates
             .mapNotNull { resolveWatchdogProbeTarget(it) }
-            .distinctBy { "${it.host}:${it.port}" }
+        return targets.distinctBy { "${it.host}:${it.port}" }
+    }
+
+    private fun resolveActiveTunnelProbeTarget(): WatchdogProbeTarget? {
+        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(applicationContext) }.getOrNull()
+        parseRemoteEndpointFromConfig(lastStarted?.config)?.let { return it }
+
+        val tunnelIp = lastStarted?.ip
+            ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
+        val host = tunnelIp?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return WatchdogProbeTarget(host = host, port = WATCHDOG_FALLBACK_HTTPS_PORT)
+    }
+
+    private fun parseRemoteEndpointFromConfig(config: String?): WatchdogProbeTarget? {
+        if (config.isNullOrBlank()) return null
+        val remoteLine = config
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { line ->
+                line.isNotBlank() &&
+                    !line.startsWith("#") &&
+                    !line.startsWith(";") &&
+                    line.startsWith("remote ")
+            }
+            ?: return null
+
+        val parts = remoteLine.split(Regex("\\s+"))
+        if (parts.size < 2) return null
+
+        val host = parts[1].trim().removePrefix("[").removeSuffix("]")
+        if (host.isBlank()) return null
+
+        val port = parts.getOrNull(2)?.toIntOrNull()?.takeIf { it > 0 } ?: WATCHDOG_FALLBACK_HTTPS_PORT
+        return WatchdogProbeTarget(host = host, port = port)
     }
 
     private fun resolveWatchdogProbeTarget(rawUrl: String): WatchdogProbeTarget? {

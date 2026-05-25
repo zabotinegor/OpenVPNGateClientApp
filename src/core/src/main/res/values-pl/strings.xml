@@ -127,6 +127,7 @@
     <string name="main_status_pausing">Wstrzymywanie…</string>
     <string name="main_status_paused">Wstrzymano</string>
     <string name="main_status_disconnecting">Rozłączanie…</string>
+    <string name="main_status_stop_failed">Zatrzymanie nie powiodło się. Dotknij Stop ponownie, aby spróbować jeszcze raz.</string>
 
     <!-- Section: Connection details (landscape) -->
     <string name="connection_detail_duration_label">CZAS</string>

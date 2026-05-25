@@ -360,9 +360,10 @@ class ServersV2Repository(
         }?.forEach { it.delete() }
         val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
         val keysToRemove = prefs.all.keys.filter { it == KEY_COUNTRIES_TS_LEGACY || it.startsWith(KEY_COUNTRIES_TS_PREFIX) }
-        prefs.edit().apply {
-            keysToRemove.forEach { remove(it) }
-        }.apply()
+        if (keysToRemove.isEmpty()) return
+        val editor = prefs.edit()
+        keysToRemove.forEach { key -> editor.remove(key) }
+        editor.apply()
     }
 
     /** Clears all per-country server caches (timestamps and files). */

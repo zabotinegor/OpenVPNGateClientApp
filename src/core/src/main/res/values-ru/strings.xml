@@ -123,6 +123,7 @@
     <string name="main_status_pausing">Пауза…</string>
     <string name="main_status_paused">Пауза</string>
     <string name="main_status_disconnecting">Отключение…</string>
+    <string name="main_status_stop_failed">Остановить не удалось. Нажмите «Стоп» снова, чтобы повторить.</string>
 
     <!-- Section: Connection details -->
     <string name="connection_detail_duration_label">ДЛИТЕЛЬНОСТЬ</string>
