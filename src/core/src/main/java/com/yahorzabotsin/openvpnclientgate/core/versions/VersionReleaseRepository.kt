@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +13,6 @@ import org.json.JSONObject
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.security.MessageDigest
-import java.util.Locale
 
 data class LatestReleaseInfo(
     val versionNumber: String,
@@ -51,7 +49,7 @@ class DefaultVersionReleaseRepository(
         }
 
         val settings = settingsStore.load(appContext)
-        val preferredLocale = resolvePreferredLocale(settings.language)
+        val preferredLocale = settingsStore.resolvePreferredLocale(appContext)
         val primaryUrl = ApiConstants.primaryVersionByNumberAndBuildUrl(
             versionName = currentVersion.versionName,
             buildNumber = currentVersion.buildNumber,
@@ -126,14 +124,6 @@ class DefaultVersionReleaseRepository(
         val buildNumber = PackageInfoCompat.getLongVersionCode(pInfo)
         return CurrentAppVersion(versionName = versionName, buildNumber = buildNumber)
     }
-
-    private fun resolvePreferredLocale(language: LanguageOption): String =
-        when (language) {
-            LanguageOption.SYSTEM -> Locale.getDefault().language.ifBlank { "en" }
-            LanguageOption.ENGLISH -> "en"
-            LanguageOption.RUSSIAN -> "ru"
-            LanguageOption.POLISH -> "pl"
-        }
 
     private fun sourceKey(urls: List<String>): String {
         val joined = urls.joinToString("|")

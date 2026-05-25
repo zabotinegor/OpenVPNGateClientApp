@@ -30,6 +30,7 @@ object SelectedCountryStore {
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
+    private val selectionRenameLock = Any()
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
@@ -312,34 +313,38 @@ object SelectedCountryStore {
         newCountryName: String
     ): Boolean {
         val prefs = prefs(ctx)
-        // Atomic read-check-write block: single SharedPreferences transaction
-        val editor = prefs.edit()
-        val currentName = prefs.getString(KEY_COUNTRY, null)
-        if (currentName != expectedCurrentCountryName) {
-            AppLog.w(
-                TAG,
-                "updateSelectedCountryNameIfCurrent: selection changed, skip rename expected='$expectedCurrentCountryName' actual='${currentName ?: "<none>"}'"
-            )
-            return false
+        synchronized(selectionRenameLock) {
+            // Guarded read-check-write block under single process lock.
+            val currentName = prefs.getString(KEY_COUNTRY, null)
+            if (currentName != expectedCurrentCountryName) {
+                AppLog.w(
+                    TAG,
+                    "updateSelectedCountryNameIfCurrent: selection changed, skip rename expected='$expectedCurrentCountryName' actual='${currentName ?: "<none>"}'"
+                )
+                return false
+            }
+
+            val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+
+            val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+            if (lastSuccessCountry == currentName) {
+                editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+            }
+
+            val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+            if (lastStartedCountry == currentName) {
+                editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+            }
+
+            val committed = editor.commit()
+            if (!committed) {
+                AppLog.w(TAG, "updateSelectedCountryNameIfCurrent: commit failed for '$currentName' -> '$newCountryName'")
+                return false
+            }
+            AppLog.i(TAG, "updateSelectedCountryNameIfCurrent: '$currentName' -> '$newCountryName' (guarded)")
+            SelectedCountryVersionSignal.bump()
+            return true
         }
-
-        // Update country name and related metadata in single atomic write
-        editor.putString(KEY_COUNTRY, newCountryName)
-
-        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
-        if (lastSuccessCountry == currentName) {
-            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
-        }
-
-        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
-        if (lastStartedCountry == currentName) {
-            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
-        }
-
-        editor.apply()
-        AppLog.i(TAG, "updateSelectedCountryNameIfCurrent: '$currentName' -> '$newCountryName' (atomic)")
-        SelectedCountryVersionSignal.bump()
-        return true
     }
 }
 

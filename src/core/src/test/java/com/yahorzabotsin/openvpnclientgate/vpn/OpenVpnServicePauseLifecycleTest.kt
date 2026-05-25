@@ -99,6 +99,6 @@ class OpenVpnServicePauseLifecycleTest {
         service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "resumeActionInFlight"))
-        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -389,6 +390,27 @@ class ServersV2RepositoryTest {
     }
 
     @Test
+    fun getCountries_migration_rethrows_cancellation_exception() = runBlocking {
+        val locale = currentLocaleCode()
+        File(context.cacheDir, "v2_countries.json").writeText("""[{"code":"JP","name":"Japan","serverCount":1}]""")
+        File(context.cacheDir, "v2_countries_${locale}.json").delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_countries_${locale}").putLong("ts_countries", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(countriesJson = "[]"),
+            fileCopy = { _, _ -> throw CancellationException("cancel-migration-countries") }
+        )
+
+        try {
+            repo.getCountries(context, forceRefresh = false)
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancel-migration-countries", e.message)
+        }
+    }
+
+    @Test
     fun getServersForCountry_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
         val api = FakeServersV2Api(serversJson = "{\"items\":[]}")
         val repo = ServersV2Repository(api)
@@ -419,6 +441,27 @@ class ServersV2RepositoryTest {
             context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
                 .getLong("ts_servers_jp_${locale}", -1L)
         )
+    }
+
+    @Test
+    fun getServersForCountry_migration_rethrows_cancellation_exception() = runBlocking {
+        val locale = currentLocaleCode()
+        File(context.cacheDir, "v2_servers_jp.json").writeText("""[{"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CFG"}]""")
+        File(context.cacheDir, "v2_servers_jp_${locale}.json").delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_servers_jp_${locale}").putLong("ts_servers_jp", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(serversJson = "{\"items\":[]}"),
+            fileCopy = { _, _ -> throw CancellationException("cancel-migration-servers") }
+        )
+
+        try {
+            repo.getServersForCountry(context, "JP", serverCount = 1, forceRefresh = false)
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancel-migration-servers", e.message)
+        }
     }
 
     // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a

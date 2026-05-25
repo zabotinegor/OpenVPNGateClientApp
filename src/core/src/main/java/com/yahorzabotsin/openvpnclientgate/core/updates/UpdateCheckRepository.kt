@@ -8,7 +8,6 @@ import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +17,6 @@ import org.json.JSONObject
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.security.MessageDigest
-import java.util.Locale
 
 interface UpdateCheckApi {
     @GET
@@ -51,7 +49,7 @@ class DefaultUpdateCheckRepository(
         }
 
         val settings = settingsStore.load(appContext)
-        val preferredLocale = resolvePreferredLocale(settings.language)
+        val preferredLocale = settingsStore.resolvePreferredLocale(appContext)
         val urls = resolveTrustedUpdateSources()
         if (urls.isEmpty()) return@withContext null
         val platform = resolvePlatform()
@@ -159,14 +157,6 @@ class DefaultUpdateCheckRepository(
             )
         }.distinct()
     }
-
-    private fun resolvePreferredLocale(language: LanguageOption): String =
-        when (language) {
-            LanguageOption.SYSTEM -> Locale.getDefault().language.ifBlank { "en" }
-            LanguageOption.ENGLISH -> "en"
-            LanguageOption.RUSSIAN -> "ru"
-            LanguageOption.POLISH -> "pl"
-        }
 
     private fun sourceKey(urls: List<String>): String {
         val joined = urls.joinToString("|")

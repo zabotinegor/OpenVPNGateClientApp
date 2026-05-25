@@ -445,6 +445,7 @@ class SelectedCountryStoreTest {
         assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
 
         // Attempt to update from Россия to something else while current is Germany
+        val versionBeforeFailedSecondRename = SelectedCountryVersionSignal.version.value
         val updated2 = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
             ctx = ctx,
             expectedCurrentCountryName = "Россия",
@@ -454,6 +455,7 @@ class SelectedCountryStoreTest {
         // Should fail because current is now Germany, not Россия
         assertFalse(updated2)
         assertEquals("Germany", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(versionBeforeFailedSecondRename, SelectedCountryVersionSignal.version.value)
 
         // Verify that atomic check prevented metadata corruption:
         // Germany's servers and config should not have been renamed

@@ -1484,6 +1484,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
             }
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             false
         }

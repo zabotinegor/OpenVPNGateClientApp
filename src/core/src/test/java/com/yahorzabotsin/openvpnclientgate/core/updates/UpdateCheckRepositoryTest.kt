@@ -463,6 +463,30 @@ class UpdateCheckRepositoryTest {
         }
     }
 
+    @Test
+    fun `checkForUpdate falls back to en for unsupported system locale`() = runTest {
+        val previous = Locale.getDefault()
+        Locale.setDefault(Locale.GERMAN)
+        try {
+            val api = CapturingUpdateApi()
+            val repository = DefaultUpdateCheckRepository(context, api)
+            UserSettingsStore.save(
+                context,
+                UserSettings(
+                    language = LanguageOption.SYSTEM,
+                    serverSource = ServerSource.LEGACY
+                )
+            )
+
+            repository.checkForUpdate(forceRefresh = true)
+
+            val url = api.requestedUrls.single()
+            assertEquals(true, url.contains("locale=en"))
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
     private fun setPackageInfo(versionName: String, buildNumber: Long) {
         val packageInfo = PackageInfo().apply {
             packageName = context.packageName

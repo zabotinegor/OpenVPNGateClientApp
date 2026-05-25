@@ -159,6 +159,34 @@ class VersionReleaseRepositoryTest {
     }
 
     @Test
+    fun `getLatestRelease falls back to en for unsupported system locale`() = runTest {
+        val previous = Locale.getDefault()
+        Locale.setDefault(Locale.GERMAN)
+        try {
+            val api = CapturingVersionsApi()
+            val repository = DefaultVersionReleaseRepository(context, api)
+
+            UserSettingsStore.save(
+                context,
+                UserSettings(
+                    language = LanguageOption.SYSTEM,
+                    serverSource = ServerSource.CUSTOM,
+                    customServerUrl = "https://api.example.com/api/v1/servers/active"
+                )
+            )
+
+            repository.getLatestRelease()
+
+            assertEquals(
+                ApiConstants.primaryVersionByNumberAndBuildUrl("1.2.3", 42L, "en"),
+                api.requestedUrl
+            )
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test
     fun `getLatestRelease ignores server source changes for cache key and host selection`() = runTest {
         val api = CapturingVersionsApi()
         val repository = DefaultVersionReleaseRepository(context, api)

@@ -34,6 +34,8 @@ class ServerListViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
+
+    @Test
     fun `init_v2_source_cancellation_is_rethrown`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,

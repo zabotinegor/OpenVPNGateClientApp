@@ -28,7 +28,8 @@ class ServersV2Repository(
     private val api: ServersV2Api,
     private val settingsStore: UserSettingsStore = UserSettingsStore,
     private val countriesMutex: Mutex = Mutex(),
-    private val serversMutexMap: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
+    private val serversMutexMap: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap(),
+    private val fileCopy: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = false) }
 ) {
 
     private companion object {
@@ -167,16 +168,17 @@ class ServersV2Repository(
             return
         }
 
-        runCatching {
-            legacyFile.copyTo(localizedFile, overwrite = false)
-        }.onSuccess {
+        try {
+            fileCopy(legacyFile, localizedFile)
             val legacyTimestamp = prefs.getLong(KEY_COUNTRIES_TS_LEGACY, -1L)
             if (legacyTimestamp > 0L) {
                 prefs.edit().putLong(localizedTsKey, legacyTimestamp).apply()
             }
             AppLog.d(TAG, "migrateLegacyCountriesCacheIfNeeded: migrated legacy cache to locale=$normalizedLocale")
-        }.onFailure {
-            AppLog.w(TAG, "migrateLegacyCountriesCacheIfNeeded: migration failed for locale=$normalizedLocale", it)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "migrateLegacyCountriesCacheIfNeeded: migration failed for locale=$normalizedLocale", e)
         }
     }
 
@@ -201,9 +203,8 @@ class ServersV2Repository(
             return
         }
 
-        runCatching {
-            legacyFile.copyTo(localizedFile, overwrite = false)
-        }.onSuccess {
+        try {
+            fileCopy(legacyFile, localizedFile)
             val legacyTsKey = "$KEY_SERVERS_TS_PREFIX${normalizedCountryCode}"
             val legacyTimestamp = prefs.getLong(legacyTsKey, -1L)
             if (legacyTimestamp > 0L) {
@@ -213,11 +214,13 @@ class ServersV2Repository(
                 TAG,
                 "migrateLegacyServersCacheIfNeeded: migrated legacy cache for country=$normalizedCountryCode locale=$normalizedLocale"
             )
-        }.onFailure {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             AppLog.w(
                 TAG,
                 "migrateLegacyServersCacheIfNeeded: migration failed for country=$normalizedCountryCode locale=$normalizedLocale",
-                it
+                e
             )
         }
     }
