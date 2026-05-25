@@ -5,6 +5,7 @@ import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -70,6 +71,7 @@ class OpenVpnServicePauseLifecycleTest {
     fun pauseResumeSequence_staysValid() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
         ConnectionStateManager.updateState(ConnectionState.CONNECTED)
@@ -77,19 +79,26 @@ class OpenVpnServicePauseLifecycleTest {
         val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
             putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
         }
-        VpnManager.pauseVpn(appContext)
-        
-        ConnectionStateManager.updateState(ConnectionState.PAUSING)
-        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
-        ConnectionStateManager.updateState(ConnectionState.PAUSED)
-        
+        service.onStartCommand(pauseIntent, 0, 3)
+
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        service.updateState("PAUSED", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
         
         val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
             putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)
         }
-        VpnManager.resumeVpn(appContext)
-        
+        service.onStartCommand(resumeIntent, 0, 4)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "resumeActionInFlight"))
+
+        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "resumeActionInFlight"))
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
     }
 }

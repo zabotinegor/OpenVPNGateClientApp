@@ -130,7 +130,7 @@ class ConnectionControlsPresenterTest {
     }
 
     @Test
-    fun `syncServer does not fall back to selected city when store city missing`() {
+    fun `syncServer falls back to selected city when store city missing`() {
         val store = FakeSelectionStore(
             selectedCountry = "Japan",
             currentServer = StoredServer(city = "", config = "cfg-1", ip = "1.2.3.4"),
@@ -148,7 +148,7 @@ class ConnectionControlsPresenterTest {
         )
 
         assertNotNull(sync)
-        assertEquals("--/--", sync?.cityText)
+        assertEquals("Kyoto", sync?.cityText)
     }
 
     @Test
@@ -355,6 +355,24 @@ class ConnectionControlsPresenterTest {
                 utc = "+3"
             ),
             selectedServerIp = "134.17.157.103"
+        )
+
+        assertEquals(R.string.connection_detail_address_label, field.labelResId)
+        assertEquals("134.17.157.103", field.value)
+    }
+
+    @Test
+    fun `buildLocationField falls back to sync ip when selected ip is blank for non v2 source`() {
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.LEGACY))
+
+        val field = presenter.buildLocationField(
+            sync = ConnectionServerSync(
+                country = "Belarus",
+                ip = "134.17.157.103",
+                cityText = "Minsk",
+                utc = "+3"
+            ),
+            selectedServerIp = ""
         )
 
         assertEquals(R.string.connection_detail_address_label, field.labelResId)

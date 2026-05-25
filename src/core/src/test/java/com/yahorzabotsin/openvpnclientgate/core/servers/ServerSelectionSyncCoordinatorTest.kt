@@ -284,6 +284,41 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(ServerSource.DEFAULT_V2, UserSettingsStore.load(context).serverSource)
     }
 
+    @Test
+    fun sync_default_v2_does_not_persist_legacy_from_stale_last_used_index() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+
+        val legacyServer = makeServer("cached-server", lineIndex = 1)
+        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(legacyServer))))
+        cachedRepository.getServers(
+            context,
+            forceRefresh = true,
+            settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY)
+        )
+
+        val api = SequenceApi(
+            listOf(
+                { throw IOException("v2 down") },
+                { throw IOException("csv primary down") },
+                { throw IOException("fallback down") }
+            )
+        )
+        val repository = ServerRepository(api)
+        repository.lastUsedIndex = 0
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = false, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals("cached-server", result[0].name)
+        assertEquals(ServerSource.DEFAULT_V2, UserSettingsStore.load(context).serverSource)
+    }
+
     private fun sampleCsv(servers: List<Server>): String {
         val header = "TITLE, SAMPLE\nHEADER, IGNORE\n"
         val body = servers.joinToString(separator = "\n") { s ->

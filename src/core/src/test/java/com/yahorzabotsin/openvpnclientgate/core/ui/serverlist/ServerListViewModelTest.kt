@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
@@ -33,6 +34,21 @@ class ServerListViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
+    fun `init_v2_source_cancellation_is_rethrown`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = CancellationException("cancelled")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+
+        try {
+            ServerListViewModel(interactor, connection, FakeLogger())
+            advanceUntilIdle()
+            throw AssertionError("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled", e.message)
+        }
+    }
 
     @Test
     fun `init loads servers and emits focus effect`() = runTest {

@@ -47,13 +47,13 @@ class ConnectionControlsViewVersionSignalDeviceTest {
                 view.setServer(country = "Country", countryCode = "CC", ip = null)
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            assertEquals("1/2", listener.lastCity)
+            assertEquals("1/2", listener.lastServerPosition)
 
             store.position = 2 to 2
             SelectedCountryVersionSignal.bump()
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
-            assertEquals("2/2", listener.lastCity)
+            assertEquals("2/2", listener.lastServerPosition)
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)
@@ -89,13 +89,13 @@ class ConnectionControlsViewVersionSignalDeviceTest {
                 view.setServer(country = "Country", countryCode = "CC", ip = null)
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            assertEquals(expectedPlaceholder, listener.lastCity)
+            assertEquals(expectedPlaceholder, listener.lastServerPosition)
 
             store.position = 2 to 5
             SelectedCountryVersionSignal.bump()
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
-            assertEquals("2/5", listener.lastCity)
+            assertEquals("2/5", listener.lastServerPosition)
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 lifecycleOwner.moveTo(Lifecycle.State.DESTROYED)

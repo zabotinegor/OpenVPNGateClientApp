@@ -33,6 +33,11 @@ class ServerRepository(
     private val cacheMutationMutex: Mutex = Mutex()
 ) {
 
+    internal data class GetServersResult(
+        val servers: List<Server>,
+        val usedIndex: Int
+    )
+
     // Track whether the last getServers() call performed a real network fetch (usedIndex >= 0)
     // or only returned cache (usedIndex == -1). Used to guard fallback source persistence.
     internal var lastUsedIndex: Int = -1
@@ -173,6 +178,23 @@ class ServerRepository(
         persistResolvedSource: Boolean = true,
         persistResolvedSourceOnlyIfCurrent: ServerSource? = null
     ): List<Server> =
+        getServersWithOutcome(
+            context = context,
+            forceRefresh = forceRefresh,
+            cacheOnly = cacheOnly,
+            settingsOverride = settingsOverride,
+            persistResolvedSource = persistResolvedSource,
+            persistResolvedSourceOnlyIfCurrent = persistResolvedSourceOnlyIfCurrent
+        ).servers
+
+    internal suspend fun getServersWithOutcome(
+        context: Context,
+        forceRefresh: Boolean = false,
+        cacheOnly: Boolean = false,
+        settingsOverride: UserSettings? = null,
+        persistResolvedSource: Boolean = true,
+        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+    ): GetServersResult =
         withContext(Dispatchers.IO) {
             val settings = settingsOverride ?: settingsStore.load(context)
             val urls = settingsStore.resolveServerUrls(settings)
@@ -189,7 +211,7 @@ class ServerRepository(
                         "No usable server URLs; using last cache in cache-only mode. age=${now - cacheForRead.ts} ms, cache_key=${cacheForRead.key.take(8)}"
                     )
                     saveLastCacheKey(context, cacheForRead.key)
-                    return@withContext servers
+                    return@withContext GetServersResult(servers, -1)
                 }
 
                 fallbackCache?.let {
@@ -199,11 +221,11 @@ class ServerRepository(
                         "No usable server URLs configured; using last cached servers. age=${now - it.ts} ms, cache_key=${it.key.take(8)}"
                     )
                     saveLastCacheKey(context, it.key)
-                    return@withContext servers
+                    return@withContext GetServersResult(servers, -1)
                 }
 
                 AppLog.w(TAG, "No usable server URLs configured and cache is empty; returning empty server list")
-                return@withContext emptyList()
+                return@withContext GetServersResult(emptyList(), -1)
             }
 
             val cacheKey = cacheKey(urls)
@@ -222,7 +244,7 @@ class ServerRepository(
                 val servers = parseServers(file)
                 AppLog.i(TAG, "Using cached servers (cache-only). age=$age ms, items=${servers.size}, cache_key=${cacheForRead.key.take(8)}")
                 saveLastCacheKey(context, cacheForRead.key)
-                return@withContext servers
+                return@withContext GetServersResult(servers, -1)
             }
 
             if (cachedFresh != null) {
@@ -230,7 +252,7 @@ class ServerRepository(
                 val servers = parseServers(cachedFresh)
                 AppLog.i(TAG, "Using cached servers (fresh). age=$age ms, items=${servers.size}")
                 saveLastCacheKey(context, cacheKey)
-                return@withContext servers
+                return@withContext GetServersResult(servers, -1)
             }
 
             AppLog.i(TAG, "Cache miss/stale. Fetching servers. Source=${settings.serverSource}, urls_count=${urls.size}, ttl_ms=$ttlMs, force=$forceRefresh")
@@ -295,7 +317,7 @@ class ServerRepository(
             // Track usedIndex for coordinator to check if persistence should happen (usedIndex >= 0 means real fetch)
             lastUsedIndex = usedIndex
 
-            return@withContext result
+            return@withContext GetServersResult(result, usedIndex)
         }
 
     private suspend fun parseServers(reader: BufferedReader): List<Server> = withContext(Dispatchers.Default) {

@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
@@ -102,6 +103,7 @@ class ServerListViewModel(
                 updateState { it.copy(countries = countries) }
                 _effects.emit(ServerListEffect.FocusFirstItem)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (shouldSuppressRecoverableV2CountriesError(e)) {
                     logInfo("DEFAULT_V2 countries load failed without cache; keeping empty list")
                     updateState { it.copy(countries = emptyList()) }

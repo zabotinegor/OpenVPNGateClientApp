@@ -196,6 +196,7 @@ class ConnectionControlsPresenter(
 
         val cityText = current?.city
             ?.takeIf { isUsableCityText(it) }
+            ?: selectedCity?.takeIf { isUsableCityText(it) }
             ?: serverPositionPlaceholder
 
         val utc = current?.utc?.takeIf { it.isNotBlank() }
@@ -233,7 +234,8 @@ class ConnectionControlsPresenter(
     }
 
     fun buildLocationField(sync: ConnectionServerSync?, selectedServerIp: String?): LocationFieldModel {
-        val ipValue = selectedServerIp.orEmpty()
+        val ipValue = selectedServerIp?.takeIf { it.isNotBlank() }
+            ?: sync?.ip.orEmpty()
         val isDefaultV2 = runCatching {
             UserSettingsStore.load(context).serverSource == ServerSource.DEFAULT_V2
         }.getOrDefault(false)

@@ -78,7 +78,7 @@ class DefaultServerSelectionSyncCoordinator(
                 }
 
                 val fallbackSettings = settings.copy(serverSource = ServerSource.LEGACY)
-                val servers = serverRepository.getServers(
+                val fallbackResult = serverRepository.getServersWithOutcome(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                     cacheOnly = cacheOnly,
@@ -86,11 +86,12 @@ class DefaultServerSelectionSyncCoordinator(
                     persistResolvedSource = true,
                     persistResolvedSourceOnlyIfCurrent = ServerSource.DEFAULT_V2
                 )
+                val servers = fallbackResult.servers
 
                 val persistedSource = UserSettingsStore.load(appContext).serverSource
-                if (persistedSource == ServerSource.DEFAULT_V2 && serverRepository.lastUsedIndex >= 0) {
-                    // AC-4.6: Persist LEGACY only if the LEGACY CSV fetch actually succeeded (usedIndex >= 0),
-                    // not if we only returned stale cache (usedIndex == -1).
+                if (persistedSource == ServerSource.DEFAULT_V2 && fallbackResult.usedIndex == 0) {
+                    // Persist LEGACY only when this fallback invocation successfully fetched the
+                    // primary legacy CSV, not when it returned stale cache or a secondary fallback.
                     UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
                     AppLog.w(tag, "DEFAULT_V2 primary failed; switched persisted source to Legacy CSV fallback.")
                 }
