@@ -393,6 +393,40 @@ class OpenVpnServiceWatchdogTest {
     }
 
     @Test
+    fun parseRemoteEndpointFromConfig_defaultsToOpenVpnPort_whenPortMissing() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val target = ReflectionHelpers.callInstanceMethod<Any?>(
+            service,
+            "parseRemoteEndpointFromConfig",
+            ClassParameter.from(String::class.java, "client\nremote 198.51.100.12\n")
+        )
+
+        assertNotNull(target)
+        assertEquals("198.51.100.12", ReflectionHelpers.getField<String>(target, "host"))
+        assertEquals(1194, ReflectionHelpers.getField<Int>(target, "port"))
+    }
+
+    @Test
+    fun shouldPublishTrafficMetrics_onlyWhenConnected() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+
+        val disconnected = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "shouldPublishTrafficMetrics",
+            ClassParameter.from(ConnectionState::class.java, ConnectionState.DISCONNECTED)
+        )
+        val connected = ReflectionHelpers.callInstanceMethod<Boolean>(
+            service,
+            "shouldPublishTrafficMetrics",
+            ClassParameter.from(ConnectionState::class.java, ConnectionState.CONNECTED)
+        )
+
+        assertFalse(disconnected)
+        assertTrue(connected)
+    }
+
+    @Test
     fun resolveWatchdogProbeTargets_prioritizesActiveTunnelEndpoint() {
         val service = buildConnectedService(nowMs = 108_000L)
         SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\nremote 198.51.100.20 443\n", null)

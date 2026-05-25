@@ -102,6 +102,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val WATCHDOG_CONNECTED_WARMUP_MS = 10_000L
         private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
         private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
+        private const val WATCHDOG_DEFAULT_OPENVPN_PORT = 1194
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1277,10 +1278,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                                 val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
                                 val bitsPerSec = (trafficDelta * 8.0) * (1000.0 / deltaMs.toDouble())
                                 val mbps = bitsPerSec / 1_000_000.0
-                                ConnectionStateManager.updateSpeedMbps(mbps)
+                                if (shouldPublishTrafficMetrics(currentState)) {
+                                    ConnectionStateManager.updateSpeedMbps(mbps)
+                                }
                             }
 
-                            ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
+                            if (shouldPublishTrafficMetrics(currentState)) {
+                                ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
+                            }
                             lastPolledDatapoint = latest
                         }
                     }
@@ -1316,6 +1321,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return engineLevel == ConnectionStatus.LEVEL_CONNECTED &&
             sampleAdvanced &&
             trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES
+    }
+
+    private fun shouldPublishTrafficMetrics(currentState: ConnectionState): Boolean {
+        return currentState == ConnectionState.CONNECTED
     }
 
     private fun evaluateConnectedHealth(sampleAdvanced: Boolean, trafficDeltaBytes: Long) {
@@ -1490,7 +1499,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val host = parts[1].trim().removePrefix("[").removeSuffix("]")
         if (host.isBlank()) return null
 
-        val port = parts.getOrNull(2)?.toIntOrNull()?.takeIf { it > 0 } ?: WATCHDOG_FALLBACK_HTTPS_PORT
+        val port = parts.getOrNull(2)?.toIntOrNull()?.takeIf { it > 0 } ?: WATCHDOG_DEFAULT_OPENVPN_PORT
         return WatchdogProbeTarget(host = host, port = port)
     }
 
