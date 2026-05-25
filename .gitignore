@@ -20,6 +20,7 @@ servers.local.json
 # ==================================
 /build/
 /src/build/
+/src/build.log
 /src/core/build/
 /src/mobile/build/
 /src/tv/build/
@@ -47,7 +48,7 @@ src/.kotlin/
 src/.kotlin/errors/*.log
 hs_err_pid*.log
 
-# Local overlay files — machine-specific paths and context, never committed
+# Local overlay files - machine-specific paths and context, never committed
 AGENTS.local.md
 README.local.md
 
@@ -162,5 +163,4 @@ CODE_REVIEW_HANDOFF_*.md
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 /.github/skills/user-story-spec/SKILL.md
-/.github/skills/e2e-manual-testing/references/testing-knowledge-index.md
 # END synced-copilot-assets
