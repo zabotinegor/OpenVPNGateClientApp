@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.util.Locale
 
 class ServerListViewModel(
     private val interactor: ServerListInteractor,
@@ -100,12 +103,26 @@ class ServerListViewModel(
                 updateState { it.copy(countries = countries) }
                 _effects.emit(ServerListEffect.FocusFirstItem)
             } catch (e: Exception) {
-                logger.logLoadError(e)
-                _effects.emit(ServerListEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
+                if (e is CancellationException) throw e
+                if (shouldSuppressRecoverableV2CountriesError(e)) {
+                    logInfo("DEFAULT_V2 countries load failed without cache; keeping empty list")
+                    updateState { it.copy(countries = emptyList()) }
+                } else {
+                    logger.logLoadError(e)
+                    _effects.emit(ServerListEffect.ShowSnackbar(UiText.Res(R.string.error_getting_servers)))
+                }
             } finally {
                 updateState { it.copy(isLoading = false) }
             }
         }
+    }
+
+    private fun shouldSuppressRecoverableV2CountriesError(error: Exception): Boolean {
+        if (!interactor.isDefaultV2Source()) return false
+        if (error !is IOException) return false
+        val message = error.message?.lowercase(Locale.ROOT) ?: return false
+        return message.contains("getcountries[locale=") &&
+            message.contains("network failed and no cache available")
     }
 
     private fun handleCountrySelection(selected: Country) {

@@ -125,13 +125,48 @@ object UserSettingsStore {
         }
         AppCompatDelegate.setApplicationLocales(locales)
     }
+    /**
+     * Resolves the preferred locale based on the user's language setting.
+     * SYSTEM maps to the runtime locale, with fallback to 'en' if blank or unsupported.
+     */
+    fun resolvePreferredLocale(ctx: Context): String {
+        val settings = load(ctx)
+        return resolvePreferredLocale(settings.language, Locale.getDefault())
+    }
+
+    /**
+     * Checks if the given locale is supported.
+     */
+    private fun isSupportedLocale(locale: String): Boolean {
+        return locale in listOf("en", "ru", "pl")
+    }
+
+    fun resolvePreferredLocale(
+        language: LanguageOption,
+        systemLocale: Locale = Locale.getDefault()
+    ): String = when (language) {
+        LanguageOption.SYSTEM -> {
+            val normalized = systemLocale.language.lowercase(Locale.ROOT)
+            if (normalized.isBlank() || !isSupportedLocale(normalized)) "en" else normalized
+        }
+        LanguageOption.ENGLISH -> "en"
+        LanguageOption.RUSSIAN -> "ru"
+        LanguageOption.POLISH -> "pl"
+    }
+
+    fun resolveLegacyServerUrls(): List<String> = listOf(
+        ApiConstants.primaryLegacyServersUrl(),
+        ApiConstants.FALLBACK_SERVERS_URL
+    ).map { it.trim() }
+        .filter { it.isNotBlank() }
+        .filter { isUsableServerUrl(it) }
 
     fun resolveServerUrls(settings: UserSettings): List<String> {
         val rawUrls = when (settings.serverSource) {
-            ServerSource.LEGACY -> listOf(ApiConstants.PRIMARY_SERVERS_URL, ApiConstants.FALLBACK_SERVERS_URL)
+            ServerSource.LEGACY -> resolveLegacyServerUrls()
             ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
             ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
-            ServerSource.DEFAULT_V2 -> listOf(ApiConstants.PRIMARY_SERVERS_V2_URL)
+            ServerSource.DEFAULT_V2 -> emptyList()
         }
         return rawUrls.map { it.trim() }
             .filter { it.isNotBlank() }
@@ -146,5 +181,5 @@ object UserSettingsStore {
         if (host == "placeholder") return false
         return true
     }
-}
 
+}

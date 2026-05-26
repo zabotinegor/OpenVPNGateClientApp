@@ -37,9 +37,43 @@ git submodule update --init --recursive
 
 ## Required Build Configuration
 The `core` module requires the following endpoints at build time:
-- `PRIMARY_SERVERS_URL`
-- `FALLBACK_SERVERS_URL`
-- `PRIMARY_SERVERS_V2_URL` — base URL for the v2 API (e.g. `https://openvpngateclient.azurewebsites.net`)
+- `PRIMARY_SERVERS_URL` — primary backend base URL only, for example `https://openvpngateclient.azurewebsites.net`
+- `FALLBACK_SERVERS_URL` — full VPN Gate CSV fallback URL, for example `https://www.vpngate.net/api/iphone/`
+
+Runtime routes are derived in code from `PRIMARY_SERVERS_URL`:
+- Legacy CSV: `{PRIMARY_SERVERS_URL}/api/v1/servers/active`
+- V2 countries: `{PRIMARY_SERVERS_URL}/api/v2/servers/countries/active`
+- V2 servers: `{PRIMARY_SERVERS_URL}/api/v2/servers`
+- Release notes and update checks stay on the trusted primary backend host regardless of the selected server source
+
+### Fallback Behavior (DEFAULT_V2)
+When the app loads servers via the `DEFAULT_V2` source and the primary v2 route fails, the following fallback chain applies automatically:
+1. Primary v2 API (`{PRIMARY_SERVERS_URL}/api/v2/...`)
+2. Legacy CSV on primary domain (`{PRIMARY_SERVERS_URL}/api/v1/servers/active`)
+3. VPN Gate fallback CSV (`FALLBACK_SERVERS_URL`)
+
+If a lower-priority fallback succeeds, the working source is persisted. This chain applies to all shared sync entry points (splash, main foreground, settings source-switch, periodic background refresh). `CUSTOM` source failures do not fall back.
+
+### Localization Behavior (DEFAULT_V2)
+`DEFAULT_V2` requests include an explicit `locale` query for both v2 countries and per-country v2 server lists.
+
+Locale mapping uses app language settings:
+- `SYSTEM` -> runtime locale language code (fallback `en` when blank)
+- `ENGLISH` -> `en`
+- `RUSSIAN` -> `ru`
+- `POLISH` -> `pl`
+
+This localization behavior is scoped to `DEFAULT_V2` only. `LEGACY`, `VPNGATE`, and `CUSTOM` request behavior is unchanged.
+
+### Selected-Country Relocalization (DEFAULT_V2)
+When app language changes and the selected source is `DEFAULT_V2`, the app relocalizes an already selected country/server in the same session without requiring manual reselection.
+
+Relocalization behavior:
+- Country resolution is code-first (stable country code), avoiding stale matching by localized country name.
+- Persisted selected-country display name is rewritten to the active locale after server list alignment.
+- Current server identity and index are preserved when still present; if the server disappears, deterministic safe fallback is applied.
+
+This relocalization path is not executed for `LEGACY`, `VPNGATE`, or `CUSTOM` sources.
 
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
@@ -51,9 +85,8 @@ Create `servers.local.json` in either repository root or `src/`:
 
 ```json
 {
-  "PRIMARY_SERVERS_URL": "https://example.com/api/v1/servers/active",
-  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/",
-  "PRIMARY_SERVERS_V2_URL": "https://openvpngateclient.azurewebsites.net"
+  "PRIMARY_SERVERS_URL": "https://openvpngateclient.azurewebsites.net",
+  "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
 }
 ```
 
@@ -101,10 +134,10 @@ cd src
 .\gradlew.bat assembleDebugApp
 
 # Release APKs (mobile + tv)
-./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
+./gradlew assembleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 
 # Release AABs (mobile + tv)
-./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=... -PPRIMARY_SERVERS_V2_URL=...
+./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 ```
 
 ### Version override per launcher
@@ -117,6 +150,18 @@ cd src
 ./gradlew testDebugUnitTestApp
 ```
 
+
+### Build performance
+The project is configured for optimized build performance in `src/gradle.properties`. These settings enable parallel execution, build caching, and increased heap memory to reduce iteration times. Additionally, the OpenVPN engine SWIG generation tasks are configured to be cache-eligible, allowing unchanged code generation to be restored from the local build cache.
+
+**Default Gradle properties** (US-05 optimization):
+- `org.gradle.parallel=true` — Enable parallel module execution
+- `org.gradle.jvmargs=-Xmx4096m` — Increase JVM heap to 4 GB
+- `org.gradle.workers.max=8` — Cap worker threads
+- `org.gradle.caching=true` — Enable local build cache
+- `org.gradle.configureondemand=true` — Configure only required modules
+
+For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
 ## Manual E2E Documentation
 - Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md)
 - Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
@@ -129,6 +174,9 @@ cd src
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
 - If preload outlives GIF playback, splash shows a loading spinner until preload completes.
 - If preload fails, startup still continues to main screen; fallback is logged as a warning.
+- Main details display contract is split by field and source:
+  - `Server` field shows selected position as `current/total` within the selected country list (for example `6/7`) for all sources.
+  - `Address` field shows city + UTC for `DEFAULT_V2` when city metadata is available, city only when UTC is missing, and the selected server IP for non-`DEFAULT_V2` sources or when city metadata is unavailable.
 - Server source modes in settings:
   - `LEGACY`: primary then fallback URL
   - `DEFAULT_V2`: v2 API (default for fresh installs)
@@ -138,11 +186,16 @@ cd src
 - If VPN is connected, server refresh is locked to cache.
 - DNS provider selection is applied on next VPN connection.
 - Auto-switch within selected country with stall timeout settings.
+- Connected-state health watchdog evaluates traffic delta and trusted endpoint probe while connected.
+- Sustained unhealthy connected state triggers bounded auto-recovery with cooldown/debounce; success resets watchdog counters and reconnecting hints.
+- Recovery retry exhaustion transitions to a deterministic fail-safe disconnect state instead of indefinite false-connected presentation.
+- A fresh start action clears stale pending-stop intent so previous stop teardown state cannot suppress a new user start.
 - Shared package/application ID across mobile and tv modules.
 
 ## Logging and Diagnostics
 - Screen flow logs and VPN session logs are written via app logging trees.
 - Startup fallback paths (for example, splash preload or splash GIF load failures) are recorded as warning-level logs.
+- Watchdog decision logs include privacy-safe context for unhealthy thresholds, recovery attempt index, and healthy recovery restoration.
 - About screen supports exporting recent logcat archive for diagnostics.
 
 ## AI Agent Documentation

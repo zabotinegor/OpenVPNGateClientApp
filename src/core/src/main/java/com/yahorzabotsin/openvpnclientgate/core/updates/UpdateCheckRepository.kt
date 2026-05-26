@@ -2,13 +2,12 @@ package com.yahorzabotsin.openvpnclientgate.core.updates
 
 import android.app.UiModeManager
 import android.content.Context
-import android.net.Uri
 import android.content.res.Configuration
 import androidx.core.content.pm.PackageInfoCompat
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
+import com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +17,6 @@ import org.json.JSONObject
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.security.MessageDigest
-import java.util.Locale
 
 interface UpdateCheckApi {
     @GET
@@ -39,9 +37,6 @@ class DefaultUpdateCheckRepository(
     private companion object {
         const val KEY_SUCCESS = "success"
         const val KEY_SUCCESS_ALT = "Success"
-        const val UPDATE_CHECK_PATH_V2 = "/api/v2/versions/check-update"
-        const val UPDATE_CHECK_PATH_V1 = "/api/v1/versions/check-update"
-        val API_VERSION_MARKER = Regex("/api/v\\d+/", RegexOption.IGNORE_CASE)
     }
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "UpdateCheckRepository"
@@ -54,7 +49,7 @@ class DefaultUpdateCheckRepository(
         }
 
         val settings = settingsStore.load(appContext)
-        val preferredLocale = resolvePreferredLocale(settings.language)
+        val preferredLocale = settingsStore.resolvePreferredLocale(appContext)
         val urls = resolveTrustedUpdateSources()
         if (urls.isEmpty()) return@withContext null
         val platform = resolvePlatform()
@@ -73,26 +68,7 @@ class DefaultUpdateCheckRepository(
             )?.let { return@withContext it }
         }
 
-        val queryUrls = urls.flatMap { source ->
-            listOfNotNull(
-                toCheckUpdateUrl(
-                    sourceUrl = source,
-                    updateCheckPath = UPDATE_CHECK_PATH_V2,
-                    platform = platform,
-                    releaseType = releaseType,
-                    currentBuild = currentBuild,
-                    locale = preferredLocale
-                ),
-                toCheckUpdateUrl(
-                    sourceUrl = source,
-                    updateCheckPath = UPDATE_CHECK_PATH_V1,
-                    platform = platform,
-                    releaseType = releaseType,
-                    currentBuild = currentBuild,
-                    locale = preferredLocale
-                )
-            )
-        }.distinct()
+        val queryUrls = resolveQueryUrls(urls, platform, releaseType, currentBuild, preferredLocale)
 
         for (url in queryUrls) {
             val safeUrlForLogs = sanitizeUrlForLogs(url)
@@ -144,50 +120,43 @@ class DefaultUpdateCheckRepository(
         return BuildConfig.APP_RELEASE_TYPE.trim().lowercase()
     }
 
-    private fun toCheckUpdateUrl(
-        sourceUrl: String,
-        updateCheckPath: String,
+    private fun resolveQueryUrls(
+        sourceUrls: List<String>,
         platform: String,
         releaseType: String,
         currentBuild: Long,
         locale: String?
-    ): String? {
-        val uri = runCatching { Uri.parse(sourceUrl) }.getOrNull() ?: return null
-        val scheme = uri.scheme?.lowercase() ?: return null
-        if (scheme != "https") return null
-        val authority = uri.encodedAuthority ?: return null
-        val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
-        val path = "$basePathPrefix$updateCheckPath"
-        val builder = Uri.Builder()
-            .scheme(scheme)
-            .encodedAuthority(authority)
-            .path(path)
-            .appendQueryParameter("platform", platform)
-            .appendQueryParameter("releaseType", releaseType)
-            .appendQueryParameter("currentBuild", currentBuild.toString())
-        locale?.trim()?.takeIf { it.isNotBlank() }?.let {
-            builder.appendQueryParameter("locale", it)
+    ): List<String> {
+        if (sourcesOverride == null) {
+            return ApiConstants.primaryUpdateCheckUrls(
+                platform = platform,
+                releaseType = releaseType,
+                currentBuild = currentBuild,
+                locale = locale
+            )
         }
-        return builder.build().toString()
+
+        return sourceUrls.flatMap { source ->
+            listOfNotNull(
+                PrimaryDomainRoutes.updateCheckUrl(
+                    baseUrl = source,
+                    apiVersion = 2,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = locale
+                ),
+                PrimaryDomainRoutes.updateCheckUrl(
+                    baseUrl = source,
+                    apiVersion = 1,
+                    platform = platform,
+                    releaseType = releaseType,
+                    currentBuild = currentBuild,
+                    locale = locale
+                )
+            )
+        }.distinct()
     }
-
-    private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val markerMatch = API_VERSION_MARKER.find(encodedPath)
-        val markerIndex = markerMatch?.range?.first ?: -1
-        if (markerIndex <= 0) return ""
-
-        val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
-        if (prefix.isBlank()) return ""
-        return if (prefix.startsWith('/')) prefix else "/$prefix"
-    }
-
-    private fun resolvePreferredLocale(language: LanguageOption): String =
-        when (language) {
-            LanguageOption.SYSTEM -> Locale.getDefault().language.ifBlank { "en" }
-            LanguageOption.ENGLISH -> "en"
-            LanguageOption.RUSSIAN -> "ru"
-            LanguageOption.POLISH -> "pl"
-        }
 
     private fun sourceKey(urls: List<String>): String {
         val joined = urls.joinToString("|")
@@ -198,7 +167,7 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun sanitizeUrlForLogs(url: String): String {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return "invalid-url"
+        val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return "invalid-url"
         val scheme = uri.scheme ?: return "invalid-url"
         val host = uri.host ?: return "invalid-url"
         val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
@@ -206,10 +175,7 @@ class DefaultUpdateCheckRepository(
     }
 
     private fun resolveTrustedUpdateSources(): List<String> {
-        return (sourcesOverride ?: listOf(
-            ApiConstants.PRIMARY_SERVERS_URL,
-            ApiConstants.FALLBACK_SERVERS_URL
-        )).map { it.trim() }
+        return (sourcesOverride ?: listOf(ApiConstants.PRIMARY_SERVERS_URL)).map { it.trim() }
             .filter { it.isNotBlank() }
             .filter { settingsStore.isUsableServerUrl(it) }
             .distinct()

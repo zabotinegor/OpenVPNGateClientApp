@@ -6,14 +6,16 @@ data class ServerV2(
     @SerializedName("ip") val ip: String,
     @SerializedName("countryCode") val countryCode: String,
     @SerializedName("countryName") val countryName: String,
-    @SerializedName("configData") val configData: String
+    @SerializedName("configData") val configData: String,
+    @SerializedName("city") val city: String? = null,
+    @SerializedName("utc") val utc: String? = null
 )
 
 /** Maps a [ServerV2] to the legacy [Server] shape so it can be stored in [SelectedCountryStore]. */
 fun ServerV2.toLegacyServer(): Server = Server(
     lineIndex = 0,
     name = ip,
-    city = "",
+    city = city?.takeIf { it.isNotBlank() } ?: "",
     country = Country(name = countryName, code = countryCode),
     ping = 0,
     signalStrength = SignalStrength.WEAK,
@@ -27,5 +29,6 @@ fun ServerV2.toLegacyServer(): Server = Server(
     logType = "",
     operator = "",
     message = "",
-    configData = configData
+    configData = configData,
+    utc = utc
 )

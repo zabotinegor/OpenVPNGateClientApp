@@ -15,6 +15,10 @@ Load and follow `AGENTS.md`, then execute `.github/skills/agent-sync/SKILL.md` a
 
 ## Hard Stops
 
+- For prompt-generation responses, return exactly one fenced `text` block with no text before or after it, and end payload with `END OF PROMPT`; if formatting is invalid, regenerate before final output.
+- Apply single-block prompt formatting only for prompt-generation requests.
+- For execution requests, execute the assigned workflow and do not return a replacement prompt block.
+- Never invoke .github/scripts/update-sdlc-status.ps1 using positional shorthand (for example: `steps.story.status ready`); always use named parameters (`-FlowId`, `-Branch`, `-Step`, `-Status`, plus required step-specific parameters).
 - Never delete `agent-sync.agent.md`, `.github/scripts/sync-copilot-assets.ps1`, or any path containing `agent-sync` or `sync-copilot-assets`; update it when source differs.
 - Never add broad ignore patterns such as `/.github/agents/**`, `/.github/skills/**`, `/.github/tools/**`, or `/.github/scripts/**`.
 - Never hide agent-sync-related files through `.gitignore`.

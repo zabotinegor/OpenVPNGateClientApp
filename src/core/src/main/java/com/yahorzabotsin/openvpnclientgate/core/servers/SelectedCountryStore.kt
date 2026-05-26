@@ -12,7 +12,8 @@ data class StoredServer(
     val city: String,
     val config: String,
     val countryCode: String? = null,
-    val ip: String? = null
+    val ip: String? = null,
+    val utc: String? = null
 )
 
 data class LastConfig(
@@ -29,6 +30,7 @@ object SelectedCountryStore {
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
+    private val selectionRenameLock = Any()
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
@@ -37,6 +39,7 @@ object SelectedCountryStore {
     private const val KEY_JSON_CONFIG = "config"
     private const val KEY_JSON_CODE = "code"
     private const val KEY_JSON_IP = "ip"
+    private const val KEY_JSON_UTC = "utc"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -49,6 +52,7 @@ object SelectedCountryStore {
                 .put(KEY_JSON_CONFIG, s.configData)
                 .put(KEY_JSON_CODE, s.country.code)
                 .put(KEY_JSON_IP, s.ip)
+                .put(KEY_JSON_UTC, s.utc)
             arr.put(o)
         }
         prefs(ctx).edit()
@@ -95,7 +99,8 @@ object SelectedCountryStore {
                     city = o.optString(KEY_JSON_CITY),
                     config = o.optString(KEY_JSON_CONFIG),
                     countryCode = o.optString(KEY_JSON_CODE, null),
-                    ip = o.optString(KEY_JSON_IP, null)
+                    ip = o.optString(KEY_JSON_IP, null),
+                    utc = o.optString(KEY_JSON_UTC, null)
                 )
             }
         } catch (e: JSONException) {
@@ -266,6 +271,79 @@ object SelectedCountryStore {
                 setIndex(ctx, foundByIp)
                 AppLog.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
             }
+        }
+    }
+
+    /**
+     * Updates the persisted country name without modifying servers or index.
+     * Used for relocalization when the language changes.
+     */
+    fun updateSelectedCountryName(ctx: Context, newCountryName: String) {
+        val currentName = getSelectedCountry(ctx)
+        if (currentName.isNullOrBlank() || currentName == newCountryName) {
+            AppLog.d(TAG, "updateSelectedCountryName: no change or no selection (current='$currentName', new='$newCountryName')")
+            return
+        }
+        val prefs = prefs(ctx)
+        val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+
+        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+        if (lastSuccessCountry == currentName) {
+            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+        }
+
+        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+        if (lastStartedCountry == currentName) {
+            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+        }
+
+        editor.apply()
+        AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
+        SelectedCountryVersionSignal.bump()
+    }
+
+    /**
+     * Atomically updates country name only when current selected country is still [expectedCurrentCountryName].
+     * Prevents relocalization races from mutating a different active selection via single atomic read-check-write.
+     * Must NOT call updateSelectedCountryName() after this check, as that creates TOCTOU race.
+     */
+    fun updateSelectedCountryNameIfCurrent(
+        ctx: Context,
+        expectedCurrentCountryName: String,
+        newCountryName: String
+    ): Boolean {
+        val prefs = prefs(ctx)
+        synchronized(selectionRenameLock) {
+            // Guarded read-check-write block under single process lock.
+            val currentName = prefs.getString(KEY_COUNTRY, null)
+            if (currentName != expectedCurrentCountryName) {
+                AppLog.w(
+                    TAG,
+                    "updateSelectedCountryNameIfCurrent: selection changed, skip rename expected='$expectedCurrentCountryName' actual='${currentName ?: "<none>"}'"
+                )
+                return false
+            }
+
+            val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+
+            val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+            if (lastSuccessCountry == currentName) {
+                editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+            }
+
+            val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+            if (lastStartedCountry == currentName) {
+                editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+            }
+
+            val committed = editor.commit()
+            if (!committed) {
+                AppLog.w(TAG, "updateSelectedCountryNameIfCurrent: commit failed for '$currentName' -> '$newCountryName'")
+                return false
+            }
+            AppLog.i(TAG, "updateSelectedCountryNameIfCurrent: '$currentName' -> '$newCountryName' (guarded)")
+            SelectedCountryVersionSignal.bump()
+            return true
         }
     }
 }

@@ -68,6 +68,11 @@ class SplashServerPreloadInteractorTest {
             lastClearCacheBeforeRefresh = clearCacheBeforeRefresh
             return emptyList()
         }
+
+        override suspend fun syncSelectedCountryServersForRelocalization(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
     }
 
     private class FakeServersV2SyncCoordinator : ServersV2SyncCoordinator {

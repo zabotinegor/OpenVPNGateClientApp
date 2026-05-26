@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.settings
 
 import android.content.Context
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.dns.DnsOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -9,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class UserSettingsStoreTest {
@@ -125,24 +127,23 @@ class UserSettingsStoreTest {
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
-    // UT-1.5 — DEFAULT_V2 resolves to the v2 server URL (not empty)
+    // UT-1.5 — DEFAULT_V2 does not expose CSV URLs directly
     @Test
-    fun resolve_server_urls_default_v2_returns_v2_url() {
+    fun resolve_server_urls_default_v2_returns_empty_csv_list() {
         val urls = UserSettingsStore.resolveServerUrls(
             UserSettings(serverSource = ServerSource.DEFAULT_V2)
         )
-        // PRIMARY_SERVERS_V2_URL is injected via BuildConfig; in a valid build it resolves to a
-        // non-empty, usable https URL and must not be empty after filtering.
-        assertTrue(urls.isNotEmpty())
+        assertTrue(urls.isEmpty())
     }
 
-    // UT-1.6 — LEGACY resolves to primary + fallback URL
+    // UT-1.6 — LEGACY resolves to derived primary CSV + fallback URL
     @Test
     fun resolve_server_urls_legacy_returns_primary_and_fallback() {
         val urls = UserSettingsStore.resolveServerUrls(
             UserSettings(serverSource = ServerSource.LEGACY)
         )
         assertEquals(2, urls.size)
+        assertEquals(ApiConstants.primaryLegacyServersUrl(), urls.first())
     }
 
     // AC-1: new install (no stored key) defaults to DEFAULT_V2
@@ -151,6 +152,43 @@ class UserSettingsStoreTest {
         // setUp() already cleared prefs — no "server_source" key exists
         val settings = UserSettingsStore.load(context)
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    @Test
+    fun resolve_preferred_locale_maps_explicit_languages() {
+        assertEquals("en", UserSettingsStore.resolvePreferredLocale(LanguageOption.ENGLISH))
+        assertEquals("ru", UserSettingsStore.resolvePreferredLocale(LanguageOption.RUSSIAN))
+        assertEquals("pl", UserSettingsStore.resolvePreferredLocale(LanguageOption.POLISH))
+    }
+
+    @Test
+    fun resolvePreferredLocale_systemFallbackToEn() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("de"))
+            val settings = UserSettings(language = LanguageOption.SYSTEM)
+            UserSettingsStore.save(context, settings)
+
+            val locale = UserSettingsStore.resolvePreferredLocale(context)
+            assertEquals("en", locale)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
+    fun resolvePreferredLocale_systemUsesDeviceLocale() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("pl"))
+            val settings = UserSettings(language = LanguageOption.SYSTEM)
+            UserSettingsStore.save(context, settings)
+
+            val locale = UserSettingsStore.resolvePreferredLocale(context)
+            assertEquals("pl", locale)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 }
 

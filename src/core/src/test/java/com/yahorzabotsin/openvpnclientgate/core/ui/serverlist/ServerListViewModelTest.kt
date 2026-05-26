@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
@@ -33,6 +34,24 @@ class ServerListViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
+
+    @Test
+    fun `init_v2_source_cancellation_is_rethrown`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = CancellationException("cancelled")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val logger = CountingLogger()
+        val vm = ServerListViewModel(interactor, connection, logger)
+
+        advanceUntilIdle()
+
+        // CancellationException must not be swallowed as an error — no snackbar and no error log
+        assertEquals(0, logger.loadErrorCalls)
+        assertEquals(false, vm.state.value.isLoading)
+        assertEquals(0, vm.state.value.countries.size)
+    }
 
     @Test
     fun `init loads servers and emits focus effect`() = runTest {
@@ -207,6 +226,22 @@ class ServerListViewModelTest {
     }
 
     @Test
+    fun `init_v2_source_network_no_cache_error_is_suppressed`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = IOException("getCountries[locale=ru]: network failed and no cache available")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val logger = CountingLogger()
+        val vm = ServerListViewModel(interactor, connection, logger)
+
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.countries.size)
+        assertEquals(0, logger.loadErrorCalls)
+    }
+
+    @Test
     fun `paused state is treated as vpn connected`() = runTest {
         val interactor = FakeInteractor(loaded = emptyList())
         val connection = FakeConnectionProvider(ConnectionState.PAUSED)
@@ -278,6 +313,19 @@ class ServerListViewModelTest {
     private class FakeLogger : ServerListLogger {
         override fun logLoadSuccess(count: Int) = Unit
         override fun logLoadError(error: Exception) = Unit
+        override fun logNoServers(countryName: String) = Unit
+        override fun logSelectionError(countryName: String, error: Exception) = Unit
+    }
+
+    private class CountingLogger : ServerListLogger {
+        var loadErrorCalls: Int = 0
+
+        override fun logLoadSuccess(count: Int) = Unit
+
+        override fun logLoadError(error: Exception) {
+            loadErrorCalls += 1
+        }
+
         override fun logNoServers(countryName: String) = Unit
         override fun logSelectionError(countryName: String, error: Exception) = Unit
     }

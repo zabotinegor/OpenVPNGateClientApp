@@ -1,10 +1,9 @@
 package com.yahorzabotsin.openvpnclientgate.core.versions
 
 import android.content.Context
-import android.net.Uri
 import androidx.core.content.pm.PackageInfoCompat
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +13,6 @@ import org.json.JSONObject
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.security.MessageDigest
-import java.util.Locale
 
 data class LatestReleaseInfo(
     val versionNumber: String,
@@ -51,12 +49,13 @@ class DefaultVersionReleaseRepository(
         }
 
         val settings = settingsStore.load(appContext)
-        val preferredLocale = resolvePreferredLocale(settings.language)
-        val urls = settingsStore.resolveServerUrls(settings)
-        if (urls.isEmpty()) {
-            AppLog.d(tag, "No server urls resolved for source=${settings.serverSource}. What's new unavailable.")
-            return@withContext null
-        }
+        val preferredLocale = settingsStore.resolvePreferredLocale(appContext)
+        val primaryUrl = ApiConstants.primaryVersionByNumberAndBuildUrl(
+            versionName = currentVersion.versionName,
+            buildNumber = currentVersion.buildNumber,
+            locale = preferredLocale
+        )
+        val urls = listOf(ApiConstants.PRIMARY_SERVERS_URL.trim())
         val sourceKey = sourceKey(urls)
 
         cacheStore.get(
@@ -79,15 +78,7 @@ class DefaultVersionReleaseRepository(
             "Release notes cache miss: version=${currentVersion.versionName}, build=${currentVersion.buildNumber}, locale=$preferredLocale, sourceKey=${sourceKey.take(8)}"
         )
 
-        val versionUrls = urls.mapNotNull {
-            toVersionByNumberAndBuildUrl(
-                sourceUrl = it,
-                versionName = currentVersion.versionName,
-                buildNumber = currentVersion.buildNumber,
-                locale = preferredLocale
-            )
-        }.distinct()
-        for (url in versionUrls) {
+        for (url in listOf(primaryUrl)) {
             runCatching {
                 api.getByVersionAndBuild(url).use { body ->
                     parseVersionByNumberAndBuild(rawJson = body.string())
@@ -133,43 +124,6 @@ class DefaultVersionReleaseRepository(
         val buildNumber = PackageInfoCompat.getLongVersionCode(pInfo)
         return CurrentAppVersion(versionName = versionName, buildNumber = buildNumber)
     }
-
-    private fun toVersionByNumberAndBuildUrl(
-        sourceUrl: String,
-        versionName: String,
-        buildNumber: Long,
-        locale: String?
-    ): String? {
-        val uri = runCatching { Uri.parse(sourceUrl) }.getOrNull() ?: return null
-        val scheme = uri.scheme ?: return null
-        val authority = uri.encodedAuthority ?: return null
-        val basePathPrefix = extractApiBasePathPrefix(uri.encodedPath.orEmpty())
-        val encodedVersion = Uri.encode(versionName)
-        val localeQuery = locale
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { "?locale=${Uri.encode(it)}" }
-            .orEmpty()
-        return "$scheme://$authority$basePathPrefix/api/v1/versions/number/$encodedVersion/build/$buildNumber$localeQuery"
-    }
-
-    private fun extractApiBasePathPrefix(encodedPath: String): String {
-        val marker = "/api/v1/"
-        val markerIndex = encodedPath.indexOf(marker)
-        if (markerIndex <= 0) return ""
-
-        val prefix = encodedPath.substring(0, markerIndex).trimEnd('/')
-        if (prefix.isBlank()) return ""
-        return if (prefix.startsWith('/')) prefix else "/$prefix"
-    }
-
-    private fun resolvePreferredLocale(language: LanguageOption): String =
-        when (language) {
-            LanguageOption.SYSTEM -> Locale.getDefault().language.ifBlank { "en" }
-            LanguageOption.ENGLISH -> "en"
-            LanguageOption.RUSSIAN -> "ru"
-            LanguageOption.POLISH -> "pl"
-        }
 
     private fun sourceKey(urls: List<String>): String {
         val joined = urls.joinToString("|")

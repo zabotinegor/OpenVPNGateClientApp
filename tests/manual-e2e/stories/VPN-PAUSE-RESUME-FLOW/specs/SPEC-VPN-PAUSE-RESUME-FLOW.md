@@ -70,4 +70,4 @@ powershell -ExecutionPolicy Bypass -File .\tests\manual-e2e\automation\run-tv-pa
 ```
 
 Reference validation notes:
-- `tests/manual-e2e/reference/archived/TV-PAUSE-RESUME-SMOOTHER-STATES-2026-04-25.md`
+- `tests/manual-e2e/reference/TV-PAUSE-RESUME-SMOOTHER-STATES-2026-04-25.md`

@@ -3,12 +3,16 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +50,7 @@ class ServersV2RepositoryTest {
         assertEquals("JP", result[0].code)
         assertEquals("Japan", result[0].name)
         assertEquals(14, result[0].serverCount)
+        assertEquals(currentLocaleCode(), api.lastCountriesLocale)
     }
 
     // UT-2.2 — second call without forceRefresh uses cache (no second HTTP call)
@@ -72,8 +77,9 @@ class ServersV2RepositoryTest {
 
         // Write expired timestamp
         repo.getCountries(context, forceRefresh = true)
+        val locale = currentLocaleCode()
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_$locale", 1L).commit()
 
         repo.getCountries(context, forceRefresh = false)
 
@@ -91,7 +97,7 @@ class ServersV2RepositoryTest {
 
         // Expire cache and make API throw
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_${currentLocaleCode()}", 1L).commit()
         api.throwOnCountries = IOException("network down")
 
         val result = repo.getCountries(context, forceRefresh = false)
@@ -122,6 +128,7 @@ class ServersV2RepositoryTest {
 
         assertEquals(10, result.size)
         assertEquals(1, api.serversCallCount)
+        assertEquals(currentLocaleCode(), api.lastServersLocale)
     }
 
     // UT-2.7 — serverCount > 50 → multiple pages requested
@@ -225,8 +232,9 @@ class ServersV2RepositoryTest {
         repo.getServersForCountry(context, "JP", 5, forceRefresh = true)
         repo.getServersForCountry(context, "DE", 5, forceRefresh = true)
 
-        val jpCacheFile = File(context.cacheDir, "v2_servers_jp.json")
-        val deCacheFile = File(context.cacheDir, "v2_servers_de.json")
+        val locale = currentLocaleCode()
+        val jpCacheFile = File(context.cacheDir, "v2_servers_jp_${locale}.json")
+        val deCacheFile = File(context.cacheDir, "v2_servers_de_${locale}.json")
         assertTrue(jpCacheFile.exists())
         assertTrue(deCacheFile.exists())
     }
@@ -238,20 +246,39 @@ class ServersV2RepositoryTest {
         try {
             val api = FakeServersV2Api(serversJson = buildServersJson("IQ", 1))
             val repo = ServersV2Repository(api)
+            val locale = currentLocaleCode()
 
             repo.getServersForCountry(context, "IQ", 1, forceRefresh = true)
 
-            val normalizedCacheFile = File(context.cacheDir, "v2_servers_iq.json")
+            val normalizedCacheFile = File(context.cacheDir, "v2_servers_iq_${locale}.json")
             val localeSensitiveCacheFile = File(context.cacheDir, "v2_servers_ıq.json")
             assertTrue(normalizedCacheFile.exists())
             assertEquals(false, localeSensitiveCacheFile.exists())
 
             val ts = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-                .getLong("ts_servers_iq", -1L)
+                .getLong("ts_servers_iq_${locale}", -1L)
             assertTrue(ts > 0L)
         } finally {
             Locale.setDefault(previousLocale)
         }
+    }
+
+    @Test
+    fun getServersForCountry_sanitizes_country_code_for_cache_file_and_timestamp() = runBlocking {
+        val api = FakeServersV2Api(serversJson = buildServersJson("JP", 1))
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+
+        repo.getServersForCountry(context, "JP/../../evil", 1, forceRefresh = true)
+
+        val sanitizedCacheFile = File(context.cacheDir, "v2_servers_jpevil_${locale}.json")
+        val unsafeCacheFile = File(context.cacheDir, "v2_servers_jp/../../evil_${locale}.json")
+        assertTrue(sanitizedCacheFile.exists())
+        assertEquals(false, unsafeCacheFile.exists())
+        assertTrue(
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .contains("ts_servers_jpevil_${locale}")
+        )
     }
 
     // UT-2.10 — expired server cache triggers new request
@@ -259,10 +286,11 @@ class ServersV2RepositoryTest {
     fun getServersForCountry_cache_expired() = runBlocking {
         val api = FakeServersV2Api(serversJson = buildServersJson("US", 3))
         val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
 
         repo.getServersForCountry(context, "US", 3, forceRefresh = true)
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_servers_us", 1L).commit()
+            .edit().putLong("ts_servers_us_${locale}", 1L).commit()
 
         repo.getServersForCountry(context, "US", 3, forceRefresh = false)
 
@@ -301,8 +329,9 @@ class ServersV2RepositoryTest {
         // Prime cache
         repo.getCountries(context, forceRefresh = true)
         // Expire cache
+        val locale = currentLocaleCode()
         context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
-            .edit().putLong("ts_countries", 1L).commit()
+            .edit().putLong("ts_countries_$locale", 1L).commit()
         // Simulate Gson deserialization failure on the next network attempt
         api.throwOnCountries = JsonSyntaxException("simulated deserialization failure")
 
@@ -325,7 +354,7 @@ class ServersV2RepositoryTest {
         val callsAfterPrime = api.countriesCallCount
 
         // Corrupt cache file while timestamp remains valid.
-        File(context.cacheDir, "v2_countries.json").writeText("{not-json")
+        File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json").writeText("{not-json")
 
         try {
             repo.getCountries(context, forceRefresh = false, cacheOnly = true)
@@ -335,6 +364,160 @@ class ServersV2RepositoryTest {
         }
 
         assertEquals(callsAfterPrime, api.countriesCallCount)
+    }
+
+    @Test
+    fun getCountries_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
+        val api = FakeServersV2Api(countriesJson = "[]")
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+        val legacyTs = System.currentTimeMillis()
+        val legacyCountriesJson = """[{"code":"NL","name":"Netherlands","serverCount":4}]"""
+
+        File(context.cacheDir, "v2_countries.json").writeText(legacyCountriesJson)
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_countries", legacyTs).commit()
+
+        val result = repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+
+        assertEquals(1, result.size)
+        assertEquals("NL", result[0].code)
+        assertEquals(0, api.countriesCallCount)
+        assertTrue(File(context.cacheDir, "v2_countries_${locale}.json").isFile)
+        assertEquals(
+            legacyTs,
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .getLong("ts_countries_${locale}", -1L)
+        )
+    }
+
+    @Test
+    fun getCountries_migration_rethrows_cancellation_exception() = runBlocking {
+        val locale = currentLocaleCode()
+        File(context.cacheDir, "v2_countries.json").writeText("""[{"code":"JP","name":"Japan","serverCount":1}]""")
+        File(context.cacheDir, "v2_countries_${locale}.json").delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_countries_${locale}").putLong("ts_countries", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(countriesJson = "[]"),
+            fileCopy = { _, _ -> throw CancellationException("cancel-migration-countries") }
+        )
+
+        try {
+            repo.getCountries(context, forceRefresh = false)
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancel-migration-countries", e.message)
+        }
+    }
+
+    @Test
+    fun getCountries_migration_failure_deletes_partial_target_file() = runBlocking {
+        val locale = currentLocaleCode()
+        val localizedFile = File(context.cacheDir, "v2_countries_${locale}.json")
+        File(context.cacheDir, "v2_countries.json").writeText("""[{"code":"JP","name":"Japan","serverCount":1}]""")
+        localizedFile.delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_countries_${locale}").putLong("ts_countries", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(countriesJson = "[]"),
+            fileCopy = { _, target ->
+                target.writeText("partial")
+                throw IOException("simulated copy failure")
+            }
+        )
+
+        try {
+            repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+            fail("Expected IOException")
+        } catch (_: IOException) {
+            // expected: no cache remains after the migration failure cleanup
+        }
+
+        assertFalse("partial countries cache file should be deleted after migration failure", localizedFile.exists())
+    }
+
+    @Test
+    fun getServersForCountry_cache_only_reads_legacy_cache_and_migrates() = runBlocking {
+        val api = FakeServersV2Api(serversJson = "{\"items\":[]}")
+        val repo = ServersV2Repository(api)
+        val locale = currentLocaleCode()
+        val legacyTs = System.currentTimeMillis()
+        val legacyServersJson = """[
+            {"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CONFIG1"},
+            {"ip":"10.2.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CONFIG2"}
+        ]"""
+
+        File(context.cacheDir, "v2_servers_jp.json").writeText(legacyServersJson)
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_jp", legacyTs).commit()
+
+        val result = repo.getServersForCountry(
+            context = context,
+            countryCode = "JP",
+            serverCount = 2,
+            forceRefresh = false,
+            cacheOnly = true
+        )
+
+        assertEquals(2, result.size)
+        assertEquals(0, api.serversCallCount)
+        assertTrue(File(context.cacheDir, "v2_servers_jp_${locale}.json").isFile)
+        assertEquals(
+            legacyTs,
+            context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+                .getLong("ts_servers_jp_${locale}", -1L)
+        )
+    }
+
+    @Test
+    fun getServersForCountry_migration_rethrows_cancellation_exception() = runBlocking {
+        val locale = currentLocaleCode()
+        File(context.cacheDir, "v2_servers_jp.json").writeText("""[{"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CFG"}]""")
+        File(context.cacheDir, "v2_servers_jp_${locale}.json").delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_servers_jp_${locale}").putLong("ts_servers_jp", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(serversJson = "{\"items\":[]}"),
+            fileCopy = { _, _ -> throw CancellationException("cancel-migration-servers") }
+        )
+
+        try {
+            repo.getServersForCountry(context, "JP", serverCount = 1, forceRefresh = false)
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancel-migration-servers", e.message)
+        }
+    }
+
+    @Test
+    fun getServersForCountry_migration_failure_deletes_partial_target_file() = runBlocking {
+        val locale = currentLocaleCode()
+        val localizedFile = File(context.cacheDir, "v2_servers_jp_${locale}.json")
+        File(context.cacheDir, "v2_servers_jp.json").writeText("""[{"ip":"10.1.0.1","countryCode":"JP","countryName":"CountryJP","configData":"CFG"}]""")
+        localizedFile.delete()
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().remove("ts_servers_jp_${locale}").putLong("ts_servers_jp", System.currentTimeMillis()).commit()
+
+        val repo = ServersV2Repository(
+            api = FakeServersV2Api(serversJson = "{\"items\":[]}"),
+            fileCopy = { _, target ->
+                target.writeText("partial")
+                throw IOException("simulated copy failure")
+            }
+        )
+
+        try {
+            repo.getServersForCountry(context, "JP", serverCount = 1, forceRefresh = false, cacheOnly = true)
+            fail("Expected IOException")
+        } catch (_: IOException) {
+            // expected: no cache remains after the migration failure cleanup
+        }
+
+        assertFalse("partial servers cache file should be deleted after migration failure", localizedFile.exists())
     }
 
     // TS-3 (AC-4.1) — parse failure (Gson JsonSyntaxException) with no cache produces a
@@ -364,6 +547,68 @@ class ServersV2RepositoryTest {
         return """{"items":[$items],"total":$total}"""
     }
 
+    private fun currentLocaleCode(): String =
+        UserSettingsStore.resolvePreferredLocale(UserSettingsStore.load(context).language)
+
+    // TS-4 (AC-4.2) — clearCountriesCache removes legacy and locale-scoped entries, preventing migration loop.
+    @Test
+    fun clearCountriesCache_removes_legacy_and_locale_scoped_entries() = runBlocking {
+        val locale = currentLocaleCode()
+        val legacyFile = File(context.cacheDir, "v2_countries.json")
+        val localizedFile = File(context.cacheDir, "v2_countries_${locale}.json")
+        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+
+        // Create both legacy and locale-scoped cache files
+        legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
+        localizedFile.writeText("""[{"code":"US","name":"United States","serverCount":30}]""")
+        prefs.edit().putLong("ts_countries", 12345L).putLong("ts_countries_$locale", 67890L).apply()
+
+        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+
+        // Clear cache
+        repo.clearCountriesCache(context)
+
+        // Verify both files are deleted
+        assertTrue("legacy file should be deleted", !legacyFile.exists())
+        assertTrue("localized file should be deleted", !localizedFile.exists())
+        // Verify both timestamp keys are removed
+        assertTrue("legacy ts key should be removed", !prefs.contains("ts_countries"))
+        assertTrue("localized ts key should be removed", !prefs.contains("ts_countries_$locale"))
+    }
+
+    @Test
+    fun clearCountriesCache_keeps_unrelated_timestamp_keys() = runBlocking {
+        val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+        prefs.edit().putLong("ts_servers_jp", 555L).apply()
+
+        val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+        repo.clearCountriesCache(context)
+
+        assertTrue("non-country ts key should remain untouched", prefs.contains("ts_servers_jp"))
+    }
+
+    // TS-5 (AC-4.2) — after clearCountriesCache, getCountries does not rehydrate from legacy cache.
+    @Test(expected = IOException::class)
+    fun getCountries_after_clear_does_not_rehydrate_from_legacy() {
+        runBlocking {
+            val locale = currentLocaleCode()
+            val legacyFile = File(context.cacheDir, "v2_countries.json")
+            val prefs = context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+
+            // Create legacy cache but no localized file
+            legacyFile.writeText("""[{"code":"JP","name":"Japan","serverCount":14}]""")
+            prefs.edit().putLong("ts_countries", System.currentTimeMillis()).apply()
+
+            val repo = ServersV2Repository(FakeServersV2Api(countriesJson = "[]"))
+
+            // Clear cache (removes legacy file)
+            repo.clearCountriesCache(context)
+
+            // Attempt cacheOnly read should fail (legacy was cleared, no localized cache exists)
+            repo.getCountries(context, forceRefresh = false, cacheOnly = true)
+        }
+    }
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
@@ -372,14 +617,18 @@ class ServersV2RepositoryTest {
     ) : ServersV2Api {
         var countriesCallCount = 0
         var serversCallCount = 0
+        var lastCountriesLocale: String? = null
+        var lastServersLocale: String? = null
 
-        override suspend fun getCountries(): List<CountryV2> {
+        override suspend fun getCountries(locale: String): List<CountryV2> {
             throwOnCountries?.let { throw it }
             countriesCallCount++
+            lastCountriesLocale = locale
             return Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         }
 
         override suspend fun getServers(
+            locale: String,
             countryCode: String,
             isActive: Boolean,
             skip: Int,
@@ -387,6 +636,7 @@ class ServersV2RepositoryTest {
         ): ServersPageResponse {
             val pageJson = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
             serversCallCount++
+            lastServersLocale = locale
             return Gson().fromJson(pageJson, ServersPageResponse::class.java)
         }
     }

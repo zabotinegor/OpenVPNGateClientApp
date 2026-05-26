@@ -68,8 +68,40 @@ class MainViewModelTest {
         assertTrue(interactor.lastCacheOnly == false)
         val selected = viewModel.state.value.selectedServer
         assertEquals("France", selected?.country)
+        assertEquals("Paris", selected?.city)
         assertEquals("config", selected?.config)
         assertEquals(false, selected?.fromUserSelection)
+    }
+
+    @Test
+    fun `load initial selection does not log error when interactor safely returns null`() = runTest {
+        var errorCalls = 0
+        val logger = object : MainLogger {
+            override fun logInitialSelectionLoaded(selection: InitialSelection) = Unit
+            override fun logInitialSelectionError(error: Exception) {
+                errorCalls += 1
+            }
+            override fun logWhatsNewLoaded(release: MainWhatsNew) = Unit
+            override fun logWhatsNewUnavailable() = Unit
+            override fun logWhatsNewLoadError(error: Exception) = Unit
+            override fun logUpdateLoaded(update: MainAvailableUpdate) = Unit
+            override fun logUpdateUnavailable() = Unit
+            override fun logUpdateLoadError(error: Exception) = Unit
+            override fun logServerSelectionApplied(selection: SelectedServerResult) = Unit
+            override fun logIncompleteServerSelection(selection: SelectedServerResult) = Unit
+        }
+
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(initialSelection = null),
+            connectionState = ConnectionState.DISCONNECTED,
+            logger = logger
+        )
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        assertEquals(0, errorCalls)
+        assertNull(viewModel.state.value.selectedServer)
     }
 
     @Test
@@ -280,6 +312,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertTrue(effects.first() is MainEffect.StopVpn)
+        assertEquals("B", viewModel.state.value.selectedServer?.city)
         assertEquals("2.2.2.2", viewModel.state.value.selectedServer?.ip)
         job.cancel()
     }
@@ -348,6 +381,27 @@ class MainViewModelTest {
         assertTrue(effects.any { it is MainEffect.ReopenDrawer })
         assertEquals(true, viewModel.state.value.selectedServer?.fromUserSelection)
         job.cancel()
+    }
+
+    @Test
+    fun `server selection result with null city does not update selected server`() = runTest {
+        val viewModel = createViewModel()
+
+        // State should remain with no selected server
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Japan",
+                    countryCode = "JP",
+                    city = null,  // null city → guard fails → selection is not applied
+                    config = "cfg-jp",
+                    ip = "1.2.3.4"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.selectedServer)
     }
 
     @Test
@@ -672,6 +726,7 @@ class MainViewModelTest {
 
         val selected = viewModel.state.value.selectedServer
         assertEquals("Russian Federation", selected?.country)
+        assertEquals("Moscow", selected?.city)
         assertEquals("RU", selected?.countryCode)
         assertEquals("new-config", selected?.config)
         assertEquals("5.5.5.5", selected?.ip)
@@ -960,6 +1015,11 @@ class MainViewModelTest {
             lastForceRefresh = forceRefresh
             return emptyList()
         }
+
+        override suspend fun syncSelectedCountryServersForRelocalization(
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
     }
 
     private fun sampleRelease() = LatestReleaseInfo(

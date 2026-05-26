@@ -169,9 +169,10 @@ class CountryServersInteractorTest {
     ) : ServersV2Api {
         var lastRequestedCountryCode: String? = null
 
-        override suspend fun getCountries(): List<CountryV2> =
+        override suspend fun getCountries(locale: String): List<CountryV2> =
             Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
         override suspend fun getServers(
+            locale: String,
             countryCode: String,
             isActive: Boolean,
             skip: Int,

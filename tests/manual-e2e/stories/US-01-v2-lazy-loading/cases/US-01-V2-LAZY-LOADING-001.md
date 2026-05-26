@@ -30,4 +30,4 @@ surface: android
 ## Evidence Required
 - Screenshots: ME-3, ME-4, ME-8, ME-10, ME-11, ME-12.
 - Log excerpt: clean result for app parsing path after ME-4.
-- Artifact folder: [../../../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading](../../../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading)
+- Artifact folder: [../../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading](../../../artifacts/manual-qa/2026-05-06-us01-v2-lazy-loading)

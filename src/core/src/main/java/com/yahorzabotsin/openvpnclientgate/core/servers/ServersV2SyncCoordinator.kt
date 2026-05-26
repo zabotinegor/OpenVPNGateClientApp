@@ -127,7 +127,25 @@ class DefaultServersV2SyncCoordinator(
         }
 
         val legacyServers = v2Servers.map { it.toLegacyServer() }
+        val localizedCountryName = countryV2.name
+
+        // Preserve index and current server identity against the currently stored selection key.
         SelectedCountryStore.saveSelectionPreservingIndex(context, rawSelectedCountry!!, legacyServers)
-        AppLog.i(tag, "syncSelectedCountryServers: synced country=$selectedCountry servers=${legacyServers.size}")
+
+        // Relocalize display name after server list alignment.
+        if (rawSelectedCountry != localizedCountryName) {
+            val renamed = SelectedCountryStore.updateSelectedCountryNameIfCurrent(
+                ctx = context,
+                expectedCurrentCountryName = rawSelectedCountry,
+                newCountryName = localizedCountryName
+            )
+            if (renamed) {
+                AppLog.i(tag, "syncSelectedCountryServers: relocalized country '$rawSelectedCountry' -> '$localizedCountryName'")
+            } else {
+                AppLog.w(tag, "syncSelectedCountryServers: skipped relocalization rename due to concurrent selection change")
+            }
+        }
+
+        AppLog.i(tag, "syncSelectedCountryServers: synced country=$localizedCountryName servers=${legacyServers.size}")
     }
 }

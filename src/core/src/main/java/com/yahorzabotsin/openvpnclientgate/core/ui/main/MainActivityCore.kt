@@ -296,7 +296,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         if (selection == null) return
         if (lastAppliedSelectionVersion == selection.version) return
         lastAppliedSelectionVersion = selection.version
-        connectionControlsView.setServer(selection.country, selection.countryCode, selection.ip)
+        connectionControlsView.setServer(selection.country, selection.countryCode, selection.city, selection.ip)
         if (selection.fromUserSelection) {
             connectionControlsView.setVpnConfigFromUser(selection.config)
         } else {
@@ -431,8 +431,12 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
         binding.connectionDetails.uploadedValue.text = uploaded
     }
 
-    override fun updateCity(city: String) {
-        binding.connectionDetails.cityValue.text = city
+    override fun updateServerPosition(serverPosition: String) {
+        binding.connectionDetails.serverPositionValue.text = serverPosition
+    }
+
+    override fun updateAddressLabel(label: String) {
+        binding.connectionDetails.addressLabel.text = label
     }
 
     override fun updateAddress(address: String) {

@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
@@ -13,6 +14,7 @@ import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
 import androidx.core.app.NotificationCompat
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
 import com.yahorzabotsin.openvpnclientgate.core.R
@@ -30,9 +32,12 @@ import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import de.blinkt.openvpn.core.IServiceStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,6 +50,10 @@ import de.blinkt.openvpn.core.StatusSnapshot
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterStore
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URI
+import java.util.UUID
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -61,6 +70,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED
         )
+        private val STOP_TERMINAL_LEVELS = setOf(
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.UNKNOWN_LEVEL
+        )
         private val numberRegex = Regex("\\d+")
         private val ipv4Regex = Regex("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b")
         private val urlRegex = Regex("\\bhttps?://\\S+\\b")
@@ -71,6 +86,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
         private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
+        private const val STOP_DISPATCH_MAX_ATTEMPTS = 3
+        private const val STOP_DISPATCH_RETRY_DELAY_MS = 1_000L
+        private const val STOP_CONFIRMATION_TIMEOUT_MS = 8_000L
+        private const val STOP_BIND_TIMEOUT_MS = 2_000L
+        private const val STOP_PREFS_NAME = "vpn_stop_teardown"
+        private const val PREF_PENDING_STOP_INTENT = "pending_stop_intent"
+        private const val PREF_STOP_FAILURE_COUNT = "stop_failure_count"
+        private const val PREF_STOP_STALE_RECONCILE_COUNT = "stop_stale_reconcile_count"
+        private const val WATCHDOG_POLL_INTERVAL_MS = 2_000L
+        private const val WATCHDOG_MIN_TRAFFIC_DELTA_BYTES = 256L
+        private const val WATCHDOG_PROBE_TIMEOUT_MS = 2_000
+        private const val WATCHDOG_FAILURE_THRESHOLD = 3
+        private const val WATCHDOG_RECOVERY_COOLDOWN_MS = 15_000L
+        private const val WATCHDOG_CONNECTED_WARMUP_MS = 10_000L
+        private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
+        private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
+        private const val WATCHDOG_DEFAULT_OPENVPN_PORT = 1194
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -83,6 +115,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var userInitiatedStart = false
     private var userInitiatedStop = false
     private var ignoreConnectedUntilNotConnected = false
+    private var stopRequestId: String? = null
+    private var stopStartedAtMs: Long = 0L
+    private var stopAttempt: Int = 0
+    private var stopAwaitingConfirmation: Boolean = false
+    private var stopBindPending: Boolean = false
+    private var stopLastFailureReason: String? = null
+    private val stopPrefs: SharedPreferences by lazy {
+        getSharedPreferences(STOP_PREFS_NAME, MODE_PRIVATE)
+    }
 
     // Suppress duplicate engine state callbacks while we manage retries
     private var suppressEngineState = true
@@ -121,6 +162,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val trafficHandler = Handler(Looper.getMainLooper())
     private var lastPolledDatapoint: TrafficHistory.TrafficDatapoint? = null
     private var lastPolledState: ConnectionState? = null
+    private data class HealthWatchdogState(
+        var connectedSinceMs: Long = 0L,
+        var consecutiveFailures: Int = 0,
+        var lastHealthyTimestamp: Long = 0L,
+        var lastRecoveryTimestamp: Long = 0L,
+        var recoveryAttempts: Int = 0,
+        var degraded: Boolean = false
+    )
+    private data class WatchdogProbeTarget(
+        val host: String,
+        val port: Int
+    )
+    private data class WatchdogRecoveryTarget(
+        val config: String,
+        val title: String?
+    )
+    private var watchdogState = HealthWatchdogState()
+    internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
+    internal var watchdogProbeDispatcher: CoroutineDispatcher = Dispatchers.IO
+    internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
+        performReachabilityProbe(host, port, timeoutMs)
+    }
+    internal var watchdogRecoveryStarter: (Context, String, String?) -> Unit = { ctx, config, title ->
+        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+    }
+    private var watchdogProbeJob: Job? = null
     
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
@@ -161,6 +228,169 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         scheduleOneShotStop(0L)
     }
 
+    private val stopRetryRunnable = Runnable {
+        if (!userInitiatedStop) return@Runnable
+        AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} retry=true reason=${stopLastFailureReason ?: "unknown"} next_attempt=${stopAttempt + 1}")
+        stopAwaitingConfirmation = false
+        stopBindPending = false
+        requestStopIcsOpenVpn()
+    }
+
+    private val stopConfirmationTimeoutRunnable = Runnable {
+        if (!userInitiatedStop || !stopAwaitingConfirmation) return@Runnable
+        stopAwaitingConfirmation = false
+        stopLastFailureReason = "confirmation_timeout"
+        AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=sent confirm=false reason=confirmation_timeout")
+        scheduleStopRetryOrFail("confirmation_timeout")
+    }
+
+    private val stopBindTimeoutRunnable = Runnable {
+        if (!userInitiatedStop || !stopBindPending) return@Runnable
+        stopBindPending = false
+        stopLastFailureReason = "bind_timeout"
+        stopAttempt += 1
+        AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=not_sent reason=bind_timeout")
+        scheduleStopRetryOrFail("bind_timeout")
+    }
+
+    private fun newStopRequestId(): String = UUID.randomUUID().toString().substring(0, 8)
+
+    private fun hasPendingStopIntent(): Boolean = stopPrefs.getBoolean(PREF_PENDING_STOP_INTENT, false)
+
+    private fun persistPendingStopIntent(pending: Boolean) {
+        stopPrefs.edit().putBoolean(PREF_PENDING_STOP_INTENT, pending).commit()
+    }
+
+    private fun incrementStopFailureCounter(): Int {
+        val next = stopPrefs.getInt(PREF_STOP_FAILURE_COUNT, 0) + 1
+        stopPrefs.edit().putInt(PREF_STOP_FAILURE_COUNT, next).apply()
+        return next
+    }
+
+    private fun incrementStaleReconcileCounter(): Int {
+        val next = stopPrefs.getInt(PREF_STOP_STALE_RECONCILE_COUNT, 0) + 1
+        stopPrefs.edit().putInt(PREF_STOP_STALE_RECONCILE_COUNT, next).apply()
+        return next
+    }
+
+    private fun startUserStopTeardown(reason: String, forceReset: Boolean = false) {
+        if (!userInitiatedStop || forceReset) {
+            userInitiatedStop = true
+            userInitiatedStart = false
+            ignoreConnectedUntilNotConnected = true
+            stopRequestId = newStopRequestId()
+            stopStartedAtMs = System.currentTimeMillis()
+            stopAttempt = 0
+            stopAwaitingConfirmation = false
+            stopBindPending = false
+            stopLastFailureReason = null
+            persistPendingStopIntent(true)
+            ConnectionStateManager.clearStopFailure()
+            AppLog.i(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} session=${sessionAttempt} source=$reason started=true")
+        }
+        try {
+            ConnectionStateManager.setReconnectingHint(false)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to clear reconnecting hint on user stop", e)
+        }
+        try {
+            ConnectionStateManager.updateSpeedMbps(0.0)
+        } catch (_: Exception) {
+        }
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+        pauseActionInFlight = false
+        resumeActionInFlight = false
+        statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+        statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+        requestStopIcsOpenVpn()
+    }
+
+    private fun scheduleStopRetryOrFail(reason: String) {
+        if (!userInitiatedStop) return
+        if (stopAttempt >= STOP_DISPATCH_MAX_ATTEMPTS) {
+            markStopFailure(reason)
+            return
+        }
+        statusHandler.removeCallbacks(stopRetryRunnable)
+        statusHandler.postDelayed(stopRetryRunnable, STOP_DISPATCH_RETRY_DELAY_MS)
+    }
+
+    private fun markStopFailure(reason: String) {
+        stopAwaitingConfirmation = false
+        stopBindPending = false
+        stopLastFailureReason = reason
+        statusHandler.removeCallbacks(stopRetryRunnable)
+        statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+        statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+        ConnectionStateManager.setStopFailure()
+        val elapsedMs = if (stopStartedAtMs > 0L) System.currentTimeMillis() - stopStartedAtMs else -1L
+        val failureCount = incrementStopFailureCounter()
+        AppLog.e(
+            TAG,
+            "stop_flow requestId=${stopRequestId ?: "<none>"} attempts=$stopAttempt dispatch=failed confirm=false elapsed_ms=$elapsedMs reason=$reason failure_count=$failureCount"
+        )
+    }
+
+    private fun finishStopFlowConfirmed(level: ConnectionStatus, source: String) {
+        if (!userInitiatedStop) return
+        stopAwaitingConfirmation = false
+        stopBindPending = false
+        statusHandler.removeCallbacks(stopRetryRunnable)
+        statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+        statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+        ignoreConnectedUntilNotConnected = false
+        userInitiatedStop = false
+        ConnectionStateManager.clearStopFailure()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        persistPendingStopIntent(false)
+        val elapsedMs = if (stopStartedAtMs > 0L) System.currentTimeMillis() - stopStartedAtMs else -1L
+        AppLog.i(
+            TAG,
+            "stop_flow requestId=${stopRequestId ?: "<none>"} attempts=$stopAttempt dispatch=sent confirm=true level=$level source=$source elapsed_ms=$elapsedMs"
+        )
+        stopRequestId = null
+        stopStartedAtMs = 0L
+        stopAttempt = 0
+        stopLastFailureReason = null
+        if (boundToEngine) {
+            try {
+                unbindService(engineConnection)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to unbind engine after confirmed stop", e)
+            }
+            boundToEngine = false
+        }
+        stopSelf()
+    }
+
+    private fun maybeStartStaleStopReconciliation(level: ConnectionStatus, source: String): Boolean {
+        if (level != ConnectionStatus.LEVEL_CONNECTED) return false
+        if (!hasPendingStopIntent()) return false
+        if (userInitiatedStart) return false
+        if (userInitiatedStop) return false
+
+        val reconcileCount = incrementStaleReconcileCounter()
+        AppLog.w(
+            TAG,
+            "stale_stop_guard source=$source pending_stop_intent=true observed_level=$level reconcile_count=$reconcileCount"
+        )
+        startUserStopTeardown("stale_relaunch")
+        return true
+    }
+
+    private fun maybeClearStaleStopIntentOnIdleLevel(level: ConnectionStatus, source: String) {
+        if (level !in STOP_TERMINAL_LEVELS) return
+        if (!hasPendingStopIntent()) return
+        if (userInitiatedStop || userInitiatedStart) return
+
+        persistPendingStopIntent(false)
+        ConnectionStateManager.clearStopFailure()
+        AppLog.i(
+            TAG,
+            "stop_flow pending intent cleared on idle engine level=$level source=$source pending_stop_intent=false"
+        )
+    }
+
     private fun totalServersStr(): String =
         if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
     
@@ -169,6 +399,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             engineBinder = IOpenVPNServiceInternal.Stub.asInterface(service)
             boundToEngine = true
+            stopBindPending = false
+            statusHandler.removeCallbacks(stopBindTimeoutRunnable)
             tryStopVpn()
         }
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -351,16 +583,35 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         when (intent?.getStringExtra(VpnManager.actionKey(this))) {
             VpnManager.ACTION_START -> {
                 AppLog.i(TAG, "ACTION_START")
+                stopAwaitingConfirmation = false
+                stopBindPending = false
+                stopLastFailureReason = null
+                stopRequestId = null
+                userInitiatedStop = false
+                ignoreConnectedUntilNotConnected = false
+                statusHandler.removeCallbacks(stopRetryRunnable)
+                statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+                statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+                ConnectionStateManager.clearStopFailure()
+                if (hasPendingStopIntent()) {
+                    persistPendingStopIntent(false)
+                    AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
+                }
                 if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+                pauseActionInFlight = false
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
-                userInitiatedStop = false
-                ignoreConnectedUntilNotConnected = false
+                if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTING) {
+                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                }
                 val isReconnect = intent.getBooleanExtra(VpnManager.extraAutoSwitchKey(this), false)
                 try {
                     ConnectionStateManager.setReconnectingHint(isReconnect)
@@ -405,21 +656,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
+                pauseActionInFlight = false
+                resumeActionInFlight = false
+                statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
+                statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                 val preserveReconnect = intent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(this), false)
                 if (preserveReconnect) {
                     AppLog.d(TAG, "Preserving reconnect hint/state for retry stop")
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
+                    statusHandler.removeCallbacks(stopRetryRunnable)
+                    statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+                    statusHandler.removeCallbacks(stopBindTimeoutRunnable)
                     requestStopIcsOpenVpn()
                 } else {
-                    userInitiatedStop = true
-                    userInitiatedStart = false
-                    ignoreConnectedUntilNotConnected = true
-                    try { ConnectionStateManager.setReconnectingHint(false); AppLog.d(TAG, "reconnectHint=false (user stop)") } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint on user stop", e) }
-                    try { ConnectionStateManager.updateSpeedMbps(0.0) } catch (_: Exception) {}
-                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
-                    requestStopIcsOpenVpn()
+                    startUserStopTeardown("user_action", forceReset = true)
                 }
             }
             VpnManager.ACTION_STOP_IF_IDLE -> {
@@ -510,6 +762,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private val pauseActionTimeoutRunnable = Runnable {
         if (!pauseActionInFlight) return@Runnable
+        if (userInitiatedStop) return@Runnable
         val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
         pauseActionInFlight = false
         val (level, detail) = getLatestObservedEngineState()
@@ -539,6 +792,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private val resumeActionTimeoutRunnable = Runnable {
         if (!resumeActionInFlight) return@Runnable
+        if (userInitiatedStop) return@Runnable
         resumeActionInFlight = false
         val (level, detail) = getLatestObservedEngineState()
         AppLog.w(TAG, "Resume action timeout: engine did not confirm CONNECTED (lastLevel=${level ?: "<null>"})")
@@ -612,41 +866,77 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val bound = bindService(engineIntent, engineConnection, Context.BIND_AUTO_CREATE)
             AppLog.d(TAG, "Binding engine to stop: $bound")
             if (!bound) {
-                AppLog.w(TAG, "Bind failed; launching DisconnectVPN")
-                try {
-                    startActivity(Intent().apply {
-                        setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    })
-                } catch (e: Exception) { AppLog.w(TAG, "Failed to start DisconnectVPN activity", e) }
-                stopSelfSafely()
+                stopLastFailureReason = "bind_failed"
+                stopAttempt += 1
+                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=not_sent reason=bind_failed")
+                scheduleStopRetryOrFail("bind_failed")
+                return
             }
+            stopBindPending = true
+            statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+            statusHandler.postDelayed(stopBindTimeoutRunnable, STOP_BIND_TIMEOUT_MS)
         } else tryStopVpn()
     }
 
     private fun tryStopVpn() {
-        val userStop = userInitiatedStop
+        if (!userInitiatedStop) {
+            val stopped = try {
+                engineBinder?.stopVPN(false) ?: false
+            } catch (e: RemoteException) {
+                AppLog.e(TAG, "Binder stop error", e)
+                false
+            }
+            AppLog.i(TAG, "stopVPN invoked, result=$stopped")
+            if (boundToEngine) {
+                try {
+                    unbindService(engineConnection)
+                } catch (e: Exception) {
+                    AppLog.w(TAG, "Failed to unbind engine after stop", e)
+                }
+                boundToEngine = false
+            }
+            return
+        }
+
+        if (stopAttempt >= STOP_DISPATCH_MAX_ATTEMPTS) {
+            markStopFailure("dispatch_attempt_limit")
+            return
+        }
+
+        stopAttempt += 1
+        stopBindPending = false
+        statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+
         try {
             val stopped = engineBinder?.stopVPN(false) ?: false
-            AppLog.i(TAG, "stopVPN invoked, result=$stopped")
-            if (!stopped && userStop) {
-                AppLog.w(TAG, "stopVPN returned false on user stop; launching DisconnectVPN")
-                try {
-                    startActivity(Intent().apply {
-                        setClassName(applicationContext, "de.blinkt.openvpn.activities.DisconnectVPN")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    })
-                } catch (e: Exception) { AppLog.w(TAG, "Failed to start DisconnectVPN activity", e) }
+            AppLog.i(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch_result=$stopped")
+            if (stopped) {
+                stopAwaitingConfirmation = true
+                stopLastFailureReason = null
+                statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+                statusHandler.postDelayed(stopConfirmationTimeoutRunnable, STOP_CONFIRMATION_TIMEOUT_MS)
+            } else {
+                stopLastFailureReason = "dispatch_false"
+                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=failed reason=dispatch_false")
+                scheduleStopRetryOrFail("dispatch_false")
             }
         } catch (e: RemoteException) {
             AppLog.e(TAG, "Binder stop error", e)
-        } finally {
-            if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine after stop", e) }; boundToEngine = false }
-            if (userInitiatedStop) {
-                ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
-                userInitiatedStop = false
-                stopSelf()
+            stopLastFailureReason = "binder_exception"
+            scheduleStopRetryOrFail("binder_exception")
+        }
+    }
+
+    private fun handleEngineLevelForStop(level: ConnectionStatus, source: String) {
+        if (!userInitiatedStop) return
+        when (level) {
+            ConnectionStatus.LEVEL_NOTCONNECTED,
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.UNKNOWN_LEVEL -> {
+                finishStopFlowConfirmed(level, source)
             }
+            else -> Unit
         }
     }
 
@@ -663,6 +953,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+        statusHandler.removeCallbacks(stopRetryRunnable)
+        statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+        statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -746,8 +1039,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         }
+        if (maybeStartStaleStopReconciliation(level, "VPN_STATUS")) return
+        maybeClearStaleStopIntentOnIdleLevel(level, "VPN_STATUS")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         ConnectionStateManager.updateFromEngine(level, state)
+        handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
@@ -784,12 +1080,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
-                if (userInitiatedStop) { userInitiatedStop = false }
                 resumeActionInFlight = false
                 statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
-                if (userInitiatedStop) { userInitiatedStop = false }
                 pauseActionInFlight = false
                 statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
                 AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
@@ -939,7 +1233,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try {
                 val snapshotBinder = statusBinder
                 if (snapshotBinder != null) {
-                    val now = System.currentTimeMillis()
+                    val now = watchdogNowMs()
                     if (lastStatusSnapshotMs == 0L || now - lastStatusSnapshotMs > 5_000L) {
                         trySyncStatusSnapshot()
                     }
@@ -947,45 +1241,67 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
                 val currentState = ConnectionStateManager.state.value
                 if (currentState != lastPolledState) {
-                    if (currentState != ConnectionState.CONNECTED) {
+                    if (currentState == ConnectionState.CONNECTED) {
+                        resetHealthWatchdog(nowMs = watchdogNowMs())
+                    } else {
                         lastPolledDatapoint = null
+                        resetHealthWatchdog()
                     }
                     lastPolledState = currentState
                 }
 
-                if (currentState == ConnectionState.CONNECTED) {
-                    val trafficBinder = statusBinder
-                    if (trafficBinder != null) {
-                        val history = try {
-                            trafficBinder.trafficHistory
-                        } catch (_: Exception) {
-                            null
-                        }
+                // Harden baseline CONNECTED state establishment
+                val trafficBinder = statusBinder
+                var sampleAdvanced = false
+                var trafficDelta = 0L
+                if (trafficBinder != null) {
+                    val history = try {
+                        trafficBinder.trafficHistory
+                    } catch (_: Exception) {
+                        null
+                    }
 
-                        if (history != null) {
-                            val seconds = history.seconds
-                            val minutes = history.minutes
-                            val hours = history.hours
-                            val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
-                            if (nonEmptyLists.isNotEmpty()) {
-                                val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
-                                val previous = lastPolledDatapoint
+                    if (history != null) {
+                        val seconds = history.seconds
+                        val minutes = history.minutes
+                        val hours = history.hours
+                        val nonEmptyLists = listOf(seconds, minutes, hours).filter { it.isNotEmpty() }
+                        if (nonEmptyLists.isNotEmpty()) {
+                            val latest = nonEmptyLists.maxByOrNull { it.last().timestamp }!!.last()
+                            val previous = lastPolledDatapoint
 
-                                if (previous != null && latest.timestamp > previous.timestamp) {
-                                    val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
-                                    val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
-                                    val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
-                                    val totalDiffBytes = diffIn + diffOut
-                                    val bitsPerSec = (totalDiffBytes * 8.0) * (1000.0 / deltaMs.toDouble())
-                                    val mbps = bitsPerSec / 1_000_000.0
+                            if (previous != null && latest.timestamp > previous.timestamp) {
+                                sampleAdvanced = true
+                                val diffIn = (latest.`in` - previous.`in`).coerceAtLeast(0L)
+                                val diffOut = (latest.out - previous.out).coerceAtLeast(0L)
+                                trafficDelta = diffIn + diffOut
+                                val deltaMs = (latest.timestamp - previous.timestamp).coerceAtLeast(1L)
+                                val bitsPerSec = (trafficDelta * 8.0) * (1000.0 / deltaMs.toDouble())
+                                val mbps = bitsPerSec / 1_000_000.0
+                                if (shouldPublishTrafficMetrics(currentState)) {
                                     ConnectionStateManager.updateSpeedMbps(mbps)
                                 }
-
-                                ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
-                                lastPolledDatapoint = latest
                             }
+
+                            if (shouldPublishTrafficMetrics(currentState)) {
+                                ConnectionStateManager.updateTraffic(latest.`in`, latest.out)
+                            }
+                            lastPolledDatapoint = latest
                         }
                     }
+                }
+
+                // Only force CONNECTED when we have verified health evidence from traffic samples.
+                val engineLevel = ConnectionStateManager.engineLevel.value
+                if (shouldForceConnectedState(engineLevel, sampleAdvanced, trafficDelta) &&
+                    ConnectionStateManager.state.value != ConnectionState.CONNECTED &&
+                    !pauseActionInFlight && !resumeActionInFlight && !userInitiatedStop) {
+                    AppLog.i(TAG, "Hardened: Forcing CONNECTED state after engine connected and healthy traffic")
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                }
+
+                if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
+                    evaluateConnectedHealth(sampleAdvanced = sampleAdvanced, trafficDeltaBytes = trafficDelta)
                 }
             } catch (e: Exception) {
                 if (BuildConfig.DEBUG) {
@@ -993,7 +1309,242 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             }
 
-            trafficHandler.postDelayed(this, 2_000L)
+            trafficHandler.postDelayed(this, WATCHDOG_POLL_INTERVAL_MS)
+        }
+    }
+
+    private fun shouldForceConnectedState(
+        engineLevel: ConnectionStatus?,
+        sampleAdvanced: Boolean,
+        trafficDeltaBytes: Long
+    ): Boolean {
+        return engineLevel == ConnectionStatus.LEVEL_CONNECTED &&
+            sampleAdvanced &&
+            trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES
+    }
+
+    private fun shouldPublishTrafficMetrics(currentState: ConnectionState): Boolean {
+        return currentState == ConnectionState.CONNECTED
+    }
+
+    private fun evaluateConnectedHealth(sampleAdvanced: Boolean, trafficDeltaBytes: Long) {
+        val now = watchdogNowMs()
+        if (watchdogState.connectedSinceMs == 0L) {
+            watchdogState.connectedSinceMs = now
+            watchdogState.lastHealthyTimestamp = now
+        }
+
+        if (sampleAdvanced && trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES) {
+            markWatchdogHealthy(now, "traffic", trafficDeltaBytes)
+            return
+        }
+
+        if (now - watchdogState.connectedSinceMs < WATCHDOG_CONNECTED_WARMUP_MS) {
+            AppLog.dThrottled(TAG, "Watchdog: warm-up active", key = "watchdog-warmup")
+            return
+        }
+
+        if (watchdogState.lastRecoveryTimestamp > 0L && now - watchdogState.lastRecoveryTimestamp < WATCHDOG_RECOVERY_COOLDOWN_MS) {
+            AppLog.dThrottled(TAG, "Watchdog: cooldown active", key = "watchdog-cooldown")
+            return
+        }
+
+        if (watchdogProbeJob?.isActive == true) {
+            AppLog.dThrottled(TAG, "Watchdog: probe already in flight", key = "watchdog-probe-in-flight")
+            return
+        }
+
+        val probeTargets = resolveWatchdogProbeTargets()
+        if (probeTargets.isEmpty()) {
+            AppLog.w(TAG, "Watchdog: trusted probe target unavailable; treating as failed probe")
+            handleConnectedProbeResult(probeSucceeded = false, trafficDeltaBytes = trafficDeltaBytes)
+            return
+        }
+
+        watchdogProbeJob = serviceScope.launch(watchdogProbeDispatcher) {
+            val probeSucceeded = probeTargets.any { target ->
+                executeWatchdogProbe(target.host, target.port, WATCHDOG_PROBE_TIMEOUT_MS)
+            }
+            statusHandler.post {
+                if (ConnectionStateManager.state.value != ConnectionState.CONNECTED) return@post
+                handleConnectedProbeResult(probeSucceeded, trafficDeltaBytes)
+            }
+        }
+    }
+
+    private fun executeWatchdogProbe(host: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            watchdogProbe(host, port, timeoutMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Watchdog: probe failed with exception", e)
+            false
+        }
+    }
+
+    private fun handleConnectedProbeResult(probeSucceeded: Boolean, trafficDeltaBytes: Long) {
+        val now = watchdogNowMs()
+        if (probeSucceeded) {
+            markWatchdogHealthy(now, "probe", trafficDeltaBytes)
+            return
+        }
+
+        watchdogState.consecutiveFailures += 1
+        AppLog.w(
+            TAG,
+            "Watchdog: unhealthy trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD}"
+        )
+
+        if (watchdogState.consecutiveFailures < WATCHDOG_FAILURE_THRESHOLD) return
+
+        if (watchdogState.recoveryAttempts >= WATCHDOG_MAX_RECOVERY_ATTEMPTS) {
+            AppLog.e(
+                TAG,
+                "Watchdog: bounded recovery exhausted; entering fail-safe disconnect"
+            )
+            triggerWatchdogFailSafeDisconnect("attempt_limit_reached")
+            return
+        }
+
+        watchdogState.degraded = true
+        watchdogState.recoveryAttempts += 1
+        watchdogState.lastRecoveryTimestamp = now
+        AppLog.i(
+            TAG,
+            "Watchdog: threshold reached trafficDelta=${trafficDeltaBytes} probe=false thresholdCount=${watchdogState.consecutiveFailures}/${WATCHDOG_FAILURE_THRESHOLD} recoveryAttempt=${watchdogState.recoveryAttempts}/${WATCHDOG_MAX_RECOVERY_ATTEMPTS}"
+        )
+
+        val recoveryTarget = resolveWatchdogRecoveryTarget()
+        if (recoveryTarget == null) {
+            AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
+            triggerWatchdogFailSafeDisconnect("missing_recovery_target")
+            return
+        }
+        try {
+            watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Watchdog: failed to dispatch recovery", e)
+            triggerWatchdogFailSafeDisconnect("recovery_dispatch_failed")
+        }
+    }
+
+    private fun markWatchdogHealthy(nowMs: Long, source: String, trafficDeltaBytes: Long) {
+        val hadRecoveryState = watchdogState.degraded || watchdogState.recoveryAttempts > 0 || watchdogState.consecutiveFailures > 0
+        watchdogState.consecutiveFailures = 0
+        watchdogState.degraded = false
+        watchdogState.recoveryAttempts = 0
+        watchdogState.lastHealthyTimestamp = nowMs
+        watchdogState.lastRecoveryTimestamp = 0L
+        AppLog.iThrottled(
+            TAG,
+            "Watchdog: healthy source=${source} trafficDelta=${trafficDeltaBytes} recovered=${hadRecoveryState} reconnectAfterRestore=${hadRecoveryState}",
+            key = "watchdog-healthy-${source}-${hadRecoveryState}"
+        )
+    }
+
+    private fun resetHealthWatchdog(nowMs: Long = 0L) {
+        watchdogProbeJob?.cancel()
+        watchdogProbeJob = null
+        watchdogState = if (nowMs > 0L) {
+            HealthWatchdogState(
+                connectedSinceMs = nowMs,
+                lastHealthyTimestamp = nowMs
+            )
+        } else {
+            HealthWatchdogState()
+        }
+    }
+
+    private fun resolveWatchdogProbeTargets(): List<WatchdogProbeTarget> {
+        val targets = mutableListOf<WatchdogProbeTarget>()
+        resolveActiveTunnelProbeTarget()?.let { targets += it }
+
+        val candidates = listOfNotNull(
+            runCatching { ApiConstants.primaryRetrofitBaseUrl() }.getOrNull(),
+            ApiConstants.FALLBACK_SERVERS_URL
+        )
+        targets += candidates
+            .mapNotNull { resolveWatchdogProbeTarget(it) }
+        return targets.distinctBy { "${it.host}:${it.port}" }
+    }
+
+    private fun resolveActiveTunnelProbeTarget(): WatchdogProbeTarget? {
+        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(applicationContext) }.getOrNull()
+        parseRemoteEndpointFromConfig(lastStarted?.config)?.let { return it }
+
+        val tunnelIp = lastStarted?.ip
+            ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
+        val host = tunnelIp?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return WatchdogProbeTarget(host = host, port = WATCHDOG_FALLBACK_HTTPS_PORT)
+    }
+
+    private fun parseRemoteEndpointFromConfig(config: String?): WatchdogProbeTarget? {
+        if (config.isNullOrBlank()) return null
+        val remoteLine = config
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { line ->
+                line.isNotBlank() &&
+                    !line.startsWith("#") &&
+                    !line.startsWith(";") &&
+                    line.startsWith("remote") &&
+                    line.getOrNull("remote".length)?.isWhitespace() == true
+            }
+            ?: return null
+
+        val parts = remoteLine.split(Regex("\\s+"))
+        if (parts.size < 2) return null
+
+        val host = parts[1].trim().removePrefix("[").removeSuffix("]")
+        if (host.isBlank()) return null
+
+        val port = parts.getOrNull(2)?.toIntOrNull()?.takeIf { it > 0 } ?: WATCHDOG_DEFAULT_OPENVPN_PORT
+        return WatchdogProbeTarget(host = host, port = port)
+    }
+
+    private fun resolveWatchdogProbeTarget(rawUrl: String): WatchdogProbeTarget? {
+        val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        val port = if (uri.port > 0) uri.port else WATCHDOG_FALLBACK_HTTPS_PORT
+        return WatchdogProbeTarget(host = host, port = port)
+    }
+
+    private fun resolveWatchdogRecoveryTarget(): WatchdogRecoveryTarget? {
+        val selectedCountry = runCatching { SelectedCountryStore.getSelectedCountry(applicationContext) }.getOrNull()
+        val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(applicationContext) }.getOrNull()
+        if (!lastStarted?.config.isNullOrBlank()) {
+            return WatchdogRecoveryTarget(
+                config = lastStarted!!.config!!,
+                title = lastStarted.country ?: selectedCountry
+            )
+        }
+
+        val lastSuccessfulConfig = runCatching {
+            SelectedCountryStore.getLastSuccessfulConfigForSelected(applicationContext)
+        }.getOrNull()
+        return if (!lastSuccessfulConfig.isNullOrBlank()) {
+            WatchdogRecoveryTarget(lastSuccessfulConfig, selectedCountry)
+        } else {
+            null
+        }
+    }
+
+    private fun triggerWatchdogFailSafeDisconnect(reason: String) {
+        AppLog.e(TAG, "Watchdog: fail-safe disconnect reason=${reason}")
+        startUserStopTeardown("watchdog_fail_safe", forceReset = true)
+    }
+
+    private fun performReachabilityProbe(host: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
+            }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -1121,6 +1672,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (controllerForegroundActive && level != ConnectionStatus.LEVEL_START && level != ConnectionStatus.UNKNOWN_LEVEL) {
             exitControllerForeground()
         }
+        if (maybeStartStaleStopReconciliation(level, "AIDL")) return
+        maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
             try {
@@ -1130,6 +1683,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
         }
         ConnectionStateManager.updateFromEngine(level, detail)
+        handleEngineLevelForStop(level, "AIDL")
     }
 
     private fun shouldIgnoreLevelAfterUserStop(level: ConnectionStatus): Boolean {
