@@ -162,7 +162,8 @@ class VpnConfigurationTest {
             config.contains("remote example.com 1194 udp")
         )
         assertTrue(config.contains("persist-tun"))
-        assertTrue(config.contains("cipher AES-256-GCM"))
+        // cipher line is only emitted when mCompatMode > 0 (upstream change: "Only add --cipher is compat-mode is enabled")
+        assertFalse(config.contains("cipher AES-256-GCM"))
         assertTrue(config.contains("auth-user-pass"))
         assertTrue(config.contains("client"))
     }
