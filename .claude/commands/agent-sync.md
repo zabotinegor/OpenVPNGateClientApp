@@ -1,0 +1,15 @@
+---
+description: Mirror-sync CopilotTools agents, skills, scripts, and Claude commands into this repository
+---
+
+Sync CopilotTools assets from the latest zabotinegor/CopilotTools@main commit into this repository.
+
+$ARGUMENTS
+
+Load AGENTS.md first for baseline rules, then follow .github/skills/agent-sync/SKILL.md as the authoritative workflow.
+
+Before applying changes, create or switch the client repository to a suitable non-protected branch such as fix/sync-agent-assets and verify it.
+
+Sync scope includes: .github/agents, .github/skills, .github/scripts, .github/hooks, .githooks, .claude/commands, and .claude/settings.json.
+For .claude/commands, apply the same mirror-sync logic as for .github/agents: add new files, update changed files, delete stale files not present in source, and exclude paths containing agent-sync or sync-copilot-assets from deletion and gitignore.
+Keep branch-guard hooks/scripts trackable and configure target local Git with core.hooksPath=.githooks.

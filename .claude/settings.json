@@ -1,0 +1,25 @@
+{
+  "autoCompactEnabled": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.ps1\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -41,6 +41,7 @@ function Get-AgentSlugFromPath {
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $agentFiles = Get-ChildItem -Path (Join-Path $root '.github\agents') -Filter '*.agent.md' -File | Sort-Object Name
 $skillFiles = Get-ChildItem -Path (Join-Path $root '.github\skills') -Filter 'SKILL.md' -File -Recurse | Sort-Object FullName
+$claudeCommandFiles = Get-ChildItem -Path (Join-Path $root '.claude\commands') -Filter '*.md' -File | Sort-Object Name
 $registryPath = Join-Path $root '.github\AGENTS-REGISTRY.md'
 
 $errors = New-Object System.Collections.Generic.List[string]
@@ -76,6 +77,47 @@ foreach ($file in $agentFiles) {
 
     if (-not (Has-FrontmatterKey -Frontmatter $frontmatter -Key 'user-invocable')) {
         $errors.Add("$($file.FullName): missing required key 'user-invocable'")
+    }
+
+    if ((Get-Content -Path $file.FullName -Raw) -notmatch 'AGENTS\.md') {
+        $errors.Add("$($file.FullName): agent entrypoint must load AGENTS.md")
+    }
+}
+
+foreach ($file in $claudeCommandFiles) {
+    if ((Get-Content -Path $file.FullName -Raw) -notmatch 'AGENTS\.md') {
+        $errors.Add("$($file.FullName): Claude command must load AGENTS.md")
+    }
+}
+
+$expectedClaudeHandoffs = @{
+    'developer-flow-handoff.md' = @('/user-story', '/implement', '/code-review', '/quality-gate', '/manual-qa', '/docs', '/create-pr', '/create-release-pr')
+    'user-story.md' = @('/implement')
+    'implement.md' = @('/code-review', '/manual-qa')
+    'code-review.md' = @('/quality-gate', '/implement')
+    'quality-gate.md' = @('/manual-qa', '/implement')
+    'manual-qa.md' = @('/implement', '/docs')
+    'docs.md' = @('/create-pr')
+    'create-pr.md' = @('/review-comments')
+    'create-release-pr.md' = @('/review-comments')
+    'review-comments.md' = @('/merge-pr', '/merge-release-pr')
+}
+
+foreach ($entry in $expectedClaudeHandoffs.GetEnumerator()) {
+    $path = Join-Path $root ".claude\commands\$($entry.Key)"
+    if (-not (Test-Path -LiteralPath $path)) {
+        $errors.Add("${path}: expected Claude handoff command is missing")
+        continue
+    }
+
+    $content = Get-Content -LiteralPath $path -Raw
+    foreach ($targetCommand in $entry.Value) {
+        if ($content -notmatch [regex]::Escape($targetCommand)) {
+            $errors.Add("${path}: Claude handoff must reference slash command '$targetCommand'")
+        }
+    }
+    if ($content -match '(?m)^\s*Agent:\s+') {
+        $errors.Add("${path}: Claude handoff command must not use an 'Agent: ...' invocation line")
     }
 }
 
