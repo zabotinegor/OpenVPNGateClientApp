@@ -111,6 +111,8 @@ artifacts
 
 
 
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -129,6 +131,7 @@ artifacts
 /.claude/commands/sdlc-status.md
 /.claude/commands/update-engine.md
 /.claude/commands/user-story.md
+/.claude/settings.json
 /.github/agents/bug-flow.agent.md
 /.github/agents/code-implementator.agent.md
 /.github/agents/code-review.agent.md
@@ -179,6 +182,7 @@ artifacts
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 /.github/skills/user-story-spec/SKILL.md
+/.mcp.json
 # END synced-copilot-assets
 
 # BEGIN transient-copilot-artifacts
