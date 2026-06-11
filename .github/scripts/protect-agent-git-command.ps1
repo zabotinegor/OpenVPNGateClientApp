@@ -9,7 +9,14 @@ if ([string]::IsNullOrWhiteSpace($payloadText)) {
     exit 0
 }
 
-$payload = $payloadText | ConvertFrom-Json
+$payload = $null
+try {
+    $payload = $payloadText | ConvertFrom-Json
+}
+catch {
+    Write-Output '{}'
+    exit 0
+}
 $toolInput = if ($null -ne $payload.tool_input) { $payload.tool_input } else { $payload.toolArgs }
 $command = if ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
@@ -34,15 +41,22 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 $normalized = ($command -replace '\s+', ' ').Trim()
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
-    if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $branch) {
-        $reason = "Direct commit on protected branch '$branch' is forbidden."
+    # Detect if the command switches to a protected branch mid-chain
+    $switchedBranch = ''
+    if ($normalized -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(main|dev|master|develop)\b") {
+        $switchedBranch = $Matches[1].ToLowerInvariant()
+    }
+    $effectiveBranch = if ($switchedBranch) { $switchedBranch } else { $branch }
+
+    if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $effectiveBranch) {
+        $reason = "Direct commit on protected branch '$effectiveBranch' is forbidden."
     }
     elseif ($normalized -match "(?i)$gitPrefixPattern\s+push\b") {
-        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease|-if-includes)?|-f)(?:\s|$)') {
+        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($protected -contains $branch -and $normalized -notmatch '(?i)\bHEAD:') {
-            $reason = "Direct push from protected branch '$branch' is forbidden."
+        elseif ($protected -contains $effectiveBranch -and $normalized -notmatch '(?i)\bHEAD:') {
+            $reason = "Direct push from protected branch '$effectiveBranch' is forbidden."
         }
         elseif (
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
