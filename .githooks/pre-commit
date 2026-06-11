@@ -1,0 +1,16 @@
+#!/bin/sh
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -f "$root/.copilottools-source" ]; then
+  exit 0
+fi
+
+branch="$(git branch --show-current 2>/dev/null)"
+case "$branch" in
+  main|dev|master|develop)
+    echo "BLOCKED: direct commit on protected branch '$branch' is forbidden." >&2
+    exit 1
+    ;;
+esac
+
+exit 0

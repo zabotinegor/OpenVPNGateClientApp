@@ -1,0 +1,24 @@
+#!/bin/sh
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -f "$root/.copilottools-source" ]; then
+  exit 0
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/dev|refs/heads/master|refs/heads/develop)
+      echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
+      exit 1
+      ;;
+  esac
+
+  zero=0000000000000000000000000000000000000000
+  if [ "$local_sha" != "$zero" ] && [ "$remote_sha" != "$zero" ] &&
+     ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    echo "BLOCKED: non-fast-forward push is forbidden in client repositories." >&2
+    exit 1
+  fi
+done
+
+exit 0

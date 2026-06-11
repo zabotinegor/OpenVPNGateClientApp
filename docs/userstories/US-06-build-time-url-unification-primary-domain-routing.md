@@ -30,7 +30,7 @@ Repository docs also still describe three required build-time endpoint values in
 
 ### Backend evidence
 
-The local backend repository at `D:\Apps\OpenVPNClient\OpenVPNGateClientServer` exposes all required routes under one versioned API host:
+The local backend repository (see `AGENTS.local.md` for the machine-specific path) exposes all required routes under one versioned API host:
 
 - legacy CSV servers via `api/v1/servers/active`
 - v2 servers via `api/v2/servers` and `api/v2/servers/countries/active`

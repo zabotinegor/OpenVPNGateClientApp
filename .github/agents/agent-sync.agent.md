@@ -1,6 +1,6 @@
 ---
 name: Agent Sync
-description: "Use when mirror-syncing agents, skills, tools, and helper scripts from the latest github.com/zabotinegor/CopilotTools main commit into a target repository, including stale-file deletion, exact-path .gitignore policy, and change-count reporting."
+description: "Use when mirror-syncing agents, skills, tools, helper scripts, Copilot/Claude/Git branch guards, and Claude slash commands from the latest github.com/zabotinegor/CopilotTools main commit into a target repository, including stale-file deletion, exact-path .gitignore policy, and change-count reporting."
 tools: [read, search, edit, run_in_terminal, runCommands, todo]
 argument-hint: "what should be synced from CopilotTools and to which target paths"
 user-invocable: true
@@ -22,6 +22,8 @@ Load and follow `AGENTS.md`, then execute `.github/skills/agent-sync/SKILL.md` a
 - Never delete `agent-sync.agent.md`, `.github/scripts/sync-copilot-assets.ps1`, or any path containing `agent-sync` or `sync-copilot-assets`; update it when source differs.
 - Never add broad ignore patterns such as `/.github/agents/**`, `/.github/skills/**`, `/.github/tools/**`, or `/.github/scripts/**`.
 - Never hide agent-sync-related files through `.gitignore`.
+- Never hide `.github/hooks/`, `.githooks/`, or protected-branch guard scripts through `.gitignore`; these must remain trackable in client repositories.
+- Before applying sync changes, create or switch the client repository to a suitable non-protected branch and verify it; never edit synced tracked files on `main`, `dev`, `master`, or `develop`.
 - Never sync protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless the user explicitly asked for it and the sync command includes `-AllowRootMdSync`.
 - Do not commit or push unless explicitly requested.
 - If any post-sync file mismatches source, stop and report the mismatch.

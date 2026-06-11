@@ -162,9 +162,30 @@ class VpnConfigurationTest {
             config.contains("remote example.com 1194 udp")
         )
         assertTrue(config.contains("persist-tun"))
-        assertTrue(config.contains("cipher AES-256-GCM"))
+        // cipher line is only emitted when mCompatMode > 0 (upstream change: "Only add --cipher is compat-mode is enabled")
+        assertFalse(config.contains("cipher AES-256-GCM"))
         assertTrue(config.contains("auth-user-pass"))
         assertTrue(config.contains("client"))
+    }
+
+    @Test
+    fun `cipher line is emitted when compat mode is enabled`() {
+        val profile = VpnProfile("TestProfile")
+        profile.mConnections = arrayOf(de.blinkt.openvpn.core.Connection())
+        profile.mServerName = "example.com"
+        profile.mConnections[0].mServerName = "example.com"
+        profile.mConnections[0].mServerPort = "1194"
+        profile.mConnections[0].mUseUdp = true
+        profile.mUsePull = true
+        profile.mCipher = "AES-256-GCM"
+        profile.mAuthenticationType = VpnProfile.TYPE_USERPASS
+        profile.mUsername = "testuser"
+        profile.mPassword = "testpass"
+        profile.mCompatMode = 20400
+
+        val config = profile.getConfigFile(context, false)
+
+        assertTrue(config.contains("cipher AES-256-GCM"))
     }
 
     @Test

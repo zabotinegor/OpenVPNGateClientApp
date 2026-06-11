@@ -9,7 +9,7 @@
 ## Preconditions
 
 - Android 11 (API 30) device or emulator connected via ADB
-- ADB executable available (C:\Users\zabot\AppData\Local\Android\Sdk\platform-tools\adb.exe)
+- ADB executable available on PATH (`adb`)
 - Debug APK from commit 26fb288 available
 - Device has sufficient storage for app installation (~50 MB)
 - No previous version of `com.yahorzabotsin.openvpnclientgate` installed

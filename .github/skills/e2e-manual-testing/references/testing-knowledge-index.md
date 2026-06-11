@@ -29,74 +29,38 @@ Entry template:
 - Last validated: 2026-05-13
 - Notes: Add entries after each Manual QA run when reusable knowledge is discovered.
 
-## MIUI pause-script evidence gap
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: `run-mobile-pause-button-qa.ps1` returns PASS but expected screenshots are missing.
-- Reusable workaround/setup: Validate evidence file presence after the run and recapture required checkpoints with `adb exec-out screencap -p` when `/sdcard/<name>.png` pull fails.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-20
-- Notes: MIUI may emit `theme_compatibility.xml` noise during UI dumps in the same run; treat separately from screenshot capture status.
+---
 
-## MIUI pause-suite logcat filter gap
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: `run-mobile-pause-button-qa.ps1` produces a QA report but `logcat-suite.txt` has only header lines.
-- Reusable workaround/setup: Keep suite report as primary result, then run an additional unfiltered `adb logcat -d -t <N>` capture for watchdog/lifecycle diagnostics.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-20
-- Notes: MIUI stderr can be saturated by `theme_compatibility.xml` noise while filtered log tags return no app lines.
+## Samsung Galaxy A71 — screen locks during ADB session
 
-## US-10 phase-2 degradation too strong
 - Service repo: zabotinegor/OpenVPNGateClientApp
 - Surface: android
-- When to use: US-10 watchdog retest needs a false-connected degradation path on Mi 9 SE.
-- Reusable workaround/setup: `svc wifi/data disable` and a bogus `http_proxy` both tore down the tunnel before watchdog markers appeared; use a weaker probe-only block that keeps the VPN connected.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-20
-- Notes: The simple radio/proxy disable paths are not sufficient for MQ-US10-002..004 on this device.
+- When to use: Any ADB UI interaction on SM_A715F (R58N849XQEY)
+- Reusable workaround/setup: Run `adb shell svc power stayon usb` before any tap sequence to prevent screen timeout; restore with `adb shell svc power stayon false` after test. Also: always run `input keyevent 224` (screen on) + `input keyevent 82` (unlock) before `am start`; omitting this before a second `am start` causes `LaunchState: UNKNOWN` and `exit MainActivity` in log because MainActivity window is invisible behind the lock screen.
+- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
+- Last validated: 2026-06-11
+- Notes: Without stay-awake, screen locks in ~30 s. `dumpsys activity activities` still shows correct topResumedActivity even when screen is locked.
 
-## MIUI phase-2 script UI-dump hang
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: `run-phase2-watchdog.ps1` keeps printing MIUI `theme_compatibility.xml` exceptions and does not produce output artifacts.
-- Reusable workaround/setup: avoid hard dependency on `uiautomator dump` polling for readiness; prefer `dumpsys activity` checks and fail fast when the output folder stays empty after timeout.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-20
-- Notes: Observed during US-10 rerun-6 on Mi 9 SE with successful APK install but stalled script execution.
+---
 
-## US-10 phase-2 baseline server fallback
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: US-10 phase-2 watchdog retest reaches the main screen but never gets a CONNECTED baseline.
-- Reusable workaround/setup: use the log-driven script and the validated connect tap `input tap 540 2100`, but confirm the selected server in logcat before the 180s wait; on the latest retest the app still fell back to Australia `202.65.78.119` and disconnected before any watchdog markers appeared.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-21
-- Notes: Country selection by touch was flaky on this MIUI device; V2 server list loading worked, but the baseline server still did not reach CONNECTED.
+## Notification shade — VPN notification only visible after scroll on SM_A715F
 
-## MIUI stale-stop pref simulation write path
 - Service repo: zabotinegor/OpenVPNGateClientApp
 - Surface: android
-- When to use: Manual QA needs to simulate stale `pending_stop_intent` for stop/start carry-over validation and `run-as ... sh -c "cat ... > shared_prefs/..."` fails.
-- Reusable workaround/setup: use `run-as ... tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/vpn_stop_teardown.xml` and verify via `run-as ... cat shared_prefs/vpn_stop_teardown.xml`; avoid fragile chained wrappers that can miscompose `adb shell am` calls.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-21
-- Notes: Observed during US-10 stale pending-stop remediation QA on Mi 9 SE.
+- When to use: Tapping the VPN foreground notification on SM_A715F (One UI 5, Android 13)
+- Reusable workaround/setup: Use `adb shell cmd statusbar expand-notifications` (more reliable than swipe on One UI) to open shade. VPN notification typically appears below personal notifications — scroll or use a second swipe `input swipe 540 1600 540 600 600` before looking for it. Tap approximate y-coordinate ~1300 when shade is in mid-scroll state showing the VPN card. `uiautomator dump` may fail with `ERROR: could not get idle state` in notification shade — use coordinate fallback and validate via `dumpsys activity activities`.
+- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
+- Last validated: 2026-06-11
+- Notes: `content-desc="Уведомление Client for OpenVPN Gate: Австралия"` is the notification icon node; the tappable card is the parent row higher up. VPN key icon visible in status bar confirms foreground service is active even when card scrolled off screen.
 
-## MIUI host-reachable endpoint but in-app connect failure
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: US-10 rerun shows repeated connect failure (`pause_connection_button` never appears) while the selected endpoint is unchanged.
-- Reusable workaround/setup: verify external reachability first with `Test-NetConnection 124.150.75.98 -Port 1940`; if reachable but app still cannot transition to connected controls, classify as app/runtime defect evidence instead of pure endpoint outage and keep rerun marked failed.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-22
-- Notes: Observed on Mi 9 SE during base-main US-10 rerun where stale-stop phase also stalled before summary emission.
+---
 
-## US-11 notification tap MIUI readiness blockers
+## Engine update smoke: `adb exec-out screencap -p` produces corrupt PNG on SM_A715F
+
 - Service repo: zabotinegor/OpenVPNGateClientApp
 - Surface: android
-- When to use: US-11 notification-tap validation blocks before MQ execution on Mi 9 SE.
-- Reusable workaround/setup: dismiss startup update dialog (`android:id/button2`) before connect flow; if notification-shade `uiautomator dump` returns `could not get idle state`, use screenshot + fixed notification tap fallback and confirm app foreground by `dumpsys activity activities`.
-- Source-of-truth doc: `tests/manual-e2e/environment/android-miui-manual-qa-notes.md`
-- Last validated: 2026-05-22
-- Notes: Used in US-11 run `manual-qa/2026-05-22-us11-notification-tap-fix/runs/20260522-205126`.
+- When to use: Capturing screenshots via ADB on SM_A715F
+- Reusable workaround/setup: Use `adb shell screencap -p /sdcard/name.png` then `adb pull /sdcard/name.png local/path.png` instead of `adb exec-out screencap -p > local/path.png`. The exec-out pipe produces garbled bytes (UTF-16 LE header) on this device.
+- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
+- Last validated: 2026-06-11
+- Notes: Pull approach reliably produces valid PNG at correct size.
