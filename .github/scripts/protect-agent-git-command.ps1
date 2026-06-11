@@ -23,10 +23,11 @@ if ($null -eq $payload) {
 }
 $toolInput = if ($null -ne $payload.tool_input) { $payload.tool_input } else { $payload.toolArgs }
 if ($toolInput -is [string]) {
+    $rawString = $toolInput
     try { $toolInput = $toolInput | ConvertFrom-Json }
-    catch { $toolInput = $null }
+    catch { $toolInput = $rawString }
 }
-$command = if ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
+$command = if ($toolInput -is [string]) { $toolInput } elseif ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
 
 $repoRoot = ''

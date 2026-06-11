@@ -408,7 +408,7 @@ function Merge-PsObjects {
             $combined = New-Object System.Collections.Generic.List[object]
             $seen = New-Object System.Collections.Generic.HashSet[string]
             foreach ($item in @($existing.Value) + @($prop.Value)) {
-                $key = ConvertTo-Json -InputObject $item -Depth 10 -Compress
+                $key = if ($null -eq $item) { 'null' } else { ConvertTo-Json -InputObject $item -Depth 10 -Compress }
                 if ($seen.Add($key)) {
                     $combined.Add($item)
                 }
@@ -417,7 +417,10 @@ function Merge-PsObjects {
                 $existing.Value = [object[]]$combined.ToArray()
                 $changed = $true
             }
-        } elseif ((ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress) -ne (ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress)) {
+        } elseif (
+            (if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }) -ne
+            (if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress })
+        ) {
             $existing.Value = $prop.Value
             $changed = $true
         }
@@ -721,7 +724,10 @@ try {
         -ExcludePattern $ExcludeGitignorePattern
 
     $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
-    $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    $gitHooksConfiguration = $null
+    if ($normalizedScope -icontains '.githooks') {
+        $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    }
     $forbiddenArtifacts = Get-ForbiddenCopilotArtifacts -Root $targetRootResolved
     $nestedSdlcStatusFiles = Get-NestedSdlcStatusFiles -Root $targetRootResolved
 
