@@ -19,8 +19,11 @@ GIT_PREFIX_PATTERN = (
 
 
 def read_payload():
-    raw = sys.stdin.read()
-    return json.loads(raw) if raw.strip() else {}
+    try:
+        raw = sys.stdin.read()
+        return json.loads(raw) if raw.strip() else {}
+    except Exception:
+        return {}
 
 
 def get_command(payload):
@@ -61,19 +64,33 @@ def is_copilottools_source(cwd):
         return False
 
 
+def _switched_branch(normalized):
+    """Return the protected branch name if the command switches/checks out to one."""
+    m = re.search(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}"
+        r"\s+(?:switch|checkout)\s+"
+        rf"(?:-\S+\s+)*({PROTECTED_PATTERN})\b",
+        normalized,
+        re.IGNORECASE,
+    )
+    return m.group(1).lower() if m else ""
+
+
 def protected_reason(command, branch):
     normalized = re.sub(r"\s+", " ", command.strip())
     if not re.search(r"(^|[;&|]\s*)git\s+", normalized, re.IGNORECASE):
         return ""
 
-    if re.search(rf"{GIT_PREFIX_PATTERN}\s+commit\b", normalized, re.IGNORECASE) and branch in PROTECTED:
-        return f"Direct commit on protected branch '{branch}' is forbidden."
+    effective_branch = _switched_branch(normalized) or branch
+
+    if re.search(rf"{GIT_PREFIX_PATTERN}\s+commit\b", normalized, re.IGNORECASE) and effective_branch in PROTECTED:
+        return f"Direct commit on protected branch '{effective_branch}' is forbidden."
 
     if re.search(rf"{GIT_PREFIX_PATTERN}\s+push\b", normalized, re.IGNORECASE):
-        if re.search(r"(?:^|\s)(?:--force(?:-with-lease|-if-includes)?|-f)(?:\s|$)", normalized, re.IGNORECASE):
+        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)", normalized, re.IGNORECASE):
             return "Force-push is forbidden in client repositories."
-        if branch in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
-            return f"Direct push from protected branch '{branch}' is forbidden."
+        if effective_branch in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
+            return f"Direct push from protected branch '{effective_branch}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
             rf"\bHEAD:(?:refs/heads/)?{PROTECTED_PATTERN}\b",

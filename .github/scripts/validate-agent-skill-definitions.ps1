@@ -106,7 +106,7 @@ $expectedClaudeHandoffs = @{
 foreach ($entry in $expectedClaudeHandoffs.GetEnumerator()) {
     $path = Join-Path $root ".claude\commands\$($entry.Key)"
     if (-not (Test-Path -LiteralPath $path)) {
-        $errors.Add("${path}: expected Claude handoff command is missing")
+        $warnings.Add("${path}: expected Claude handoff command is absent (synced on demand, not committed)")
         continue
     }
 
