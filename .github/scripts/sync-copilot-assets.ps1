@@ -486,8 +486,16 @@ function Set-RepositoryGitHooksPath {
         [switch]$DryRun
     )
 
-    $gitDirectory = Join-Path $Root '.git'
-    if (-not (Test-Path -LiteralPath $gitDirectory)) {
+    $gitDir = $null
+    $previousEapGit = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $gitDir = ((git -C $Root rev-parse --git-dir 2>$null) | Out-String).Trim()
+    }
+    finally {
+        $ErrorActionPreference = $previousEapGit
+    }
+    if ([string]::IsNullOrWhiteSpace($gitDir)) {
         return [pscustomobject]@{
             changed = $false
             status = 'not-a-git-worktree'

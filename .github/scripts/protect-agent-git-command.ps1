@@ -27,7 +27,7 @@ $previousEap = $ErrorActionPreference
 try {
     $ErrorActionPreference = 'Continue'
     $repoRoot = ((git -C $cwd rev-parse --show-toplevel 2>$null) | Out-String).Trim()
-    $branch = (git -C $cwd branch --show-current 2>$null).Trim().ToLowerInvariant()
+    $branch = ((git -C $cwd branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
 }
 finally {
     $ErrorActionPreference = $previousEap
@@ -65,7 +65,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
             $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern\b" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
-            $normalized -match "(?i)(?:^|\s)--delete\s+$protectedPattern\b" -or
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern\b" -or
             $normalized -match "(?i)(?:^|\s):$protectedPattern\b"
         ) {
             $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'

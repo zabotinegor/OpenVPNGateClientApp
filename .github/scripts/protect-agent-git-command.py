@@ -108,7 +108,7 @@ def protected_reason(command, branch):
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
             rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
             rf"\brefs/heads/{PROTECTED_PATTERN}\b",
-            rf"(?:^|\s)--delete\s+{PROTECTED_PATTERN}\b",
+            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}\b",
             rf"(?:^|\s):{PROTECTED_PATTERN}\b",
         )
         if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
