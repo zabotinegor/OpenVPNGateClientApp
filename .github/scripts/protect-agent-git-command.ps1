@@ -17,7 +17,15 @@ catch {
     Write-Output '{}'
     exit 0
 }
+if ($null -eq $payload) {
+    Write-Output '{}'
+    exit 0
+}
 $toolInput = if ($null -ne $payload.tool_input) { $payload.tool_input } else { $payload.toolArgs }
+if ($toolInput -is [string]) {
+    try { $toolInput = $toolInput | ConvertFrom-Json }
+    catch { $toolInput = $null }
+}
 $command = if ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
 
