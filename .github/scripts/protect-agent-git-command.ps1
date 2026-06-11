@@ -41,12 +41,14 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 $normalized = ($command -replace '\s+', ' ').Trim()
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
-    # Detect if the command switches to a protected branch mid-chain
-    $switchedBranch = ''
-    if ($normalized -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(main|dev|master|develop)\b") {
-        $switchedBranch = $Matches[1].ToLowerInvariant()
+    # Determine the effective branch accounting for any switch/checkout in the command
+    $effectiveBranch = $branch
+    if ($normalized -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b") {
+        $target = $Matches[1].ToLowerInvariant()
+        if (-not $target.StartsWith('-')) {
+            $effectiveBranch = $target
+        }
     }
-    $effectiveBranch = if ($switchedBranch) { $switchedBranch } else { $branch }
 
     if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $effectiveBranch) {
         $reason = "Direct commit on protected branch '$effectiveBranch' is forbidden."
@@ -62,8 +64,8 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
             $normalized -match "(?i)\bHEAD:(?:refs/heads/)?$protectedPattern\b" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
-            $normalized -match "(?i)\b--delete\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\b:$protectedPattern\b"
+            $normalized -match "(?i)(?:^|\s)--delete\s+$protectedPattern\b" -or
+            $normalized -match "(?i)(?:^|\s):$protectedPattern\b"
         ) {
             $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
         }
