@@ -62,7 +62,7 @@ media/     ← app icon/banner assets (submodule)
 | [src/core/…/ui/main/MainActivityCore.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt) | Shared main UI flow |
 | [src/core/…/servers/ServerSelectionSyncCoordinator.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt) | Server-list sync entry point (splash, main, settings, periodic) |
 | [src/core/…/servers/refresh/ServerRefreshWorker.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt) | Background periodic refresh |
-| [src/core/…/vpn/OpenVpnService.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/vpn/OpenVpnService.kt) | VPN lifecycle integration |
+| [src/core/…/vpn/OpenVpnService.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt) | VPN lifecycle integration |
 
 ## Conventions
 

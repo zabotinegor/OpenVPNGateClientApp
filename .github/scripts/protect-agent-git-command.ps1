@@ -41,13 +41,14 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 $normalized = ($command -replace '\s+', ' ').Trim()
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
-    # Determine the effective branch accounting for any switch/checkout in the command
+    # Determine effective branch at the first mutation, accounting for preceding switches
     $effectiveBranch = $branch
-    if ($normalized -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b") {
-        $target = $Matches[1].ToLowerInvariant()
-        if (-not $target.StartsWith('-')) {
-            $effectiveBranch = $target
-        }
+    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push)\b")
+    $mutatePos = if ($mutateMatch.Success) { $mutateMatch.Index } else { $normalized.Length }
+    foreach ($sm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b")) {
+        if ($sm.Index -ge $mutatePos) { break }
+        $t = $sm.Groups[1].Value.ToLowerInvariant()
+        if (-not $t.StartsWith('-')) { $effectiveBranch = $t }
     }
 
     if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $effectiveBranch) {
@@ -62,7 +63,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         }
         elseif (
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\bHEAD:(?:refs/heads/)?$protectedPattern\b" -or
+            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern\b" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
             $normalized -match "(?i)(?:^|\s)--delete\s+$protectedPattern\b" -or
             $normalized -match "(?i)(?:^|\s):$protectedPattern\b"

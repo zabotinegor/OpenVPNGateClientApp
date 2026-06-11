@@ -21,7 +21,8 @@ GIT_PREFIX_PATTERN = (
 def read_payload():
     try:
         raw = sys.stdin.read()
-        return json.loads(raw) if raw.strip() else {}
+        parsed = json.loads(raw) if raw.strip() else {}
+        return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
 
@@ -65,19 +66,27 @@ def is_copilottools_source(cwd):
 
 
 def _effective_branch_after_switch(normalized, branch):
-    """Return the branch active after any switch/checkout in the command, else the current branch."""
-    m = re.search(
+    """Return the branch active at the first mutating command, accounting for preceding switches."""
+    switch_re = re.compile(
         rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}"
         r"\s+(?:switch|checkout)\s+"
         r"(?:-\S+\s+)*(?!--)(\S+)\b",
+        re.IGNORECASE,
+    )
+    mutate = re.search(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push)\b",
         normalized,
         re.IGNORECASE,
     )
-    if m:
+    mutate_pos = mutate.start() if mutate else len(normalized)
+    effective = branch
+    for m in switch_re.finditer(normalized):
+        if m.start() >= mutate_pos:
+            break
         target = m.group(1).lower()
         if not target.startswith("-"):
-            return target
-    return branch
+            effective = target
+    return effective
 
 
 def protected_reason(command, branch):
@@ -97,7 +106,7 @@ def protected_reason(command, branch):
             return f"Direct push from protected branch '{effective_branch}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
-            rf"\bHEAD:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
+            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
             rf"\brefs/heads/{PROTECTED_PATTERN}\b",
             rf"(?:^|\s)--delete\s+{PROTECTED_PATTERN}\b",
             rf"(?:^|\s):{PROTECTED_PATTERN}\b",

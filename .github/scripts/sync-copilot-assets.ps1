@@ -436,14 +436,25 @@ function Merge-JsonSettings {
         return [pscustomobject]@{ changed = $false; action = 'source-missing' }
     }
 
-    $sourceObj = Get-Content -LiteralPath $SourcePath -Raw | ConvertFrom-Json
+    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw
+    try {
+        $sourceObj = $sourceRaw | ConvertFrom-Json
+    } catch {
+        Write-Warning "Failed to parse source JSON at '$SourcePath': $_"
+        $sourceObj = [pscustomobject]@{}
+    }
     if ($null -eq $sourceObj) { $sourceObj = [pscustomobject]@{} }
 
     $targetObj = [pscustomobject]@{}
     if (Test-Path -LiteralPath $TargetPath) {
         $targetContent = Get-Content -LiteralPath $TargetPath -Raw
         if (-not [string]::IsNullOrWhiteSpace($targetContent)) {
-            $targetObj = $targetContent | ConvertFrom-Json
+            try {
+                $targetObj = $targetContent | ConvertFrom-Json
+            } catch {
+                Write-Warning "Failed to parse target JSON at '$TargetPath': $_"
+                $targetObj = [pscustomobject]@{}
+            }
         }
     }
     if ($null -eq $targetObj) {
