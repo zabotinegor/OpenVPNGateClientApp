@@ -191,3 +191,39 @@ def test_branch_force_single_quoted_dev_is_blocked():
 
 def test_branch_force_quoted_feature_is_allowed():
     assert protected_reason('git branch -f "feature/new" HEAD^', "main") == ""
+
+
+# ---------------------------------------------------------------------------
+# switch capture: (\S+) can grab shell metacharacters; [^\s;&|]+ stops at ; & | (fix K)
+# ---------------------------------------------------------------------------
+
+def test_switch_main_semicolon_then_commit_is_blocked():
+    # Old (\S+) captured "main;git" (not in PROTECTED) so the switch was missed.
+    # New [^\s;&|]+ captures just "main", effectiveBranch=main at commit -> blocked.
+    cmd = "git switch main;git commit -m bad"
+    assert protected_reason(cmd, "feature/x") != ""
+
+def test_checkout_main_ampersand_then_commit_is_blocked():
+    cmd = "git checkout main&&git commit -m bad"
+    assert protected_reason(cmd, "feature/x") != ""
+
+def test_switch_feature_semicolon_then_commit_is_allowed():
+    # Switching to a non-protected branch even with tight separators should be allowed.
+    cmd = "git switch feature/y;git commit -m ok"
+    assert protected_reason(cmd, "feature/x") == ""
+
+
+# ---------------------------------------------------------------------------
+# force-push terminator: --force;next (no space) bypassed (?:\s|$) check (fix L)
+# ---------------------------------------------------------------------------
+
+def test_force_push_semicolon_no_space_is_blocked():
+    # --force;next — old (?:\s|$) missed the semicolon; [;&|] catches it.
+    assert protected_reason("git push --force;git status", "feature/x") != ""
+
+def test_force_push_ampersand_no_space_is_blocked():
+    assert protected_reason("git push --force&&git status", "feature/x") != ""
+
+def test_force_push_with_space_still_blocked():
+    # Existing behavior unchanged.
+    assert protected_reason("git push --force origin feature/x", "feature/x") != ""

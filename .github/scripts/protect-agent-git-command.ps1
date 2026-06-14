@@ -48,7 +48,7 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 }
 
 $normalized = ($command -replace '\s+', ' ').Trim()
-$switchPattern = "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b"
+$switchPattern = "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)([^\s;&|]+)"
 
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
@@ -77,7 +77,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
                 if (-not $t.StartsWith('-')) { $eff = $t }
             }
         }
-        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)') {
+        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
         elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {

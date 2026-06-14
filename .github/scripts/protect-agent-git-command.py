@@ -70,7 +70,7 @@ def _effective_branch_at(normalized, branch, pos):
     switch_re = re.compile(
         rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}"
         r"\s+(?:switch|checkout)\s+"
-        r"(?:-\S+\s+)*(?!--)(\S+)\b",
+        r"(?:-\S+\s+)*(?!--)([^\s;&|]+)",
         re.IGNORECASE,
     )
     effective = branch
@@ -102,7 +102,7 @@ def protected_reason(command, branch):
     )
     if push_m:
         eff = _effective_branch_at(normalized, branch, push_m.start())
-        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)", normalized, re.IGNORECASE):
+        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
             return "Force-push is forbidden in client repositories."
         if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
             return f"Direct push from protected branch '{eff}' is forbidden."
