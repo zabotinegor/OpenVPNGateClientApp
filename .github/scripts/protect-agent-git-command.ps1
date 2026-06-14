@@ -17,8 +17,17 @@ catch {
     Write-Output '{}'
     exit 0
 }
+if ($null -eq $payload) {
+    Write-Output '{}'
+    exit 0
+}
 $toolInput = if ($null -ne $payload.tool_input) { $payload.tool_input } else { $payload.toolArgs }
-$command = if ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
+if ($toolInput -is [string]) {
+    $rawString = $toolInput
+    try { $toolInput = $toolInput | ConvertFrom-Json }
+    catch { $toolInput = $rawString }
+}
+$command = if ($toolInput -is [string]) { $toolInput } elseif ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
 
 $repoRoot = ''
@@ -27,7 +36,7 @@ $previousEap = $ErrorActionPreference
 try {
     $ErrorActionPreference = 'Continue'
     $repoRoot = ((git -C $cwd rev-parse --show-toplevel 2>$null) | Out-String).Trim()
-    $branch = (git -C $cwd branch --show-current 2>$null).Trim().ToLowerInvariant()
+    $branch = ((git -C $cwd branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
 }
 finally {
     $ErrorActionPreference = $previousEap
@@ -41,12 +50,15 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 $normalized = ($command -replace '\s+', ' ').Trim()
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
-    # Detect if the command switches to a protected branch mid-chain
-    $switchedBranch = ''
-    if ($normalized -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(main|dev|master|develop)\b") {
-        $switchedBranch = $Matches[1].ToLowerInvariant()
+    # Determine effective branch at the first mutation, accounting for preceding switches
+    $effectiveBranch = $branch
+    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push)\b")
+    $mutatePos = if ($mutateMatch.Success) { $mutateMatch.Index } else { $normalized.Length }
+    foreach ($sm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b")) {
+        if ($sm.Index -ge $mutatePos) { break }
+        $t = $sm.Groups[1].Value.ToLowerInvariant()
+        if (-not $t.StartsWith('-')) { $effectiveBranch = $t }
     }
-    $effectiveBranch = if ($switchedBranch) { $switchedBranch } else { $branch }
 
     if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $effectiveBranch) {
         $reason = "Direct commit on protected branch '$effectiveBranch' is forbidden."
@@ -60,10 +72,10 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         }
         elseif (
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\bHEAD:(?:refs/heads/)?$protectedPattern\b" -or
+            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern\b" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
-            $normalized -match "(?i)\b--delete\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\b:$protectedPattern\b"
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern\b" -or
+            $normalized -match "(?i)(?:^|\s):$protectedPattern\b"
         ) {
             $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
         }

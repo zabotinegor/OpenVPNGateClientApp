@@ -41,7 +41,12 @@ function Get-AgentSlugFromPath {
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $agentFiles = Get-ChildItem -Path (Join-Path $root '.github\agents') -Filter '*.agent.md' -File | Sort-Object Name
 $skillFiles = Get-ChildItem -Path (Join-Path $root '.github\skills') -Filter 'SKILL.md' -File -Recurse | Sort-Object FullName
-$claudeCommandFiles = Get-ChildItem -Path (Join-Path $root '.claude\commands') -Filter '*.md' -File | Sort-Object Name
+$claudeCommandsPath = Join-Path $root '.claude\commands'
+$claudeCommandFiles = if (Test-Path -LiteralPath $claudeCommandsPath) {
+    Get-ChildItem -Path $claudeCommandsPath -Filter '*.md' -File | Sort-Object Name
+} else {
+    @()
+}
 $registryPath = Join-Path $root '.github\AGENTS-REGISTRY.md'
 
 $errors = New-Object System.Collections.Generic.List[string]
