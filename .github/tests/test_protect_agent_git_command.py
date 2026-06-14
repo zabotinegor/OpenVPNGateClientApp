@@ -121,8 +121,7 @@ def test_branch_create_then_commit_without_switch_is_blocked():
     assert protected_reason(cmd, "main") != ""
 
 def test_reset_before_switch_then_commit_is_allowed():
-    # reset stops mutate tracking, but switch after commit's mutate_pos doesn't matter.
-    # What matters: reset is on feature/x (not protected), so no denial from reset rule.
+    # Reset on feature/x, switch to feature/x, commit on feature/x — all allowed.
     cmd = "git reset --hard HEAD && git switch feature/x && git commit -m x"
     assert protected_reason(cmd, "feature/x") == ""
 
@@ -148,3 +147,47 @@ def test_branch_force_to_dev_with_start_point_is_blocked():
 def test_branch_force_to_feature_with_main_start_point_multi_flag_is_allowed():
     # git branch -v -f feature/x main  — feature/x is forced, main is start-point
     assert protected_reason("git branch -v -f feature/x main", "feature/x") == ""
+
+
+# ---------------------------------------------------------------------------
+# per-mutation branch tracking: switch after reset must be seen at commit (fix D)
+# ---------------------------------------------------------------------------
+
+def test_reset_on_feature_then_switch_to_main_then_commit_is_blocked():
+    # Security regression: with the old single-mutate-pos approach, effectiveBranch
+    # was frozen at the first mutation (git reset on feature/x) so the later
+    # git switch main was ignored and the commit on main was not blocked.
+    cmd = "git switch feature/x && git reset --hard HEAD^ && git switch main && git commit -m bad"
+    assert protected_reason(cmd, "main") != ""
+
+def test_reset_on_feature_then_commit_on_feature_is_allowed():
+    # Reset and commit both on feature/x — no switch to protected branch.
+    cmd = "git reset --hard HEAD^ && git commit -m fix"
+    assert protected_reason(cmd, "feature/x") == ""
+
+
+# ---------------------------------------------------------------------------
+# flag terminator [;&|]: --hard without trailing space before separator (fix E)
+# ---------------------------------------------------------------------------
+
+def test_reset_hard_semicolon_no_space_on_main_is_blocked():
+    # --hard;next  — (?:\s|$) would miss the ; without a space; [;&|] catches it.
+    assert protected_reason("git reset --hard;git checkout feature/x", "main") != ""
+
+def test_reset_hard_ampersand_no_space_on_main_is_blocked():
+    assert protected_reason("git reset --hard&&git checkout feature/x", "main") != ""
+
+
+# ---------------------------------------------------------------------------
+# quoted branch name bypass (fix G)
+# ---------------------------------------------------------------------------
+
+def test_branch_force_double_quoted_main_is_blocked():
+    # Without strip, m.group(2) = '"main"' which is not in PROTECTED.
+    assert protected_reason('git branch -f "main" HEAD^', "feature/x") != ""
+
+def test_branch_force_single_quoted_dev_is_blocked():
+    assert protected_reason("git branch -f 'dev' HEAD^", "feature/x") != ""
+
+def test_branch_force_quoted_feature_is_allowed():
+    assert protected_reason('git branch -f "feature/new" HEAD^', "main") == ""
