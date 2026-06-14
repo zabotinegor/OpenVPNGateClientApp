@@ -418,8 +418,8 @@ function Merge-PsObjects {
                 $changed = $true
             }
         } elseif (
-            (if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }) -ne
-            (if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress })
+            $(if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }) -ne
+            $(if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress })
         ) {
             $existing.Value = $prop.Value
             $changed = $true
