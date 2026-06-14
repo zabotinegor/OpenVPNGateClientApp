@@ -52,7 +52,7 @@ $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     # Determine effective branch at the first mutation, accounting for preceding switches
     $effectiveBranch = $branch
-    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push|reset|branch)\b")
+    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push|reset)\b")
     $mutatePos = if ($mutateMatch.Success) { $mutateMatch.Index } else { $normalized.Length }
     foreach ($sm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b")) {
         if ($sm.Index -ge $mutatePos) { break }
@@ -90,9 +90,11 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     }
     elseif ($normalized -match "(?i)$gitPrefixPattern\s+branch\b" -and
             $normalized -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$)') {
-        $matchedProtected = $protected | Where-Object { $normalized -match "(?i)(?:^|\s)$_(?![-\w/.])" }
-        if ($null -ne $matchedProtected -and @($matchedProtected).Count -gt 0) {
-            $reason = 'Forcing a protected branch pointer is forbidden.'
+        if ($normalized -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
+            $branchTarget = $Matches[2].ToLowerInvariant()
+            if ($protected -contains $branchTarget) {
+                $reason = 'Forcing a protected branch pointer is forbidden.'
+            }
         }
     }
 }

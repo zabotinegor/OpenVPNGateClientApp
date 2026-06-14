@@ -3,10 +3,10 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import com.google.gson.annotations.SerializedName
 
 data class ServerV2(
-    @SerializedName("ip") val ip: String,
-    @SerializedName("countryCode") val countryCode: String,
-    @SerializedName("countryName") val countryName: String,
-    @SerializedName("configData") val configData: String,
+    @SerializedName("ip") val ip: String = "",
+    @SerializedName("countryCode") val countryCode: String = "",
+    @SerializedName("countryName") val countryName: String = "",
+    @SerializedName("configData") val configData: String = "",
     @SerializedName("city") val city: String? = null,
     @SerializedName("utc") val utc: String? = null,
     @SerializedName("id") val id: Int = 0,

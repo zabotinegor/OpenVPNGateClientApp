@@ -167,6 +167,26 @@ class ServerV2IdPingTest {
         assertEquals(0, server.ping)
     }
 
+    // TS-8A — ServerV2 no-arg constructor (all-default) yields correct id/ping defaults
+    // Verifies that all constructor parameters have defaults, so Kotlin generates a no-arg
+    // constructor for Gson to use instead of sun.misc.Unsafe. Without all-defaults, Gson
+    // would bypass the constructor and the = 0 defaults would only hold by JVM coincidence.
+    @Test
+    fun serverV2_no_arg_constructor_has_zero_id_and_ping() {
+        val server = ServerV2()
+        assertEquals(0, server.id)
+        assertEquals(0, server.ping)
+        assertEquals("", server.ip)
+    }
+
+    // TS-8B — Gson deserialization via no-arg constructor path: minimal JSON still yields id=0
+    @Test
+    fun serverV2_gson_empty_object_yields_zero_id_and_ping() {
+        val server = gson.fromJson("{}", ServerV2::class.java)
+        assertEquals(0, server.id)
+        assertEquals(0, server.ping)
+    }
+
     // Helper: create a Server with all required fields
     private fun makeServer(
         id: Int = 0,

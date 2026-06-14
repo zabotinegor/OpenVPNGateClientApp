@@ -74,7 +74,7 @@ def _effective_branch_after_switch(normalized, branch):
         re.IGNORECASE,
     )
     mutate = re.search(
-        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push|reset|branch)\b",
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push|reset)\b",
         normalized,
         re.IGNORECASE,
     )
@@ -127,7 +127,12 @@ def protected_reason(command, branch):
 
     if re.search(rf"{GIT_PREFIX_PATTERN}\s+branch\b", normalized, re.IGNORECASE):
         if re.search(r"(?:^|\s)(?:-f|--force)(?:\s|$)", normalized, re.IGNORECASE):
-            if any(re.search(rf"(?:^|\s){p}(?![-\w/.])", normalized, re.IGNORECASE) for p in PROTECTED):
+            m = re.search(
+                rf"{GIT_PREFIX_PATTERN}\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)",
+                normalized,
+                re.IGNORECASE,
+            )
+            if m and m.group(2).lower() in PROTECTED:
                 return "Forcing a protected branch pointer is forbidden."
 
     return ""
