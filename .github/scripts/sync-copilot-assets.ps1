@@ -408,7 +408,7 @@ function Merge-PsObjects {
             $combined = New-Object System.Collections.Generic.List[object]
             $seen = New-Object System.Collections.Generic.HashSet[string]
             foreach ($item in @($existing.Value) + @($prop.Value)) {
-                $key = ConvertTo-Json -InputObject $item -Depth 10 -Compress
+                $key = if ($null -eq $item) { 'null' } else { ConvertTo-Json -InputObject $item -Depth 10 -Compress }
                 if ($seen.Add($key)) {
                     $combined.Add($item)
                 }
@@ -417,7 +417,10 @@ function Merge-PsObjects {
                 $existing.Value = [object[]]$combined.ToArray()
                 $changed = $true
             }
-        } elseif ((ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress) -ne (ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress)) {
+        } elseif (
+            (if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }) -ne
+            (if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress })
+        ) {
             $existing.Value = $prop.Value
             $changed = $true
         }
@@ -436,14 +439,25 @@ function Merge-JsonSettings {
         return [pscustomobject]@{ changed = $false; action = 'source-missing' }
     }
 
-    $sourceObj = Get-Content -LiteralPath $SourcePath -Raw | ConvertFrom-Json
+    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw
+    try {
+        $sourceObj = $sourceRaw | ConvertFrom-Json
+    } catch {
+        Write-Warning "Failed to parse source JSON at '$SourcePath': $_"
+        $sourceObj = [pscustomobject]@{}
+    }
     if ($null -eq $sourceObj) { $sourceObj = [pscustomobject]@{} }
 
     $targetObj = [pscustomobject]@{}
     if (Test-Path -LiteralPath $TargetPath) {
         $targetContent = Get-Content -LiteralPath $TargetPath -Raw
         if (-not [string]::IsNullOrWhiteSpace($targetContent)) {
-            $targetObj = $targetContent | ConvertFrom-Json
+            try {
+                $targetObj = $targetContent | ConvertFrom-Json
+            } catch {
+                Write-Warning "Failed to parse target JSON at '$TargetPath': $_"
+                $targetObj = [pscustomobject]@{}
+            }
         }
     }
     if ($null -eq $targetObj) {
@@ -475,8 +489,16 @@ function Set-RepositoryGitHooksPath {
         [switch]$DryRun
     )
 
-    $gitDirectory = Join-Path $Root '.git'
-    if (-not (Test-Path -LiteralPath $gitDirectory)) {
+    $gitDir = $null
+    $previousEapGit = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $gitDir = ((git -C $Root rev-parse --git-dir 2>$null) | Out-String).Trim()
+    }
+    finally {
+        $ErrorActionPreference = $previousEapGit
+    }
+    if ([string]::IsNullOrWhiteSpace($gitDir)) {
         return [pscustomobject]@{
             changed = $false
             status = 'not-a-git-worktree'
@@ -702,7 +724,10 @@ try {
         -ExcludePattern $ExcludeGitignorePattern
 
     $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
-    $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    $gitHooksConfiguration = $null
+    if ($normalizedScope -icontains '.githooks') {
+        $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    }
     $forbiddenArtifacts = Get-ForbiddenCopilotArtifacts -Root $targetRootResolved
     $nestedSdlcStatusFiles = Get-NestedSdlcStatusFiles -Root $targetRootResolved
 

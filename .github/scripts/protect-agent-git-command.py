@@ -21,7 +21,8 @@ GIT_PREFIX_PATTERN = (
 def read_payload():
     try:
         raw = sys.stdin.read()
-        return json.loads(raw) if raw.strip() else {}
+        parsed = json.loads(raw) if raw.strip() else {}
+        return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
 
@@ -64,16 +65,28 @@ def is_copilottools_source(cwd):
         return False
 
 
-def _switched_branch(normalized):
-    """Return the protected branch name if the command switches/checks out to one."""
-    m = re.search(
+def _effective_branch_after_switch(normalized, branch):
+    """Return the branch active at the first mutating command, accounting for preceding switches."""
+    switch_re = re.compile(
         rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}"
         r"\s+(?:switch|checkout)\s+"
-        rf"(?:-\S+\s+)*({PROTECTED_PATTERN})\b",
+        r"(?:-\S+\s+)*(?!--)(\S+)\b",
+        re.IGNORECASE,
+    )
+    mutate = re.search(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push)\b",
         normalized,
         re.IGNORECASE,
     )
-    return m.group(1).lower() if m else ""
+    mutate_pos = mutate.start() if mutate else len(normalized)
+    effective = branch
+    for m in switch_re.finditer(normalized):
+        if m.start() >= mutate_pos:
+            break
+        target = m.group(1).lower()
+        if not target.startswith("-"):
+            effective = target
+    return effective
 
 
 def protected_reason(command, branch):
@@ -81,7 +94,7 @@ def protected_reason(command, branch):
     if not re.search(r"(^|[;&|]\s*)git\s+", normalized, re.IGNORECASE):
         return ""
 
-    effective_branch = _switched_branch(normalized) or branch
+    effective_branch = _effective_branch_after_switch(normalized, branch)
 
     if re.search(rf"{GIT_PREFIX_PATTERN}\s+commit\b", normalized, re.IGNORECASE) and effective_branch in PROTECTED:
         return f"Direct commit on protected branch '{effective_branch}' is forbidden."
@@ -93,10 +106,10 @@ def protected_reason(command, branch):
             return f"Direct push from protected branch '{effective_branch}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
-            rf"\bHEAD:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
+            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
             rf"\brefs/heads/{PROTECTED_PATTERN}\b",
-            rf"\b--delete\s+{PROTECTED_PATTERN}\b",
-            rf"\b:{PROTECTED_PATTERN}\b",
+            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}\b",
+            rf"(?:^|\s):{PROTECTED_PATTERN}\b",
         )
         if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
             return "Direct push, deletion, or recreation of a protected branch is forbidden."

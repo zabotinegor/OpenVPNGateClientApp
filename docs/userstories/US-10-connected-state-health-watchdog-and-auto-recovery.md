@@ -36,7 +36,7 @@ Do not start implementation before reading `.sdlc/status.json` and verifying pri
 - Retained artifacts:
   - `manual-qa/2026-05-20-bug-intake-pause-resume/QA-REPORT.md`
   - `manual-qa/2026-05-20-bug-intake-pause-resume/logcat-suite.txt`
-  - `d:/Apps/OpenVPNClient/OpenVPNClientClientReports/logcat_20260520_102010.txt`
+  - `logcat_20260520_102010.txt` (local artifact, not committed)
 
 ### Expected vs actual behavior
 
