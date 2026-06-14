@@ -18,6 +18,7 @@ data class Server(
     val operator: String,
     val message: String,
     val configData: String,
-    val utc: String? = null
+    val utc: String? = null,
+    val id: Int = 0
 )
 

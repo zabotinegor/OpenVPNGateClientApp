@@ -48,40 +48,93 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
 }
 
 $normalized = ($command -replace '\s+', ' ').Trim()
+$switchPattern = "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)([^\s;&|]+)"
+
 $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
-    # Determine effective branch at the first mutation, accounting for preceding switches
-    $effectiveBranch = $branch
-    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push)\b")
-    $mutatePos = if ($mutateMatch.Success) { $mutateMatch.Index } else { $normalized.Length }
-    foreach ($sm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b")) {
-        if ($sm.Index -ge $mutatePos) { break }
-        $t = $sm.Groups[1].Value.ToLowerInvariant()
-        if (-not $t.StartsWith('-')) { $effectiveBranch = $t }
+    # Commit: evaluate branch state at each commit occurrence independently so a
+    # switch AFTER a reset (but before the commit) is correctly accounted for.
+    foreach ($cm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+commit\b")) {
+        $eff = $branch
+        foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
+            if ($sm.Index -ge $cm.Index) { break }
+            $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
+            if (-not $t.StartsWith('-')) { $eff = $t }
+        }
+        if ($protected -contains $eff) {
+            $reason = "Direct commit on protected branch '$eff' is forbidden."
+            break
+        }
     }
 
-    if ($normalized -match "(?i)$gitPrefixPattern\s+commit\b" -and $protected -contains $effectiveBranch) {
-        $reason = "Direct commit on protected branch '$effectiveBranch' is forbidden."
-    }
-    elseif ($normalized -match "(?i)$gitPrefixPattern\s+push\b") {
-        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)') {
+    if (-not $reason -and $normalized -match "(?i)$gitPrefixPattern\s+push\b") {
+        $pushMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+push\b")
+        $eff = $branch
+        if ($pushMatch.Success) {
+            foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
+                if ($sm.Index -ge $pushMatch.Index) { break }
+                $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
+                if (-not $t.StartsWith('-')) { $eff = $t }
+            }
+        }
+        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($protected -contains $effectiveBranch -and $normalized -notmatch '(?i)\bHEAD:') {
-            $reason = "Direct push from protected branch '$effectiveBranch' is forbidden."
+        elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
+            $reason = "Direct push from protected branch '$eff' is forbidden."
         }
         elseif (
-            $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern\b" -or
-            $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
-            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)(?:^|\s):$protectedPattern\b"
+            $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
         ) {
             $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
         }
     }
-    elseif ($normalized -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern\b") {
+
+    if (-not $reason -and $normalized -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern(?![-\w/.])") {
         $reason = 'Direct protected branch ref mutation is forbidden.'
+    }
+
+    # Reset: evaluate branch state at each reset occurrence independently.
+    # Scope flag check to the argument slice of each reset so --hard from a later
+    # reset does not falsely trigger on an earlier soft reset. Strip quotes from
+    # switch targets so git switch "main" does not bypass the protected check.
+    if (-not $reason) {
+        foreach ($rm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b")) {
+            $eff = $branch
+            foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
+                if ($sm.Index -ge $rm.Index) { break }
+                $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
+                if (-not $t.StartsWith('-')) { $eff = $t }
+            }
+            $tail = $normalized.Substring($rm.Index + $rm.Length)
+            $argSeg = ($tail -split '[;&|]+')[0]
+            if ($protected -contains $eff -and
+                    $argSeg -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)') {
+                $reason = "Hard reset on protected branch '$eff' is forbidden."
+                break
+            }
+        }
+    }
+
+    # Branch -f: iterate each branch command independently so a later forced
+    # protected branch is not masked by an earlier harmless branch command.
+    if (-not $reason -and $normalized -match "(?i)$gitPrefixPattern\s+branch\b") {
+        foreach ($bm in [regex]::Matches($normalized, "(?i)$gitPrefixPattern\s+branch\b")) {
+            $seg = ($normalized.Substring($bm.Index) -split '[;&|]+')[0]
+            if ($seg -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])') {
+                if ($seg -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
+                    $branchTarget = ($Matches[2] -replace "^['`"]+|['`"]+$").ToLowerInvariant()
+                    if ($protected -contains $branchTarget) {
+                        $reason = 'Forcing a protected branch pointer is forbidden.'
+                        break
+                    }
+                }
+            }
+        }
     }
 }
 
