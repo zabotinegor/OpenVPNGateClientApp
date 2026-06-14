@@ -52,7 +52,7 @@ $reason = $null
 if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     # Determine effective branch at the first mutation, accounting for preceding switches
     $effectiveBranch = $branch
-    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push)\b")
+    $mutateMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:commit|push|reset|branch)\b")
     $mutatePos = if ($mutateMatch.Success) { $mutateMatch.Index } else { $normalized.Length }
     foreach ($sm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)(\S+)\b")) {
         if ($sm.Index -ge $mutatePos) { break }
@@ -71,17 +71,29 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             $reason = "Direct push from protected branch '$effectiveBranch' is forbidden."
         }
         elseif (
-            $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern\b" -or
-            $normalized -match "(?i)\brefs/heads/$protectedPattern\b" -or
-            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern\b" -or
-            $normalized -match "(?i)(?:^|\s):$protectedPattern\b"
+            $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
         ) {
             $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
         }
     }
-    elseif ($normalized -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern\b") {
+    elseif ($normalized -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern(?![-\w/.])") {
         $reason = 'Direct protected branch ref mutation is forbidden.'
+    }
+    elseif ($normalized -match "(?i)$gitPrefixPattern\s+reset\b" -and
+            $normalized -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)' -and
+            $protected -contains $effectiveBranch) {
+        $reason = "Hard reset on protected branch '$effectiveBranch' is forbidden."
+    }
+    elseif ($normalized -match "(?i)$gitPrefixPattern\s+branch\b" -and
+            $normalized -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$)') {
+        $matchedProtected = $protected | Where-Object { $normalized -match "(?i)(?:^|\s)$_(?![-\w/.])" }
+        if ($null -ne $matchedProtected -and @($matchedProtected).Count -gt 0) {
+            $reason = 'Forcing a protected branch pointer is forbidden.'
+        }
     }
 }
 

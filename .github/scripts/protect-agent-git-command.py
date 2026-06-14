@@ -74,7 +74,7 @@ def _effective_branch_after_switch(normalized, branch):
         re.IGNORECASE,
     )
     mutate = re.search(
-        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push)\b",
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push|reset|branch)\b",
         normalized,
         re.IGNORECASE,
     )
@@ -105,21 +105,30 @@ def protected_reason(command, branch):
         if effective_branch in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
             return f"Direct push from protected branch '{effective_branch}' is forbidden."
         push_patterns = (
-            rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
-            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
-            rf"\brefs/heads/{PROTECTED_PATTERN}\b",
-            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}\b",
-            rf"(?:^|\s):{PROTECTED_PATTERN}\b",
+            rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",
         )
         if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
             return "Direct push, deletion, or recreation of a protected branch is forbidden."
 
     if re.search(
-        rf"{GIT_PREFIX_PATTERN}\s+update-ref\b[^\r\n]*refs/heads/{PROTECTED_PATTERN}\b",
+        rf"{GIT_PREFIX_PATTERN}\s+update-ref\b[^\r\n]*refs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
         normalized,
         re.IGNORECASE,
     ):
         return "Direct protected branch ref mutation is forbidden."
+
+    if re.search(rf"{GIT_PREFIX_PATTERN}\s+reset\b", normalized, re.IGNORECASE):
+        if re.search(r"(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)", normalized, re.IGNORECASE) and effective_branch in PROTECTED:
+            return f"Hard reset on protected branch '{effective_branch}' is forbidden."
+
+    if re.search(rf"{GIT_PREFIX_PATTERN}\s+branch\b", normalized, re.IGNORECASE):
+        if re.search(r"(?:^|\s)(?:-f|--force)(?:\s|$)", normalized, re.IGNORECASE):
+            if any(re.search(rf"(?:^|\s){p}(?![-\w/.])", normalized, re.IGNORECASE) for p in PROTECTED):
+                return "Forcing a protected branch pointer is forbidden."
 
     return ""
 
