@@ -20,7 +20,7 @@ fun ServerV2.toLegacyServer(): Server = Server(
     city = city?.takeIf { it.isNotBlank() } ?: "",
     country = Country(name = countryName, code = countryCode),
     ping = ping,
-    signalStrength = SignalStrength.WEAK,
+    signalStrength = ping.toSignalStrength(),
     ip = ip,
     score = 0,
     speed = 0L,

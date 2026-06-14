@@ -90,7 +90,7 @@ class ServerV2IdPingTest {
         assertEquals(0, legacy.ping)
     }
 
-    // TS-3 (extra) — toLegacyServer() propagates id from ServerV2 to Server
+    // TS-3b — toLegacyServer() propagates id from ServerV2 to Server
     @Test
     fun toLegacyServer_propagates_id() {
         val v2 = ServerV2(
@@ -185,6 +185,54 @@ class ServerV2IdPingTest {
         val server = gson.fromJson("{}", ServerV2::class.java)
         assertEquals(0, server.id)
         assertEquals(0, server.ping)
+    }
+
+    // TS-SIG-1 — toLegacyServer() ping=50 → STRONG (green)
+    @Test
+    fun toLegacyServer_ping_50_signal_strong() {
+        val legacy = ServerV2(ip = "1.1.1.1", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 50).toLegacyServer()
+        assertEquals(SignalStrength.STRONG, legacy.signalStrength)
+    }
+
+    // TS-SIG-2 — toLegacyServer() ping=99 → STRONG boundary
+    @Test
+    fun toLegacyServer_ping_99_signal_strong_boundary() {
+        val legacy = ServerV2(ip = "1.1.1.2", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 99).toLegacyServer()
+        assertEquals(SignalStrength.STRONG, legacy.signalStrength)
+    }
+
+    // TS-SIG-3 — toLegacyServer() ping=100 → MEDIUM boundary
+    @Test
+    fun toLegacyServer_ping_100_signal_medium_boundary() {
+        val legacy = ServerV2(ip = "1.1.1.3", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 100).toLegacyServer()
+        assertEquals(SignalStrength.MEDIUM, legacy.signalStrength)
+    }
+
+    // TS-SIG-4 — toLegacyServer() ping=200 → MEDIUM
+    @Test
+    fun toLegacyServer_ping_200_signal_medium() {
+        val legacy = ServerV2(ip = "1.1.1.4", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 200).toLegacyServer()
+        assertEquals(SignalStrength.MEDIUM, legacy.signalStrength)
+    }
+
+    // TS-SIG-5 — toLegacyServer() ping=250 → WEAK
+    @Test
+    fun toLegacyServer_ping_250_signal_weak() {
+        val legacy = ServerV2(ip = "1.1.1.5", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 250).toLegacyServer()
+        assertEquals(SignalStrength.WEAK, legacy.signalStrength)
+    }
+
+    // TS-SIG-6 — toLegacyServer() ping=0 (default) → STRONG (matches ServerRepository threshold 0..99)
+    @Test
+    fun toLegacyServer_ping_0_signal_strong() {
+        val legacy = ServerV2(ip = "1.1.1.6", countryCode = "JP", countryName = "Japan",
+            configData = "c", ping = 0).toLegacyServer()
+        assertEquals(SignalStrength.STRONG, legacy.signalStrength)
     }
 
     // Helper: create a Server with all required fields
