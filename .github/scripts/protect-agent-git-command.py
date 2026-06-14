@@ -77,7 +77,7 @@ def _effective_branch_at(normalized, branch, pos):
     for m in switch_re.finditer(normalized):
         if m.start() >= pos:
             break
-        target = m.group(1).lower()
+        target = m.group(1).strip("'\"").lower()
         if not target.startswith("-"):
             effective = target
     return effective
@@ -130,19 +130,21 @@ def protected_reason(command, branch):
         rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+reset\b", normalized, re.IGNORECASE
     ):
         eff = _effective_branch_at(normalized, branch, m.start())
+        arg_seg = re.split(r"[;&|]+", normalized[m.end():])[0]
         if eff in PROTECTED and re.search(
-            r"(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$|[;&|])", normalized, re.IGNORECASE
+            r"(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$|[;&|])", arg_seg, re.IGNORECASE
         ):
             return f"Hard reset on protected branch '{eff}' is forbidden."
 
-    if re.search(rf"{GIT_PREFIX_PATTERN}\s+branch\b", normalized, re.IGNORECASE):
-        if re.search(r"(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
-            m = re.search(
+    for bm in re.finditer(rf"{GIT_PREFIX_PATTERN}\s+branch\b", normalized, re.IGNORECASE):
+        seg = re.split(r"[;&|]+", normalized[bm.start():])[0]
+        if re.search(r"(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])", seg, re.IGNORECASE):
+            tm = re.search(
                 rf"{GIT_PREFIX_PATTERN}\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)",
-                normalized,
+                seg,
                 re.IGNORECASE,
             )
-            if m and m.group(2).strip("'\"").lower() in PROTECTED:
+            if tm and tm.group(2).strip("'\"").lower() in PROTECTED:
                 return "Forcing a protected branch pointer is forbidden."
 
     return ""

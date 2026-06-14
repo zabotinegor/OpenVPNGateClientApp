@@ -227,3 +227,66 @@ def test_force_push_ampersand_no_space_is_blocked():
 def test_force_push_with_space_still_blocked():
     # Existing behavior unchanged.
     assert protected_reason("git push --force origin feature/x", "feature/x") != ""
+
+
+# ---------------------------------------------------------------------------
+# branch -f per-occurrence: re.search on first match masked later forced cmds (fix M)
+# ---------------------------------------------------------------------------
+
+def test_branch_harmless_then_force_main_is_blocked():
+    # re.search found "git branch harmless" first (no -f in that segment) and
+    # used it as the target; the later "git branch -f main" was ignored.
+    cmd = "git branch harmless; git branch -f main HEAD^"
+    assert protected_reason(cmd, "feature/x") != ""
+
+def test_branch_force_feature_then_harmless_is_allowed():
+    # First command forces a feature branch (allowed), second is harmless.
+    cmd = "git branch -f feature/new HEAD^; git branch harmless"
+    assert protected_reason(cmd, "main") == ""
+
+def test_branch_harmless_then_force_feature_is_allowed():
+    # Neither branch command targets a protected branch.
+    cmd = "git branch harmless; git branch -f feature/new HEAD^"
+    assert protected_reason(cmd, "main") == ""
+
+
+# ---------------------------------------------------------------------------
+# reset flag scoping: --hard from later reset falsely blocked earlier soft (fix N)
+# ---------------------------------------------------------------------------
+
+def test_soft_on_main_then_switch_then_hard_on_feature_is_allowed():
+    # git reset --soft HEAD^  (on main — soft, so allowed)
+    # git switch feature/x    (now on feature/x)
+    # git reset --hard HEAD^  (on feature/x — allowed)
+    # The --hard flag must NOT be attributed to the first reset on main.
+    cmd = "git reset --soft HEAD^; git switch feature/x; git reset --hard HEAD^"
+    assert protected_reason(cmd, "main") == ""
+
+def test_hard_reset_on_main_still_blocked_after_scope_fix():
+    # Regression guard: single hard reset on main must still be denied.
+    assert protected_reason("git reset --hard HEAD^", "main") != ""
+
+def test_hard_reset_on_main_then_switch_feature_is_blocked():
+    # The hard reset happens on main (before the switch) — must be blocked.
+    cmd = "git reset --hard HEAD^; git switch feature/x"
+    assert protected_reason(cmd, "main") != ""
+
+
+# ---------------------------------------------------------------------------
+# quoted switch bypass: git switch "main" && git commit bypassed (fix P / fix O)
+# ---------------------------------------------------------------------------
+
+def test_switch_double_quoted_main_then_commit_is_blocked():
+    # _effective_branch_at previously returned '"main"' (with quotes) which was
+    # not in PROTECTED, allowing the commit to slip through.
+    cmd = 'git switch "main" && git commit -m bad'
+    assert protected_reason(cmd, "feature/x") != ""
+
+def test_switch_single_quoted_dev_then_commit_is_blocked():
+    cmd = "git switch 'dev' && git commit -m bad"
+    assert protected_reason(cmd, "feature/x") != ""
+
+def test_switch_double_quoted_feature_then_commit_is_allowed():
+    # Quoted non-protected branch must still be allowed.
+    cmd = 'git switch "feature/y" && git commit -m ok'
+    assert protected_reason(cmd, "feature/x") == ""

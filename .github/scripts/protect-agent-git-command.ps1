@@ -58,7 +58,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         $eff = $branch
         foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
             if ($sm.Index -ge $cm.Index) { break }
-            $t = $sm.Groups[1].Value.ToLowerInvariant()
+            $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
             if (-not $t.StartsWith('-')) { $eff = $t }
         }
         if ($protected -contains $eff) {
@@ -73,7 +73,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         if ($pushMatch.Success) {
             foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
                 if ($sm.Index -ge $pushMatch.Index) { break }
-                $t = $sm.Groups[1].Value.ToLowerInvariant()
+                $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
                 if (-not $t.StartsWith('-')) { $eff = $t }
             }
         }
@@ -99,31 +99,40 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     }
 
     # Reset: evaluate branch state at each reset occurrence independently.
-    # Use [;&|] in the flag terminator so --hard;next (no space) is still caught.
+    # Scope flag check to the argument slice of each reset so --hard from a later
+    # reset does not falsely trigger on an earlier soft reset. Strip quotes from
+    # switch targets so git switch "main" does not bypass the protected check.
     if (-not $reason) {
         foreach ($rm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b")) {
             $eff = $branch
             foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
                 if ($sm.Index -ge $rm.Index) { break }
-                $t = $sm.Groups[1].Value.ToLowerInvariant()
+                $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
                 if (-not $t.StartsWith('-')) { $eff = $t }
             }
+            $tail = $normalized.Substring($rm.Index + $rm.Length)
+            $argSeg = ($tail -split '[;&|]+')[0]
             if ($protected -contains $eff -and
-                    $normalized -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$|[;&|])') {
+                    $argSeg -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)') {
                 $reason = "Hard reset on protected branch '$eff' is forbidden."
                 break
             }
         }
     }
 
-    # Branch -f: use [;&|] in flag terminator; strip quotes from extracted branch name.
-    if (-not $reason -and
-            $normalized -match "(?i)$gitPrefixPattern\s+branch\b" -and
-            $normalized -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])') {
-        if ($normalized -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
-            $branchTarget = ($Matches[2] -replace "^['`"]+|['`"]+$").ToLowerInvariant()
-            if ($protected -contains $branchTarget) {
-                $reason = 'Forcing a protected branch pointer is forbidden.'
+    # Branch -f: iterate each branch command independently so a later forced
+    # protected branch is not masked by an earlier harmless branch command.
+    if (-not $reason -and $normalized -match "(?i)$gitPrefixPattern\s+branch\b") {
+        foreach ($bm in [regex]::Matches($normalized, "(?i)$gitPrefixPattern\s+branch\b")) {
+            $seg = ($normalized.Substring($bm.Index) -split '[;&|]+')[0]
+            if ($seg -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])') {
+                if ($seg -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
+                    $branchTarget = ($Matches[2] -replace "^['`"]+|['`"]+$").ToLowerInvariant()
+                    if ($protected -contains $branchTarget) {
+                        $reason = 'Forcing a protected branch pointer is forbidden.'
+                        break
+                    }
+                }
             }
         }
     }
