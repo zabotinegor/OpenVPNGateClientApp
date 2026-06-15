@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import kotlinx.coroutines.CancellationException
 import org.koin.core.context.GlobalContext
 import java.io.IOException
 
@@ -62,6 +63,8 @@ class ProbeRequestWorker(
         } catch (e: IOException) {
             AppLog.w(TAG, "Probe network error: serverId=$serverId — scheduling retry", e)
             Result.retry()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AppLog.w(TAG, "Probe unexpected error: serverId=$serverId — scheduling retry", e)
             Result.retry()

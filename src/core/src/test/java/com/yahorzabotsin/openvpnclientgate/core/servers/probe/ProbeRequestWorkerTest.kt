@@ -5,6 +5,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequest
 import androidx.work.testing.TestListenableWorkerBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
@@ -122,6 +123,16 @@ class ProbeRequestWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.retry(), result)
+    }
+
+    // CancellationException must propagate — must not be swallowed by generic catch(Exception)
+    @Test(expected = CancellationException::class)
+    fun `doWork rethrows CancellationException`() = runBlocking {
+        val api = FakeProbeApi(throwError = CancellationException("test cancellation"))
+        startKoinWithApi(api)
+        val worker = buildWorker(serverId = 8)
+        worker.doWork()
+        Unit
     }
 
     // DI unavailable → worker returns retry
