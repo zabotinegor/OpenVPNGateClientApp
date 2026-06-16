@@ -104,6 +104,16 @@ class HardProbeApiClientTest {
         assertEquals(ProbeResult.Error(code = 500), result)
     }
 
+    // Unexpected 2xx (e.g. 200 OK) → ProbeResult.Error — only 202 is the accepted success code
+    @Test
+    fun `probe returns Error with code on unexpected 2xx status`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        val result = client.probe(serverId = 1)
+
+        assertEquals(ProbeResult.Error(code = 200), result)
+    }
+
     // Network/IO failure → ProbeResult.Error(-1)
     @Test
     fun `probe returns Error with code -1 on network IOException`() = runTest {

@@ -20,7 +20,7 @@ class HardProbeApiClient(private val probeApi: ProbeApi) {
      * - 422 → [ProbeResult.NoConfigData]
      * - 429 → [ProbeResult.RateLimited]
      * - 503 → [ProbeResult.ServiceUnavailable]
-     * - any other non-2xx code → [ProbeResult.Error] with that code
+     * - any other code (including unexpected 2xx codes) → [ProbeResult.Error] with that code
      * - network / IO exception → [ProbeResult.Error] with code -1
      */
     suspend fun probe(serverId: Int): ProbeResult {
