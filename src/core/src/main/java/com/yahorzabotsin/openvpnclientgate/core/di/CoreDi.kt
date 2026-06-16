@@ -25,6 +25,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Api
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Repository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.HardProbeApiClient
 import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeApi
 import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 import com.yahorzabotsin.openvpnclientgate.core.servers.probe.WorkManagerProbeRequestQueue
@@ -131,6 +132,7 @@ val coreModule = module {
     }
 
     single<ProbeRequestQueue> { WorkManagerProbeRequestQueue(get<WorkManager>()) }
+    single { HardProbeApiClient(get()) }
 
     single { ServersV2Repository(get()) }
     single<ServersV2SyncCoordinator> { DefaultServersV2SyncCoordinator(get()) }
