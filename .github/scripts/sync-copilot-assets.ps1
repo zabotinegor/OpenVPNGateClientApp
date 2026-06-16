@@ -157,9 +157,10 @@ function Set-FileSectionByMarkers {
         Write-AllLinesUtf8WithRetry -Path $TargetPath -Lines $newLines
     }
 
+    $actionValue = if ($changed) { $action } else { 'no-change' }
     return [pscustomobject]@{
         changed = $changed
-        action = if ($changed) { $action } else { 'no-change' }
+        action = $actionValue
     }
 }
 
@@ -408,7 +409,7 @@ function Merge-PsObjects {
             $combined = New-Object System.Collections.Generic.List[object]
             $seen = New-Object System.Collections.Generic.HashSet[string]
             foreach ($item in @($existing.Value) + @($prop.Value)) {
-                $key = if ($null -eq $item) { 'null' } else { ConvertTo-Json -InputObject $item -Depth 10 -Compress }
+                if ($null -eq $item) { $key = 'null' } else { $key = ConvertTo-Json -InputObject $item -Depth 10 -Compress }
                 if ($seen.Add($key)) {
                     $combined.Add($item)
                 }
@@ -417,12 +418,13 @@ function Merge-PsObjects {
                 $existing.Value = [object[]]$combined.ToArray()
                 $changed = $true
             }
-        } elseif (
-            $(if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }) -ne
-            $(if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress })
-        ) {
-            $existing.Value = $prop.Value
-            $changed = $true
+        } else {
+            $existingJson = if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }
+            $propJson = if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress }
+            if ($existingJson -ne $propJson) {
+                $existing.Value = $prop.Value
+                $changed = $true
+            }
         }
     }
     return $changed
@@ -476,9 +478,10 @@ function Merge-JsonSettings {
         [System.IO.File]::WriteAllText($TargetPath, ($json + "`r`n"), $encoding)
     }
 
+    $actionValue = if ($changed) { 'merged' } else { 'no-change' }
     return [pscustomobject]@{
         changed = $changed
-        action = if ($changed) { 'merged' } else { 'no-change' }
+        action = $actionValue
     }
 }
 
@@ -524,9 +527,10 @@ function Set-RepositoryGitHooksPath {
             -FailureMessage 'Unable to configure repository Git hooks path.' | Out-Null
     }
 
+    if ($changed -and $DryRun) { $statusValue = 'would-configure' } elseif ($changed) { $statusValue = 'configured' } else { $statusValue = 'already-configured' }
     return [pscustomobject]@{
         changed = $changed
-        status = if ($changed -and $DryRun) { 'would-configure' } elseif ($changed) { 'configured' } else { 'already-configured' }
+        status = $statusValue
         hooksPath = $HooksPath
     }
 }
@@ -787,7 +791,7 @@ try {
         gitHooksConfiguration = $gitHooksConfiguration
         forbiddenArtifacts = @($forbiddenArtifacts)
         nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
-        verification = if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' }
+        verification = $(if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' })
         mismatches = @($mismatches)
     }
 

@@ -65,25 +65,19 @@ def is_copilottools_source(cwd):
         return False
 
 
-def _effective_branch_after_switch(normalized, branch):
-    """Return the branch active at the first mutating command, accounting for preceding switches."""
+def _effective_branch_at(normalized, branch, pos):
+    """Return the active branch immediately before position `pos`, accounting for any switches."""
     switch_re = re.compile(
         rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}"
         r"\s+(?:switch|checkout)\s+"
-        r"(?:-\S+\s+)*(?!--)(\S+)\b",
+        r"(?:-\S+\s+)*(?!--)([^\s;&|]+)",
         re.IGNORECASE,
     )
-    mutate = re.search(
-        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+(?:commit|push)\b",
-        normalized,
-        re.IGNORECASE,
-    )
-    mutate_pos = mutate.start() if mutate else len(normalized)
     effective = branch
     for m in switch_re.finditer(normalized):
-        if m.start() >= mutate_pos:
+        if m.start() >= pos:
             break
-        target = m.group(1).lower()
+        target = m.group(1).strip("'\"").lower()
         if not target.startswith("-"):
             effective = target
     return effective
@@ -94,32 +88,64 @@ def protected_reason(command, branch):
     if not re.search(r"(^|[;&|]\s*)git\s+", normalized, re.IGNORECASE):
         return ""
 
-    effective_branch = _effective_branch_after_switch(normalized, branch)
+    # Evaluate each commit occurrence independently so a switch AFTER a reset
+    # (but before the commit) is correctly tracked.
+    for m in re.finditer(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+commit\b", normalized, re.IGNORECASE
+    ):
+        eff = _effective_branch_at(normalized, branch, m.start())
+        if eff in PROTECTED:
+            return f"Direct commit on protected branch '{eff}' is forbidden."
 
-    if re.search(rf"{GIT_PREFIX_PATTERN}\s+commit\b", normalized, re.IGNORECASE) and effective_branch in PROTECTED:
-        return f"Direct commit on protected branch '{effective_branch}' is forbidden."
-
-    if re.search(rf"{GIT_PREFIX_PATTERN}\s+push\b", normalized, re.IGNORECASE):
-        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$)", normalized, re.IGNORECASE):
+    push_m = re.search(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+push\b", normalized, re.IGNORECASE
+    )
+    if push_m:
+        eff = _effective_branch_at(normalized, branch, push_m.start())
+        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
             return "Force-push is forbidden in client repositories."
-        if effective_branch in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
-            return f"Direct push from protected branch '{effective_branch}' is forbidden."
+        if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
+            return f"Direct push from protected branch '{eff}' is forbidden."
         push_patterns = (
-            rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}\b",
-            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}\b",
-            rf"\brefs/heads/{PROTECTED_PATTERN}\b",
-            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}\b",
-            rf"(?:^|\s):{PROTECTED_PATTERN}\b",
+            rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",
         )
         if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
             return "Direct push, deletion, or recreation of a protected branch is forbidden."
 
     if re.search(
-        rf"{GIT_PREFIX_PATTERN}\s+update-ref\b[^\r\n]*refs/heads/{PROTECTED_PATTERN}\b",
+        rf"{GIT_PREFIX_PATTERN}\s+update-ref\b[^\r\n]*refs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
         normalized,
         re.IGNORECASE,
     ):
         return "Direct protected branch ref mutation is forbidden."
+
+    # Evaluate each reset occurrence independently so a switch between a reset
+    # and a later commit is accounted for.  Use [;&|] in the flag terminator so
+    # --hard;next (no space) is still detected.
+    for m in re.finditer(
+        rf"(?:^|[;&|]\s*){GIT_PREFIX_PATTERN}\s+reset\b", normalized, re.IGNORECASE
+    ):
+        eff = _effective_branch_at(normalized, branch, m.start())
+        arg_seg = re.split(r"[;&|]+", normalized[m.end():])[0]
+        if eff in PROTECTED and re.search(
+            r"(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$|[;&|])", arg_seg, re.IGNORECASE
+        ):
+            return f"Hard reset on protected branch '{eff}' is forbidden."
+
+    for bm in re.finditer(rf"{GIT_PREFIX_PATTERN}\s+branch\b", normalized, re.IGNORECASE):
+        seg = re.split(r"[;&|]+", normalized[bm.start():])[0]
+        if re.search(r"(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])", seg, re.IGNORECASE):
+            tm = re.search(
+                rf"{GIT_PREFIX_PATTERN}\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)",
+                seg,
+                re.IGNORECASE,
+            )
+            if tm and tm.group(2).strip("'\"").lower() in PROTECTED:
+                return "Forcing a protected branch pointer is forbidden."
 
     return ""
 
