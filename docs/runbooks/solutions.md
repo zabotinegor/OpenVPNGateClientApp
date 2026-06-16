@@ -89,3 +89,98 @@ SUB-02 docs cycle (2026-06-15). Same failure reproduced on `dev` branch (7/7 cas
 
 - `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt`
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt`
+
+---
+
+## Adding a new OkHttp3 test artifact: `mockwebserver` not found in version catalog
+
+**Symptom**
+
+Attempting to add `testImplementation("com.squareup.okhttp3:mockwebserver:...")` as a bare
+coordinate fails to resolve the correct version, or the artifact is absent from
+`libs.versions.toml`, causing a version-catalog lint error:
+
+```
+Could not find libs.okhttp.mockwebserver
+```
+
+**Root cause**
+
+The version catalog (`src/gradle/libs.versions.toml`) contained `square-okhttp` as a version
+reference for the runtime `okhttp` library but had no catalog alias for the companion
+`mockwebserver` artifact.
+
+**Solution**
+
+Add an entry to `[libraries]` in `src/gradle/libs.versions.toml` using the existing
+`square-okhttp` version reference so both artifacts stay in lock-step:
+
+```toml
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "square-okhttp" }
+```
+
+Then declare the dependency in the module's `build.gradle.kts` as test-only:
+
+```kotlin
+testImplementation(libs.okhttp.mockwebserver)
+```
+
+This keeps the MockWebServer version identical to the OkHttp runtime version without duplicating
+the version number.
+
+**First encountered**
+
+SUB-03 (`HardProbeApiClientTest`).
+
+**References**
+
+- `src/gradle/libs.versions.toml` (line 89)
+- `src/core/build.gradle.kts` (line 144)
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/HardProbeApiClientTest.kt`
+
+---
+
+## Gradle daemon OOM on machines with ≤ 16 GB RAM: heap reduced from 4096m to 2048m
+
+**Symptom**
+
+Gradle daemon crashes with an `OutOfMemoryError: Java heap space` (or the build process is
+killed by the OS) on a development machine with 11 GB RAM when `org.gradle.jvmargs` is set to
+`-Xmx4096m`.
+
+**Root cause**
+
+The default heap ceiling in `src/gradle.properties` was `-Xmx4096m`. On machines where the OS
+and other processes already consume a significant portion of available RAM, the Gradle daemon
+cannot allocate a contiguous 4 GB heap, causing OOM failures or excessive GC pauses.
+
+**Solution**
+
+Reduce the heap in `src/gradle.properties`:
+
+```properties
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+```
+
+`2048m` is sufficient for a full debug build and all unit tests on the project as of SUB-03.
+
+**CI note**
+
+If CI runners provide more than 8 GB RAM and need faster incremental builds, override via the
+`GRADLE_OPTS` environment variable in the CI workflow rather than changing
+`gradle.properties`:
+
+```yaml
+env:
+  GRADLE_OPTS: "-Xmx4096m -Dfile.encoding=UTF-8"
+```
+
+This keeps the committed default safe for low-memory machines while giving CI full headroom.
+
+**First encountered**
+
+SUB-03 (2026-06-16) on Samsung developer workstation with 11 GB RAM.
+
+**References**
+
+- `src/gradle.properties` (line 8)
