@@ -189,6 +189,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
     private var watchdogProbeJob: Job? = null
     
+    private var probeQueue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue? = null
+
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
@@ -443,6 +445,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
         }.onFailure { e ->
             AppLog.w(TAG, "Failed to wire DEFAULT_V2 hydration callback", e)
+        }
+
+        runCatching {
+            val queue = GlobalContext.get().get<com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue>()
+            probeQueue = queue
+            ServerAutoSwitcher.probeRequestQueue = queue
+        }.onFailure { e ->
+            AppLog.w(TAG, "Failed to wire ProbeRequestQueue", e)
         }
     }
 
@@ -968,6 +978,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
         serviceScope.cancel()
         ServerAutoSwitcher.v2HydrationCallback = null
+        ServerAutoSwitcher.probeRequestQueue = null
+        probeQueue = null
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
@@ -1420,6 +1432,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
             triggerWatchdogFailSafeDisconnect("missing_recovery_target")
             return
+        }
+        val watchdogServerId = runCatching { SelectedCountryStore.currentServer(applicationContext)?.id ?: 0 }.getOrElse { 0 }
+        if (watchdogServerId != 0) {
+            try { probeQueue?.enqueue(watchdogServerId) } catch (e: Exception) { AppLog.w(TAG, "Watchdog: failed to enqueue hardprobe for serverId=$watchdogServerId", e) }
         }
         try {
             watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
