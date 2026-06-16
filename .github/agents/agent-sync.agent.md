@@ -34,7 +34,7 @@ Load and follow `AGENTS.md`, then execute `.github/skills/agent-sync/SKILL.md` a
 Refer to `AGENTS.md` for common rules on:
 - Prompt-Generation Responses
 - Long-Running Operation Rules
-- Update-SDL Status
+- Update-SDLC Status
 
 ## Output
 
