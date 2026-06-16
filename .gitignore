@@ -113,6 +113,10 @@ artifacts
 
 
 
+
+
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -150,6 +154,7 @@ artifacts
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-master-plan.ps1
+/.github/scripts/invoke-story-flow.ps1
 /.github/scripts/update-master-plan-status.ps1
 /.github/scripts/update-sdlc-status.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
@@ -160,6 +165,10 @@ artifacts
 /.github/skills/code-review/references/review-checklist-mssql.md
 /.github/skills/code-review/references/review-checklist-react-ts.md
 /.github/skills/code-review/SKILL.md
+/.github/skills/developer-flow-handoff/references/template-docs-pr.md
+/.github/skills/developer-flow-handoff/references/template-gate-qa.md
+/.github/skills/developer-flow-handoff/references/template-implement-review.md
+/.github/skills/developer-flow-handoff/references/template-intake-story.md
 /.github/skills/developer-flow-handoff/SKILL.md
 /.github/skills/developer-flow-orchestrator/SKILL.md
 /.github/skills/docs-maintenance/references/docs-report-template.md
@@ -178,6 +187,8 @@ artifacts
 /.github/skills/github-review-comments/SKILL.md
 /.github/skills/master-plan/SKILL.md
 /.github/skills/scope-quality-gate/SKILL.md
+/.github/skills/shared/sdlc-shared-flow-patterns.md
+/.github/skills/shared/sdlc-status-gate.md
 /.github/skills/update-engine/references/engine-update-checklist.md
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
