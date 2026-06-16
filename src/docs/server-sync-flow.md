@@ -83,3 +83,15 @@ A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load.
 ## Source-Independent App Metadata Calls
 - Release notes (`What's New`) always use routes derived from `PRIMARY_SERVERS_URL` and no longer depend on the selected server source or custom CSV URL.
 - Update checks (`Get Update`) always use routes derived from `PRIMARY_SERVERS_URL`. `FALLBACK_SERVERS_URL` and custom server URLs are never trusted as update hosts.
+
+## Hardprobe Trigger Points (SUB-04)
+
+When a VPN inactivity event fires, two code paths can enqueue a hardprobe request:
+
+1. **Autoswitch timeout** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled.
+
+2. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): after the watchdog reconnects, `SelectedCountryStore.currentServer(applicationContext)?.id` is read and a probe is enqueued for the current server.
+
+In both paths, a server ID of 0 silently suppresses probe enqueue. `ProbeRequestQueue` is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
+
+See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
