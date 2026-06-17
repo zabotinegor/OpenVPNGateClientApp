@@ -33,6 +33,7 @@ object ServerAutoSwitcher {
     // selected-country server list is empty. The callback must hydrate the list and then
     // invoke the provided completion action on the main thread.
     @Volatile internal var v2HydrationCallback: ((Context, () -> Unit) -> Unit)? = null
+    @Volatile internal var probeRequestQueue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue? = null
     @Volatile private var v2HydrationPending: Boolean = false
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
@@ -237,6 +238,12 @@ object ServerAutoSwitcher {
 
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
+        // Capture the failing server id before nextServerCircular advances the index.
+        // Guard: only probe if the currently selected server config matches the last-started config,
+        // preventing spurious probes when the user changes server selection in the UI while connected.
+        val failingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
+            SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
+        } else 0
         val next = try {
             if (cycleStartIndex == null) {
                 cycleStartIndex = SelectedCountryStore.getCurrentIndex(appContext)
@@ -292,6 +299,12 @@ object ServerAutoSwitcher {
                     return
                 }
             }
+        }
+
+        // Enqueue hardprobe for the failing server — skip for LEVEL_NONETWORK (device network loss,
+        // not server failure) and id=0 (unknown server, no useful probe target).
+        if (failingServerId != 0) {
+            try { probeRequestQueue?.enqueue(failingServerId) } catch (e: Exception) { AppLog.w(TAG, "Failed to enqueue hardprobe for serverId=$failingServerId", e) }
         }
 
         if (next != null) {
@@ -417,6 +430,11 @@ object ServerAutoSwitcher {
     @JvmStatic
     fun resetRepliedThreshold() {
         repliedThresholdSeconds = REPLIED_SWITCH_THRESHOLD_SECONDS
+    }
+
+    @JvmStatic
+    fun setProbeRequestQueueForTest(queue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue?) {
+        probeRequestQueue = queue
     }
 }
 
