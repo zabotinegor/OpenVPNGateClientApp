@@ -34,3 +34,45 @@ adb logcat -d | grep -E "(JsonSyntaxException|FATAL EXCEPTION)"
 # Monitor server V2 loading
 adb logcat | grep -E "(ServersV2Repository|SelectedCountryStore|ServersV2SyncCoordinator)"
 ```
+
+---
+
+## SUB-05 — Instrumented test fixes
+
+**Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-05-fix-broken-instrumented-tests.md`
+
+### What was fixed
+
+1. **Test launch flags**: Removed `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` from
+   `ActivityScenario.launch()` intents. These flags conflict with Espresso's lifecycle management
+   and prevent the activity from reaching RESUMED state.
+
+2. **`registerForActivityResult()` placement**: Moved all 8 `registerForActivityResult()` calls
+   from property initializers to `onCreate()` (via `initActivityLaunchers()`). Property-initializer
+   registration runs before lifecycle setup, which breaks Espresso's `ActivityScenario` on some
+   devices.
+
+3. **Update dialog dismissal**: Added `dismissUpdatePromptIfVisible()` in test helpers to handle
+   the async `PromptUpdate` effect that shows an update dialog on launch.
+
+### Known Samsung device limitation
+
+On Samsung SM-A715F (Android 13), `MainActivity` tests fail with `NoActivityResumedException`
+because Samsung's Freecess/GameSDK immediately pauses the activity after it reaches RESUMED.
+`SettingsActivity`, `DnsActivity`, and `ConnectionControlsView` tests pass normally.
+
+Workaround: run `adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate` before
+tests, or test on a standard Android device.
+
+### Running the tests
+
+```bash
+# Run all instrumented tests
+adb shell am instrument -w com.yahorzabotsin.openvpnclientgate.test/androidx.test.runner.AndroidJUnitRunner
+
+# Run a specific test class
+adb shell am instrument -w -e class com.yahorzabotsin.openvpnclientgate.mobile.MainActivitySmokeTest com.yahorzabotsin.openvpnclientgate.test/androidx.test.runner.AndroidJUnitRunner
+
+# Run via Gradle (handles APK build + install)
+./gradlew connectedDebugAndroidTestApp
+```
