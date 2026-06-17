@@ -106,6 +106,7 @@ class VpnInactivityHardprobeTriggerTest {
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
 
         // Trigger timeout auto-switch
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
@@ -126,6 +127,7 @@ class VpnInactivityHardprobeTriggerTest {
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
 
         // Start the timer then trigger immediate auth-failed switch
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
@@ -175,6 +177,42 @@ class VpnInactivityHardprobeTriggerTest {
         assertEquals(55, fakeQueue.enqueuedIds[0])
     }
 
+    // AC-2b: watchdog does NOT probe when user changed selection (config mismatch)
+    @Test
+    fun watchdogRecovery_doesNotEnqueueProbeWhenSelectionChanged() {
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip1",
+                0, 0, 0, 0, 0, 0, "", "", "", "client\n", id = 55),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip2",
+                0, 0, 0, 0, 0, 0, "", "", "", "other-conf\n", id = 66)
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+        // Save last started config for server 1 (id=55)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", "ip1")
+        // Advance index to server 2 (simulates user changing selection)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+
+        val service = buildConnectedService(nowMs = 50_000L)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(service, "probeQueue", fakeQueue as ProbeRequestQueue)
+
+        var recoveryDispatches = 0
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+        )
+
+        val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
+        ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
+
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertEquals(1, recoveryDispatches)
+        assertTrue("No probe should be enqueued when selection changed (config mismatch)", fakeQueue.enqueuedIds.isEmpty())
+    }
+
     // AC-3 / AC-6 scenario 3: user-stop does NOT trigger probe
     @Test
     fun userStop_doesNotEnqueueProbe() {
@@ -186,6 +224,7 @@ class VpnInactivityHardprobeTriggerTest {
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
 
         // User disconnects: LEVEL_NOTCONNECTED without a timeout timer running → cancel without probing
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, "AIDL")
@@ -205,6 +244,7 @@ class VpnInactivityHardprobeTriggerTest {
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
 
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
@@ -223,6 +263,7 @@ class VpnInactivityHardprobeTriggerTest {
         )
         SelectedCountryStore.saveSelection(appContext, "RU", servers)
         SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
 
         // Simulate device network loss: AIDL reports LEVEL_NONETWORK while a timer is active
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")

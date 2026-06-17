@@ -1065,7 +1065,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } else {
                 val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                 if (candidates >= 0) AppLog.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
+                val vpnStatusFailingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
+                    val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(applicationContext) }.getOrNull()
+                    val currentServer = runCatching { SelectedCountryStore.currentServer(applicationContext) }.getOrNull()
+                    if (currentServer != null && lastStarted != null &&
+                        !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
+                        currentServer.id
+                    } else 0
+                } else 0
                 val next = SelectedCountryStore.nextServer(applicationContext)
+                if (vpnStatusFailingServerId != 0) {
+                    try { probeQueue?.enqueue(vpnStatusFailingServerId) } catch (e: Exception) { AppLog.w(TAG, "VPN_STATUS fallback: failed to enqueue hardprobe for serverId=$vpnStatusFailingServerId", e) }
+                }
                 val title = SelectedCountryStore.getSelectedCountry(applicationContext)
                 if (next != null) {
                 val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
@@ -1433,7 +1444,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             triggerWatchdogFailSafeDisconnect("missing_recovery_target")
             return
         }
-        val watchdogServerId = runCatching { SelectedCountryStore.currentServer(applicationContext)?.id ?: 0 }.getOrElse { 0 }
+        val watchdogServerId = runCatching {
+            val lastStarted = SelectedCountryStore.getLastStartedConfig(applicationContext)
+            val currentServer = SelectedCountryStore.currentServer(applicationContext)
+            if (currentServer != null && lastStarted != null &&
+                !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
+                currentServer.id
+            } else {
+                0
+            }
+        }.getOrElse { 0 }
         if (watchdogServerId != 0) {
             try { probeQueue?.enqueue(watchdogServerId) } catch (e: Exception) { AppLog.w(TAG, "Watchdog: failed to enqueue hardprobe for serverId=$watchdogServerId", e) }
         }

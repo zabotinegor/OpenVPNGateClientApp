@@ -239,8 +239,15 @@ object ServerAutoSwitcher {
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
         // Capture the failing server id before nextServerCircular advances the index.
+        // Guard: only probe if the currently selected server config matches the last-started config,
+        // preventing spurious probes when the user changes server selection in the UI while connected.
         val failingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
-            runCatching { SelectedCountryStore.currentServer(appContext)?.id ?: 0 }.getOrElse { 0 }
+            val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(appContext) }.getOrNull()
+            val currentServer = runCatching { SelectedCountryStore.currentServer(appContext) }.getOrNull()
+            if (currentServer != null && lastStarted != null &&
+                !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
+                currentServer.id
+            } else 0
         } else 0
         val next = try {
             if (cycleStartIndex == null) {
