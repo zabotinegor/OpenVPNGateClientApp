@@ -74,52 +74,69 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
     }
     private var lastAppliedSelectionVersion: Long? = null
 
-    private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            dispatchConnectionButtonClick()
-        } else {
-            Toast.makeText(this, R.string.vpn_permission_not_granted, Toast.LENGTH_SHORT).show()
-        }
-    }
+    private lateinit var vpnPermissionLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var serverListActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var dnsActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var filterActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var settingsActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var aboutActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var whatsNewActivityLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
+    private lateinit var notificationPermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
 
-    private val serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val selection = if (result.resultCode == Activity.RESULT_OK) {
-            SelectedServerResult(
-                country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY),
-                countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE),
-                city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY),
-                config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG),
-                ip = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_IP)
-            )
-        } else {
-            null
+    private fun initActivityLaunchers() {
+        vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                dispatchConnectionButtonClick()
+            } else {
+                Toast.makeText(this, R.string.vpn_permission_not_granted, Toast.LENGTH_SHORT).show()
+            }
         }
-        viewModel.onAction(MainAction.OnServerSelectionResult(selection))
-    }
 
-    private fun createDrawerReopeningLauncher() =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        serverListActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val selection = if (result.resultCode == Activity.RESULT_OK) {
+                SelectedServerResult(
+                    country = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY),
+                    countryCode = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_COUNTRY_CODE),
+                    city = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CITY),
+                    config = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_CONFIG),
+                    ip = result.data?.getStringExtra(ServerListActivity.EXTRA_SELECTED_SERVER_IP)
+                )
+            } else {
+                null
+            }
+            viewModel.onAction(MainAction.OnServerSelectionResult(selection))
+        }
+
+        dnsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        filterActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        settingsActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        aboutActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+        whatsNewActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             binding.drawerLayout.openDrawer(GravityCompat.START)
         }
 
-    private val dnsActivityLauncher = createDrawerReopeningLauncher()
-    private val filterActivityLauncher = createDrawerReopeningLauncher()
-    private val settingsActivityLauncher = createDrawerReopeningLauncher()
-    private val aboutActivityLauncher = createDrawerReopeningLauncher()
-    private val whatsNewActivityLauncher = createDrawerReopeningLauncher()
-
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            dispatchConnectionButtonClick()
-        } else {
-            Toast.makeText(this, R.string.notification_permission_required, Toast.LENGTH_SHORT).show()
+        notificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                dispatchConnectionButtonClick()
+            } else {
+                Toast.makeText(this, R.string.notification_permission_required, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initActivityLaunchers()
         AppLog.d(tag, "onCreate called.")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)

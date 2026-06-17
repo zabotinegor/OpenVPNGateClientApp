@@ -1,8 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.mobile
 
-import android.content.Intent
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.core.app.ActivityScenario
+import androidx.test.espresso.Espresso.onIdle
 import androidx.test.espresso.Espresso.pressBackUnconditionally
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.NoMatchingViewException
@@ -45,10 +44,10 @@ class MainActivityUiTest {
 
     @Test
     fun openDrawer_and_clickServerItem_opensServerList() {
-        val launchIntent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        }
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            onIdle()
+            dismissUpdatePromptIfVisible()
+            onIdle()
             dismissUpdatePromptIfVisible()
 
             // Open the navigation drawer
