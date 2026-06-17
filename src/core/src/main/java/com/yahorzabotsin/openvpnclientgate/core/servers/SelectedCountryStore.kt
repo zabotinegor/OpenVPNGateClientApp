@@ -350,6 +350,19 @@ object SelectedCountryStore {
             return true
         }
     }
+
+    fun getCurrentServerIdIfMatchingLastStarted(context: Context): Int {
+        return runCatching {
+            val lastStarted = getLastStartedConfig(context)
+            val currentServer = currentServer(context)
+            if (currentServer != null && lastStarted != null &&
+                !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
+                currentServer.id
+            } else {
+                0
+            }
+        }.getOrElse { 0 }
+    }
 }
 
 

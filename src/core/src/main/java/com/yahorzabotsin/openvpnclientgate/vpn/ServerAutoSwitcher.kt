@@ -242,12 +242,7 @@ object ServerAutoSwitcher {
         // Guard: only probe if the currently selected server config matches the last-started config,
         // preventing spurious probes when the user changes server selection in the UI while connected.
         val failingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
-            val lastStarted = runCatching { SelectedCountryStore.getLastStartedConfig(appContext) }.getOrNull()
-            val currentServer = runCatching { SelectedCountryStore.currentServer(appContext) }.getOrNull()
-            if (currentServer != null && lastStarted != null &&
-                !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
-                currentServer.id
-            } else 0
+            SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
         } else 0
         val next = try {
             if (cycleStartIndex == null) {
