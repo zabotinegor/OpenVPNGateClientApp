@@ -54,6 +54,23 @@ class OpenVpnServiceNotificationTest {
     }
 
     @Test
+    fun syncStatusActionImmediatelyExitsControllerForeground() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(intent, 0, 1)
+
+        assertTrue(shadowNotificationManager.allNotifications.isEmpty())
+    }
+
+    @Test
     fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
