@@ -94,3 +94,16 @@ no-op (`controllerForegroundActive` guard). All other actions that call `exitCon
 - File to change: `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
   - `onCreate()` line ~418: add `enterControllerForeground()` after `ensureEnginePreferences()`
   - `onStartCommand()` `ACTION_SYNC_STATUS` branch line ~697: add `exitControllerForeground()` as first call
+
+## Post-Implementation Status (2026-06-18)
+- Status: **PASSED**
+- Validated device: Samsung Galaxy A71 SM-A715F Android 13 (ADB serial R58N849XQEY)
+- Build: debug, commit e9ad3ab
+- Manual QA date: 2026-06-18
+- Acceptance summary:
+  - [x] First VPN connect attempt after APK update succeeds without `RemoteServiceException` crash
+  - [x] No regression on normal VPN connect (no-update scenario)
+  - [x] No regression on VPN disconnect and reconnect
+  - [x] No regression on server switch (auto-switch via `ServerAutoSwitcher`)
+  - [x] Logcat shows no `RemoteServiceException` for `OpenVpnService`
+  - [x] `onDestroy()` logs confirm foreground state is properly cleaned up after sync

@@ -195,3 +195,62 @@ SUB-03 (2026-06-16) on Samsung developer workstation with 11 GB RAM.
 **References**
 
 - `src/gradle.properties` (line 8)
+
+---
+
+## `RemoteServiceException`: `startForegroundService()` did not call `startForeground()` — crash on first VPN connect after APK update
+
+**Symptom**
+
+App crashes on the first VPN connection attempt after an APK update with:
+
+```
+android.app.RemoteServiceException: Context.startForegroundService() did not then call Service.startForeground()
+```
+
+The affected service is `com.yahorzabotsin.openvpnclientgate/.vpn.OpenVpnService`. The crash is a
+one-shot event: the second attempt (after auto-restart) succeeds. Subsequent launches are also
+unaffected because ART has already compiled the DEX cache.
+
+**Root cause**
+
+Race condition between two paths in the service lifecycle:
+
+1. `MainActivityCore.onStart()` → `VpnManager.syncStatus()` → `context.startService()` creates
+   `OpenVpnService`. `onOneShotInitialStateSynced()` posts `stopAfterOneShotSyncRunnable` with a
+   1 000 ms delay.
+2. The user taps Connect within ≤ 1 s of returning to the main screen →
+   `VpnManager.startVpn()` → `ContextCompat.startForegroundService()`. Android's ActivityManagerService
+   starts the **5-second foreground timer** at this point.
+3. `stopAfterOneShotSyncRunnable` fires → `stopSelf()` is called while `ACTION_START` delivery is
+   still in flight. The service briefly enters a dead/restarting state.
+4. The 5-second timer expires before `startForeground()` is registered to that timer slot →
+   `RemoteServiceException`.
+
+**Why only after an update:** ART recompiles class files on the first launch after an APK update.
+`onCreate()` and surrounding class initialization run measurably slower, widening the race window
+between `stopSelf()` and `startForeground()`. Second and subsequent launches use already-compiled
+DEX and are fast enough to avoid the race.
+
+**Fix applied**
+
+`OpenVpnService.onCreate()` now calls `enterControllerForeground(stopOnFailure = false)` immediately
+after notification channel setup (`ensureEngineNotificationChannels()`). This satisfies Android's
+5-second foreground requirement within `onCreate()` itself, before any intent is delivered —
+eliminating the race window entirely.
+
+The `stopOnFailure` parameter was added to `enterControllerForeground()` so that a failure during
+`onCreate()` (where the triggering intent is not yet known) does not stop the service prematurely.
+The subsequent `ACTION_START` delivery in `onStartCommand()` retries with the default
+`stopOnFailure = true`.
+
+**Evidence**
+
+- Crash log: `D:\Apps\OpenVPNClient\OpenVPNClientClientReports\crash after update\logcat_20260617_135358\logcat_20260617_135358.txt`
+- Manual QA: Samsung Galaxy A71 SM-A715F Android 13 (ADB serial R58N849XQEY), 2026-06-18 — first
+  connect after update succeeded without crash.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
+- `docs/userstories/BUG-foreground-service-crash-after-update.md`
