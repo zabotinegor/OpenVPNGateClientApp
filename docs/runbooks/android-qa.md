@@ -83,19 +83,16 @@ the test environment. When SUB-04 is delivered:
 
 ### Known Issues
 
-**`MainActivitySmokeTest` pre-existing failure (not caused by SUB-02)**
+**`MainActivitySmokeTest` failure (not caused by SUB-02) — RESOLVED in SUB-05**
 
-All 7 `MainActivitySmokeTest` cases fail with `NoActivityResumedException` on this device when
-run via `./gradlew connectedDebugAndroidTestApp`. The same failure rate (7/7) is reproduced on
-the `dev` branch with no SUB-02 changes applied, confirming this is not a regression introduced
-by SUB-02.
+All 7 `MainActivitySmokeTest` cases failed with `NoActivityResumedException` on this device when
+run via `./gradlew connectedDebugAndroidTestApp`. The same failure rate (7/7) was reproduced on
+the `dev` branch with no SUB-02 changes applied, confirming it was not a regression from SUB-02.
 
-Root cause: `ActivityScenario` launches `MainActivity` directly, bypassing `SplashActivity`.
-`MainActivity` expects network calls (OkHttp) that are already in-flight from `SplashActivity`'s
-preload phase; when those calls don't happen, the Espresso `IdlingResource` for OkHttp never
-idles, causing the test to time out before the activity resumes. This is a test harness issue
-unrelated to production code. See also `docs/runbooks/solutions.md` for the WorkManager test
-isolation constraint.
+This issue was fixed in SUB-05. The actual root cause was `FLAG_ACTIVITY_NEW_TASK |
+FLAG_ACTIVITY_CLEAR_TASK` flags on the `ActivityScenario` launch intents conflicting with
+Espresso's lifecycle management. All 21 tests now pass on Samsung Galaxy A71 SM-A715F Android 13.
+See `docs/runbooks/solutions.md` for full details.
 
 ---
 
@@ -118,25 +115,46 @@ adb logcat | grep -E "(ServersV2Repository|SelectedCountryStore|ServersV2SyncCoo
 ### What was fixed
 
 1. **Test launch flags**: Removed `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` from
-   `ActivityScenario.launch()` intents. These flags conflict with Espresso's lifecycle management
-   and prevent the activity from reaching RESUMED state.
+   `ActivityScenario.launch()` intents (test code only — no production code changed). These flags
+   conflict with Espresso's lifecycle management and prevent the activity from reaching RESUMED state.
 
-2. **`registerForActivityResult()` placement**: Moved all 8 `registerForActivityResult()` calls
-   from property initializers to `onCreate()` (via `initActivityLaunchers()`). Property-initializer
-   registration runs before lifecycle setup, which breaks Espresso's `ActivityScenario` on some
-   devices.
-
-3. **Update dialog dismissal**: Added `dismissUpdatePromptIfVisible()` in test helpers to handle
+2. **Update dialog dismissal**: Added `dismissUpdatePromptIfVisible()` in test helpers to handle
    the async `PromptUpdate` effect that shows an update dialog on launch.
 
 ### Known Samsung device limitation
 
-On Samsung SM-A715F (Android 13), `MainActivity` tests fail with `NoActivityResumedException`
-because Samsung's Freecess/GameSDK immediately pauses the activity after it reaches RESUMED.
-`SettingsActivity`, `DnsActivity`, and `ConnectionControlsView` tests pass normally.
+On Samsung SM-A715F (Android 13), `MainActivity` tests were previously reported to fail with
+`NoActivityResumedException` due to Samsung's Freecess/GameSDK pausing the activity after RESUMED.
 
-Workaround: run `adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate` before
-tests, or test on a standard Android device.
+**Updated (SUB-05):** The Samsung whitelist workaround has been confirmed to work. After running:
+
+```bash
+adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate
+```
+
+and applying the SUB-05 fix (removing `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` from
+launch intents and adding `dismissUpdatePromptIfVisible()`), all 21 tests pass on Samsung Galaxy
+A71 SM-A715F Android 13 (ADB serial R58N849XQEY) — 0 failures.
+
+`SettingsActivity`, `DnsActivity`, and `ConnectionControlsView` tests continue to pass normally.
+
+### Mi 9T Pro (MIUI / Android 11) limitation
+
+On Xiaomi Mi 9T Pro (ADB serial b6e8f6bd, Android 11 / MIUI), instrumented tests are blocked
+indefinitely by the Android 11 background activity start restriction. `ActivityScenario.launch()`
+cannot launch activities when called from the instrumentation runner under MIUI's enforcement of
+this restriction.
+
+**Symptoms:**
+- Tests do not fail with an error — they simply never start; the process hangs with no output.
+- No timeout fires; the ADB process must be killed manually.
+
+**What does not help:**
+- `adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate` — MIUI ignores the
+  standard idle whitelist for this restriction.
+
+**Workaround:** Use a Samsung or stock Android device for instrumented test runs. The Samsung
+Galaxy A71 (Android 13) is the confirmed working test device for this project.
 
 ### Running the tests
 
