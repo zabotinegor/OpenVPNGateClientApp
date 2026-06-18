@@ -135,14 +135,14 @@ class ProbeRequestWorkerTest {
         Unit
     }
 
-    // DI unavailable → worker returns retry
+    // DI unavailable → permanent failure (missing Koin binding is a config error, not transient)
     @Test
-    fun `doWork returns retry when Koin is not started`() = runBlocking {
+    fun `doWork returns failure when Koin is not started`() = runBlocking {
         stopKoin()
         val worker = buildWorker(serverId = 7)
         val result = worker.doWork()
 
-        assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(ListenableWorker.Result.failure(), result)
     }
 
     // Missing serverId in input data → permanent failure

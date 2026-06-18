@@ -18,7 +18,7 @@ import java.io.IOException
  * - 404 / 422        → [Result.failure()] (non-retryable; server rejected the request)
  * - Other HTTP error → [Result.retry()]   (treat unknown server errors as transient)
  * - Network error    → [Result.retry()]
- * - DI unavailable   → [Result.retry()]
+ * - DI unavailable   → [Result.failure()] (permanent config error; retrying cannot help)
  */
 class ProbeRequestWorker(
     appContext: Context,
@@ -35,8 +35,8 @@ class ProbeRequestWorker(
         val probeApi = runCatching {
             GlobalContext.get().get<ProbeApi>()
         }.getOrElse { error ->
-            AppLog.w(TAG, "Failed to resolve ProbeApi from Koin — will retry", error)
-            return Result.retry()
+            AppLog.e(TAG, "Failed to resolve ProbeApi from Koin — permanent configuration error", error)
+            return Result.failure()
         }
 
         return try {
