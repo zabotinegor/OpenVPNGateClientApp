@@ -53,7 +53,6 @@ class MainActivitySmokeTest {
     private inline fun withMainActivity(assertions: () -> Unit) {
         ActivityScenario.launch(MainActivity::class.java).use {
             dismissUpdatePromptIfVisible()
-            dismissUpdatePromptIfVisible()
             assertions()
         }
     }

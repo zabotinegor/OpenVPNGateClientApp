@@ -11,6 +11,7 @@ import de.blinkt.openvpn.core.ConnectionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 
 object ServerAutoSwitcher {
     private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerAutoSwitcher"
@@ -33,7 +34,7 @@ object ServerAutoSwitcher {
     // selected-country server list is empty. The callback must hydrate the list and then
     // invoke the provided completion action on the main thread.
     @Volatile internal var v2HydrationCallback: ((Context, () -> Unit) -> Unit)? = null
-    @Volatile internal var probeRequestQueue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue? = null
+    @Volatile internal var probeRequestQueue: ProbeRequestQueue? = null
     @Volatile private var v2HydrationPending: Boolean = false
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
@@ -433,7 +434,7 @@ object ServerAutoSwitcher {
     }
 
     @JvmStatic
-    fun setProbeRequestQueueForTest(queue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue?) {
+    fun setProbeRequestQueueForTest(queue: ProbeRequestQueue?) {
         probeRequestQueue = queue
     }
 }

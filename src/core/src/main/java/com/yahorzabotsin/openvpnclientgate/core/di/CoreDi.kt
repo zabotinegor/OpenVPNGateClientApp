@@ -132,6 +132,8 @@ val coreModule = module {
     }
 
     single<ProbeRequestQueue> { WorkManagerProbeRequestQueue(get<WorkManager>()) }
+    // HardProbeApiClient is available for injection by future callers that need direct probe results
+    // (e.g. immediate one-shot probes without WorkManager durability). Not used at runtime today.
     single { HardProbeApiClient(get()) }
 
     single { ServersV2Repository(get()) }
