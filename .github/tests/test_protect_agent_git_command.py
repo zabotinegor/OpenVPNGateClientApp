@@ -290,3 +290,30 @@ def test_switch_double_quoted_feature_then_commit_is_allowed():
     # Quoted non-protected branch must still be allowed.
     cmd = 'git switch "feature/y" && git commit -m ok'
     assert protected_reason(cmd, "feature/x") == ""
+
+
+# ---------------------------------------------------------------------------
+# git global options prefix: --no-pager, --paginate, etc. must not bypass guard
+# ---------------------------------------------------------------------------
+
+def test_no_pager_commit_on_main_is_blocked():
+    # git --no-pager commit was not matched by the old GIT_PREFIX_PATTERN.
+    assert protected_reason("git --no-pager commit -m bad", "main") != ""
+
+def test_no_pager_push_to_main_is_blocked():
+    assert protected_reason("git --no-pager push origin main", "feature/x") != ""
+
+def test_paginate_commit_on_main_is_blocked():
+    assert protected_reason("git --paginate commit -m bad", "main") != ""
+
+def test_bare_push_to_dev_is_blocked():
+    assert protected_reason("git --bare push origin dev", "feature/x") != ""
+
+def test_no_replace_objects_commit_on_main_is_blocked():
+    assert protected_reason("git --no-replace-objects commit -m bad", "main") != ""
+
+def test_no_pager_commit_on_feature_is_allowed():
+    assert protected_reason("git --no-pager commit -m ok", "feature/x") == ""
+
+def test_no_pager_push_to_feature_is_allowed():
+    assert protected_reason("git --no-pager push origin feature/x", "feature/y") == ""

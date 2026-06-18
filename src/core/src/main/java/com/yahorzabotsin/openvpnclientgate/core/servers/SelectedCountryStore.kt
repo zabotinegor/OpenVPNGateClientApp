@@ -356,7 +356,7 @@ object SelectedCountryStore {
             val lastStarted = getLastStartedConfig(context)
             val currentServer = currentServer(context)
             if (currentServer != null && lastStarted != null &&
-                !lastStarted.config.isNullOrBlank() && currentServer.config == lastStarted.config) {
+                !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
                 currentServer.id
             } else {
                 0
