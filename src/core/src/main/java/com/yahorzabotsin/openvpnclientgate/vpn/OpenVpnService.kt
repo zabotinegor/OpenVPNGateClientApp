@@ -416,6 +416,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
+        // Satisfy Android's startForegroundService() 5-second requirement immediately in onCreate(),
+        // eliminating the race between stopAfterOneShotSyncRunnable (stopSelf) and startForeground()
+        // delivery when startForegroundService() is called while a sync-started service is stopping.
+        // stopOnFailure=false: intent not yet delivered here, so don't stop — ACTION_START will retry.
+        enterControllerForeground(stopOnFailure = false)
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
@@ -983,7 +988,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(): Boolean {
+    private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
         if (controllerForegroundActive) return true
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
@@ -1004,9 +1009,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to enter controller foreground; stopping service", t)
+            AppLog.e(TAG, "Failed to enter controller foreground${if (stopOnFailure) "; stopping service" else ""}", t)
             controllerForegroundActive = false
-            stopSelf()
+            if (stopOnFailure) stopSelf()
             return false
         }
     }
