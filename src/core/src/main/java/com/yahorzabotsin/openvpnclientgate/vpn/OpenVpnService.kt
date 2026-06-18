@@ -700,6 +700,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_SYNC_STATUS -> {
                 AppLog.d(TAG, "ACTION_SYNC_STATUS")
+                exitControllerForeground()
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
