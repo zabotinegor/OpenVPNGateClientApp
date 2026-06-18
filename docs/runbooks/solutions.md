@@ -47,7 +47,7 @@ SUB-02 (`ProbeRequestWorkerTest`). Fixed by testing `doWork()` directly on a con
 
 ---
 
-## `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device
+## `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05
 
 **Symptom**
 
@@ -55,40 +55,51 @@ All (or most) cases in `MainActivitySmokeTest` fail with `NoActivityResumedExcep
 via `./gradlew connectedDebugAndroidTestApp`. The activity never resumes within the Espresso
 timeout window.
 
-**Root cause**
+**Status: RESOLVED** — All 7 `MainActivitySmokeTest` cases now pass (21/21 total, 0 failures)
+on Samsung Galaxy A71 SM-A715F, Android 13 (ADB serial R58N849XQEY). Fixed in SUB-05.
 
-`ActivityScenario` in `MainActivitySmokeTest` launches `MainActivity` directly, bypassing
-`SplashActivity`. The production `MainActivity` assumes that `SplashActivity` has already
-completed its server-preload network calls (managed via `SplashServerPreloadInteractor`). When
-those OkHttp calls are absent, the Espresso `OkHttpIdlingResource` never becomes idle, causing
-the test runner to time out before the activity enters a resumed state.
+**Actual root cause**
 
-**Affected device**
+The `ActivityScenario.launch()` intents included `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK`
+flags. These flags conflict with `ActivityScenario`'s internal lifecycle management, preventing the
+activity from reaching RESUMED state inside the test runner.
 
-Confirmed on Samsung Galaxy A71 SM-A715F, Android 13 (ADB serial R58N849XQEY). Fails
-identically on `dev` branch without any feature-branch changes, confirming it is a pre-existing
-issue.
+Additionally, the async `PromptUpdate` effect triggers an update dialog on first launch, which must
+be dismissed before subsequent UI interactions can proceed.
 
-**Workaround**
+> **Note on the previously stated root cause:** An earlier version of this entry attributed the
+> failure to an `OkHttpIdlingResource` / `OkHttpIdlingResource` that never became idle. That
+> explanation was incorrect. There is no `IdlingRegistry` usage anywhere in the codebase — grep
+> confirms no `IdlingRegistry` is registered. The actual cause was the intent flags described above.
 
-For manual smoke verification, always launch the app through `SplashActivity`:
+**Fix applied (SUB-05)**
 
-```bash
-adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
-```
-
-Do not rely on `MainActivitySmokeTest` as a CI gate until the test is refactored to either:
-- mock the network layer and OkHttp idling resource, or
-- launch `SplashActivity` as the entry point and navigate forward from there.
+1. Removed `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` from all `ActivityScenario.launch()`
+   intents in `MainActivitySmokeTest` and `MainActivityUiTest`.
+2. Added `dismissUpdatePromptIfVisible()` to the test helper to handle the async update dialog shown
+   on launch.
 
 **First confirmed**
 
-SUB-02 docs cycle (2026-06-15). Same failure reproduced on `dev` branch (7/7 cases).
+SUB-02 docs cycle (2026-06-15). Fixed in SUB-05 (2026-06-18).
+
+### MIUI Android 11 limitation
+
+On Xiaomi Mi 9T Pro (ADB serial b6e8f6bd, Android 11 / MIUI), the Android 11 background activity
+start restriction prevents `ActivityScenario.launch()` from launching activities when called from
+the instrumentation runner. The tests block indefinitely — there is no timeout and the process must
+be killed manually.
+
+- Applying the device idle whitelist (`adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate`)
+  does **not** help on MIUI.
+- **Workaround:** test on Samsung or stock Android devices. The Samsung Galaxy A71 (Android 13)
+  passes all 21 cases after the SUB-05 fix.
 
 **References**
 
 - `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt`
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt`
+- `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivityUiTest.kt`
+- `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-05-fix-broken-instrumented-tests.md`
 
 ---
 
