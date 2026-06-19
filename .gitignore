@@ -106,6 +106,96 @@ artifacts
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+# BEGIN synced-copilot-assets
+/.claude/commands/bug-flow.md
+/.claude/commands/code-review.md
+/.claude/commands/create-pr.md
+/.claude/commands/create-release-pr.md
+/.claude/commands/developer-flow-handoff.md
+/.claude/commands/developer-flow-orchestrator.md
+/.claude/commands/docs.md
+/.claude/commands/implement.md
+/.claude/commands/manual-qa.md
+/.claude/commands/master-plan.md
+/.claude/commands/merge-pr.md
+/.claude/commands/merge-release-pr.md
+/.claude/commands/quality-gate.md
+/.claude/commands/review-comments.md
+/.claude/commands/sdlc-status.md
+/.claude/commands/update-engine.md
+/.claude/commands/user-story.md
+/.claude/settings.json
+/.github/agents/bug-flow.agent.md
+/.github/agents/code-implementator.agent.md
+/.github/agents/code-review.agent.md
+/.github/agents/developer-flow-handoff.agent.md
+/.github/agents/developer-flow-orchestrator.agent.md
+/.github/agents/docs-maintainer.agent.md
+/.github/agents/e2e-manual-tester.agent.md
+/.github/agents/github-create-pr.agent.md
+/.github/agents/github-create-release.agent.md
+/.github/agents/github-pr-merger.agent.md
+/.github/agents/github-pr-merger-release.agent.md
+/.github/agents/github-review-comments.agent.md
+/.github/agents/master-plan.agent.md
+/.github/agents/scope-quality-gate.agent.md
+/.github/agents/update-engine.agent.md
+/.github/agents/user-story-spec.agent.md
+/.github/scripts/invoke-long-operation.ps1
+/.github/scripts/invoke-master-plan.ps1
+/.github/scripts/invoke-story-flow.ps1
+/.github/scripts/update-master-plan-status.ps1
+/.github/scripts/update-sdlc-status.ps1
+/.github/scripts/validate-agent-skill-definitions.ps1
+/.github/skills/bug-flow/SKILL.md
+/.github/skills/code-implementator/SKILL.md
+/.github/skills/code-review/references/review-checklist-android.md
+/.github/skills/code-review/references/review-checklist-aspnet.md
+/.github/skills/code-review/references/review-checklist-mssql.md
+/.github/skills/code-review/references/review-checklist-react-ts.md
+/.github/skills/code-review/SKILL.md
+/.github/skills/developer-flow-handoff/references/template-docs-pr.md
+/.github/skills/developer-flow-handoff/references/template-gate-qa.md
+/.github/skills/developer-flow-handoff/references/template-implement-review.md
+/.github/skills/developer-flow-handoff/references/template-intake-story.md
+/.github/skills/developer-flow-handoff/SKILL.md
+/.github/skills/developer-flow-orchestrator/SKILL.md
+/.github/skills/docs-maintenance/references/docs-report-template.md
+/.github/skills/docs-maintenance/references/documentation-sync-checklist.md
+/.github/skills/docs-maintenance/SKILL.md
+/.github/skills/e2e-manual-testing/references/artifact-contract.md
+/.github/skills/e2e-manual-testing/references/environment-and-auth.md
+/.github/skills/e2e-manual-testing/references/scenario-patterns.md
+/.github/skills/e2e-manual-testing/references/testing-knowledge-index.md
+/.github/skills/e2e-manual-testing/SKILL.md
+/.github/skills/github-create-pr/references/pr-style.md
+/.github/skills/github-create-pr/SKILL.md
+/.github/skills/github-pr-merger/references/squash-merge-style.md
+/.github/skills/github-pr-merger/SKILL.md
+/.github/skills/github-review-comments/references/review-comment-style.md
+/.github/skills/github-review-comments/SKILL.md
+/.github/skills/master-plan/SKILL.md
+/.github/skills/scope-quality-gate/SKILL.md
+/.github/skills/shared/sdlc-shared-flow-patterns.md
+/.github/skills/shared/sdlc-status-gate.md
+/.github/skills/update-engine/references/engine-update-checklist.md
+/.github/skills/update-engine/SKILL.md
+/.github/skills/user-story-spec/references/user-story-spec-template.md
+/.github/skills/user-story-spec/SKILL.md
+/.mcp.json
+# END synced-copilot-assets
+
 # BEGIN transient-copilot-artifacts
 *_HANDOFF*.md
 *_PROMPT*.md
@@ -116,15 +206,6 @@ CODE_REVIEW_HANDOFF_*.md
 /.sdlc/operations/
 /.sdlc/operations/**
 **/.sdlc/operations/**
+/.claude/settings.local.json
+**/.claude/settings.local.json
 # END transient-copilot-artifacts
-
-# BEGIN synced-copilot-assets
-/.github/agents/code-implementator.agent.md
-/.github/agents/developer-flow-new.agent.md
-/.github/scripts/invoke-long-operation.ps1
-/.github/scripts/update-sdlc-status.ps1
-/.github/skills/code-implementator/SKILL.md
-/.github/skills/developer-flow-new/SKILL.md
-/.github/skills/developer-workflow/SKILL.md
-/.github/skills/e2e-manual-testing/references/testing-knowledge-index.md
-# END synced-copilot-assets

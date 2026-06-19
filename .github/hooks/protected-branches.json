@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": "bash|powershell",
+        "bash": "python3 .github/scripts/protect-agent-git-command.py",
+        "powershell": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/protect-agent-git-command.ps1",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

@@ -48,6 +48,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
 import de.blinkt.openvpn.core.TrafficHistory
 import de.blinkt.openvpn.core.StatusSnapshot
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 import java.net.InetSocketAddress
@@ -189,6 +190,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
     private var watchdogProbeJob: Job? = null
     
+    @Volatile private var probeQueue: ProbeRequestQueue? = null
+
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
@@ -414,6 +417,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
+        // Satisfy Android's startForegroundService() 5-second requirement immediately in onCreate(),
+        // eliminating the race between stopAfterOneShotSyncRunnable (stopSelf) and startForeground()
+        // delivery when startForegroundService() is called while a sync-started service is stopping.
+        // stopOnFailure=false: intent not yet delivered here, so don't stop — ACTION_START will retry.
+        enterControllerForeground(stopOnFailure = false)
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
@@ -443,6 +451,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
         }.onFailure { e ->
             AppLog.w(TAG, "Failed to wire DEFAULT_V2 hydration callback", e)
+        }
+
+        runCatching {
+            val queue = GlobalContext.get().get<ProbeRequestQueue>()
+            probeQueue = queue
+            ServerAutoSwitcher.probeRequestQueue = queue
+        }.onFailure { e ->
+            AppLog.w(TAG, "Failed to wire ProbeRequestQueue", e)
         }
     }
 
@@ -685,6 +701,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_SYNC_STATUS -> {
                 AppLog.d(TAG, "ACTION_SYNC_STATUS")
+                if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+                    exitControllerForeground()
+                }
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -968,10 +987,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
         serviceScope.cancel()
         ServerAutoSwitcher.v2HydrationCallback = null
+        ServerAutoSwitcher.probeRequestQueue = null
+        probeQueue = null
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(): Boolean {
+    private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
         if (controllerForegroundActive) return true
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
@@ -992,9 +1013,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to enter controller foreground; stopping service", t)
+            AppLog.e(TAG, "Failed to enter controller foreground${if (stopOnFailure) "; stopping service" else ""}", t)
             controllerForegroundActive = false
-            stopSelf()
+            if (stopOnFailure) stopSelf()
             return false
         }
     }
@@ -1053,7 +1074,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } else {
                 val candidates = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                 if (candidates >= 0) AppLog.d(TAG, "Auto-switch candidates in selected country: ${candidates}")
+                val vpnStatusFailingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
+                    SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)
+                } else 0
                 val next = SelectedCountryStore.nextServer(applicationContext)
+                if (vpnStatusFailingServerId != 0) {
+                    try { probeQueue?.enqueue(vpnStatusFailingServerId) } catch (e: Exception) { AppLog.w(TAG, "VPN_STATUS fallback: failed to enqueue hardprobe for serverId=$vpnStatusFailingServerId", e) }
+                }
                 val title = SelectedCountryStore.getSelectedCountry(applicationContext)
                 if (next != null) {
                 val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
@@ -1420,6 +1447,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.e(TAG, "Watchdog: no recovery target available; entering fail-safe disconnect")
             triggerWatchdogFailSafeDisconnect("missing_recovery_target")
             return
+        }
+        val watchdogServerId = SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)
+        if (watchdogServerId != 0) {
+            try { probeQueue?.enqueue(watchdogServerId) } catch (e: Exception) { AppLog.w(TAG, "Watchdog: failed to enqueue hardprobe for serverId=$watchdogServerId", e) }
         }
         try {
             watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)

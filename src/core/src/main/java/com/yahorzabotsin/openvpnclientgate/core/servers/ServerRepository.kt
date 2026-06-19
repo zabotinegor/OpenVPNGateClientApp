@@ -338,11 +338,7 @@ class ServerRepository(
                 if (values.size < 14) continue
 
                 val pingValue = values[3].toIntOrNull() ?: 0
-                val signalStrength = when (pingValue) {
-                    in 0..99 -> SignalStrength.STRONG
-                    in 100..249 -> SignalStrength.MEDIUM
-                    else -> SignalStrength.WEAK
-                }
+                val signalStrength = pingValue.toSignalStrength()
 
                 result.add(
                     Server(

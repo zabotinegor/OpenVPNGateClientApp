@@ -2,8 +2,10 @@ param(
     [string]$SourceRepo = 'https://github.com/zabotinegor/CopilotTools.git',
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
-    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts'),
+    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.mcp.json'),
     [string[]]$PreservePattern = @('agent-sync', 'sync-copilot-assets'),
+    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-copilot-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
+    [string[]]$MergeJsonPaths = @('.claude/settings.json', '.mcp.json'),
     [switch]$DryRun,
     [switch]$AllowRootMdSync
 )
@@ -155,9 +157,10 @@ function Set-FileSectionByMarkers {
         Write-AllLinesUtf8WithRetry -Path $TargetPath -Lines $newLines
     }
 
+    $actionValue = if ($changed) { $action } else { 'no-change' }
     return [pscustomobject]@{
         changed = $changed
-        action = if ($changed) { $action } else { 'no-change' }
+        action = $actionValue
     }
 }
 
@@ -195,9 +198,14 @@ function Get-RelativeFileMap {
             continue
         }
 
-        Get-ChildItem -LiteralPath $absoluteScope -File -Recurse | ForEach-Object {
-            $relative = Get-RelativePath -Root $Root -Path $_.FullName
-            $map[(Convert-ToRepoRelativePath -Path $relative)] = $_.FullName
+        if (Test-Path -LiteralPath $absoluteScope -PathType Leaf) {
+            $relative = Get-RelativePath -Root $Root -Path $absoluteScope
+            $map[(Convert-ToRepoRelativePath -Path $relative)] = $absoluteScope
+        } else {
+            Get-ChildItem -LiteralPath $absoluteScope -File -Recurse | ForEach-Object {
+                $relative = Get-RelativePath -Root $Root -Path $_.FullName
+                $map[(Convert-ToRepoRelativePath -Path $relative)] = $_.FullName
+            }
         }
     }
 
@@ -285,7 +293,9 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '**/.sdlc/status.json',
         '/.sdlc/operations/',
         '/.sdlc/operations/**',
-        '**/.sdlc/operations/**'
+        '**/.sdlc/operations/**',
+        '/.claude/settings.local.json',
+        '**/.claude/settings.local.json'
     )
 
     $existing = @()
@@ -374,7 +384,195 @@ function Get-NestedSdlcStatusFiles {
     return @($files | Sort-Object -Unique)
 }
 
+function Merge-PsObjects {
+    param(
+        [pscustomobject]$Source,
+        [pscustomobject]$Target
+    )
+    $changed = $false
+    foreach ($prop in $Source.PSObject.Properties) {
+        $existing = $Target.PSObject.Properties[$prop.Name]
+        if ($null -eq $existing) {
+            $Target | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+            $changed = $true
+        } elseif ($prop.Value -is [pscustomobject] -and $existing.Value -is [pscustomobject]) {
+            if (Merge-PsObjects -Source $prop.Value -Target $existing.Value) {
+                $changed = $true
+            }
+        } elseif (
+            $prop.Name -in @('PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'SessionStart', 'SessionEnd') -and
+            $prop.Value -is [System.Collections.IEnumerable] -and
+            $prop.Value -isnot [string] -and
+            $existing.Value -is [System.Collections.IEnumerable] -and
+            $existing.Value -isnot [string]
+        ) {
+            $combined = New-Object System.Collections.Generic.List[object]
+            $seen = New-Object System.Collections.Generic.HashSet[string]
+            foreach ($item in @($existing.Value) + @($prop.Value)) {
+                if ($null -eq $item) { $key = 'null' } else { $key = ConvertTo-Json -InputObject $item -Depth 10 -Compress }
+                if ($seen.Add($key)) {
+                    $combined.Add($item)
+                }
+            }
+            if ($combined.Count -ne @($existing.Value).Count) {
+                $existing.Value = [object[]]$combined.ToArray()
+                $changed = $true
+            }
+        } else {
+            $existingJson = if ($null -eq $existing.Value) { 'null' } else { ConvertTo-Json -InputObject $existing.Value -Depth 10 -Compress }
+            $propJson = if ($null -eq $prop.Value) { 'null' } else { ConvertTo-Json -InputObject $prop.Value -Depth 10 -Compress }
+            if ($existingJson -ne $propJson) {
+                $existing.Value = $prop.Value
+                $changed = $true
+            }
+        }
+    }
+    return $changed
+}
+
+function Merge-JsonSettings {
+    param(
+        [string]$SourcePath,
+        [string]$TargetPath,
+        [switch]$DryRun
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath)) {
+        return [pscustomobject]@{ changed = $false; action = 'source-missing' }
+    }
+
+    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw
+    try {
+        $sourceObj = $sourceRaw | ConvertFrom-Json
+    } catch {
+        Write-Warning "Failed to parse source JSON at '$SourcePath': $_"
+        $sourceObj = [pscustomobject]@{}
+    }
+    if ($null -eq $sourceObj) { $sourceObj = [pscustomobject]@{} }
+
+    $targetObj = [pscustomobject]@{}
+    if (Test-Path -LiteralPath $TargetPath) {
+        $targetContent = Get-Content -LiteralPath $TargetPath -Raw
+        if (-not [string]::IsNullOrWhiteSpace($targetContent)) {
+            try {
+                $targetObj = $targetContent | ConvertFrom-Json
+            } catch {
+                Write-Warning "Failed to parse target JSON at '$TargetPath': $_"
+                $targetObj = [pscustomobject]@{}
+            }
+        }
+    }
+    if ($null -eq $targetObj) {
+        $targetObj = [pscustomobject]@{}
+    }
+
+    $changed = Merge-PsObjects -Source $sourceObj -Target $targetObj
+
+    if ($changed -and -not $DryRun) {
+        $targetDir = Split-Path -Parent $TargetPath
+        if (-not [string]::IsNullOrWhiteSpace($targetDir)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        }
+        $json = ConvertTo-Json -InputObject $targetObj -Depth 10
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($TargetPath, ($json + "`r`n"), $encoding)
+    }
+
+    $actionValue = if ($changed) { 'merged' } else { 'no-change' }
+    return [pscustomobject]@{
+        changed = $changed
+        action = $actionValue
+    }
+}
+
+function Set-RepositoryGitHooksPath {
+    param(
+        [string]$Root,
+        [string]$HooksPath = '.githooks',
+        [switch]$DryRun
+    )
+
+    $gitDir = $null
+    $previousEapGit = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $gitDir = ((git -C $Root rev-parse --git-dir 2>$null) | Out-String).Trim()
+    }
+    finally {
+        $ErrorActionPreference = $previousEapGit
+    }
+    if ([string]::IsNullOrWhiteSpace($gitDir)) {
+        return [pscustomobject]@{
+            changed = $false
+            status = 'not-a-git-worktree'
+            hooksPath = $null
+        }
+    }
+
+    $current = ''
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $current = ((git -C $Root config --local --get core.hooksPath 2>$null) | Out-String).Trim()
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
+
+    $changed = $current -ne $HooksPath
+    if ($changed -and -not $DryRun) {
+        Invoke-ExternalCommand `
+            -FilePath 'git' `
+            -Arguments @('-C', $Root, 'config', '--local', 'core.hooksPath', $HooksPath) `
+            -FailureMessage 'Unable to configure repository Git hooks path.' | Out-Null
+    }
+
+    if ($changed -and $DryRun) { $statusValue = 'would-configure' } elseif ($changed) { $statusValue = 'configured' } else { $statusValue = 'already-configured' }
+    return [pscustomobject]@{
+        changed = $changed
+        status = $statusValue
+        hooksPath = $HooksPath
+    }
+}
+
 $targetRootResolved = (Resolve-Path -LiteralPath $TargetRoot).Path
+if (Test-Path -LiteralPath (Join-Path $targetRootResolved '.copilottools-source')) {
+    throw "Target contains source-only marker '.copilottools-source'. Remove it before syncing client-repository guards."
+}
+
+$targetBranch = ''
+$targetIsGitWorktree = $false
+$previousEap = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    $targetIsGitWorktree = ((git -C $targetRootResolved rev-parse --is-inside-work-tree 2>$null) | Out-String).Trim() -eq 'true'
+    if ($targetIsGitWorktree) {
+        $targetBranch = ((git -C $targetRootResolved branch --show-current 2>$null) | Out-String).Trim()
+    }
+}
+finally {
+    $ErrorActionPreference = $previousEap
+}
+
+if (-not $DryRun) {
+    if (-not $targetIsGitWorktree) {
+        throw 'Target must be a Git worktree before applying synchronized agent assets.'
+    }
+    if ([string]::IsNullOrWhiteSpace($targetBranch)) {
+        throw 'Target must have a checked-out non-protected branch before applying synchronized agent assets.'
+    }
+    if ($targetBranch.ToLowerInvariant() -in @('main', 'dev', 'master', 'develop')) {
+        throw "Target branch '$targetBranch' is protected. Create or switch to a non-protected branch before applying synchronized agent assets."
+    }
+}
+
+$normalizedMergeJsonPaths = @(
+    $MergeJsonPaths |
+        ForEach-Object { $_ -split ',' } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { Convert-ToRepoRelativePath -Path $_.Trim() } |
+        Select-Object -Unique
+)
 $normalizedScope = @(
     $Scope |
         ForEach-Object { $_ -split ',' } |
@@ -429,6 +627,7 @@ try {
     $added = New-Object System.Collections.Generic.List[string]
     $changed = New-Object System.Collections.Generic.List[string]
     $deleted = New-Object System.Collections.Generic.List[string]
+    $newMergeJsonPaths = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 
     foreach ($relativePath in ($sourceFiles.Keys | Sort-Object)) {
         $isRootMd = @($protectedRootMdPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
@@ -439,15 +638,20 @@ try {
         $sourcePath = $sourceFiles[$relativePath]
         $targetPath = Join-Path $targetRootResolved $relativePath
         $targetDirectory = Split-Path -Parent $targetPath
+        $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
 
         if (-not $targetFiles.ContainsKey($relativePath)) {
-            $added.Add($relativePath)
+            if ($isMergeJson) {
+                $newMergeJsonPaths.Add($relativePath) | Out-Null
+            } else {
+                $added.Add($relativePath)
+            }
             if (-not $DryRun) {
                 New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
                 if ($isRootMd) {
                     # Create root markdown with managed sync markers
                     Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
-                } else {
+                } elseif (-not $isMergeJson) {
                     Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
                 }
             }
@@ -460,6 +664,8 @@ try {
             if ($result.changed) {
                 $changed.Add($relativePath)
             }
+        } elseif ($isMergeJson) {
+            # Skip plain copy — the merge step below will handle this file, preserving target-only keys
         } else {
             $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
             $targetHash = (Get-FileHash -LiteralPath $targetFiles[$relativePath] -Algorithm SHA256).Hash
@@ -486,18 +692,46 @@ try {
             continue
         }
 
+        $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+        if ($isMergeJson) {
+            continue
+        }
+
         $deleted.Add($relativePath)
         if (-not $DryRun) {
             Remove-Item -LiteralPath $targetFiles[$relativePath] -Force
         }
     }
 
+    $mergedJsonFiles = New-Object System.Collections.Generic.List[string]
+    foreach ($mergeRelPath in $normalizedMergeJsonPaths) {
+        $inScope = @($normalizedScope | Where-Object {
+            $mergeRelPath -ieq $_ -or
+            $mergeRelPath.StartsWith("$_/", [System.StringComparison]::OrdinalIgnoreCase)
+        }).Count -gt 0
+        if (-not $inScope) { continue }
+
+        $sourceMergePath = Join-Path $tempRoot $mergeRelPath
+        $targetMergePath = Join-Path $targetRootResolved $mergeRelPath
+        $mergeResult = Merge-JsonSettings -SourcePath $sourceMergePath -TargetPath $targetMergePath -DryRun:$DryRun
+        if ($mergeResult.changed) {
+            $mergedJsonFiles.Add($mergeRelPath)
+            if ($newMergeJsonPaths.Contains($mergeRelPath)) {
+                $added.Add($mergeRelPath)
+            }
+        }
+    }
+
     $gitignoreEntryCount = Set-ExactGitignoreEntries `
         -Root $targetRootResolved `
         -RelativePaths @($sourceFiles.Keys) `
-        -ExcludePattern $PreservePattern
+        -ExcludePattern $ExcludeGitignorePattern
 
     $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
+    $gitHooksConfiguration = $null
+    if ($normalizedScope -icontains '.githooks') {
+        $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    }
     $forbiddenArtifacts = Get-ForbiddenCopilotArtifacts -Root $targetRootResolved
     $nestedSdlcStatusFiles = Get-NestedSdlcStatusFiles -Root $targetRootResolved
 
@@ -505,6 +739,16 @@ try {
     if (-not $DryRun) {
         $postTargetFiles = Get-RelativeFileMap -Root $targetRootResolved -ScopePaths $normalizedScope
         foreach ($relativePath in ($sourceFiles.Keys | Sort-Object)) {
+            $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+            if ($isMergeJson) {
+                $verifyResult = Merge-JsonSettings `
+                    -SourcePath $sourceFiles[$relativePath] `
+                    -TargetPath (Join-Path $targetRootResolved $relativePath) `
+                    -DryRun
+                if ($verifyResult.changed) { $mismatches.Add($relativePath) }
+                continue
+            }
+
             if (-not $postTargetFiles.ContainsKey($relativePath)) {
                 $mismatches.Add($relativePath)
                 continue
@@ -532,6 +776,7 @@ try {
         sourceRef = $SourceRef
         sourceCommit = $sourceCommit
         targetRoot = $targetRootResolved
+        targetBranch = $targetBranch
         scope = $normalizedScope
         dryRun = [bool]$DryRun
         addedCount = $added.Count
@@ -540,11 +785,13 @@ try {
         added = @($added)
         changed = @($changed)
         deleted = @($deleted)
+        mergedJsonFiles = @($mergedJsonFiles)
         gitignoreExactEntryCount = $gitignoreEntryCount
         transientGitignoreEntryCount = $transientGitignoreEntryCount
+        gitHooksConfiguration = $gitHooksConfiguration
         forbiddenArtifacts = @($forbiddenArtifacts)
         nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
-        verification = if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' }
+        verification = $(if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' })
         mismatches = @($mismatches)
     }
 

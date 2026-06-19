@@ -25,6 +25,10 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Api
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2Repository
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersV2SyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.VpnServersApi
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.HardProbeApiClient
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeApi
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.WorkManagerProbeRequestQueue
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.DefaultServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.PeriodicWorkEnqueuer
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerCacheTtlProvider
@@ -85,6 +89,7 @@ import androidx.work.WorkManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
+import org.koin.core.qualifier.named
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.converter.scalars.ScalarsConverterFactory
@@ -110,14 +115,26 @@ val coreModule = module {
         get<Retrofit>().create(VpnServersApi::class.java)
     }
 
-    single<ServersV2Api> {
+    single(named("v2")) {
         Retrofit.Builder()
             .baseUrl(ApiConstants.primaryRetrofitBaseUrl())
             .client(get())
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(ServersV2Api::class.java)
     }
+
+    single<ServersV2Api> {
+        get<Retrofit>(named("v2")).create(ServersV2Api::class.java)
+    }
+
+    single<ProbeApi> {
+        get<Retrofit>(named("v2")).create(ProbeApi::class.java)
+    }
+
+    single<ProbeRequestQueue> { WorkManagerProbeRequestQueue(get<WorkManager>()) }
+    // HardProbeApiClient is available for injection by future callers that need direct probe results
+    // (e.g. immediate one-shot probes without WorkManager durability). Not used at runtime today.
+    single { HardProbeApiClient(get()) }
 
     single { ServersV2Repository(get()) }
     single<ServersV2SyncCoordinator> { DefaultServersV2SyncCoordinator(get()) }

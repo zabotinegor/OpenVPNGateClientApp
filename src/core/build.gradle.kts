@@ -141,6 +141,7 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.commonmark)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.koin.test)
     testImplementation(libs.koin.test.junit4)

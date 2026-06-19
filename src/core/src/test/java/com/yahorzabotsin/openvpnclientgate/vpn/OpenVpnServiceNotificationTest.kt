@@ -54,6 +54,63 @@ class OpenVpnServiceNotificationTest {
     }
 
     @Test
+    fun syncStatusActionExitsControllerForegroundWhenDisconnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        simulateEnteredControllerForeground(service)
+        assertFalse("Precondition: notification must be posted", shadowNotificationManager.allNotifications.isEmpty())
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(intent, 0, 1)
+
+        assertTrue("exitControllerForeground must remove the notification when VPN is disconnected",
+            shadowNotificationManager.allNotifications.isEmpty())
+    }
+
+    @Test
+    fun syncStatusActionDoesNotExitControllerForegroundWhenVpnActive() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        simulateEnteredControllerForeground(service)
+        assertFalse("Precondition: notification must be posted", shadowNotificationManager.allNotifications.isEmpty())
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(intent, 0, 1)
+
+        assertFalse("exitControllerForeground must NOT be called while VPN is active (CONNECTING)",
+            shadowNotificationManager.allNotifications.isEmpty())
+    }
+
+    // enterControllerForeground() fails silently in Robolectric (no notification channel
+    // infrastructure). Bypass it by setting the flag and posting the notification directly
+    // so that stopForeground() removal is observable in allNotifications.
+    @Suppress("DEPRECATION")
+    private fun simulateEnteredControllerForeground(service: OpenVpnService) {
+        val field = OpenVpnService::class.java.getDeclaredField("controllerForegroundActive")
+        field.isAccessible = true
+        field.setBoolean(service, true)
+        service.startForeground(TEST_FOREGROUND_NOTIFICATION_ID, android.app.Notification())
+    }
+
+    companion object {
+        private const val TEST_FOREGROUND_NOTIFICATION_ID = 9001
+    }
+
+    @Test
     fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()

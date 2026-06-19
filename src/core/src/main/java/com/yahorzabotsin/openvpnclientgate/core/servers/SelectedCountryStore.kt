@@ -13,7 +13,8 @@ data class StoredServer(
     val config: String,
     val countryCode: String? = null,
     val ip: String? = null,
-    val utc: String? = null
+    val utc: String? = null,
+    val id: Int = 0
 )
 
 data class LastConfig(
@@ -40,6 +41,7 @@ object SelectedCountryStore {
     private const val KEY_JSON_CODE = "code"
     private const val KEY_JSON_IP = "ip"
     private const val KEY_JSON_UTC = "utc"
+    private const val KEY_JSON_SERVER_ID = "id"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -53,6 +55,7 @@ object SelectedCountryStore {
                 .put(KEY_JSON_CODE, s.country.code)
                 .put(KEY_JSON_IP, s.ip)
                 .put(KEY_JSON_UTC, s.utc)
+                .put(KEY_JSON_SERVER_ID, s.id)
             arr.put(o)
         }
         prefs(ctx).edit()
@@ -100,7 +103,8 @@ object SelectedCountryStore {
                     config = o.optString(KEY_JSON_CONFIG),
                     countryCode = o.optString(KEY_JSON_CODE, null),
                     ip = o.optString(KEY_JSON_IP, null),
-                    utc = o.optString(KEY_JSON_UTC, null)
+                    utc = o.optString(KEY_JSON_UTC, null),
+                    id = o.optInt(KEY_JSON_SERVER_ID, 0)
                 )
             }
         } catch (e: JSONException) {
@@ -345,6 +349,19 @@ object SelectedCountryStore {
             SelectedCountryVersionSignal.bump()
             return true
         }
+    }
+
+    fun getCurrentServerIdIfMatchingLastStarted(context: Context): Int {
+        return runCatching {
+            val lastStarted = getLastStartedConfig(context)
+            val currentServer = currentServer(context)
+            if (currentServer != null && lastStarted != null &&
+                !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
+                currentServer.id
+            } else {
+                0
+            }
+        }.getOrElse { 0 }
     }
 }
 

@@ -1,7 +1,5 @@
 package com.yahorzabotsin.openvpnclientgate.mobile
 
-import android.content.Intent
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.pressBackUnconditionally
 import androidx.test.espresso.Espresso.onView
@@ -37,7 +35,6 @@ class MainActivitySmokeTest {
         try {
             onView(withId(android.R.id.button2)).perform(click())
         } catch (_: NoMatchingViewException) {
-            // Update prompt is not shown for this run.
         }
     }
 
@@ -54,10 +51,10 @@ class MainActivitySmokeTest {
     }
 
     private inline fun withMainActivity(assertions: () -> Unit) {
-        val launchIntent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        }
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            androidx.test.espresso.Espresso.onIdle()
+            dismissUpdatePromptIfVisible()
+            androidx.test.espresso.Espresso.onIdle()
             dismissUpdatePromptIfVisible()
             assertions()
         }
