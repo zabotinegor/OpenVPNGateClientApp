@@ -415,7 +415,7 @@ class SelectedCountryStoreTest {
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
 
         val servers = listOf(
-            server(name = "srv-1", city = "City1", config = "config-v1", lineIndex = 1, ip = "10.0.0.1")
+            server(name = "srv-1", city = "City1", config = "config-v1", lineIndex = 1, ip = "10.0.0.1").copy(id = 42)
         )
         SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
         SelectedCountryStore.resetIndex(ctx)
@@ -424,7 +424,7 @@ class SelectedCountryStoreTest {
         SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "config-v2", "10.0.0.1")
 
         val id = SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx)
-        assertEquals(0, id) // No id field in test servers, so StoredServer.id defaults to 0
+        assertEquals(42, id)
     }
 
     @Test

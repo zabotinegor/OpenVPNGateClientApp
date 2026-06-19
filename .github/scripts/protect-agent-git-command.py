@@ -138,11 +138,15 @@ def protected_reason(command, branch):
         eff = _effective_branch_at(normalized, branch, push_m.start())
         if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
             return "Force-push is forbidden in client repositories."
+        if re.search(r"(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
+            return "Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden."
         if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
             return f"Direct push from protected branch '{eff}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\b(?:origin|upstream)\s+\+{PROTECTED_PATTERN}(?![-\w/.])",
             rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s)\+(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
             rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
             rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
             rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",

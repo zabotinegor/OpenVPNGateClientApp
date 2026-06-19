@@ -317,3 +317,35 @@ def test_no_pager_commit_on_feature_is_allowed():
 
 def test_no_pager_push_to_feature_is_allowed():
     assert protected_reason("git --no-pager push origin feature/x", "feature/y") == ""
+
+
+# ---------------------------------------------------------------------------
+# push guard: +<refspec> force prefix, --all, --mirror, --branches bypasses
+# ---------------------------------------------------------------------------
+
+def test_push_force_refspec_plus_main_is_blocked():
+    assert protected_reason("git push origin +main", "feature/x") != ""
+
+def test_push_force_refspec_plus_dev_is_blocked():
+    assert protected_reason("git push origin +dev", "feature/x") != ""
+
+def test_push_force_refspec_plus_refs_heads_main_is_blocked():
+    assert protected_reason("git push origin +refs/heads/main", "feature/x") != ""
+
+def test_push_all_is_blocked():
+    assert protected_reason("git push --all origin", "feature/x") != ""
+
+def test_push_all_short_form_is_blocked():
+    assert protected_reason("git push --all", "feature/x") != ""
+
+def test_push_mirror_is_blocked():
+    assert protected_reason("git push --mirror origin", "feature/x") != ""
+
+def test_push_branches_is_blocked():
+    assert protected_reason("git push --branches origin", "feature/x") != ""
+
+def test_push_force_refspec_plus_feature_is_allowed():
+    assert protected_reason("git push origin +feature/my-branch", "feature/x") == ""
+
+def test_push_force_refspec_plus_non_protected_is_allowed():
+    assert protected_reason("git push origin +staging", "feature/x") == ""

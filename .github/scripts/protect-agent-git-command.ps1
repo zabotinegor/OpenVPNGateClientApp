@@ -81,12 +81,17 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
+        elseif ($normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
+            $reason = 'Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden.'
+        }
         elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
             $reason = "Direct push from protected branch '$eff' is forbidden."
         }
         elseif (
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
