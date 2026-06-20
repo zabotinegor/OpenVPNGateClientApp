@@ -5,10 +5,13 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,6 +60,8 @@ class ServerAutoSwitcherTest {
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
         ServerAutoSwitcher.resetNoReplyThreshold()
         ServerAutoSwitcher.resetRepliedThreshold()
+        ServerAutoSwitcher.setProbeRequestQueueForTest(null)
+        ServerAutoSwitcher.v2HydrationCallback = null
     }
 
     @Test
@@ -210,5 +215,45 @@ class ServerAutoSwitcherTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         assertEquals(2, ServerAutoSwitcher.remainingSeconds.value)
     }
+
+    // US-12 AC-2: DEFAULT_V2 hydration gap — hydration callback is triggered and probe code is reachable.
+    // Note: when the server store is empty (total==0), getCurrentServerIdIfMatchingLastStarted also
+    // returns 0 (no current server to match), so the probe guard (failingServerId != 0) correctly
+    // prevents spurious enqueues. This test verifies that: (a) the hydration path is entered,
+    // (b) the probe guard works (no enqueue for id=0), and (c) no crash occurs.
+    @Test
+    fun defaultV2HydrationGap_hydrationPathEnteredAndNoProbeForEmptyStore() {
+        // Set ServerSource to DEFAULT_V2 so the hydration path is taken
+        UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+
+        // Empty server list triggers the DEFAULT_V2 hydration path (total==0)
+        SelectedCountryStore.saveSelection(appContext, "RU", emptyList())
+
+        val fakeQueue = object : ProbeRequestQueue {
+            val enqueuedIds = mutableListOf<Int>()
+            override fun enqueue(serverId: Int) { enqueuedIds.add(serverId) }
+        }
+        ServerAutoSwitcher.setProbeRequestQueueForTest(fakeQueue)
+
+        // Wire a v2HydrationCallback that records the call but does NOT invoke onDone
+        var hydrationCallbackInvoked = false
+        ServerAutoSwitcher.v2HydrationCallback = { _, _ ->
+            hydrationCallbackInvoked = true
+        }
+
+        // Start the timer and let it expire — will hit the DEFAULT_V2 hydration path
+        ConnectionStateManager.setReconnectingHint(false)
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        assertTrue("Hydration callback must be invoked when store is empty and source=DEFAULT_V2", hydrationCallbackInvoked)
+        // When total==0, currentServer() is null → failingServerId==0 → probe guard prevents enqueue
+        assertTrue("No probe enqueued when failingServerId=0 (empty store)", fakeQueue.enqueuedIds.isEmpty())
+
+        // Cleanup
+        UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
+    }
+
 }
 
