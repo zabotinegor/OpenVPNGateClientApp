@@ -48,6 +48,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainSelectionInteractor
 import de.blinkt.openvpn.core.TrafficHistory
 import de.blinkt.openvpn.core.StatusSnapshot
 import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 import java.net.InetSocketAddress
@@ -189,7 +190,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
     private var watchdogProbeJob: Job? = null
     
-    private var probeQueue: com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue? = null
+    @Volatile private var probeQueue: ProbeRequestQueue? = null
 
     // Track pause action to ensure PAUSED state is reached
     private var pauseActionInFlight = false
@@ -464,7 +465,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         runCatching {
-            val queue = GlobalContext.get().get<com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue>()
+            val queue = GlobalContext.get().get<ProbeRequestQueue>()
             probeQueue = queue
             ServerAutoSwitcher.probeRequestQueue = queue
         }.onFailure { e ->
@@ -711,7 +712,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_SYNC_STATUS -> {
                 AppLog.d(TAG, "ACTION_SYNC_STATUS")
-                exitControllerForeground()
+                if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTED) {
+                    exitControllerForeground()
+                }
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)

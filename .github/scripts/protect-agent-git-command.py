@@ -14,7 +14,41 @@ GIT_PREFIX_PATTERN = (
     r"\bgit"
     r"(?:\s+-C\s+\S+"
     r"|\s+--git-dir(?:=\S+|\s+\S+)"
-    r"|\s+--work-tree(?:=\S+|\s+\S+))*"
+    r"|\s+--work-tree(?:=\S+|\s+\S+)"
+    r"|\s+--no-pager"
+    r"|\s+--paginate"
+    r"|\s+--bare"
+    r"|\s+--no-replace-objects"
+    r"|\s+--literal-pathspecs"
+    r"|\s+--no-literal-pathspecs"
+    r"|\s+--glob-pathspecs"
+    r"|\s+--noglob-pathspecs"
+    r"|\s+--icase-pathspecs"
+    r"|\s+--no-checkout"
+    r"|\s+--disambiguate=\S+"
+    r"|\s+--namespace=\S+"
+    r"|\s+--super-prefix=\S+"
+    r"|\s+--exec-path(?:=\S+|\s+\S+)"
+    r"|\s+--git-common-dir=\S+"
+    r"|\s+--show-git-dir"
+    r"|\s+--literal"
+    r"|\s+--abbrev-ref"
+    r"|\s+--shallow-since=\S+"
+    r"|\s+--shallow-exclude=\S+"
+    r"|\s+--deepen=\S+"
+    r"|\s+--progress"
+    r"|\s+--no-progress"
+    r"|\s+--verbose"
+    r"|\s+--quiet"
+    r"|\s+--no-recurse-submodules"
+    r"|\s+--recurse-submodules"
+    r"|\s+--separate-git-dir=\S+"
+    r"|\s+-c\s+\S+"
+    r"|\s+--config(?:=\S+|\s+\S+)"
+    r"|\s+--exclude-ref=\S+"
+    r"|\s+--include-ref=\S+"
+    r"|\s+--no-optional-locks"
+    r")*"
 )
 
 
@@ -104,11 +138,15 @@ def protected_reason(command, branch):
         eff = _effective_branch_at(normalized, branch, push_m.start())
         if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
             return "Force-push is forbidden in client repositories."
+        if re.search(r"(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
+            return "Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden."
         if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
             return f"Direct push from protected branch '{eff}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"\b(?:origin|upstream)\s+\+{PROTECTED_PATTERN}(?![-\w/.])",
             rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+            rf"(?:^|\s)\+(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
             rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
             rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
             rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",

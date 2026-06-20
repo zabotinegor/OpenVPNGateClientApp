@@ -410,6 +410,59 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun getCurrentServerIdIfMatchingLastStarted_matches_by_ip_not_config() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config-v1", lineIndex = 1, ip = "10.0.0.1").copy(id = 42)
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+        SelectedCountryStore.resetIndex(ctx)
+
+        // Save last-started with same IP but different config (simulating config formatting drift)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "config-v2", "10.0.0.1")
+
+        val id = SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx)
+        assertEquals(42, id)
+    }
+
+    @Test
+    fun getCurrentServerIdIfMatchingLastStarted_returns_zero_when_ip_differs() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1, ip = "10.0.0.1")
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+        SelectedCountryStore.resetIndex(ctx)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "config1", "10.0.0.99")
+
+        val id = SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx)
+        assertEquals(0, id)
+    }
+
+    @Test
+    fun getCurrentServerIdIfMatchingLastStarted_returns_zero_when_ip_is_null() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "srv-1", city = "City1", config = "config1", lineIndex = 1, ip = "10.0.0.1")
+        )
+        SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
+        SelectedCountryStore.resetIndex(ctx)
+
+        // Save last-started with null IP (legacy data)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "config1")
+
+        val id = SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx)
+        assertEquals(0, id)
+    }
+
+    @Test
     fun updateSelectedCountryNameIfCurrent_atomicity_prevents_toctou_race() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()

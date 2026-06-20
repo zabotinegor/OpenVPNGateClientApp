@@ -62,6 +62,7 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.resetRepliedThreshold()
         ServerAutoSwitcher.setProbeRequestQueueForTest(null)
         ServerAutoSwitcher.v2HydrationCallback = null
+        ServerAutoSwitcher.resetForTest()
     }
 
     @Test

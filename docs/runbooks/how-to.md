@@ -122,7 +122,7 @@ whether that event should trigger a hardprobe.
 
 `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted()` returns `0` when:
 
-- The currently selected server config does not match the last-started config (user changed
+- The currently selected server IP does not match the last-started IP (user changed
   selection in the UI while connected).
 - The server has no integer ID from the v2 API — this covers legacy CSV sources (`LEGACY`,
   `VPNGATE`, `CUSTOM`), which use opaque string identifiers and map to `id = 0` in the shared

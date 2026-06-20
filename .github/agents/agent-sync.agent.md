@@ -19,8 +19,7 @@ Load and follow `AGENTS.md`, then execute `.github/skills/agent-sync/SKILL.md` a
 - Never add broad ignore patterns such as `/.github/agents/**`, `/.github/skills/**`, `/.github/tools/**`, or `/.github/scripts/**`.
 - Never hide agent-sync-related files through `.gitignore`.
 - Never hide `.github/hooks/`, `.githooks/`, or protected-branch guard scripts through `.gitignore`; these must remain trackable in client repositories.
-- Never create, switch to, or check out a different branch. Agent Sync operates exclusively in the current branch.
-- Never commit, stage, or push. Agent Sync only syncs file contents into the working tree.
+- Before applying sync changes, create or switch the client repository to a suitable non-protected branch and verify it; never edit synced tracked files on `main`, `dev`, `master`, or `develop`.
 - Never sync protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless the user explicitly asked for it and the sync command includes `-AllowRootMdSync`.
 - If any post-sync file mismatches source, stop and report the mismatch.
 - Resolve source from the configured CopilotTools Git repository (`.github/scripts/sync-copilot-assets.ps1` defaults to `SourceRepo`/`SourceRef`) using foreground git/terminal first, then authenticated GitHub connector/API if terminal is unavailable. Do not use unauthenticated browser pages as source evidence for private repositories.
@@ -34,7 +33,7 @@ Load and follow `AGENTS.md`, then execute `.github/skills/agent-sync/SKILL.md` a
 Refer to `AGENTS.md` for common rules on:
 - Prompt-Generation Responses
 - Long-Running Operation Rules
-- Update-SDL Status
+- Update-SDLC Status
 
 ## Output
 

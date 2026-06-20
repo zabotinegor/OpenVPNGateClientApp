@@ -90,13 +90,13 @@ When a VPN disconnect or inactivity event fires, the following code paths can en
 
 1. **Autoswitch timeout / immediate switch** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled. Added in SUB-04.
 
-2. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): after the watchdog reconnects, `SelectedCountryStore.currentServer(applicationContext)?.id` is read and a probe is enqueued for the current server. Added in SUB-04.
+2. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): before watchdog recovery starts, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called and a probe is enqueued if the ID is non-zero. The guard matches by server IP to prevent spurious probes when selection changed while connected. Added in SUB-04.
 
 3. **User-initiated disconnect** (`OpenVpnService.finishStopFlowConfirmed()`): when the user explicitly taps Disconnect and the engine confirms the terminal level, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called to obtain the active server ID and `probeQueue?.enqueue(serverId)` is called. Added in US-12.
 
-4. **DEFAULT_V2 hydration early-return** (`ServerAutoSwitcher.requestSwitchNow()`): when an auto-switch fires but the server list is empty and DEFAULT_V2 on-demand hydration is triggered, the function previously returned before the probe-enqueue block, skipping the probe. A probe is now enqueued for the failing server before the early return, consistent with all other exit paths of `requestSwitchNow`. Added in US-12.
+4. **DEFAULT_V2 hydration early-return** (`ServerAutoSwitcher.requestSwitchNow()`): when an auto-switch fires but the server list is empty and DEFAULT_V2 on-demand hydration is triggered, a probe is enqueued for the failing server before the early return, consistent with all other exit paths of `requestSwitchNow`. Added in US-12.
 
-5. **VPN_STATUS engine auto-switch** (`OpenVpnService.updateState()`): when the engine signals a failure level through the `VPN_STATUS` path and a next server is available, `probeQueue?.enqueue(vpnStatusFailingServerId)` is called for the failing server before the switch. Added in SUB-04.
+5. **VPN_STATUS engine auto-switch** (`OpenVpnService.updateState()`): when the engine signals a failure level through the `VPN_STATUS` path and `userInitiatedStart=true`, `probeQueue?.enqueue(vpnStatusFailingServerId)` is called for the failing server before the switch. This is the primary probe trigger in fast-failing scenarios. Added in SUB-04.
 
 In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `LEVEL_NONETWORK` device-loss events and legacy CSV servers that have no integer ID from the v2 API). `ProbeRequestQueue` uses WorkManager `KEEP` deduplication, so rapid re-enqueue for the same server ID does not double-fire. It is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
 
