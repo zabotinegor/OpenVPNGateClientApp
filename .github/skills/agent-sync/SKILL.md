@@ -76,7 +76,6 @@ Report source repository and commit SHA, target branch, sync scope, added/change
 - Never invoke VS Code tasks, task labels, or "Run task" for sync dry-run or apply. Use `run_in_terminal` first and `runCommands` second with direct foreground PowerShell so the agent receives JSON output, exit code, and errors.
 - If terminal/command execution is unavailable after a real failed terminal-capable tool call, do not ask the user to run commands. Complete sync manually with available read/search/edit plus authenticated GitHub connector/API tools and report the fallback. Stop only if neither terminal nor authenticated source access is available.
 - If a previous task-based attempt was cancelled, explicitly switch to `run_in_terminal` and then `runCommands` with direct foreground PowerShell; if unavailable after real failed attempts, use manual mirror-sync fallback before reporting any blocker.
-- Do not commit or push unless explicitly requested.
 - If any post-sync file mismatches source, stop and report the mismatch.
 - Keep instructions token-efficient by using scripts for deterministic sync mechanics.
 

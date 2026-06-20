@@ -84,16 +84,20 @@ A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load.
 - Release notes (`What's New`) always use routes derived from `PRIMARY_SERVERS_URL` and no longer depend on the selected server source or custom CSV URL.
 - Update checks (`Get Update`) always use routes derived from `PRIMARY_SERVERS_URL`. `FALLBACK_SERVERS_URL` and custom server URLs are never trusted as update hosts.
 
-## Hardprobe Trigger Points (SUB-04)
+## Hardprobe Trigger Points
 
-When a VPN inactivity event fires, three code paths can enqueue a hardprobe request:
+When a VPN disconnect or inactivity event fires, the following code paths can enqueue a hardprobe request via `ProbeRequestQueue`:
 
-1. **VPN status listener** (`OpenVpnService.onStatusChanged` / `VPN_STATUS` auto-switch path): when the engine reports an auto-switch-eligible level (any level except `LEVEL_NONETWORK`) and `userInitiatedStart=true`, `probeQueue?.enqueue(vpnStatusFailingServerId)` fires before `ServerAutoSwitcher.beginChainedSwitch()`. This is the primary probe trigger in fast-failing scenarios and fires more frequently than the autoswitch timer.
+1. **Autoswitch timeout / immediate switch** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled. Added in SUB-04.
 
-2. **Autoswitch timeout** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled.
+2. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): before watchdog recovery starts, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called and a probe is enqueued if the ID is non-zero. The guard matches by server IP to prevent spurious probes when selection changed while connected. Added in SUB-04.
 
-3. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): before watchdog recovery starts, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called and a probe is enqueued if the ID is non-zero. `getCurrentServerIdIfMatchingLastStarted` validates that `currentServer.config == lastStartedConfig` before returning a non-zero ID — this guard prevents spurious probes when the user changed server selection while the VPN was connected.
+3. **User-initiated disconnect** (`OpenVpnService.finishStopFlowConfirmed()`): when the user explicitly taps Disconnect and the engine confirms the terminal level, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called to obtain the active server ID and `probeQueue?.enqueue(serverId)` is called. Added in US-12.
 
-In all three paths, a server ID of 0 silently suppresses probe enqueue. `ProbeRequestQueue` is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
+4. **DEFAULT_V2 hydration early-return** (`ServerAutoSwitcher.requestSwitchNow()`): when an auto-switch fires but the server list is empty and DEFAULT_V2 on-demand hydration is triggered, a probe is enqueued for the failing server before the early return, consistent with all other exit paths of `requestSwitchNow`. Added in US-12.
+
+5. **VPN_STATUS engine auto-switch** (`OpenVpnService.updateState()`): when the engine signals a failure level through the `VPN_STATUS` path and `userInitiatedStart=true`, `probeQueue?.enqueue(vpnStatusFailingServerId)` is called for the failing server before the switch. This is the primary probe trigger in fast-failing scenarios. Added in SUB-04.
+
+In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `LEVEL_NONETWORK` device-loss events and legacy CSV servers that have no integer ID from the v2 API). `ProbeRequestQueue` uses WorkManager `KEEP` deduplication, so rapid re-enqueue for the same server ID does not double-fire. It is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
 
 See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
