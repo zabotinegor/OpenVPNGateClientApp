@@ -226,34 +226,34 @@ class ServerAutoSwitcherTest {
     fun defaultV2HydrationGap_hydrationPathEnteredAndNoProbeForEmptyStore() {
         // Set ServerSource to DEFAULT_V2 so the hydration path is taken
         UserSettingsStore.saveServerSource(appContext, ServerSource.DEFAULT_V2)
+        try {
+            // Empty server list triggers the DEFAULT_V2 hydration path (total==0)
+            SelectedCountryStore.saveSelection(appContext, "RU", emptyList())
 
-        // Empty server list triggers the DEFAULT_V2 hydration path (total==0)
-        SelectedCountryStore.saveSelection(appContext, "RU", emptyList())
+            val fakeQueue = object : ProbeRequestQueue {
+                val enqueuedIds = mutableListOf<Int>()
+                override fun enqueue(serverId: Int) { enqueuedIds.add(serverId) }
+            }
+            ServerAutoSwitcher.setProbeRequestQueueForTest(fakeQueue)
 
-        val fakeQueue = object : ProbeRequestQueue {
-            val enqueuedIds = mutableListOf<Int>()
-            override fun enqueue(serverId: Int) { enqueuedIds.add(serverId) }
+            // Wire a v2HydrationCallback that records the call but does NOT invoke onDone
+            var hydrationCallbackInvoked = false
+            ServerAutoSwitcher.v2HydrationCallback = { _, _ ->
+                hydrationCallbackInvoked = true
+            }
+
+            // Start the timer and let it expire — will hit the DEFAULT_V2 hydration path
+            ConnectionStateManager.setReconnectingHint(false)
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+            ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+            assertTrue("Hydration callback must be invoked when store is empty and source=DEFAULT_V2", hydrationCallbackInvoked)
+            // When total==0, currentServer() is null → failingServerId==0 → probe guard prevents enqueue
+            assertTrue("No probe enqueued when failingServerId=0 (empty store)", fakeQueue.enqueuedIds.isEmpty())
+        } finally {
+            UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
         }
-        ServerAutoSwitcher.setProbeRequestQueueForTest(fakeQueue)
-
-        // Wire a v2HydrationCallback that records the call but does NOT invoke onDone
-        var hydrationCallbackInvoked = false
-        ServerAutoSwitcher.v2HydrationCallback = { _, _ ->
-            hydrationCallbackInvoked = true
-        }
-
-        // Start the timer and let it expire — will hit the DEFAULT_V2 hydration path
-        ConnectionStateManager.setReconnectingHint(false)
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
-        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
-
-        assertTrue("Hydration callback must be invoked when store is empty and source=DEFAULT_V2", hydrationCallbackInvoked)
-        // When total==0, currentServer() is null → failingServerId==0 → probe guard prevents enqueue
-        assertTrue("No probe enqueued when failingServerId=0 (empty store)", fakeQueue.enqueuedIds.isEmpty())
-
-        // Cleanup
-        UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
     }
 
 }

@@ -134,6 +134,26 @@ class OpenVpnServiceDisconnectProbeTest {
         assertTrue("No probe when current server config mismatches last-started", fakeQueue.enqueuedIds.isEmpty())
     }
 
+    /**
+     * AC-1 guard: When level == LEVEL_NONETWORK the device lost connectivity, not the server.
+     * finishStopFlowConfirmed must NOT enqueue a probe — consistent with ServerAutoSwitcher
+     * and the VPN_STATUS handler which already suppress probes for LEVEL_NONETWORK.
+     */
+    @Test
+    fun finishStopFlowConfirmed_doesNotEnqueueProbeWhenLevelIsNoNetwork() {
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip1",
+                0, 0, 0, 0, 0, 0, "", "", "", "conf1", id = 42)
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "conf1", "ip1")
+
+        invokeFinishStopFlowConfirmed(service, ConnectionStatus.LEVEL_NONETWORK, "test")
+
+        assertTrue("No probe when level is LEVEL_NONETWORK (network failure, not server failure)", fakeQueue.enqueuedIds.isEmpty())
+    }
+
     private fun invokeFinishStopFlowConfirmed(
         service: OpenVpnService,
         level: ConnectionStatus,
