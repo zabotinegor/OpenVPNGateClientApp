@@ -96,3 +96,55 @@ SUB-03 (`HardProbeApiClientTest`).
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/HardProbeApiClientTest.kt`
 - `src/gradle/libs.versions.toml` (`okhttp-mockwebserver` entry)
 - [OkHttp MockWebServer README](https://github.com/square/okhttp/tree/master/mockwebserver)
+
+---
+
+## Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed
+
+**When to use this knowledge**
+
+When adding a new VPN lifecycle event (disconnect, reconnect, auto-switch variant) and deciding
+whether that event should trigger a hardprobe.
+
+**When hardprobes are enqueued**
+
+`ProbeRequestQueue.enqueue(serverId)` is called at five points in the VPN lifecycle:
+
+| Event | Code location | Notes |
+|---|---|---|
+| Auto-switch timed/immediate | `ServerAutoSwitcher.requestSwitchNow()` | Probe for the failing server before `nextServerCircular()` advances the index. |
+| DEFAULT_V2 hydration early-return | `ServerAutoSwitcher.requestSwitchNow()` | Probe enqueued before the function returns for on-demand hydration. Added in US-12. |
+| Engine VPN_STATUS failure | `OpenVpnService.updateState()` | Probe for the failing server on `VPN_STATUS` auto-switch path. |
+| Watchdog recovery | `OpenVpnService.handleConnectedProbeResult()` | Probe for the stalled server when watchdog triggers a reconnect. |
+| User-initiated disconnect | `OpenVpnService.finishStopFlowConfirmed()` | Probe for the server that was active when the user tapped Disconnect. Added in US-12. |
+
+**Why `serverId == 0` is a no-op**
+
+`SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted()` returns `0` when:
+
+- The currently selected server config does not match the last-started config (user changed
+  selection in the UI while connected).
+- The server has no integer ID from the v2 API — this covers legacy CSV sources (`LEGACY`,
+  `VPNGATE`, `CUSTOM`), which use opaque string identifiers and map to `id = 0` in the shared
+  data model.
+- The network loss level `LEVEL_NONETWORK` is active — the calling code explicitly sets the ID
+  to 0 in this case, because the device has lost internet connectivity (not a server failure).
+
+A probe with `serverId = 0` would target no specific server and is suppressed at the call site
+with a simple `if (serverId != 0)` guard. This is the correct behavior; do not remove it.
+
+**WorkManager KEEP deduplication**
+
+`ProbeRequestQueue` uses `ExistingWorkPolicy.KEEP`. If the same `serverId` is enqueued multiple
+times in rapid succession (e.g., user stop followed by auto-switch for the same server), only
+the first enqueue takes effect. This is intentional — the backend only needs one probe signal
+per server per event cluster.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` (`finishStopFlowConfirmed`, `handleConnectedProbeResult`, `updateState`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`requestSwitchNow`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/ProbeRequestQueue.kt`
+- `src/docs/server-sync-flow.md` (Hardprobe Trigger Points section)
+- `docs/userstories/US-12-hardprobe-on-every-vpn-disconnect.md`
+- `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-04-vpn-inactivity-hardprobe-trigger.md`
