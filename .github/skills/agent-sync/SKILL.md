@@ -28,7 +28,8 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 - Resolve and report the latest source commit SHA from the configured CopilotTools Git repository before editing, using foreground git/terminal when available or authenticated GitHub connector/API tools when terminal execution is unavailable.
 - Stop before editing only if no available tool can identify the source revision or source file contents.
 - Verify the target branch/worktree state before changing files.
-- Before applying sync changes, create or switch the target repository to a suitable non-protected branch such as `fix/sync-agent-assets`; stop with `BLOCKED` if a safe target branch cannot be resolved.
+- Agent Sync works exclusively in the current branch — never creates, switches to, or checks out a different branch.
+- Agent Sync never commits, stages, or pushes — it only syncs file contents into the working tree. The user commits when ready.
 - Protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) are blocked from sync by default and require explicit user approval plus script flag `-AllowRootMdSync`.
 - Do not delegate sync execution or comparison to a subagent. Run Agent Sync in the current chat because subagents may not receive terminal tools or the target workspace context.
 - Do not run sync through VS Code task labels or other task launchers. For Agent Sync, use `run_in_terminal` first and `runCommands` second for foreground PowerShell. Task launchers are not reliable for required sync because cancellation/completion may not return script output, source SHA, file counts, or exit code.
@@ -37,7 +38,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 
 ## Workflow
 
-1. Read `AGENTS.md`, `.github/AGENTS-REGISTRY.md`, and target worktree state. Resolve or create a suitable non-protected target branch before any tracked-file sync edit.
+1. Read `AGENTS.md`, `.github/AGENTS-REGISTRY.md`, and target worktree state. Confirm the current branch and proceed — do not create or switch branches.
 2. Resolve the latest source commit SHA from the configured `SourceRepo`/`SourceRef`.
 3. Prefer `.github/scripts/sync-copilot-assets.ps1`; perform manual mirror-sync only after real failures of `run_in_terminal` and `runCommands` prove direct script execution is unavailable.
    Run the script with `run_in_terminal` first (foreground PowerShell), not as a VS Code task:
@@ -70,13 +71,13 @@ Report source repository and commit SHA, target branch, sync scope, added/change
 - Never hide agent-sync-related files through `.gitignore`.
 - Never hide `.github/hooks/`, `.githooks/`, or protected-branch guard scripts through the managed synced-assets `.gitignore` block.
 - Never sync or create the root `.copilottools-source` marker in a client repository.
-- Never apply tracked sync changes while the client repository is checked out on `main`, `dev`, `master`, or `develop`.
+- Never create, switch to, or check out a different branch. Agent Sync operates exclusively in the current branch.
+- Never commit, stage, or push. Agent Sync only syncs file contents into the working tree.
 - Never sync protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless user approval and `-AllowRootMdSync` are both present.
 - Never create handoff/prompt markdown artifacts while reporting sync results; include handoff text in chat only.
 - Never invoke VS Code tasks, task labels, or "Run task" for sync dry-run or apply. Use `run_in_terminal` first and `runCommands` second with direct foreground PowerShell so the agent receives JSON output, exit code, and errors.
 - If terminal/command execution is unavailable after a real failed terminal-capable tool call, do not ask the user to run commands. Complete sync manually with available read/search/edit plus authenticated GitHub connector/API tools and report the fallback. Stop only if neither terminal nor authenticated source access is available.
 - If a previous task-based attempt was cancelled, explicitly switch to `run_in_terminal` and then `runCommands` with direct foreground PowerShell; if unavailable after real failed attempts, use manual mirror-sync fallback before reporting any blocker.
-- Do not commit or push unless explicitly requested.
 - If any post-sync file mismatches source, stop and report the mismatch.
 - Keep instructions token-efficient by using scripts for deterministic sync mechanics.
 
