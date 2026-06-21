@@ -82,6 +82,24 @@
 - For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
 - Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
+## Long-Running Operation Rules
+
+Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code — through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
+
+Terminal execution is capability-based: use any terminal-capable tool exposed in the current session (`run_in_terminal`, `execute`, `runCommands`). Do not stop solely because one specific tool ID is unavailable.
+
+## Prompt-Generation Responses
+
+When generating a handoff prompt at user or agent request, return exactly one fenced ` ```text ` block with no text outside it. The block must contain the full concrete prompt payload ready to paste into a new chat. Do not create persistent handoff/prompt markdown files (`*_HANDOFF*.md`, `*_PROMPT*.md`); return handoffs in chat output or handoff buttons unless the user explicitly requests a file. Remove any accidental transient prompt artifacts before final output.
+
+## SDLC Status Updates
+
+Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only — never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
+
+## SDLC Minimum Report Contract
+
+All SDLC handoff and execution outputs must include: what was done, what went wrong or failed (or explicit `none`), what was fixed or changed, evidence, what remains or next actions, and blockers or errors (or explicit `none`). Role-specific extras are allowed.
+
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
 - `src/docs` for technical implementation notes used by contributors and AI agents.
