@@ -134,3 +134,96 @@ The zero-id guard path (no probe sent) is verified by unit tests (`OpenVpnServic
 **Device: Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)**
 **AC coverage: AC-1 (user disconnect probe), AC-3 (no regression across two full cycles)**
 **AC-2 (DEFAULT_V2 hydration gap probe) verified by unit tests — not directly exercisable via manual UI without live server list exhaustion scenario.**
+
+---
+
+## Run 2 — Pre-merge retest for PR #104 (2026-06-21 21:01–21:04 UTC+3)
+
+Branch: feature/US-13-agent-doc-token-optimization (HEAD cdb44da)
+APK: versionName=1.0.4-beta.1, versionCode=63 (installed, confirmed via adb)
+Device: Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
+Unit tests: 605/605 core PASS (--rerun-tasks)
+
+| Case | Title | AC | Result |
+|------|-------|----|--------|
+| MQ-US12-001 (retest) | User disconnect probe enqueued (DEFAULT_V2, non-zero server ID) | AC-1 | PASS |
+| MQ-US12-002 (retest) | Two full connect/disconnect cycles clean, probe on each disconnect | AC-3 | PASS |
+
+---
+
+### MQ-US12-001 (retest) — AC-1: User disconnect probe enqueued
+
+**Pre-condition:** DEFAULT_V2 source, Lithuania server Каунас (ip=87.247.127.209, serverId=25824). App PID 8149, fresh launch confirmed from LEVEL_NOTCONNECTED.
+
+**Logcat evidence (connect):**
+```
+06-21 21:01:00.036  8149  8149 I OpenVPNGateApp:OpenVpnService: ACTION_START
+06-21 21:01:00.042  8149  8149 I OpenVPNGateApp:OpenVpnService: Session attempt 1 (serversInCountry=2, server=2/2, ip=87.247.127.209): Республика Литва
+06-21 21:01:03.122  8149  8767 D OpenVPNGateApp:OpenVpnService: Engine state (AIDL): level=LEVEL_CONNECTED state=CONNECTED
+06-21 21:01:08.236  8149  8149 I OpenVPNGateApp:OpenVpnService: Watchdog: healthy source=traffic trafficDelta=35567 recovered=false reconnectAfterRestore=false
+```
+
+**Logcat evidence (disconnect — after logcat clear):**
+```
+06-21 21:02:05.618  8149  8149 I OpenVPNGateApp:OpenVpnService: ACTION_STOP
+06-21 21:02:05.668  8149  8149 I OpenVPNGateApp:OpenVpnService: stop_flow requestId=8e36f17f session=1 source=user_action started=true
+06-21 21:02:05.678  8149  8149 I OpenVPNGateApp:ConnectionState: App state: CONNECTED -> DISCONNECTING
+06-21 21:02:05.892  8149  8171 I OpenVPNGateApp:ConnectionState: App state: DISCONNECTING -> DISCONNECTED
+06-21 21:02:05.957  8149  8171 D OpenVPNGateApp:WorkManagerProbeRequestQueue: Probe enqueued: serverId=25824, uniqueName=probe-server-25824
+06-21 21:02:05.967  8149  8171 I OpenVPNGateApp:OpenVpnService: stop_flow requestId=8e36f17f attempts=1 dispatch=sent confirm=true level=LEVEL_NOTCONNECTED source=AIDL elapsed_ms=347
+06-21 21:02:06.746  8149  8390 I OpenVPNGateApp:ProbeRequestWorker: Probe succeeded: serverId=25824, status=202
+```
+
+**Assertions:**
+- CONNECTED -> DISCONNECTING -> DISCONNECTED: PASS
+- WorkManagerProbeRequestQueue.enqueue called with non-zero serverId=25824: PASS
+- ProbeRequestWorker HTTP 202 received: PASS
+- No FATAL EXCEPTION: PASS
+
+**Verdict: PASS**
+
+---
+
+### MQ-US12-002 (retest) — AC-3: Two full connect/disconnect cycles
+
+**Cycle 2 logcat evidence (connect):**
+```
+06-21 21:03:01.032  8149  8149 I OpenVPNGateApp:OpenVpnService: ACTION_START
+06-21 21:03:03.961  8149  9231 D OpenVPNGateApp:OpenVpnService: Engine state (AIDL): level=LEVEL_CONNECTED state=CONNECTED
+06-21 21:03:07.115  8149  8149 I OpenVPNGateApp:OpenVpnService: Watchdog: healthy source=traffic trafficDelta=23734 recovered=false reconnectAfterRestore=false
+```
+
+**Cycle 2 logcat evidence (disconnect — after logcat clear):**
+```
+06-21 21:04:13.612  8149  8149 I OpenVPNGateApp:OpenVpnService: stop_flow requestId=e2e4b69c session=1 source=user_action started=true
+06-21 21:04:13.624  8149  8149 I OpenVPNGateApp:ConnectionState: App state: CONNECTED -> DISCONNECTING
+06-21 21:04:13.787  8149  9232 I OpenVPNGateApp:ConnectionState: App state: DISCONNECTING -> DISCONNECTED
+06-21 21:04:13.813  8149  9232 D OpenVPNGateApp:WorkManagerProbeRequestQueue: Probe enqueued: serverId=25824, uniqueName=probe-server-25824
+06-21 21:04:13.842  8149  9232 I OpenVPNGateApp:OpenVpnService: stop_flow requestId=e2e4b69c attempts=1 dispatch=sent confirm=true level=LEVEL_NOTCONNECTED source=AIDL elapsed_ms=235
+06-21 21:04:14.002  8149  8390 I OpenVPNGateApp:ProbeRequestWorker: Probe succeeded: serverId=25824, status=202
+```
+
+**Assertions:**
+- Cycle 1: LEVEL_CONNECTED reached, then DISCONNECTED + probe enqueued: PASS
+- Cycle 2: LEVEL_CONNECTED reached again (reconnect clean), then DISCONNECTED + probe enqueued: PASS
+- No FATAL EXCEPTION across both cycles: PASS
+- No NoBeanDefFoundException or KoinException: PASS
+
+**Verdict: PASS**
+
+---
+
+## Run 2 Summary
+
+| Case | Verdict |
+|------|---------|
+| MQ-US12-001 (retest) | PASS |
+| MQ-US12-002 (retest) | PASS |
+
+**Overall: PASS**
+**Cases passed: 2/2 (retest scope)**
+**Unit tests (AC-1 guard, AC-2, AC-3 call sites): 605/605 core PASS**
+**AC-1: probe enqueued on user disconnect (serverId=25824, HTTP 202)**
+**AC-2: DEFAULT_V2 hydration gap probe — unit-tested (OpenVpnServiceDisconnectProbeTest 4/4 + ServerAutoSwitcherTest); not directly exercisable via UI without live server list exhaustion**
+**AC-3: no regression across two full connect/disconnect cycles**
+**Zero FATAL exceptions**
