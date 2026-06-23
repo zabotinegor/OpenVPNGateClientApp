@@ -31,36 +31,20 @@ Entry template:
 
 ---
 
-## Samsung Galaxy A71 — screen locks during ADB session
-
-- Service repo: zabotinegor/OpenVPNGateClientApp
+## SSE client: splash→MainActivity transition causes expected brief onStop
+- Service repo: OpenVPNClientClientApp
 - Surface: android
-- When to use: Any ADB UI interaction on SM_A715F (R58N849XQEY)
-- Reusable workaround/setup: Run `adb shell svc power stayon usb` before any tap sequence to prevent screen timeout; restore with `adb shell svc power stayon false` after test. Also: always run `input keyevent 224` (screen on) + `input keyevent 82` (unlock) before `am start`; omitting this before a second `am start` causes `LaunchState: UNKNOWN` and `exit MainActivity` in log because MainActivity window is invisible behind the lock screen.
-- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
-- Last validated: 2026-06-11
-- Notes: Without stay-awake, screen locks in ~30 s. `dumpsys activity activities` still shows correct topResumedActivity even when screen is locked.
+- When to use: Validating SSE lifecycle when app starts cold; logcat shows `SSE client stopping` before MainActivity appears
+- Reusable workaround/setup: This is expected behavior — ProcessLifecycleOwner fires onStop during the brief window between SplashActivity finishing and MainActivity resuming. The SSE client restarts immediately on MainActivity onStart. Look for a second `SSE client starting` log ~1–3 s after the first stop to confirm correct lifecycle handling.
+- Source-of-truth doc: tests/manual-e2e/stories/sub-02-android-sse-client/suites/SUB02-CORE.md
+- Last validated: 2026-06-23
+- Notes: Device screen must be on/unlocked for ProcessLifecycleOwner to fire onStart. If screen is off (locked), app stays in background state; wake with `adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard`.
 
----
-
-## Notification shade — VPN notification only visible after scroll on SM_A715F
-
-- Service repo: zabotinegor/OpenVPNGateClientApp
+## WorkManager SystemJobService verification via dumpsys jobscheduler
+- Service repo: OpenVPNClientClientApp
 - Surface: android
-- When to use: Tapping the VPN foreground notification on SM_A715F (One UI 5, Android 13)
-- Reusable workaround/setup: Use `adb shell cmd statusbar expand-notifications` (more reliable than swipe on One UI) to open shade. VPN notification typically appears below personal notifications — scroll or use a second swipe `input swipe 540 1600 540 600 600` before looking for it. Tap approximate y-coordinate ~1300 when shade is in mid-scroll state showing the VPN card. `uiautomator dump` may fail with `ERROR: could not get idle state` in notification shade — use coordinate fallback and validate via `dumpsys activity activities`.
-- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
-- Last validated: 2026-06-11
-- Notes: `content-desc="Уведомление Client for OpenVPN Gate: Австралия"` is the notification icon node; the tappable card is the parent row higher up. VPN key icon visible in status bar confirms foreground service is active even when card scrolled off screen.
-
----
-
-## Engine update smoke: `adb exec-out screencap -p` produces corrupt PNG on SM_A715F
-
-- Service repo: zabotinegor/OpenVPNGateClientApp
-- Surface: android
-- When to use: Capturing screenshots via ADB on SM_A715F
-- Reusable workaround/setup: Use `adb shell screencap -p /sdcard/name.png` then `adb pull /sdcard/name.png local/path.png` instead of `adb exec-out screencap -p > local/path.png`. The exec-out pipe produces garbled bytes (UTF-16 LE header) on this device.
-- Source-of-truth doc: tests/manual-e2e/environment/android-miui-manual-qa-notes.md
-- Last validated: 2026-06-11
-- Notes: Pull approach reliably produces valid PNG at correct size.
+- When to use: Verifying WorkManager periodic refresh is still active (e.g. AC-4 in SUB-02 SSE client story)
+- Reusable workaround/setup: `adb shell dumpsys jobscheduler | grep -A10 "openvpnclientgate/androidx.work"` shows job registration, minimum latency, and last run timestamp. `dumpsys workmanager` is not available on Android 13; use jobscheduler instead.
+- Source-of-truth doc: tests/manual-e2e/stories/sub-02-android-sse-client/suites/SUB02-CORE.md
+- Last validated: 2026-06-23
+- Notes: Look for `SystemJobService` entry with `Minimum latency` (next scheduled run) and recent START/STOP in the history block.

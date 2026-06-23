@@ -254,3 +254,143 @@ The subsequent `ACTION_START` delivery in `onStartCommand()` retries with the de
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
 - `docs/userstories/BUG-foreground-service-crash-after-update.md`
+
+---
+
+## SSE long-poll times out: `readTimeout(0)` required on a child OkHttp client
+
+**Symptom**
+
+The `SseServerEventsClient` connection opens but drops after the default OkHttp read timeout
+(10 s by default). Logcat shows `SSE connection failure` with `SocketTimeoutException` or
+`SSE connection closed` appearing shortly after `SSE connection opened`, followed by repeated
+exponential-backoff reconnect cycles.
+
+**Root cause**
+
+SSE uses a persistent HTTP connection that holds open indefinitely between server events (long-polling).
+OkHttp's default read timeout fires if no bytes arrive within the timeout window, terminating the
+connection. A well-behaved SSE endpoint may send no data for minutes between actual events.
+
+**Solution**
+
+Create a **child** `OkHttpClient` with `readTimeout(0, TimeUnit.SECONDS)` (zero = no timeout)
+for the SSE connection only. Do **not** mutate the shared singleton `OkHttpClient` injected by
+Koin, because that client is reused by all other API calls and should retain its default timeouts:
+
+```kotlin
+val sseOkHttpClient = okHttpClient.newBuilder()
+    .readTimeout(0, TimeUnit.SECONDS)
+    .build()
+val factory = EventSources.createFactory(sseOkHttpClient)
+```
+
+`okHttpClient.newBuilder()` creates a shallow copy that shares connection pools and interceptors
+with the parent but can override individual settings. The parent client's read timeout is
+preserved.
+
+**First encountered**
+
+SUB-02 (`SseServerEventsClient`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`connectOnce`)
+
+---
+
+## `okhttp-sse` must be pinned to the same version as the main `okhttp` dependency
+
+**Symptom**
+
+Build or runtime classpath conflict between `okhttp` and `okhttp-sse` (e.g.,
+`NoSuchMethodError`, `ClassNotFoundException`, or Gradle version-conflict warnings) when
+the two artifacts are pinned to different versions.
+
+**Root cause**
+
+`com.squareup.okhttp3:okhttp-sse` is a companion artifact in the OkHttp3 release train. It
+shares internal classes with `com.squareup.okhttp3:okhttp`. If they are pinned to different
+versions, the JVM can load classes from one version that reference methods only present in the
+other, producing silent failures or hard crashes.
+
+**Solution**
+
+In `src/gradle/libs.versions.toml`, add the `okhttp-sse` catalog entry using the existing
+`square-okhttp` version reference so both artifacts are always in lock-step:
+
+```toml
+okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "square-okhttp" }
+```
+
+Then declare the dependency in `src/core/build.gradle.kts`:
+
+```kotlin
+implementation(libs.okhttp.sse)
+```
+
+Never use a bare `"com.squareup.okhttp3:okhttp-sse:x.y.z"` coordinate in `build.gradle.kts`
+— it will drift out of sync when the main OkHttp version is bumped.
+
+**First encountered**
+
+SUB-02 (`SseServerEventsClient`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/gradle/libs.versions.toml` (`okhttp-sse` entry)
+- `src/core/build.gradle.kts` (`okhttp-sse` dependency)
+
+---
+
+## `ProcessLifecycleOwner` must be registered from the main thread after `startKoin`
+
+**Symptom**
+
+Calling `ProcessLifecycleOwner.get().lifecycle.addObserver(...)` before `startKoin` completes
+(or from a background thread during `Application.onCreate()`) results in one of:
+- `IllegalStateException` from Koin: `No definition found for ...` (Koin not yet started)
+- `CalledFromWrongThreadException`: `Only the original thread that created a view hierarchy
+  can touch its views` (lifecycle observer API called from a background thread)
+- Silently missing the first `onStart` event because the observer was added after the process
+  already entered the foreground
+
+**Root cause**
+
+`ProcessLifecycleOwner` is a main-thread-only component. `Lifecycle.addObserver()` must be
+called on the main thread. Additionally, the `SseServerEventsClient` is resolved from Koin, so
+Koin must be initialized first.
+
+**Solution**
+
+Register the `ProcessLifecycleOwner` observer in `Application.onCreate()`, on the main thread,
+**after** `startKoin` returns:
+
+```kotlin
+override fun onCreate() {
+    super.onCreate()
+    // 1. Initialize Koin first
+    startKoin { ... }
+    // 2. Then register lifecycle observers on the main thread
+    registerSseLifecycleObserver()
+}
+
+private fun registerSseLifecycleObserver() {
+    val sseClient = GlobalContext.get().get<SseServerEventsClient>()
+    ProcessLifecycleOwner.get().lifecycle.addObserver(sseClient)
+}
+```
+
+`Application.onCreate()` always runs on the main thread, so no explicit `Handler(mainLooper).post`
+is needed as long as `registerSseLifecycleObserver()` is called directly (not dispatched to a
+background coroutine). Wrap in `runCatching` to prevent a Koin resolution failure from crashing
+the whole process.
+
+**First encountered**
+
+SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`

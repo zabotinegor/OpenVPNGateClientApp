@@ -345,6 +345,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         userInitiatedStop = false
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
+            SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)
+        } else 0
+        if (serverId != 0) {
+            try { probeQueue?.enqueue(serverId) } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to enqueue hardprobe on user disconnect", e)
+            }
+        }
         persistPendingStopIntent(false)
         val elapsedMs = if (stopStartedAtMs > 0L) System.currentTimeMillis() - stopStartedAtMs else -1L
         AppLog.i(

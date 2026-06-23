@@ -263,6 +263,11 @@ object ServerAutoSwitcher {
                 val callback = v2HydrationCallback
                 if (callback != null) {
                     AppLog.i(TAG, "DEFAULT_V2: store empty at switch time, requesting on-demand hydration (level=${level})")
+                    if (failingServerId != 0) {
+                        try { probeRequestQueue?.enqueue(failingServerId) } catch (e: Exception) {
+                            AppLog.w(TAG, "DEFAULT_V2: failed to enqueue hardprobe for serverId=$failingServerId", e)
+                        }
+                    }
                     v2HydrationPending = true
                     callback(appContext) {
                         handler.post {
@@ -436,6 +441,11 @@ object ServerAutoSwitcher {
     @JvmStatic
     fun setProbeRequestQueueForTest(queue: ProbeRequestQueue?) {
         probeRequestQueue = queue
+    }
+
+    @JvmStatic
+    fun resetForTest() {
+        cancel(resetCycle = true)
     }
 }
 
