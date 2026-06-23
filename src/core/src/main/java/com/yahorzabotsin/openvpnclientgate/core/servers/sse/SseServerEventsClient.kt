@@ -142,7 +142,7 @@ class SseServerEventsClient(
         // coroutine and does not require an activeEventSource identity check.
         fun maybeResetBackoff() {
             val t = openedAt.get()
-            if (t >= 0L && System.currentTimeMillis() - t >= stableConnectionResetDelayMs) {
+            if (t >= 0L && System.nanoTime() - t >= TimeUnit.MILLISECONDS.toNanos(stableConnectionResetDelayMs)) {
                 reconnectAttempt.set(0)
             }
         }
@@ -150,7 +150,7 @@ class SseServerEventsClient(
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
-                openedAt.set(System.currentTimeMillis())
+                openedAt.set(System.nanoTime())
             }
 
             override fun onEvent(
