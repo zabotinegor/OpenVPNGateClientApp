@@ -23,6 +23,7 @@ import okhttp3.sse.EventSources
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -38,7 +39,8 @@ import kotlin.math.pow
 class SseServerEventsClient(
     private val okHttpClient: OkHttpClient,
     private val syncCoordinator: ServerSelectionSyncCoordinator,
-    sseUrlProvider: () -> String = { defaultSseUrl() }
+    sseUrlProvider: () -> String = { defaultSseUrl() },
+    internal val stableConnectionResetDelayMs: Long = STABLE_CONNECTION_RESET_DELAY_MS
 ) : DefaultLifecycleObserver {
 
     private val tag = LogTags.APP + ":SseServerEventsClient"
@@ -46,12 +48,15 @@ class SseServerEventsClient(
     private val sseUrl: String by lazy { sseUrlProvider() }
 
     /** Coroutine scope for this client; lives while the client is started. */
+    @Volatile
     private var clientScope: CoroutineScope? = null
 
     /** Current reconnect loop job. */
+    @Volatile
     private var reconnectJob: Job? = null
 
     /** Active OkHttp EventSource, if any. */
+    @Volatile
     private var activeEventSource: EventSource? = null
 
     /** Whether the client is currently "running" (foreground). */
@@ -130,10 +135,22 @@ class SseServerEventsClient(
      */
     private suspend fun connectOnce() {
         val connectionDone = Job()
+        val openedAt = AtomicLong(-1L)
+
+        // Resets the backoff counter if the connection was alive long enough to be
+        // considered stable. Called from onClosed and onFailure — avoids a background
+        // coroutine and does not require an activeEventSource identity check.
+        fun maybeResetBackoff() {
+            val t = openedAt.get()
+            if (t >= 0L && System.currentTimeMillis() - t >= stableConnectionResetDelayMs) {
+                reconnectAttempt.set(0)
+            }
+        }
 
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
+                openedAt.set(System.currentTimeMillis())
             }
 
             override fun onEvent(
@@ -152,6 +169,7 @@ class SseServerEventsClient(
 
             override fun onClosed(eventSource: EventSource) {
                 AppLog.i(tag, "SSE connection closed")
+                maybeResetBackoff()
                 connectionDone.complete()
             }
 
@@ -166,6 +184,7 @@ class SseServerEventsClient(
                 } else {
                     AppLog.d(tag, "SSE connection failure (HTTP $code)")
                 }
+                maybeResetBackoff()
                 connectionDone.complete()
             }
         }
@@ -227,6 +246,7 @@ class SseServerEventsClient(
         internal const val EVENT_SERVERS_CHANGED = "servers-changed"
         internal const val INITIAL_BACKOFF_MS = 5_000L
         internal const val MAX_BACKOFF_MS = 5 * 60 * 1_000L // 5 minutes
+        internal const val STABLE_CONNECTION_RESET_DELAY_MS = 10_000L
 
         /**
          * Derives the SSE endpoint URL from the same build-property chain used for all other

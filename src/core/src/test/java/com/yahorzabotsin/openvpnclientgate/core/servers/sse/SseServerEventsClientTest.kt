@@ -6,9 +6,11 @@ import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -103,6 +105,27 @@ class SseServerEventsClientTest {
         // Multiple stop calls should not throw
         client.stop()
         client.stop()
+    }
+
+    @Test
+    fun `stop called from a different thread than start correctly resets state`() {
+        val client = buildClient()
+
+        val startThread = Thread { client.start() }
+        startThread.start()
+        startThread.join()
+
+        // Simulate accumulated reconnect attempts
+        client.reconnectAttempt.set(5)
+
+        val stopThread = Thread { client.stop() }
+        stopThread.start()
+        stopThread.join()
+
+        // If @Volatile is absent, the stop thread might read a stale null for clientScope/
+        // reconnectJob and silently skip cancellation. The reset of reconnectAttempt to 0
+        // in stop() is the observable side-effect we can verify.
+        assertEquals(0, client.reconnectAttempt.get())
     }
 
     @Test
@@ -397,6 +420,72 @@ class SseServerEventsClientTest {
             )
         } finally {
             client.stop()
+        }
+    }
+
+    @Test
+    fun `stable connection triggers quick reconnect — counter was reset after close`() {
+        val server = MockWebServer()
+
+        // First response: a small body throttled to ~120 ms total, simulating a healthy
+        // SSE server that ran for longer than stableConnectionResetDelayMs (50 ms).
+        // On close, maybeResetBackoff() sees elapsed ≥ 50 ms and sets counter to 0.
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(": k\n")           // 4 bytes
+                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms
+        )
+        // Second response for the immediate reconnect (any response is fine here).
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> = emptyList()
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url },
+            stableConnectionResetDelayMs = 50L // short threshold for testing
+        )
+
+        try {
+            client.start()
+            // Wait for the first request to be received by MockWebServer
+            val firstRequest = server.takeRequest(3, TimeUnit.SECONDS)
+            assertNotNull("First connection should have been made", firstRequest)
+
+            // After the throttled body completes (~120 ms), onClosed fires: elapsed ≥ 50 ms
+            // → counter reset to 0 → reconnect loop issues attempt=0 with NO backoff delay.
+            // The second request should therefore arrive well within 2 s. If the counter was
+            // NOT reset (stayed at 1), the backoff would be 5 000 ms and the assertion fails.
+            val secondRequest = server.takeRequest(2, TimeUnit.SECONDS)
+            assertNotNull(
+                "Second reconnect must be immediate (< 2 s) after a stable connection, " +
+                    "confirming backoff counter was reset to 0 on close",
+                secondRequest
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
         }
     }
 
