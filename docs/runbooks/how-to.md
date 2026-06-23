@@ -148,3 +148,88 @@ per server per event cluster.
 - `src/docs/server-sync-flow.md` (Hardprobe Trigger Points section)
 - `docs/userstories/US-12-hardprobe-on-every-vpn-disconnect.md`
 - `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-04-vpn-inactivity-hardprobe-trigger.md`
+
+---
+
+## Verify SSE client connection on device
+
+**When to use**
+
+After deploying a build that includes `SseServerEventsClient`, or when debugging SSE connectivity
+issues (e.g., the server list is not updating in real time despite backend pushes).
+
+**What to check**
+
+The SSE client connects when the app enters the foreground and disconnects when it backgrounds.
+A `servers-changed` push event from the backend triggers a forced server-list sync.
+
+**Step 1 — Start logcat filter**
+
+In a terminal, start streaming SSE-relevant log lines before launching the app:
+
+```bash
+adb -s <serial> logcat -v time -e "SseServerEventsClient|CoreApp"
+```
+
+Replace `<serial>` with your device's ADB serial (`adb devices` to list).
+
+**Step 2 — Launch the app**
+
+```bash
+adb -s <serial> shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+```
+
+Expected logcat sequence (within a few seconds of launch):
+
+```
+CoreApp: SSE lifecycle observer registered
+SseServerEventsClient: SSE client starting; url=https://.../api/v1/servers/events
+SseServerEventsClient: SSE connecting (attempt=0)
+SseServerEventsClient: SSE connection opened (HTTP 200)
+```
+
+**Step 3 — Verify foreground / background lifecycle**
+
+Press the Home button. Expect:
+
+```
+SseServerEventsClient: SSE client stopping
+SseServerEventsClient: SSE connection closed
+SseServerEventsClient: SSE reconnect loop exited
+```
+
+Return the app to the foreground. Expect the "SSE client starting / connecting / opened" sequence
+to repeat from the top.
+
+**Step 4 — Verify event-triggered sync**
+
+When the backend emits a `servers-changed` event (requires a backend-side deployment or test tool):
+
+```
+SseServerEventsClient: SSE event received: type='servers-changed' id='...'
+SseServerEventsClient: servers-changed event received; triggering server re-fetch
+```
+
+Followed shortly by `ServersV2SyncCoordinator` / `fetchAllPages` log lines confirming the
+server list was refreshed from the network.
+
+**Diagnosing backoff**
+
+If the SSE endpoint is unreachable the client retries with exponential backoff:
+
+```
+SseServerEventsClient: SSE connection failure (HTTP -1): ...
+SseServerEventsClient: SSE reconnect in 5000ms (attempt=1)
+SseServerEventsClient: SSE reconnect in 10000ms (attempt=2)
+```
+
+Delay starts at 5 s and doubles per attempt, capping at 5 min. This is expected when the
+device is offline or the backend endpoint is down.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
+- `src/docs/server-sync-flow.md` (SSE Server-Push Sync section)
+- `docs/runbooks/android-qa.md` (MP-20260621 SUB-02 section)
+- `docs/userstories/MP-20260621-server-push-sse/SUB-02-android-sse-client.md`

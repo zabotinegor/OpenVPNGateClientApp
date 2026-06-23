@@ -64,6 +64,7 @@ media/     ← app icon/banner assets (submodule)
 | [src/core/…/servers/refresh/ServerRefreshWorker.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt) | Background periodic refresh |
 | [src/core/…/vpn/OpenVpnService.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt) | VPN lifecycle integration |
 | [src/core/…/vpn/ServerAutoSwitcher.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt) | Auto-switch logic and hardprobe trigger (inactivity → probe enqueue) |
+| [src/core/…/servers/sse/SseServerEventsClient.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt) | SSE client — foreground-only long-poll; triggers server sync on `servers-changed` push event |
 
 ## Conventions
 

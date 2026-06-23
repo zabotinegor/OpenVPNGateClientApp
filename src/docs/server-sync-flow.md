@@ -28,6 +28,7 @@ The coordinator owns this flow:
 | Main foreground entry (`onStart`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` -> `MainViewModel` | `forceRefresh=false`, debounced, `cacheOnly=feature-flag dependent` |
 | Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)` |
 | Periodic background refresh | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false` |
+| SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately when the backend pushes a `servers-changed` SSE event. |
 | Background UI update (via signal) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` init + `onStoreVersionChanged()` | Cache-only load after `SelectedCountryVersionSignal.version` bump; no network sync |
 | Server source switch in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=true` |
 | Custom server URL update in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=false` |
@@ -101,3 +102,48 @@ When a VPN disconnect or inactivity event fires, the following code paths can en
 In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `LEVEL_NONETWORK` device-loss events and legacy CSV servers that have no integer ID from the v2 API). `ProbeRequestQueue` uses WorkManager `KEEP` deduplication, so rapid re-enqueue for the same server ID does not double-fire. It is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
 
 See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
+
+## SSE Server-Push Sync (SUB-02)
+
+`SseServerEventsClient` opens a persistent HTTP/SSE connection to `GET /api/v1/servers/events`
+and calls `ServerSelectionSyncCoordinator.sync(forceRefresh=true, cacheOnly=false)` whenever
+the backend pushes a `servers-changed` event. This provides near-instant cache invalidation
+without polling.
+
+### Lifecycle
+
+- **Start**: `CoreApp.registerSseLifecycleObserver()` adds `SseServerEventsClient` as a
+  `ProcessLifecycleOwner` observer after `startKoin`. On `onStart` the SSE connection loop
+  begins; on `onStop` it is cancelled gracefully. The client is therefore active only while the
+  app is in the foreground.
+- **Backoff**: On network error or non-2xx response the client retries with exponential backoff
+  starting at 5 s and capping at 5 min. A successful `onOpen` resets the backoff counter.
+- **Coexistence**: The SSE path and the WorkManager periodic refresh (`ServerRefreshWorker`) are
+  independent. The periodic refresh continues on its own schedule; SSE provides an additional
+  faster trigger.
+
+### OkHttp client isolation
+
+`SseServerEventsClient` calls `okHttpClient.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()`
+to produce a **per-instance child client** for the SSE connection. The shared singleton `OkHttpClient`
+wired by Koin retains its default read timeout and is not mutated.
+
+### Endpoint derivation
+
+The SSE endpoint URL is derived from `PRIMARY_SERVERS_URL` via `PrimaryDomainRoutes.sseServersEventsUrl()`,
+consistent with all other primary-domain API routes. It is never hardcoded. If the derivation
+returns `null`, the client falls back to `https://openvpnclientgate.local/api/v1/servers/events`
+(a local-only placeholder that will always fail on a real device, keeping behavior safe).
+
+### Koin wiring
+
+`SseServerEventsClient` is registered as a `single { ... }` in `CoreDi.kt` (the `coreModule`).
+It receives the shared `OkHttpClient` and `ServerSelectionSyncCoordinator` from Koin. The
+lifecycle observer is registered in `CoreApp.onCreate()` on the main thread, after `startKoin`
+completes, using `ProcessLifecycleOwner.get().lifecycle.addObserver(sseClient)`.
+
+### Required library
+
+`okhttp-sse` (`com.squareup.okhttp3:okhttp-sse`) must be pinned to the same version ref as the
+main `okhttp` dependency in `src/gradle/libs.versions.toml` to avoid classpath conflicts. Both
+use `version.ref = "square-okhttp"`.
