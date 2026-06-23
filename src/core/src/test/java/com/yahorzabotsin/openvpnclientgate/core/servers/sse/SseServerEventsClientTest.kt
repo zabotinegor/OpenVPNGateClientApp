@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers.sse
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -283,6 +284,173 @@ class SseServerEventsClientTest {
             client.stop()
         }
         // Reaching here without an uncaught exception means the test passes
+    }
+
+    // ── Fix validations ──────────────────────────────────────────────────────
+
+    @Test
+    fun `CancellationException from sync is not swallowed as a warning`() {
+        val server = MockWebServer()
+        var warningLoggedForCancellation = false
+
+        Timber.plant(object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                if (priority == android.util.Log.WARN && t is CancellationException) {
+                    warningLoggedForCancellation = true
+                }
+            }
+        })
+
+        val syncLatch = CountDownLatch(1)
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncLatch.countDown()
+                throw CancellationException("test cancellation — must not be swallowed")
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val sseBody = buildString {
+            append("event: servers-changed\n")
+            append("data: {}\n")
+            append("\n")
+        }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setChunkedBody(sseBody, 256)
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url }
+        )
+
+        try {
+            client.start()
+            syncLatch.await(10, TimeUnit.SECONDS)
+            Thread.sleep(500) // let any spurious warning log flush
+            assertFalse(
+                "CancellationException must be rethrown, not logged as a warning",
+                warningLoggedForCancellation
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `unexpected exception from connectOnce is caught and loop continues`() {
+        var unexpectedErrorLogged = false
+
+        Timber.plant(object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                if (priority == android.util.Log.WARN &&
+                    message.contains("SSE connection attempt failed with an unexpected error")
+                ) {
+                    unexpectedErrorLogged = true
+                }
+            }
+        })
+
+        // An invalid URL causes Request.Builder.url() to throw IllegalArgumentException
+        // synchronously inside connectOnce(), simulating an unexpected runtime exception.
+        val client = SseServerEventsClient(
+            okHttpClient = OkHttpClient(),
+            syncCoordinator = buildClient().let {
+                object : ServerSelectionSyncCoordinator {
+                    override suspend fun sync(
+                        forceRefresh: Boolean,
+                        cacheOnly: Boolean,
+                        clearCacheBeforeRefresh: Boolean
+                    ): List<Server> = emptyList()
+
+                    override suspend fun syncSelectedCountryServersForRelocalization(
+                        forceRefresh: Boolean,
+                        cacheOnly: Boolean
+                    ) = Unit
+                }
+            },
+            sseUrlProvider = { "this is not a valid url" }
+        )
+
+        try {
+            client.start()
+            Thread.sleep(400) // enough time for one attempt to throw and be caught
+            assertTrue(
+                "Expected warning log when connectOnce() throws unexpectedly",
+                unexpectedErrorLogged
+            )
+        } finally {
+            client.stop()
+        }
+    }
+
+    @Test
+    fun `reconnect counter is not reset on open without an event — short-lived 200 still backs off`() {
+        val server = MockWebServer()
+
+        // Respond with HTTP 200 but close the stream immediately (no events)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("") // empty body → onClosed fires immediately after onOpen
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+            .build()
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> = emptyList()
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url }
+        )
+
+        try {
+            client.start()
+            // After the first attempt completes (HTTP 200 + close), the counter must not
+            // be zero — resetting it in onOpen with no event would allow a hot loop.
+            Thread.sleep(600)
+            assertTrue(
+                "reconnectAttempt must be > 0 after a short-lived 200 so backoff is applied",
+                client.reconnectAttempt.get() > 0
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
     }
 
     // ── Constant sanity checks ───────────────────────────────────────────────

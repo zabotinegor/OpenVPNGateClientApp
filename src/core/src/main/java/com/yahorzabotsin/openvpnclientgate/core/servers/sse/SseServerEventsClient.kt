@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -111,7 +112,13 @@ class SseServerEventsClient(
             }
 
             AppLog.d(tag, "SSE connecting (attempt=$attempt)")
-            connectOnce()
+            try {
+                connectOnce()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(tag, "SSE connection attempt failed with an unexpected error", e)
+            }
             // connectOnce() suspends until the connection closes; loop continues for retry.
         }
         AppLog.d(tag, "SSE reconnect loop exited")
@@ -127,7 +134,6 @@ class SseServerEventsClient(
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
-                reconnectAttempt.set(0) // reset backoff on successful open
             }
 
             override fun onEvent(
@@ -136,6 +142,7 @@ class SseServerEventsClient(
                 type: String?,
                 data: String
             ) {
+                reconnectAttempt.set(0) // reset backoff only when a live event arrives
                 val eventType = type ?: ""
                 AppLog.d(tag, "SSE event received: type='$eventType' id='$id'")
                 if (eventType == EVENT_SERVERS_CHANGED) {
@@ -189,9 +196,11 @@ class SseServerEventsClient(
         AppLog.i(tag, "servers-changed event received; triggering server re-fetch")
         // Launch on a new coroutine so we don't block the OkHttp callback thread
         clientScope?.launch {
-            runCatching {
+            try {
                 syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
-            }.onFailure { e ->
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 AppLog.w(tag, "Server re-fetch triggered by SSE event failed", e)
             }
         }
