@@ -18,7 +18,12 @@ $isForce = $cmd -match '(?:--force(?:-with-lease)?|-f\b)'
 $isMain = $false
 foreach ($token in ($cmd -split '\s+')) {
     $dest = if ($token -like '*:*') { ($token -split ':')[-1] } else { $token }
+    $dest = $dest.Trim("'").Trim('"')
     if (@('main', 'refs/heads/main') -contains $dest) { $isMain = $true; break }
+}
+if (-not $isMain) {
+    $currentBranch = (git branch --show-current 2>$null)
+    if ($currentBranch -and @('main') -contains $currentBranch.Trim()) { $isMain = $true }
 }
 
 if ($isPush) {
