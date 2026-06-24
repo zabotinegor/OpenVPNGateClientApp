@@ -22,7 +22,11 @@ GIT_PREFIX_PATTERN = (
     r"|\s+--exec-path(?:=\S+|\s+\S+)"
     r"|\s+--namespace=\S+"
     r"|\s+--no-replace-objects"
-    r"|\s+--no-optional-locks)*"
+    r"|\s+--no-optional-locks"
+    r"|\s+--literal-pathspecs"
+    r"|\s+--glob-pathspecs"
+    r"|\s+--noglob-pathspecs"
+    r"|\s+--icase-pathspecs)*"
 )
 
 
