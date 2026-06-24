@@ -9,8 +9,11 @@ try {
 
 if ([string]::IsNullOrWhiteSpace($cmd)) { exit 0 }
 
-$isPush  = $cmd -match 'git\s+push'
-$isForce = $cmd -match '(?:--force(?:-with-lease)?|-f\b)'
+$isPush  = $cmd -match '(?i)(?:^|[;&|]\s*)git\s+push\b'
+$isForce = $false
+if ($isPush -and ($cmd -match '(?i)(?:^|[;&|]\s*)git\s+push\b([^;&|]*)')) {
+    $isForce = $Matches[1] -match '(?:^|\s)(?:--force(?:-with-lease)?|-f)(?:\s|$)'
+}
 # Refspec-aware check: catches bare "main", "HEAD:main", and "refs/heads/main"
 # while avoiding false positives on hierarchical names like "feature/main-reconnect".
 $isMain = $false
