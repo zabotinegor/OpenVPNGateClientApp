@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $protected = @('main', 'dev', 'master', 'develop')
 $protectedPattern = '(?:main|dev|master|develop)'
-$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--namespace=\S+|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*'
+$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--namespace=\S+|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*'
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'

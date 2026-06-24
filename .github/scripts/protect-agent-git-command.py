@@ -24,6 +24,7 @@ GIT_PREFIX_PATTERN = (
     r"|\s+--no-replace-objects"
     r"|\s+--no-optional-locks"
     r"|\s+--literal-pathspecs"
+    r"|\s+--no-literal-pathspecs"
     r"|\s+--glob-pathspecs"
     r"|\s+--noglob-pathspecs"
     r"|\s+--icase-pathspecs)*"
