@@ -11,16 +11,27 @@ try {
 
 if ([string]::IsNullOrWhiteSpace($cmd)) { exit 0 }
 
-$isPush    = $cmd -match 'git\s+push'
-$isMain    = $cmd -match '\bmain\b'
-$isForce   = $cmd -match '--force|-f\b'
+$isPush  = $cmd -match 'git\s+push'
+$isForce = $cmd -match '(?:--force(?:-with-lease)?|-f\b)'
+# Exact token match: split on whitespace and check for bare "main", avoiding
+# false positives from branch names like "feature/main-reconnect".
+$isMain  = ($cmd -split '\s+') -contains 'main'
 
-if ($isPush -and ($isMain -or $isForce)) {
-    @{
-        decision = 'block'
-        reason   = 'Direct push to main is blocked. Create a feature branch and open a PR instead.'
-    } | ConvertTo-Json -Compress | Write-Output
-    exit 2
+if ($isPush) {
+    if ($isMain) {
+        @{
+            decision = 'block'
+            reason   = 'Direct push to main is blocked. Create a feature branch and open a PR instead.'
+        } | ConvertTo-Json -Compress | Write-Output
+        exit 2
+    }
+    if ($isForce) {
+        @{
+            decision = 'block'
+            reason   = 'Force-push is forbidden in client repositories.'
+        } | ConvertTo-Json -Compress | Write-Output
+        exit 2
+    }
 }
 
 exit 0
