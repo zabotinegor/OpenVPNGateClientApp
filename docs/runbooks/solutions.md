@@ -343,6 +343,70 @@ SUB-02 (`SseServerEventsClient`) — MP-20260621 SSE client story.
 
 ---
 
+## SSE reconnect shows stale server data: `onOpen` was a no-op — fixed in SUB-03
+
+**Symptom**
+
+After an SSE reconnect (foreground return or network restore), the displayed server list remained
+stale until either the next `servers-changed` push event or the next WorkManager periodic refresh.
+Users saw outdated server availability, ping indicators, or country lists after coming back online.
+
+**Root cause**
+
+`SseServerEventsClient.onOpen` did nothing beyond recording the connection-open timestamp. Server
+sync fired only when the backend pushed an explicit `servers-changed` event. If the backend had
+pushed changes while the client was offline (backgrounded or network-down), those changes would
+not be applied until the *next* push event — which might be hours away.
+
+**Fix applied (SUB-03 — MP-20260623-sse-reliability-fixes)**
+
+Added `syncCoordinator.sync(forceRefresh = true, cacheOnly = false)` inside `onOpen`. The call is
+dispatched to a new coroutine on `clientScope` (same pattern as `handleServersChangedEvent`) so
+the OkHttp callback thread is not blocked. This ensures the server list is always fresh on every
+reconnect, independent of whether a push event follows.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onOpen`)
+- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+
+---
+
+## SSE hot-reconnect loop when degraded server sends events: `reconnectAttempt.set(0)` in `onEvent` bypassed backoff — fixed in SUB-03
+
+**Symptom**
+
+When a degraded backend server was sending SSE events but immediately dropping the connection
+afterwards (e.g., due to a misbehaving server-side keep-alive), the client entered a tight
+reconnect loop. Rather than backing off exponentially, it reconnected almost immediately on every
+cycle.
+
+Logcat evidence: repeated "SSE connection opened / SSE event received / SSE connection closed /
+SSE connecting (attempt=0)" sequences with no delay between cycles.
+
+**Root cause**
+
+`onEvent` contained `reconnectAttempt.set(0)`. Receiving even a single event was enough to
+reset the backoff counter to zero, so when the degraded server dropped the connection a fraction
+of a second later, the next reconnect loop iteration started with `attempt=0` and no delay. This
+defeated the exponential backoff entirely and caused CPU/battery waste and excessive reconnect
+traffic to the backend.
+
+**Fix applied (SUB-03 — MP-20260623-sse-reliability-fixes)**
+
+Removed `reconnectAttempt.set(0)` from `onEvent`. Backoff reset now happens **only** in
+`onClosed` and `onFailure` via `maybeResetBackoff()`, which enforces a stability-threshold guard:
+the counter is reset only when the connection was alive for at least
+`STABLE_CONNECTION_RESET_DELAY_MS` (10 000 ms). A connection that drops within 10 s of opening
+retains its backoff counter regardless of how many events it delivered.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onEvent`, `maybeResetBackoff`)
+- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+
+---
+
 ## `ProcessLifecycleOwner` must be registered from the main thread after `startKoin`
 
 **Symptom**

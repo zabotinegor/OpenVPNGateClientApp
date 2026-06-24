@@ -28,7 +28,8 @@ The coordinator owns this flow:
 | Main foreground entry (`onStart`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` -> `MainViewModel` | `forceRefresh=false`, debounced, `cacheOnly=feature-flag dependent` |
 | Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)` |
 | Periodic background refresh | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false` |
-| SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately when the backend pushes a `servers-changed` SSE event. |
+| SSE connection open (`onOpen`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately on every successful SSE connection open — covers foreground returns, network reconnects, and initial launch. Added in SUB-03 (SSE reconnect correctness). |
+| SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires when the backend pushes a `servers-changed` SSE event. Independent of the `onOpen` sync; both may fire in rapid succession on reconnect followed by an immediate push. |
 | Background UI update (via signal) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` init + `onStoreVersionChanged()` | Cache-only load after `SelectedCountryVersionSignal.version` bump; no network sync |
 | Server source switch in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=true` |
 | Custom server URL update in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=false` |
@@ -117,7 +118,11 @@ without polling.
   begins; on `onStop` it is cancelled gracefully. The client is therefore active only while the
   app is in the foreground.
 - **Backoff**: On network error or non-2xx response the client retries with exponential backoff
-  starting at 5 s and capping at 5 min. A successful `onOpen` resets the backoff counter.
+  starting at 5 s and capping at 5 min. The backoff counter is reset **only** in `onClosed` /
+  `onFailure` via `maybeResetBackoff()`, which applies a stability-threshold guard: the counter
+  is reset only when the connection was alive for at least `STABLE_CONNECTION_RESET_DELAY_MS`
+  (10 s). Receiving an `onEvent` callback does **not** reset the counter (changed in SUB-03 to
+  prevent a hot-reconnect loop when a degraded server sends events then drops the connection).
 - **Coexistence**: The SSE path and the WorkManager periodic refresh (`ServerRefreshWorker`) are
   independent. The periodic refresh continues on its own schedule; SSE provides an additional
   faster trigger.

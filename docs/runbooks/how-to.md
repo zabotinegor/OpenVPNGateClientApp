@@ -188,6 +188,12 @@ SseServerEventsClient: SSE connecting (attempt=0)
 SseServerEventsClient: SSE connection opened (HTTP 200)
 ```
 
+Immediately after the `connection opened` line you should also see server-sync activity
+(`syncCountries`, `fetchAllPages`, or similar `ServersV2SyncCoordinator` tags). This is the
+`onOpen` sync trigger added in SUB-03: every successful SSE connection open fires
+`syncCoordinator.sync(forceRefresh=true, cacheOnly=false)` so the server list is always fresh
+on reconnect, not only when the backend sends a push event.
+
 **Step 3 — Verify foreground / background lifecycle**
 
 Press the Home button. Expect:
@@ -213,6 +219,10 @@ SseServerEventsClient: servers-changed event received; triggering server re-fetc
 Followed shortly by `ServersV2SyncCoordinator` / `fetchAllPages` log lines confirming the
 server list was refreshed from the network.
 
+Note: if the app just reconnected (e.g., foreground return), the `onOpen` sync (Step 2 above)
+fires first. The `servers-changed` path is a second, independent trigger. Both call
+`syncCoordinator.sync(forceRefresh=true, cacheOnly=false)`.
+
 **Diagnosing backoff**
 
 If the SSE endpoint is unreachable the client retries with exponential backoff:
@@ -225,6 +235,17 @@ SseServerEventsClient: SSE reconnect in 10000ms (attempt=2)
 
 Delay starts at 5 s and doubles per attempt, capping at 5 min. This is expected when the
 device is offline or the backend endpoint is down.
+
+**Backoff reset — stability-threshold guard**
+
+The backoff counter resets only when a connection is closed or fails *after* being alive for at
+least 10 s (`STABLE_CONNECTION_RESET_DELAY_MS`). If the connection drops within 10 s of opening
+(including after receiving events), the counter is not reset and the next reconnect uses the
+next backoff delay. This prevents a tight reconnect loop when a degraded server connects, sends
+events, and immediately drops the connection.
+
+Receiving a `servers-changed` event does **not** reset the backoff counter (changed in SUB-03).
+Only `onClosed` / `onFailure` with a stable-connection elapsed time ≥ 10 s resets it.
 
 **References**
 
