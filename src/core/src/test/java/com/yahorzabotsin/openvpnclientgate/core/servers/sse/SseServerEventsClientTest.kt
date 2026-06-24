@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -408,13 +409,15 @@ class SseServerEventsClientTest {
 
         try {
             client.start()
-            server.takeRequest(5, TimeUnit.SECONDS) // wait for first connection to be handled
-            Thread.sleep(500) // let onEvent and onClosed fire
-            // backoff counter must still be > 0 because onEvent no longer resets it;
-            // only a stable connection (elapsed >= STABLE_CONNECTION_RESET_DELAY_MS) may reset it
-            assertTrue(
-                "backoff counter must not be reset by a servers-changed event on a short-lived connection",
-                client.reconnectAttempt.get() > 0
+            val firstRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("First SSE connection must be established", firstRequest)
+            // If the backoff counter were incorrectly reset by onEvent, the client would
+            // reconnect immediately (attempt=0 → no delay). With backoff intact, attempt=1
+            // gives INITIAL_BACKOFF_MS=5s, so no second request arrives within 2 seconds.
+            val secondRequest = server.takeRequest(2, TimeUnit.SECONDS)
+            assertNull(
+                "Second reconnect must not be immediate — backoff counter must not be reset by servers-changed on a short-lived connection",
+                secondRequest
             )
         } finally {
             client.stop()
