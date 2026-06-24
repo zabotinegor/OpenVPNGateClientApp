@@ -1,6 +1,4 @@
-$lines = @()
-while ($null -ne ($line = [Console]::In.ReadLine())) { $lines += $line }
-$json = $lines -join "`n"
+$json = [Console]::In.ReadToEnd()
 
 try {
     $obj = $json | ConvertFrom-Json
