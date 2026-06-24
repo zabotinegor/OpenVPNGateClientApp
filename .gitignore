@@ -115,7 +115,9 @@ artifacts
 
 
 
-
+# Synced governance docs (outside sync-scope, tracked separately)
+/.github/AGENTS-REGISTRY.md
+/.github/FRONTMATTER-SCHEMA.md
 
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
@@ -155,6 +157,7 @@ artifacts
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-master-plan.ps1
 /.github/scripts/invoke-story-flow.ps1
+/.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/update-master-plan-status.ps1
 /.github/scripts/update-sdlc-status.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
@@ -187,6 +190,8 @@ artifacts
 /.github/skills/github-review-comments/SKILL.md
 /.github/skills/master-plan/SKILL.md
 /.github/skills/scope-quality-gate/SKILL.md
+/.github/skills/shared/protected-branches.md
+/.github/skills/shared/sdlc-report-contract.md
 /.github/skills/shared/sdlc-shared-flow-patterns.md
 /.github/skills/shared/sdlc-status-gate.md
 /.github/skills/update-engine/references/engine-update-checklist.md

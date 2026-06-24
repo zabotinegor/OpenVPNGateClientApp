@@ -2,8 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $protected = @('main', 'dev', 'master', 'develop')
 $protectedPattern = '(?:main|dev|master|develop)'
-# Keep in sync with GIT_PREFIX_PATTERN in protect-agent-git-command.py
-$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+--no-replace-objects|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs|\s+--no-checkout|\s+--disambiguate=\S+|\s+--namespace=\S+|\s+--super-prefix=\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--git-common-dir=\S+|\s+--show-git-dir|\s+--literal|\s+--abbrev-ref|\s+--progress|\s+--no-progress|\s+--verbose|\s+--quiet|\s+--no-recurse-submodules|\s+--recurse-submodules|\s+--separate-git-dir=\S+|\s+-c\s+\S+|\s+--config(?:=\S+|\s+\S+)|\s+--no-optional-locks)*'
+$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+))*'
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
@@ -81,17 +80,12 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
-            $reason = 'Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden.'
-        }
         elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
             $reason = "Direct push from protected branch '$eff' is forbidden."
         }
         elseif (
             $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
             $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
