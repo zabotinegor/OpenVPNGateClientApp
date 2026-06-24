@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -211,9 +212,10 @@ class SseServerEventsClientTest {
     }
 
     @Test
-    fun `unrecognized event type does not trigger sync`() {
+    fun `unrecognized event type does not trigger sync beyond onOpen`() {
         val server = MockWebServer()
-        var syncCalled = false
+        val syncCallCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val firstSyncLatch = CountDownLatch(1)
 
         val fakeCoordinator = object : ServerSelectionSyncCoordinator {
             override suspend fun sync(
@@ -221,7 +223,8 @@ class SseServerEventsClientTest {
                 cacheOnly: Boolean,
                 clearCacheBeforeRefresh: Boolean
             ): List<Server> {
-                syncCalled = true
+                syncCallCount.incrementAndGet()
+                firstSyncLatch.countDown()
                 return emptyList()
             }
 
@@ -231,13 +234,11 @@ class SseServerEventsClientTest {
             ) = Unit
         }
 
-        // Send an unrecognized event type; connection then closes normally
         val sseBody = buildString {
             append("event: unknown-event\n")
             append("data: test\n")
             append("\n")
         }
-        // Enqueue a second response that hangs so the client stays connected briefly
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -261,9 +262,14 @@ class SseServerEventsClientTest {
 
         try {
             client.start()
-            // Give the client time to connect and process the single event
-            Thread.sleep(1_500)
-            assertFalse("sync should NOT be called for unknown event type", syncCalled)
+            // Wait for the onOpen sync (always fires once on connect), then check no second call
+            val openSyncFired = firstSyncLatch.await(5, TimeUnit.SECONDS)
+            assertTrue("onOpen sync must fire on connection open", openSyncFired)
+            Thread.sleep(500) // let any spurious event-triggered sync surface
+            assertEquals(
+                "unknown event must not trigger a second sync beyond the onOpen sync",
+                1, syncCallCount.get()
+            )
         } finally {
             client.stop()
             server.shutdown()
@@ -310,6 +316,114 @@ class SseServerEventsClientTest {
     }
 
     // ── Fix validations ──────────────────────────────────────────────────────
+
+    @Test
+    fun `onOpen triggers sync coordinator on connection open without waiting for events`() {
+        val server = MockWebServer()
+        val syncLatch = CountDownLatch(1)
+        var syncCalled = false
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCalled = true
+                syncLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // HTTP 200 with a keepalive comment — no servers-changed event
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url }
+        )
+
+        try {
+            client.start()
+            val received = syncLatch.await(10, TimeUnit.SECONDS)
+            assertTrue("sync must be called from onOpen without waiting for a servers-changed event", received)
+            assertTrue(syncCalled)
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `servers-changed event on short-lived connection does not reset backoff counter`() {
+        val server = MockWebServer()
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> = emptyList()
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // servers-changed event followed by immediate close (elapsed << STABLE_CONNECTION_RESET_DELAY_MS)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("event: servers-changed\ndata: {}\n\n")
+        )
+        // Second response for the reconnect attempt
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url }
+        )
+
+        try {
+            client.start()
+            val firstRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("First SSE connection must be established", firstRequest)
+            // If the backoff counter were incorrectly reset by onEvent, the client would
+            // reconnect immediately (attempt=0 → no delay). With backoff intact, attempt=1
+            // gives INITIAL_BACKOFF_MS=5s, so no second request arrives within 2 seconds.
+            val secondRequest = server.takeRequest(2, TimeUnit.SECONDS)
+            assertNull(
+                "Second reconnect must not be immediate — backoff counter must not be reset by servers-changed on a short-lived connection",
+                secondRequest
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
 
     @Test
     fun `CancellationException from sync is not swallowed as a warning`() {

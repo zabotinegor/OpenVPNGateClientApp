@@ -2,8 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $protected = @('main', 'dev', 'master', 'develop')
 $protectedPattern = '(?:main|dev|master|develop)'
-# Keep in sync with GIT_PREFIX_PATTERN in protect-agent-git-command.py
-$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+--no-replace-objects|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs|\s+--no-checkout|\s+--disambiguate=\S+|\s+--namespace=\S+|\s+--super-prefix=\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--git-common-dir=\S+|\s+--show-git-dir|\s+--literal|\s+--abbrev-ref|\s+--progress|\s+--no-progress|\s+--verbose|\s+--quiet|\s+--no-recurse-submodules|\s+--recurse-submodules|\s+--separate-git-dir=\S+|\s+-c\s+\S+|\s+--config(?:=\S+|\s+\S+)|\s+--no-optional-locks)*'
+$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--namespace=\S+|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*'
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
