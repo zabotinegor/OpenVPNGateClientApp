@@ -216,12 +216,14 @@ SseServerEventsClient: SSE event received: type='servers-changed' id='...'
 SseServerEventsClient: servers-changed event received; triggering server re-fetch
 ```
 
-Followed shortly by `ServersV2SyncCoordinator` / `fetchAllPages` log lines confirming the
-server list was refreshed from the network.
+The event is emitted to an internal `MutableSharedFlow` with `debounce(500 ms)` (added in
+SUB-04). This means `ServersV2SyncCoordinator` / `fetchAllPages` log lines appear at least
+500 ms after the last `servers-changed` log line — not immediately. If the backend sends a
+burst of events, they collapse into a single sync call after the debounce window closes.
 
 Note: if the app just reconnected (e.g., foreground return), the `onOpen` sync (Step 2 above)
-fires first. The `servers-changed` path is a second, independent trigger. Both call
-`syncCoordinator.sync(forceRefresh=true, cacheOnly=false)`.
+fires first (no debounce — direct call). The `servers-changed` path is a second, independent
+trigger. Both call `syncCoordinator.sync(forceRefresh=true, cacheOnly=false)`.
 
 **Diagnosing backoff**
 
