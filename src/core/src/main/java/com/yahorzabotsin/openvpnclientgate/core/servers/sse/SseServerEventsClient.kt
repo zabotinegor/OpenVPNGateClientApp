@@ -151,6 +151,15 @@ class SseServerEventsClient(
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
                 openedAt.set(System.nanoTime())
+                clientScope?.launch {
+                    try {
+                        syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        AppLog.w(tag, "Server sync on SSE reconnect failed", e)
+                    }
+                }
             }
 
             override fun onEvent(
@@ -159,7 +168,6 @@ class SseServerEventsClient(
                 type: String?,
                 data: String
             ) {
-                reconnectAttempt.set(0) // reset backoff only when a live event arrives
                 val eventType = type ?: ""
                 AppLog.d(tag, "SSE event received: type='$eventType' id='$id'")
                 if (eventType == EVENT_SERVERS_CHANGED) {
