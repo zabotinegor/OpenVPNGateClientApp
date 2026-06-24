@@ -13,9 +13,13 @@ if ([string]::IsNullOrWhiteSpace($cmd)) { exit 0 }
 
 $isPush  = $cmd -match 'git\s+push'
 $isForce = $cmd -match '(?:--force(?:-with-lease)?|-f\b)'
-# Exact token match: split on whitespace and check for bare "main", avoiding
-# false positives from branch names like "feature/main-reconnect".
-$isMain  = ($cmd -split '\s+') -contains 'main'
+# Refspec-aware check: catches bare "main", "HEAD:main", and "refs/heads/main"
+# while avoiding false positives on hierarchical names like "feature/main-reconnect".
+$isMain = $false
+foreach ($token in ($cmd -split '\s+')) {
+    $dest = if ($token -like '*:*') { ($token -split ':')[-1] } else { $token }
+    if (@('main', 'refs/heads/main') -contains $dest) { $isMain = $true; break }
+}
 
 if ($isPush) {
     if ($isMain) {
