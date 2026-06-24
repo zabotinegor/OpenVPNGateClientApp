@@ -114,11 +114,6 @@ artifacts
 
 
 
-
-# Synced governance docs (outside sync-scope, tracked separately)
-/.github/AGENTS-REGISTRY.md
-/.github/FRONTMATTER-SCHEMA.md
-
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
