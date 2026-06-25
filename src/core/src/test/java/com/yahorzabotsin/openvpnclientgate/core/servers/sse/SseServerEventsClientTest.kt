@@ -6,7 +6,6 @@ import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -150,6 +149,19 @@ class SseServerEventsClientTest {
         assertEquals(0, client.reconnectAttempt.get())
     }
 
+    @Test
+    fun `stop resets URL index and failure count to zero`() {
+        val client = buildClient()
+        client.start()
+        client.currentUrlIndex.set(1)
+        client.failuresOnCurrentUrl.set(2)
+
+        client.stop()
+
+        assertEquals(0, client.currentUrlIndex.get())
+        assertEquals(0, client.failuresOnCurrentUrl.get())
+    }
+
     // ── SSE event integration via MockWebServer ───────────────────────────────
 
     @Test
@@ -197,7 +209,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -257,7 +269,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -300,7 +312,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { "http://127.0.0.1:19999/api/v1/servers/events" }
+            sseUrlsProvider = { listOf("http://127.0.0.1:19999/api/v1/servers/events") }
         )
 
         // The client should start without throwing, handle the connection failure
@@ -354,7 +366,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -404,7 +416,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -473,7 +485,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -522,7 +534,7 @@ class SseServerEventsClientTest {
                     ) = Unit
                 }
             },
-            sseUrlProvider = { "this is not a valid url" }
+            sseUrlsProvider = { listOf("this is not a valid url") }
         )
 
         try {
@@ -577,7 +589,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url },
+            sseUrlsProvider = { listOf(url) },
             stableConnectionResetDelayMs = 50L // short threshold for testing
         )
 
@@ -638,7 +650,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -697,7 +709,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url },
+            sseUrlsProvider = { listOf(url) },
             debounceMs = 100L
         )
 
@@ -755,7 +767,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url },
+            sseUrlsProvider = { listOf(url) },
             debounceMs = 100L
         )
 
@@ -767,6 +779,143 @@ class SseServerEventsClientTest {
                 "Isolated servers-changed event must trigger exactly 1 debounced sync (plus onOpen); " +
                     "only ${syncCount.get()} sync(s) received within timeout",
                 bothFired
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    // ── Fallback URL rotation (AC-1 / AC-5) ─────────────────────────────────
+
+    @Test
+    fun `primary URL failure switches to fallback after threshold`() {
+        val primaryServer = MockWebServer()
+        val fallbackServer = MockWebServer()
+        val syncLatch = CountDownLatch(1)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // Primary always fails immediately (503 triggers onFailure)
+        primaryServer.enqueue(MockResponse().setResponseCode(503))
+
+        // Fallback responds with a valid SSE stream → onOpen fires → sync is called
+        fallbackServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+
+        primaryServer.start()
+        fallbackServer.start()
+
+        val primaryUrl = primaryServer.url("/api/v1/servers/events").toString()
+        val fallbackUrl = fallbackServer.url("/api/v1/servers/events").toString()
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(primaryUrl, fallbackUrl) },
+            urlFailureThreshold = 1 // switch after the very first failure for a fast test
+        )
+
+        try {
+            client.start()
+            // After 1 primary failure the client advances to the fallback URL.
+            // reconnectAttempt is NOT reset, so the loop backs off before the fallback attempt.
+            // The 10-second timeout accommodates the initial 5-second backoff + network latency.
+            val fallbackConnected = syncLatch.await(12, TimeUnit.SECONDS)
+            assertTrue(
+                "sync must be called via fallback URL after primary URL fails",
+                fallbackConnected
+            )
+            // Confirm the fallback server actually received the request
+            val fallbackRequest = fallbackServer.takeRequest(1, TimeUnit.SECONDS)
+            assertNotNull("Fallback server must have received an SSE request", fallbackRequest)
+        } finally {
+            client.stop()
+            primaryServer.shutdown()
+            fallbackServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `successful open resets failure count from non-zero to zero`() {
+        // Use a single URL with urlFailureThreshold=2: the first attempt fails
+        // (failuresOnCurrentUrl rises to 1), the second attempt succeeds.
+        // onOpen must reset failuresOnCurrentUrl from 1 → 0.
+        // This avoids the vacuous-assertion pitfall of the two-URL / threshold=1 approach
+        // where the rotation block already resets the counter before onOpen fires.
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+        server.start()
+
+        val url = server.url("/api/v1/servers/events").toString()
+
+        val openLatch = CountDownLatch(1)
+        val fakeCoordinatorWithLatch = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                openLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinatorWithLatch,
+            sseUrlsProvider = { listOf(url) },
+            urlFailureThreshold = 2
+        )
+
+        try {
+            client.start()
+            // Wait for onOpen on the second attempt (triggers sync → latch)
+            val opened = openLatch.await(15, TimeUnit.SECONDS)
+            assertTrue("Connection must open on second attempt after first 503", opened)
+            Thread.sleep(300)
+            assertEquals(
+                "failuresOnCurrentUrl must be reset to 0 by onOpen",
+                0, client.failuresOnCurrentUrl.get()
             )
         } finally {
             client.stop()
@@ -797,6 +946,61 @@ class SseServerEventsClientTest {
         assertEquals(SseServerEventsClient.DEBOUNCE_MS, client.debounceMs)
     }
 
+    @Test
+    fun `reconnectAttempt is not reset on URL rotation so backoff accumulates during outage`() {
+        // With threshold=1, after the primary fails the URL rotates to the fallback.
+        // reconnectAttempt must NOT be reset so the loop backs off before the fallback attempt,
+        // preventing a tight loop during a complete outage.
+        val primaryServer = MockWebServer()
+        primaryServer.enqueue(MockResponse().setResponseCode(503))
+        primaryServer.start()
+
+        val primaryUrl = primaryServer.url("/api/v1/servers/events").toString()
+        val fallbackUrl = "http://192.0.2.1/sse" // unroutable, never reached in this test
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(forceRefresh: Boolean, cacheOnly: Boolean, clearCacheBeforeRefresh: Boolean) = emptyList<Server>()
+            override suspend fun syncSelectedCountryServersForRelocalization(forceRefresh: Boolean, cacheOnly: Boolean) = Unit
+        }
+
+        val client = SseServerEventsClient(
+            okHttpClient = OkHttpClient.Builder().connectTimeout(1, TimeUnit.SECONDS).readTimeout(1, TimeUnit.SECONDS).build(),
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(primaryUrl, fallbackUrl) },
+            urlFailureThreshold = 1
+        )
+
+        try {
+            client.start()
+            // Wait for URL rotation: poll until currentUrlIndex advances from 0 to 1.
+            val rotationDeadline = System.currentTimeMillis() + 3_000L
+            while (client.currentUrlIndex.get() == 0 && System.currentTimeMillis() < rotationDeadline) {
+                Thread.sleep(50)
+            }
+            assertEquals("URL must have rotated to index 1 after primary failure", 1, client.currentUrlIndex.get())
+            // reconnectAttempt must still be > 0; it was incremented by the loop before the first
+            // connectOnce() call and must not have been reset by the URL rotation.
+            assertTrue(
+                "reconnectAttempt must not be reset on URL rotation; got ${client.reconnectAttempt.get()}",
+                client.reconnectAttempt.get() > 0
+            )
+        } finally {
+            client.stop()
+            primaryServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `URL_FAILURE_THRESHOLD constant is 3`() {
+        assertEquals(3, SseServerEventsClient.URL_FAILURE_THRESHOLD)
+    }
+
+    @Test
+    fun `urlFailureThreshold default matches URL_FAILURE_THRESHOLD constant`() {
+        val client = buildClient()
+        assertEquals(SseServerEventsClient.URL_FAILURE_THRESHOLD, client.urlFailureThreshold)
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun buildClient(): SseServerEventsClient {
@@ -816,7 +1020,7 @@ class SseServerEventsClientTest {
         return SseServerEventsClient(
             okHttpClient = OkHttpClient(),
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { "http://localhost/sse" }
+            sseUrlsProvider = { listOf("http://localhost/sse") }
         )
     }
 }

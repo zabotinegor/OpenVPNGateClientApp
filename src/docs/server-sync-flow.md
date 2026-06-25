@@ -133,12 +133,30 @@ without polling.
 to produce a **per-instance child client** for the SSE connection. The shared singleton `OkHttpClient`
 wired by Koin retains its default read timeout and is not mutated.
 
-### Endpoint derivation
+### Endpoint derivation and URL fallback (SUB-05)
 
-The SSE endpoint URL is derived from `PRIMARY_SERVERS_URL` via `PrimaryDomainRoutes.sseServersEventsUrl()`,
-consistent with all other primary-domain API routes. It is never hardcoded. If the derivation
-returns `null`, the client falls back to `https://openvpnclientgate.local/api/v1/servers/events`
-(a local-only placeholder that will always fail on a real device, keeping behavior safe).
+`SseServerEventsClient` accepts an ordered list of candidate SSE URLs (`sseUrlsProvider`). By
+default this list is built by `defaultSseUrls()`: only `PRIMARY_SERVERS_URL` is used, via
+`PrimaryDomainRoutes.sseServersEventsUrl()`. `FALLBACK_SERVERS_URL` is the VPN Gate CSV URL
+(`https://www.vpngate.net/api/iphone/`) and is not an SSE-capable endpoint, so it is
+intentionally excluded. URLs are never hardcoded. If the primary derivation returns `null`
+(e.g. build property absent), the list falls back to the local placeholder
+`https://openvpnclientgate.local/api/v1/servers/events`, which always fails safely on a real
+device. When the primary SSE endpoint is unreachable, the WorkManager periodic refresh
+(`ServerRefreshWorker`) is the safety net.
+
+After `urlFailureThreshold` (default 3) consecutive failures on the current URL the client
+advances `currentUrlIndex` to the next candidate and resets `failuresOnCurrentUrl` to zero.
+`reconnectAttempt` is intentionally **not** reset on URL rotation: exponential backoff must keep
+accumulating across switches so that a complete outage (all URLs failing) eventually reaches
+`MAX_BACKOFF_MS` (5 min) instead of spinning at the initial delay. The rotation is circular:
+after the last URL the index wraps back to the primary. On a successful `onOpen` the failure
+counter for the active URL is reset to zero.
+
+> **Edge case — `urlFailureThreshold=1`**: Setting the threshold to 1 causes the client to switch
+> URLs on every single failure. The reconnect loop still applies exponential backoff per attempt,
+> so the rotation does not become a tight spin. Values below 1 are rejected at construction time
+> by `require(urlFailureThreshold >= 1)`.
 
 ### Koin wiring
 
