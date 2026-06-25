@@ -1708,17 +1708,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK mean the engine is idle — not actively running.
-        // Exiting foreground on those levels removes the startForeground() safety net that
-        // onCreate() established, re-opening the 5-second FGS timer race window that caused
-        // the RemoteServiceException crash on rapid reconnect (2026-06-25).
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
+        // During a chained auto-switch (reconnectingHint=true) the engine is intentionally stopped
+        // before the next server start, so we must keep the FGS notification alive to avoid
+        // reopening the 5-second FGS timer race window (RemoteServiceException crash, 2026-06-25).
+        // When reconnectingHint=false these idle levels mean no reconnect is pending, so
+        // exitControllerForeground() is safe and removes the stuck "VPN connecting" notification.
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
         // explicitly, so those paths are unaffected.
+        val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
+        val reconnectPending = idleLevel && try { ConnectionStateManager.reconnectingHint.value } catch (_: Exception) { false }
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
             && level != ConnectionStatus.UNKNOWN_LEVEL
-            && level != ConnectionStatus.LEVEL_NOTCONNECTED
-            && level != ConnectionStatus.LEVEL_NONETWORK) {
+            && !reconnectPending) {
             exitControllerForeground()
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
