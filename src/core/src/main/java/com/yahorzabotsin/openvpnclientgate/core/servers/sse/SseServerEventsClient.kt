@@ -36,20 +36,33 @@ import kotlin.math.pow
  *
  * The connection starts when the app enters the foreground and stops gracefully when it goes
  * to the background. On network errors or non-2xx responses the client silently backs off
- * with exponential backoff (initial 5 s, max 5 min). The existing WorkManager periodic
- * refresh ([ServerSelectionSyncCoordinator] via [ServerRefreshWorker]) is left untouched.
+ * with exponential backoff (initial 5 s, max 5 min). After [urlFailureThreshold] consecutive
+ * failures on the current URL the client cycles to the next candidate (primary → fallback →
+ * … → back to primary). The existing WorkManager periodic refresh
+ * ([ServerSelectionSyncCoordinator] via [ServerRefreshWorker]) is left untouched.
  */
 class SseServerEventsClient(
     private val okHttpClient: OkHttpClient,
     private val syncCoordinator: ServerSelectionSyncCoordinator,
-    sseUrlProvider: () -> String = { defaultSseUrl() },
+    sseUrlsProvider: () -> List<String> = { defaultSseUrls() },
     internal val stableConnectionResetDelayMs: Long = STABLE_CONNECTION_RESET_DELAY_MS,
-    internal val debounceMs: Long = DEBOUNCE_MS
+    internal val debounceMs: Long = DEBOUNCE_MS,
+    internal val urlFailureThreshold: Int = URL_FAILURE_THRESHOLD
 ) : DefaultLifecycleObserver {
 
     private val tag = LogTags.APP + ":SseServerEventsClient"
 
-    private val sseUrl: String by lazy { sseUrlProvider() }
+    private val sseUrls: List<String> by lazy { sseUrlsProvider() }
+
+    // ── URL-rotation state ─────────────────────────────────────────────────────
+
+    /** Index into [sseUrls] for the URL used on the next connection attempt. */
+    internal val currentUrlIndex = AtomicInteger(0)
+
+    /** Consecutive failures against the URL at [currentUrlIndex]; reset on successful open. */
+    internal val failuresOnCurrentUrl = AtomicInteger(0)
+
+    // ── Connection state ───────────────────────────────────────────────────────
 
     /** Coroutine scope for this client; lives while the client is started. */
     @Volatile
@@ -96,7 +109,7 @@ class SseServerEventsClient(
             AppLog.d(tag, "start() called but already running")
             return
         }
-        AppLog.i(tag, "SSE client starting; url=$sseUrl")
+        AppLog.i(tag, "SSE client starting; ${sseUrls.size} candidate url(s)")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         clientScope = scope
         scope.launch { collectSyncTrigger() }
@@ -116,9 +129,16 @@ class SseServerEventsClient(
         clientScope?.cancel()
         clientScope = null
         reconnectAttempt.set(0)
+        currentUrlIndex.set(0)
+        failuresOnCurrentUrl.set(0)
     }
 
     // ── Internal ───────────────────────────────────────────────────────────────
+
+    private fun currentSseUrl(): String {
+        val urls = sseUrls
+        return urls[currentUrlIndex.get() % urls.size]
+    }
 
     private suspend fun runReconnectLoop() {
         while (running.get()) {
@@ -130,9 +150,10 @@ class SseServerEventsClient(
                 if (!running.get()) break
             }
 
-            AppLog.d(tag, "SSE connecting (attempt=$attempt)")
+            val url = currentSseUrl()
+            AppLog.d(tag, "SSE connecting (attempt=$attempt) url=$url")
             try {
-                connectOnce()
+                connectOnce(url)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -147,7 +168,7 @@ class SseServerEventsClient(
      * Opens one EventSource connection and suspends until it closes (either cleanly or on error).
      * Uses a Job + coroutine to bridge the callback-based OkHttp SSE API.
      */
-    private suspend fun connectOnce() {
+    private suspend fun connectOnce(url: String) {
         val connectionDone = Job()
         val openedAt = AtomicLong(-1L)
 
@@ -165,6 +186,7 @@ class SseServerEventsClient(
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
                 openedAt.set(System.nanoTime())
+                failuresOnCurrentUrl.set(0)
                 clientScope?.launch { doSync() }
             }
 
@@ -199,12 +221,21 @@ class SseServerEventsClient(
                     AppLog.d(tag, "SSE connection failure (HTTP $code)")
                 }
                 maybeResetBackoff()
+                val failures = failuresOnCurrentUrl.incrementAndGet()
+                if (failures >= urlFailureThreshold) {
+                    val urls = sseUrls
+                    val nextIndex = (currentUrlIndex.get() + 1) % urls.size
+                    currentUrlIndex.set(nextIndex)
+                    failuresOnCurrentUrl.set(0)
+                    reconnectAttempt.set(0)
+                    AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                }
                 connectionDone.complete()
             }
         }
 
         val request = Request.Builder()
-            .url(sseUrl)
+            .url(url)
             .header("Accept", "text/event-stream")
             .build()
 
@@ -271,14 +302,23 @@ class SseServerEventsClient(
         internal const val MAX_BACKOFF_MS = 5 * 60 * 1_000L // 5 minutes
         internal const val STABLE_CONNECTION_RESET_DELAY_MS = 10_000L
         internal const val DEBOUNCE_MS = 500L
+        internal const val URL_FAILURE_THRESHOLD = 3
 
         /**
-         * Derives the SSE endpoint URL from the same build-property chain used for all other
-         * v1/v2 server endpoints (PRIMARY_SERVERS_URL → fallback).
+         * Returns the ordered list of SSE endpoint URLs derived from the build-property chain
+         * (PRIMARY_SERVERS_URL first, then FALLBACK_SERVERS_URL), mirroring the REST client
+         * fallback pattern.
          */
-        fun defaultSseUrl(): String =
+        fun defaultSseUrls(): List<String> = listOfNotNull(
             com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes.sseServersEventsUrl(
                 ApiConstants.PRIMARY_SERVERS_URL
-            ) ?: "https://openvpnclientgate.local/api/v1/servers/events"
+            ),
+            com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes.sseServersEventsUrl(
+                ApiConstants.FALLBACK_SERVERS_URL
+            )
+        ).ifEmpty { listOf("https://openvpnclientgate.local/api/v1/servers/events") }
+
+        /** Convenience: returns the primary SSE URL (first entry of [defaultSseUrls]). */
+        fun defaultSseUrl(): String = defaultSseUrls().first()
     }
 }
