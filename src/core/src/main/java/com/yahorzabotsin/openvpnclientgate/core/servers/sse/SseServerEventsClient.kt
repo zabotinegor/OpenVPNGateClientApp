@@ -109,10 +109,10 @@ class SseServerEventsClient(
     // ── Public API ─────────────────────────────────────────────────────────────
 
     /** Starts the SSE connection loop. Idempotent. */
-    fun start() {
+    fun start() = synchronized(this) {
         if (!running.compareAndSet(false, true)) {
             AppLog.d(tag, "start() called but already running")
-            return
+            return@synchronized
         }
         require(sseUrls.isNotEmpty()) { "Candidate SSE URLs list must not be empty" }
         AppLog.i(tag, "SSE client starting; ${sseUrls.size} candidate url(s)")
@@ -123,10 +123,10 @@ class SseServerEventsClient(
     }
 
     /** Stops the SSE connection and cancels the reconnect loop. Idempotent. */
-    fun stop() {
+    fun stop() = synchronized(this) {
         if (!running.compareAndSet(true, false)) {
             AppLog.d(tag, "stop() called but not running")
-            return
+            return@synchronized
         }
         AppLog.i(tag, "SSE client stopping")
         cancelActiveEventSource()
@@ -135,10 +135,8 @@ class SseServerEventsClient(
         clientScope?.cancel()
         clientScope = null
         reconnectAttempt.set(0)
-        synchronized(this) {
-            currentUrlIndex.set(0)
-            failuresOnCurrentUrl.set(0)
-        }
+        currentUrlIndex.set(0)
+        failuresOnCurrentUrl.set(0)
     }
 
     // ── Internal ───────────────────────────────────────────────────────────────
