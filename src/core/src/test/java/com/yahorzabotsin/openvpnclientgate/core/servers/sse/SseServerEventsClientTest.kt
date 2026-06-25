@@ -6,11 +6,11 @@ import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -149,6 +149,19 @@ class SseServerEventsClientTest {
         assertEquals(0, client.reconnectAttempt.get())
     }
 
+    @Test
+    fun `stop resets URL index and failure count to zero`() {
+        val client = buildClient()
+        client.start()
+        client.currentUrlIndex.set(1)
+        client.failuresOnCurrentUrl.set(2)
+
+        client.stop()
+
+        assertEquals(0, client.currentUrlIndex.get())
+        assertEquals(0, client.failuresOnCurrentUrl.get())
+    }
+
     // ── SSE event integration via MockWebServer ───────────────────────────────
 
     @Test
@@ -196,7 +209,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -211,9 +224,10 @@ class SseServerEventsClientTest {
     }
 
     @Test
-    fun `unrecognized event type does not trigger sync`() {
+    fun `unrecognized event type does not trigger sync beyond onOpen`() {
         val server = MockWebServer()
-        var syncCalled = false
+        val syncCallCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val firstSyncLatch = CountDownLatch(1)
 
         val fakeCoordinator = object : ServerSelectionSyncCoordinator {
             override suspend fun sync(
@@ -221,7 +235,8 @@ class SseServerEventsClientTest {
                 cacheOnly: Boolean,
                 clearCacheBeforeRefresh: Boolean
             ): List<Server> {
-                syncCalled = true
+                syncCallCount.incrementAndGet()
+                firstSyncLatch.countDown()
                 return emptyList()
             }
 
@@ -231,13 +246,11 @@ class SseServerEventsClientTest {
             ) = Unit
         }
 
-        // Send an unrecognized event type; connection then closes normally
         val sseBody = buildString {
             append("event: unknown-event\n")
             append("data: test\n")
             append("\n")
         }
-        // Enqueue a second response that hangs so the client stays connected briefly
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
@@ -256,14 +269,19 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
             client.start()
-            // Give the client time to connect and process the single event
-            Thread.sleep(1_500)
-            assertFalse("sync should NOT be called for unknown event type", syncCalled)
+            // Wait for the onOpen sync (always fires once on connect), then check no second call
+            val openSyncFired = firstSyncLatch.await(5, TimeUnit.SECONDS)
+            assertTrue("onOpen sync must fire on connection open", openSyncFired)
+            Thread.sleep(500) // let any spurious event-triggered sync surface
+            assertEquals(
+                "unknown event must not trigger a second sync beyond the onOpen sync",
+                1, syncCallCount.get()
+            )
         } finally {
             client.stop()
             server.shutdown()
@@ -294,7 +312,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { "http://127.0.0.1:19999/api/v1/servers/events" }
+            sseUrlsProvider = { listOf("http://127.0.0.1:19999/api/v1/servers/events") }
         )
 
         // The client should start without throwing, handle the connection failure
@@ -310,6 +328,114 @@ class SseServerEventsClientTest {
     }
 
     // ── Fix validations ──────────────────────────────────────────────────────
+
+    @Test
+    fun `onOpen triggers sync coordinator on connection open without waiting for events`() {
+        val server = MockWebServer()
+        val syncLatch = CountDownLatch(1)
+        var syncCalled = false
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCalled = true
+                syncLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // HTTP 200 with a keepalive comment — no servers-changed event
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(url) }
+        )
+
+        try {
+            client.start()
+            val received = syncLatch.await(10, TimeUnit.SECONDS)
+            assertTrue("sync must be called from onOpen without waiting for a servers-changed event", received)
+            assertTrue(syncCalled)
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `servers-changed event on short-lived connection does not reset backoff counter`() {
+        val server = MockWebServer()
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> = emptyList()
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // servers-changed event followed by immediate close (elapsed << STABLE_CONNECTION_RESET_DELAY_MS)
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("event: servers-changed\ndata: {}\n\n")
+        )
+        // Second response for the reconnect attempt
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(url) }
+        )
+
+        try {
+            client.start()
+            val firstRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("First SSE connection must be established", firstRequest)
+            // If the backoff counter were incorrectly reset by onEvent, the client would
+            // reconnect immediately (attempt=0 → no delay). With backoff intact, attempt=1
+            // gives INITIAL_BACKOFF_MS=5s, so no second request arrives within 2 seconds.
+            val secondRequest = server.takeRequest(2, TimeUnit.SECONDS)
+            assertNull(
+                "Second reconnect must not be immediate — backoff counter must not be reset by servers-changed on a short-lived connection",
+                secondRequest
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
 
     @Test
     fun `CancellationException from sync is not swallowed as a warning`() {
@@ -359,7 +485,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -408,7 +534,7 @@ class SseServerEventsClientTest {
                     ) = Unit
                 }
             },
-            sseUrlProvider = { "this is not a valid url" }
+            sseUrlsProvider = { listOf("this is not a valid url") }
         )
 
         try {
@@ -463,7 +589,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url },
+            sseUrlsProvider = { listOf(url) },
             stableConnectionResetDelayMs = 50L // short threshold for testing
         )
 
@@ -524,7 +650,7 @@ class SseServerEventsClientTest {
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { url }
+            sseUrlsProvider = { listOf(url) }
         )
 
         try {
@@ -542,6 +668,261 @@ class SseServerEventsClientTest {
         }
     }
 
+    // ── Debounce collapse (AC-2 / AC-5) ─────────────────────────────────────
+
+    @Test
+    fun `burst of rapid servers-changed events collapses to a single debounced sync call`() {
+        val server = MockWebServer()
+        val syncCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCount.incrementAndGet()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // 20 rapid servers-changed events in a single HTTP response body
+        val eventsBody = buildString {
+            repeat(20) { append("event: servers-changed\ndata: {}\n\n") }
+        }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(eventsBody)
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(url) },
+            debounceMs = 100L
+        )
+
+        try {
+            client.start()
+            // Comfortably after both onOpen sync (immediate) and debounce window (100 ms).
+            // Reconnect backoff is 5 000 ms, so no second onOpen fires within this window.
+            Thread.sleep(1_000)
+            assertEquals(
+                "20 rapid events must collapse to 1 debounced sync; plus 1 onOpen = 2 total",
+                2,
+                syncCount.get()
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `single servers-changed event still triggers sync within debounce window plus network RTT`() {
+        val server = MockWebServer()
+        val syncCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val twoSyncsLatch = CountDownLatch(2)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCount.incrementAndGet()
+                twoSyncsLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val sseBody = "event: servers-changed\ndata: {}\n\n"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody)
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(url) },
+            debounceMs = 100L
+        )
+
+        try {
+            client.start()
+            // Expect 2 syncs: 1 from onOpen (direct) + 1 from the single debounced event.
+            val bothFired = twoSyncsLatch.await(5, TimeUnit.SECONDS)
+            assertTrue(
+                "Isolated servers-changed event must trigger exactly 1 debounced sync (plus onOpen); " +
+                    "only ${syncCount.get()} sync(s) received within timeout",
+                bothFired
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    // ── Fallback URL rotation (AC-1 / AC-5) ─────────────────────────────────
+
+    @Test
+    fun `primary URL failure switches to fallback after threshold`() {
+        val primaryServer = MockWebServer()
+        val fallbackServer = MockWebServer()
+        val syncLatch = CountDownLatch(1)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // Primary always fails immediately (503 triggers onFailure)
+        primaryServer.enqueue(MockResponse().setResponseCode(503))
+
+        // Fallback responds with a valid SSE stream → onOpen fires → sync is called
+        fallbackServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+
+        primaryServer.start()
+        fallbackServer.start()
+
+        val primaryUrl = primaryServer.url("/api/v1/servers/events").toString()
+        val fallbackUrl = fallbackServer.url("/api/v1/servers/events").toString()
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(primaryUrl, fallbackUrl) },
+            urlFailureThreshold = 1 // switch after the very first failure for a fast test
+        )
+
+        try {
+            client.start()
+            // After 1 primary failure the client advances to the fallback URL.
+            // reconnectAttempt is NOT reset, so the loop backs off before the fallback attempt.
+            // The 10-second timeout accommodates the initial 5-second backoff + network latency.
+            val fallbackConnected = syncLatch.await(12, TimeUnit.SECONDS)
+            assertTrue(
+                "sync must be called via fallback URL after primary URL fails",
+                fallbackConnected
+            )
+            // Confirm the fallback server actually received the request
+            val fallbackRequest = fallbackServer.takeRequest(1, TimeUnit.SECONDS)
+            assertNotNull("Fallback server must have received an SSE request", fallbackRequest)
+        } finally {
+            client.stop()
+            primaryServer.shutdown()
+            fallbackServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `successful open resets failure count from non-zero to zero`() {
+        // Use a single URL with urlFailureThreshold=2: the first attempt fails
+        // (failuresOnCurrentUrl rises to 1), the second attempt succeeds.
+        // onOpen must reset failuresOnCurrentUrl from 1 → 0.
+        // This avoids the vacuous-assertion pitfall of the two-URL / threshold=1 approach
+        // where the rotation block already resets the counter before onOpen fires.
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(": keep\n\n")
+        )
+        server.start()
+
+        val url = server.url("/api/v1/servers/events").toString()
+
+        val openLatch = CountDownLatch(1)
+        val fakeCoordinatorWithLatch = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                openLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinatorWithLatch,
+            sseUrlsProvider = { listOf(url) },
+            urlFailureThreshold = 2
+        )
+
+        try {
+            client.start()
+            // Wait for onOpen on the second attempt (triggers sync → latch)
+            val opened = openLatch.await(15, TimeUnit.SECONDS)
+            assertTrue("Connection must open on second attempt after first 503", opened)
+            Thread.sleep(300)
+            assertEquals(
+                "failuresOnCurrentUrl must be reset to 0 by onOpen",
+                0, client.failuresOnCurrentUrl.get()
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
     // ── Constant sanity checks ───────────────────────────────────────────────
 
     @Test
@@ -552,6 +933,72 @@ class SseServerEventsClientTest {
     @Test
     fun `INITIAL_BACKOFF_MS is 5 seconds`() {
         assertEquals(5_000L, SseServerEventsClient.INITIAL_BACKOFF_MS)
+    }
+
+    @Test
+    fun `DEBOUNCE_MS constant is 500 milliseconds`() {
+        assertEquals(500L, SseServerEventsClient.DEBOUNCE_MS)
+    }
+
+    @Test
+    fun `debounceMs default matches DEBOUNCE_MS constant`() {
+        val client = buildClient()
+        assertEquals(SseServerEventsClient.DEBOUNCE_MS, client.debounceMs)
+    }
+
+    @Test
+    fun `reconnectAttempt is not reset on URL rotation so backoff accumulates during outage`() {
+        // With threshold=1, after the primary fails the URL rotates to the fallback.
+        // reconnectAttempt must NOT be reset so the loop backs off before the fallback attempt,
+        // preventing a tight loop during a complete outage.
+        val primaryServer = MockWebServer()
+        primaryServer.enqueue(MockResponse().setResponseCode(503))
+        primaryServer.start()
+
+        val primaryUrl = primaryServer.url("/api/v1/servers/events").toString()
+        val fallbackUrl = "http://192.0.2.1/sse" // unroutable, never reached in this test
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(forceRefresh: Boolean, cacheOnly: Boolean, clearCacheBeforeRefresh: Boolean) = emptyList<Server>()
+            override suspend fun syncSelectedCountryServersForRelocalization(forceRefresh: Boolean, cacheOnly: Boolean) = Unit
+        }
+
+        val client = SseServerEventsClient(
+            okHttpClient = OkHttpClient.Builder().connectTimeout(1, TimeUnit.SECONDS).readTimeout(1, TimeUnit.SECONDS).build(),
+            syncCoordinator = fakeCoordinator,
+            sseUrlsProvider = { listOf(primaryUrl, fallbackUrl) },
+            urlFailureThreshold = 1
+        )
+
+        try {
+            client.start()
+            // Wait for URL rotation: poll until currentUrlIndex advances from 0 to 1.
+            val rotationDeadline = System.currentTimeMillis() + 3_000L
+            while (client.currentUrlIndex.get() == 0 && System.currentTimeMillis() < rotationDeadline) {
+                Thread.sleep(50)
+            }
+            assertEquals("URL must have rotated to index 1 after primary failure", 1, client.currentUrlIndex.get())
+            // reconnectAttempt must still be > 0; it was incremented by the loop before the first
+            // connectOnce() call and must not have been reset by the URL rotation.
+            assertTrue(
+                "reconnectAttempt must not be reset on URL rotation; got ${client.reconnectAttempt.get()}",
+                client.reconnectAttempt.get() > 0
+            )
+        } finally {
+            client.stop()
+            primaryServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `URL_FAILURE_THRESHOLD constant is 3`() {
+        assertEquals(3, SseServerEventsClient.URL_FAILURE_THRESHOLD)
+    }
+
+    @Test
+    fun `urlFailureThreshold default matches URL_FAILURE_THRESHOLD constant`() {
+        val client = buildClient()
+        assertEquals(SseServerEventsClient.URL_FAILURE_THRESHOLD, client.urlFailureThreshold)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -573,7 +1020,7 @@ class SseServerEventsClientTest {
         return SseServerEventsClient(
             okHttpClient = OkHttpClient(),
             syncCoordinator = fakeCoordinator,
-            sseUrlProvider = { "http://localhost/sse" }
+            sseUrlsProvider = { listOf("http://localhost/sse") }
         )
     }
 }

@@ -28,7 +28,8 @@ The coordinator owns this flow:
 | Main foreground entry (`onStart`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` -> `MainViewModel` | `forceRefresh=false`, debounced, `cacheOnly=feature-flag dependent` |
 | Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)` |
 | Periodic background refresh | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false` |
-| SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately when the backend pushes a `servers-changed` SSE event. |
+| SSE connection open (`onOpen`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately on every successful SSE connection open — covers foreground returns, network reconnects, and initial launch. Added in SUB-03 (SSE reconnect correctness). |
+| SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires when the backend pushes a `servers-changed` SSE event. Events are routed through a `MutableSharedFlow` with `debounce(500 ms)` so a burst of N rapid events collapses into a single sync call (added in SUB-04). Independent of the `onOpen` sync; both may fire in rapid succession on reconnect followed by an immediate push. |
 | Background UI update (via signal) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` init + `onStoreVersionChanged()` | Cache-only load after `SelectedCountryVersionSignal.version` bump; no network sync |
 | Server source switch in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=true` |
 | Custom server URL update in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=false` |
@@ -117,7 +118,11 @@ without polling.
   begins; on `onStop` it is cancelled gracefully. The client is therefore active only while the
   app is in the foreground.
 - **Backoff**: On network error or non-2xx response the client retries with exponential backoff
-  starting at 5 s and capping at 5 min. A successful `onOpen` resets the backoff counter.
+  starting at 5 s and capping at 5 min. The backoff counter is reset **only** in `onClosed` /
+  `onFailure` via `maybeResetBackoff()`, which applies a stability-threshold guard: the counter
+  is reset only when the connection was alive for at least `STABLE_CONNECTION_RESET_DELAY_MS`
+  (10 s). Receiving an `onEvent` callback does **not** reset the counter (changed in SUB-03 to
+  prevent a hot-reconnect loop when a degraded server sends events then drops the connection).
 - **Coexistence**: The SSE path and the WorkManager periodic refresh (`ServerRefreshWorker`) are
   independent. The periodic refresh continues on its own schedule; SSE provides an additional
   faster trigger.
@@ -128,12 +133,30 @@ without polling.
 to produce a **per-instance child client** for the SSE connection. The shared singleton `OkHttpClient`
 wired by Koin retains its default read timeout and is not mutated.
 
-### Endpoint derivation
+### Endpoint derivation and URL fallback (SUB-05)
 
-The SSE endpoint URL is derived from `PRIMARY_SERVERS_URL` via `PrimaryDomainRoutes.sseServersEventsUrl()`,
-consistent with all other primary-domain API routes. It is never hardcoded. If the derivation
-returns `null`, the client falls back to `https://openvpnclientgate.local/api/v1/servers/events`
-(a local-only placeholder that will always fail on a real device, keeping behavior safe).
+`SseServerEventsClient` accepts an ordered list of candidate SSE URLs (`sseUrlsProvider`). By
+default this list is built by `defaultSseUrls()`: only `PRIMARY_SERVERS_URL` is used, via
+`PrimaryDomainRoutes.sseServersEventsUrl()`. `FALLBACK_SERVERS_URL` is the VPN Gate CSV URL
+(`https://www.vpngate.net/api/iphone/`) and is not an SSE-capable endpoint, so it is
+intentionally excluded. URLs are never hardcoded. If the primary derivation returns `null`
+(e.g. build property absent), the list falls back to the local placeholder
+`https://openvpnclientgate.local/api/v1/servers/events`, which always fails safely on a real
+device. When the primary SSE endpoint is unreachable, the WorkManager periodic refresh
+(`ServerRefreshWorker`) is the safety net.
+
+After `urlFailureThreshold` (default 3) consecutive failures on the current URL the client
+advances `currentUrlIndex` to the next candidate and resets `failuresOnCurrentUrl` to zero.
+`reconnectAttempt` is intentionally **not** reset on URL rotation: exponential backoff must keep
+accumulating across switches so that a complete outage (all URLs failing) eventually reaches
+`MAX_BACKOFF_MS` (5 min) instead of spinning at the initial delay. The rotation is circular:
+after the last URL the index wraps back to the primary. On a successful `onOpen` the failure
+counter for the active URL is reset to zero.
+
+> **Edge case — `urlFailureThreshold=1`**: Setting the threshold to 1 causes the client to switch
+> URLs on every single failure. The reconnect loop still applies exponential backoff per attempt,
+> so the rotation does not become a tight spin. Values below 1 are rejected at construction time
+> by `require(urlFailureThreshold >= 1)`.
 
 ### Koin wiring
 
