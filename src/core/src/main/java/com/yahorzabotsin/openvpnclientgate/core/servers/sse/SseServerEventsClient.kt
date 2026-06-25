@@ -230,7 +230,8 @@ class SseServerEventsClient(
                     val urls = sseUrls
                     val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
                     failuresOnCurrentUrl.set(0)
-                    reconnectAttempt.set(0)
+                    // Intentionally do NOT reset reconnectAttempt here: backoff must keep growing
+                    // across URL switches so a complete outage eventually reaches MAX_BACKOFF_MS.
                     AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
                 }
                 connectionDone.complete()
