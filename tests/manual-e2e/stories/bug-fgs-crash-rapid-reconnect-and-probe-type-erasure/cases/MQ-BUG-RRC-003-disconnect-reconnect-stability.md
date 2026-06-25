@@ -5,7 +5,7 @@ AC-5: No regression on normal connect / disconnect / reconnect
 
 ## Setup
 1. VPN connected (run MQ-BUG-RRC-002 first)
-2. Clear logcat: `adb -s R58N849XQEY shell logcat -c`
+2. Clear logcat: `adb -s <your-device-serial> shell logcat -c`
 
 ## Steps
 1. Tap "ОСТАНОВИТЬ ПОДКЛЮЧЕНИЕ"
@@ -19,7 +19,7 @@ AC-5: No regression on normal connect / disconnect / reconnect
 - On reconnect: `ACTION_START` followed by `Engine level=LEVEL_CONNECTED`
 - No `RemoteServiceException`
 
-## Result (2026-06-25, R58N849XQEY)
+## Result (2026-06-25, <your-device-serial>)
 PASS
 
 ## Evidence

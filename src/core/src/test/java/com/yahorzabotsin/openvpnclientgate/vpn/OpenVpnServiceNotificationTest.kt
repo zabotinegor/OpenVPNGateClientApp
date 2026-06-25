@@ -155,6 +155,42 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for Round 6 Thread 1 (PRRT_kwDOONeEXM6MYCVc):
+    // syncEngineState() must clear userInitiatedStart when LEVEL_CONNECTED arrives via the AIDL
+    // path. Without this, a server-drop disconnect after a successful connect leaves
+    // userInitiatedStart=true, causing the FGS guard to hold "VPN connecting" indefinitely.
+    // We invoke syncEngineState() directly via reflection to test the AIDL path in isolation,
+    // bypassing the suppressEngineState guard which only affects the VPN_STATUS path.
+    @Test
+    fun syncEngineState_clearsUserInitiatedStart_onLevelConnected() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+
+        // Simulate a user-initiated connect that set userInitiatedStart=true
+        val userInitiatedStartField = OpenVpnService::class.java.getDeclaredField("userInitiatedStart")
+        userInitiatedStartField.isAccessible = true
+        userInitiatedStartField.setBoolean(service, true)
+
+        // Invoke syncEngineState() directly — this mirrors the AIDL binder thread path
+        // (updateStateString → syncEngineState), bypassing suppressEngineState which belongs
+        // to the VPN_STATUS path only.
+        val syncEngineStateMethod = OpenVpnService::class.java.getDeclaredMethod(
+            "syncEngineState",
+            ConnectionStatus::class.java,
+            String::class.java,
+            Boolean::class.javaPrimitiveType
+        )
+        syncEngineStateMethod.isAccessible = true
+        syncEngineStateMethod.invoke(service, ConnectionStatus.LEVEL_CONNECTED, "CONNECTED", false)
+
+        assertFalse(
+            "userInitiatedStart must be cleared when LEVEL_CONNECTED arrives in syncEngineState; " +
+                "otherwise a subsequent server-drop disconnect leaves the FGS stuck showing " +
+                "'VPN connecting' indefinitely (reconnect guard incorrectly fires)",
+            userInitiatedStartField.getBoolean(service)
+        )
+    }
+
     @Test
     fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)

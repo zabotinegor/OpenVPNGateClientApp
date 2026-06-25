@@ -5,7 +5,7 @@ AC-5: No regression on normal connect
 
 ## Setup
 1. App on MainActivity, status "Отключено"
-2. Clear logcat: `adb -s R58N849XQEY shell logcat -c`
+2. Clear logcat: `adb -s <your-device-serial> shell logcat -c`
 
 ## Steps
 1. Tap "НАЧАТЬ ПОДКЛЮЧЕНИЕ"
@@ -18,7 +18,7 @@ AC-5: No regression on normal connect
 - Traffic counters (СКАЧАНО / ОТПРАВЛЕНО) show non-zero values
 - Watchdog logs `healthy source=traffic trafficDelta=<n>` with n > 0
 
-## Result (2026-06-25, R58N849XQEY)
+## Result (2026-06-25, <your-device-serial>)
 PASS
 
 ## Evidence

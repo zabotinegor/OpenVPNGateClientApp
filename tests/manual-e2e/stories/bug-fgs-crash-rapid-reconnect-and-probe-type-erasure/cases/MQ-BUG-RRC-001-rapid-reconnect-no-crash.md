@@ -6,7 +6,7 @@ AC-2: No `RemoteServiceException` in logcat for `OpenVpnService`
 
 ## Setup
 1. Install debug APK on device
-2. Clear logcat: `adb -s R58N849XQEY shell logcat -c`
+2. Clear logcat: `adb -s <your-device-serial> shell logcat -c`
 3. Launch app and wait for MainActivity
 
 ## Steps
@@ -25,7 +25,7 @@ AC-2: No `RemoteServiceException` in logcat for `OpenVpnService`
 - Zero `RemoteServiceException` in logcat
 - Zero `FATAL EXCEPTION` in logcat
 
-## Result (2026-06-25, R58N849XQEY)
+## Result (2026-06-25, <your-device-serial>)
 PASS
 
 ## Evidence

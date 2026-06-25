@@ -7,7 +7,7 @@ AC-6: Probe is enqueued and succeeds on VPN disconnect
 
 ## Setup
 1. VPN connected
-2. Clear logcat: `adb -s R58N849XQEY shell logcat -c`
+2. Clear logcat: `adb -s <your-device-serial> shell logcat -c`
 
 ## Steps
 1. Tap "ОСТАНОВИТЬ ПОДКЛЮЧЕНИЕ" to disconnect VPN
@@ -21,7 +21,7 @@ AC-6: Probe is enqueued and succeeds on VPN disconnect
 - `WM-WorkerWrapper: Worker result SUCCESS` in logcat
 - Zero `IllegalArgumentException` mentioning "Response must include generic type"
 
-## Result (2026-06-25, R58N849XQEY)
+## Result (2026-06-25, <your-device-serial>)
 PASS
 
 ## Evidence
