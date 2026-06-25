@@ -1717,7 +1717,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
         // explicitly, so those paths are unaffected.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
-        val reconnectPending = idleLevel && try { ConnectionStateManager.reconnectingHint.value } catch (_: Exception) { false }
+        val reconnectPending = idleLevel && ConnectionStateManager.reconnectingHint.value
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
             && level != ConnectionStatus.UNKNOWN_LEVEL

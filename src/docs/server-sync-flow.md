@@ -110,25 +110,39 @@ See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters 
 to call `exitControllerForeground()` — which cancels the `startForeground()` safety net established
 in `onCreate()`.
 
-**Guard condition (as of 2026-06-25 fix):** `exitControllerForeground()` is NOT called for the
-following engine levels:
+**Guard condition (as of 2026-06-25 fix):** `exitControllerForeground()` is NOT called when:
 
-- `LEVEL_START` — connection is being established; foreground must stay active.
-- `UNKNOWN_LEVEL` — engine not yet initialized; foreground must stay active.
-- `LEVEL_NOTCONNECTED` — engine has returned to idle after a disconnect.
-- `LEVEL_NONETWORK` — device has no network.
+- The engine level is `LEVEL_START` — connection is being established; foreground must stay active.
+- The engine level is `UNKNOWN_LEVEL` — engine not yet initialized; foreground must stay active.
+- The engine level is an idle level (`LEVEL_NOTCONNECTED` or `LEVEL_NONETWORK`) **and**
+  `ConnectionStateManager.reconnectingHint.value` is `true` (a chained auto-switch is pending).
 
-The last two (`LEVEL_NOTCONNECTED`, `LEVEL_NONETWORK`) were added to the exclusion list to close
-an FGS timer race on rapid reconnect. Without this guard, receiving an idle level mid-reconnect
-prematurely cancelled `startForeground()`, leaving the Android Activity Manager's 5-second
-foreground-service timeout running. If the user tapped Connect again before the window expired,
-the engine would move back through `LEVEL_START` without a matching `startForeground()` call,
-triggering a `RemoteServiceException` crash.
+In code this is expressed as:
 
-Idle levels (`LEVEL_NOTCONNECTED`, `LEVEL_NONETWORK`) are handled by the explicit `ACTION_STOP`
-path and by the `DISCONNECTED` terminal branch in `ACTION_SYNC_STATUS`. These paths call
-`exitControllerForeground()` only after the engine has fully settled, ensuring the AMS timer
-is never left armed without a matching `startForeground()`.
+```kotlin
+val idleLevel = level == LEVEL_NOTCONNECTED || level == LEVEL_NONETWORK
+val reconnectPending = idleLevel && ConnectionStateManager.reconnectingHint.value
+if (controllerForegroundActive
+    && level != LEVEL_START
+    && level != UNKNOWN_LEVEL
+    && !reconnectPending) {
+    exitControllerForeground()
+}
+```
+
+**Conditional idle-level guard:** `LEVEL_NOTCONNECTED` and `LEVEL_NONETWORK` only skip
+`exitControllerForeground()` when `reconnectingHint=true`. During a chained auto-switch the
+engine is intentionally torn down before the next server is started, so keeping the FGS
+notification alive avoids reopening the Android Activity Manager's 5-second foreground-service
+timer. If the user then reconnects within that window without a matching `startForeground()` call,
+Android throws a `RemoteServiceException` crash.
+
+When `reconnectingHint=false` (no reconnect pending), idle levels cause `exitControllerForeground()`
+to be called normally, removing the stale "VPN connecting" notification.
+
+**`ACTION_STOP` and `ACTION_SYNC_STATUS` are unaffected:** both handlers call
+`exitControllerForeground()` directly and unconditionally on their own paths, so the
+`reconnectingHint` guard does not apply to them.
 
 ## SSE Server-Push Sync (SUB-02)
 
