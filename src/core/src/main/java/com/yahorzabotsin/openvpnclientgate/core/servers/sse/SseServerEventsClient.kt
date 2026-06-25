@@ -226,14 +226,19 @@ class SseServerEventsClient(
                     AppLog.d(tag, "SSE connection failure (HTTP $code)")
                 }
                 maybeResetBackoff()
-                val failures = failuresOnCurrentUrl.incrementAndGet()
-                if (failures >= urlFailureThreshold) {
-                    val urls = sseUrls
-                    val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
-                    failuresOnCurrentUrl.set(0)
-                    // Intentionally do NOT reset reconnectAttempt here: backoff must keep growing
-                    // across URL switches so a complete outage eventually reaches MAX_BACKOFF_MS.
-                    AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                // Guard: stop() sets running=false and then cancels the EventSource, which causes
+                // OkHttp to deliver onFailure on a background thread. Skip failure accounting so
+                // that a deliberate stop does not corrupt currentUrlIndex or failuresOnCurrentUrl.
+                if (running.get()) {
+                    val failures = failuresOnCurrentUrl.incrementAndGet()
+                    if (failures >= urlFailureThreshold) {
+                        val urls = sseUrls
+                        val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
+                        failuresOnCurrentUrl.set(0)
+                        // Intentionally do NOT reset reconnectAttempt here: backoff must keep
+                        // growing across URL switches so an outage eventually reaches MAX_BACKOFF_MS.
+                        AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                    }
                 }
                 connectionDone.complete()
             }

@@ -110,17 +110,17 @@ Server IDs must be non-zero for a probe to be enqueued. A zero ID is silently sk
 adb -s <SERIAL> logcat -d | Select-String "SseServerEventsClient"
 
 # Key log lines
-# "SSE client starting; 2 candidate url(s)"   → multi-URL mode active (primary + fallback)
-# "SSE client starting; 1 candidate url(s)"   → only primary URL resolved
+# "SSE client starting; 1 candidate url(s)"   → normal; default production config has 1 URL (PRIMARY only)
+# "SSE client starting; N candidate url(s)"   → test/custom injection with N URLs
 # "SSE connection opened (HTTP 200)"           → successful connection; failure counter reset
-# "SSE URL exhausted after 3 failure(s); switching to <url>"  → URL rotation triggered
+# "SSE URL exhausted after 3 failure(s); switching to <url>"  → URL rotation triggered (custom multi-URL)
 ```
 
 ### What to look for
 
 | Log signal | Meaning |
 |---|---|
-| `SSE client starting; 2 candidate url(s)` | Both `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` resolved to SSE endpoints |
+| `SSE client starting; 1 candidate url(s)` | Normal production start — only `PRIMARY_SERVERS_URL` is an SSE-capable endpoint |
 | `SSE connection opened (HTTP 200)` | Connection succeeded; `failuresOnCurrentUrl` reset to 0 |
 | `SSE URL exhausted after N failure(s); switching to <url>` | `urlFailureThreshold` (default 3) consecutive failures; rotating to next URL |
 | `SSE reconnect in Xms (attempt=N)` | Exponential backoff between reconnect attempts |
