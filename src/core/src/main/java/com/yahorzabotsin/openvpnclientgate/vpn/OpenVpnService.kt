@@ -138,7 +138,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var aidlLastInBytes: Long = 0L
     private var aidlLastOutBytes: Long = 0L
     private var lastAidlByteUpdateTs: Long = 0L
-    private var controllerForegroundActive = false
+    @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
@@ -1709,15 +1709,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
         // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
-        // During a chained auto-switch (reconnectingHint=true) the engine is intentionally stopped
-        // before the next server start, so we must keep the FGS notification alive to avoid
-        // reopening the 5-second FGS timer race window (RemoteServiceException crash, 2026-06-25).
-        // When reconnectingHint=false these idle levels mean no reconnect is pending, so
-        // exitControllerForeground() is safe and removes the stuck "VPN connecting" notification.
+        // We must NOT exit the FGS notification in two situations:
+        // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
+        //    before the next server start — dropping the notification here reopens the 5-second
+        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
+        // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
+        //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
+        //    on the binder thread; dropping the FGS notification here removes the safety net
+        //    started by ACTION_START and reopens the same 5-second race window.
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
-        // explicitly, so those paths are unaffected.
+        // explicitly, so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
-        val reconnectPending = idleLevel && ConnectionStateManager.reconnectingHint.value
+        val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
             && level != ConnectionStatus.UNKNOWN_LEVEL

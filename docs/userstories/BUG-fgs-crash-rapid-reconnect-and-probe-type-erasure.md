@@ -14,7 +14,7 @@ description: |
 - Source files:
   - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
   - `src/core/consumer-rules.pro`
-- Evidence: `C:\Users\zabot\AppData\Local\Microsoft\Windows\INetCache\IE\MIZVUYVD\logcat_20260625_155649[1].txt`
+- Evidence: logcat_20260625_155649.txt (local logcat capture, not committed)
 - Crash PID: 28271 (recovery PID 6411 — succeeded)
 - Related: Prior fix in commit f7aee57 addressed a similar FGS crash (build 95 → 96); this is a distinct surviving race.
 
