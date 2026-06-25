@@ -113,6 +113,7 @@ class SseServerEventsClient(
             AppLog.d(tag, "start() called but already running")
             return
         }
+        require(sseUrls.isNotEmpty()) { "Candidate SSE URLs list must not be empty" }
         AppLog.i(tag, "SSE client starting; ${sseUrls.size} candidate url(s)")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         clientScope = scope
@@ -309,16 +310,16 @@ class SseServerEventsClient(
         internal const val URL_FAILURE_THRESHOLD = 3
 
         /**
-         * Returns the ordered list of SSE endpoint URLs derived from the build-property chain
-         * (PRIMARY_SERVERS_URL first, then FALLBACK_SERVERS_URL), mirroring the REST client
-         * fallback pattern.
+         * Returns the SSE endpoint URL derived from PRIMARY_SERVERS_URL.
+         *
+         * FALLBACK_SERVERS_URL is the VPN Gate CSV URL (e.g. https://www.vpngate.net/api/iphone/)
+         * and is not an SSE-capable backend, so it is intentionally excluded here. When the
+         * primary SSE endpoint is unreachable the WorkManager periodic refresh acts as the safety
+         * net ([ServerRefreshWorker]).
          */
         fun defaultSseUrls(): List<String> = listOfNotNull(
             com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes.sseServersEventsUrl(
                 ApiConstants.PRIMARY_SERVERS_URL
-            ),
-            com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes.sseServersEventsUrl(
-                ApiConstants.FALLBACK_SERVERS_URL
             )
         ).ifEmpty { listOf("https://openvpnclientgate.local/api/v1/servers/events") }
 

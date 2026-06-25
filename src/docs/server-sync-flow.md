@@ -151,10 +151,10 @@ accumulating across switches so that a complete outage (all URLs failing) eventu
 after the last URL the index wraps back to the primary. On a successful `onOpen` the failure
 counter for the active URL is reset to zero.
 
-> **Edge case — `urlFailureThreshold=0`**: Setting the threshold to 0 would cause `failures >= threshold`
-> to be true on every failure and switch URLs on every attempt. The `SupervisorJob`-based
-> `clientScope` contains this: the reconnect loop still applies exponential backoff per attempt,
-> so the rotation does not become a tight spin. This value is not recommended for production use.
+> **Edge case — `urlFailureThreshold=1`**: Setting the threshold to 1 causes the client to switch
+> URLs on every single failure. The reconnect loop still applies exponential backoff per attempt,
+> so the rotation does not become a tight spin. Values below 1 are rejected at construction time
+> by `require(urlFailureThreshold >= 1)`.
 
 ### Koin wiring
 
