@@ -112,10 +112,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
 
-    // Remember whether start/stop were user-driven vs auto-switch
-    private var userInitiatedStart = false
-    private var userInitiatedStop = false
-    private var ignoreConnectedUntilNotConnected = false
+    // Remember whether start/stop were user-driven vs auto-switch.
+    // @Volatile: written on the main thread (onStartCommand / startUserStopTeardown),
+    // read on the AIDL binder thread (IStatusCallbacks.Stub.updateStateString →
+    // syncEngineState / shouldIgnoreLevelAfterUserStop / handleEngineLevelForStop).
+    // Without @Volatile the JVM may cache stale values in the binder thread's register/cache,
+    // causing the FGS guard or stop-flow checks to act on outdated state.
+    @Volatile private var userInitiatedStart = false
+    @Volatile private var userInitiatedStop = false
+    @Volatile private var ignoreConnectedUntilNotConnected = false
     private var stopRequestId: String? = null
     private var stopStartedAtMs: Long = 0L
     private var stopAttempt: Int = 0

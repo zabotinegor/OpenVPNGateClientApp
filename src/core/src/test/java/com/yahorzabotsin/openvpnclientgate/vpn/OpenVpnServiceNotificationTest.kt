@@ -110,6 +110,51 @@ class OpenVpnServiceNotificationTest {
         private const val TEST_FOREGROUND_NOTIFICATION_ID = 9001
     }
 
+    // Structural tests: verify that fields accessed from both the main thread and the AIDL binder
+    // thread carry the @Volatile annotation so that JVM memory-visibility is guaranteed.
+    // controllerForegroundActive was marked @Volatile in round 4; userInitiatedStart,
+    // userInitiatedStop, and ignoreConnectedUntilNotConnected were marked @Volatile in round 5.
+
+    @Test
+    fun controllerForegroundActive_isVolatile() {
+        val field = OpenVpnService::class.java.getDeclaredField("controllerForegroundActive")
+        assertTrue(
+            "controllerForegroundActive must be @Volatile for cross-thread visibility " +
+                "(main thread writes; AIDL binder thread reads in syncEngineState)",
+            java.lang.reflect.Modifier.isVolatile(field.modifiers)
+        )
+    }
+
+    @Test
+    fun userInitiatedStart_isVolatile() {
+        val field = OpenVpnService::class.java.getDeclaredField("userInitiatedStart")
+        assertTrue(
+            "userInitiatedStart must be @Volatile for cross-thread visibility " +
+                "(main thread writes in ACTION_START; AIDL binder thread reads in syncEngineState)",
+            java.lang.reflect.Modifier.isVolatile(field.modifiers)
+        )
+    }
+
+    @Test
+    fun userInitiatedStop_isVolatile() {
+        val field = OpenVpnService::class.java.getDeclaredField("userInitiatedStop")
+        assertTrue(
+            "userInitiatedStop must be @Volatile for cross-thread visibility " +
+                "(main thread writes; AIDL binder thread reads in handleEngineLevelForStop)",
+            java.lang.reflect.Modifier.isVolatile(field.modifiers)
+        )
+    }
+
+    @Test
+    fun ignoreConnectedUntilNotConnected_isVolatile() {
+        val field = OpenVpnService::class.java.getDeclaredField("ignoreConnectedUntilNotConnected")
+        assertTrue(
+            "ignoreConnectedUntilNotConnected must be @Volatile for cross-thread visibility " +
+                "(main thread writes; AIDL binder thread reads/writes in shouldIgnoreLevelAfterUserStop)",
+            java.lang.reflect.Modifier.isVolatile(field.modifiers)
+        )
+    }
+
     @Test
     fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
