@@ -6,6 +6,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,8 +135,10 @@ class SseServerEventsClient(
         clientScope?.cancel()
         clientScope = null
         reconnectAttempt.set(0)
-        currentUrlIndex.set(0)
-        failuresOnCurrentUrl.set(0)
+        synchronized(this) {
+            currentUrlIndex.set(0)
+            failuresOnCurrentUrl.set(0)
+        }
     }
 
     // ── Internal ───────────────────────────────────────────────────────────────
@@ -174,6 +177,10 @@ class SseServerEventsClient(
      * Uses a Job + coroutine to bridge the callback-based OkHttp SSE API.
      */
     private suspend fun connectOnce(url: String) {
+        // Capture the Job of this specific connection attempt. OkHttp callbacks run on dispatcher
+        // threads outside the coroutine context; checking isActive here lets us ignore callbacks
+        // from stale/cancelled connection attempts without relying solely on the running flag.
+        val connectionJob = coroutineContext[Job]
         val connectionDone = Job()
         val openedAt = AtomicLong(-1L)
 
@@ -189,6 +196,7 @@ class SseServerEventsClient(
 
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
+                if (connectionJob?.isActive != true) return
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
                 openedAt.set(System.nanoTime())
                 failuresOnCurrentUrl.set(0)
@@ -226,18 +234,22 @@ class SseServerEventsClient(
                     AppLog.d(tag, "SSE connection failure (HTTP $code)")
                 }
                 maybeResetBackoff()
-                // Guard: stop() sets running=false and then cancels the EventSource, which causes
-                // OkHttp to deliver onFailure on a background thread. Skip failure accounting so
-                // that a deliberate stop does not corrupt currentUrlIndex or failuresOnCurrentUrl.
-                if (running.get()) {
-                    val failures = failuresOnCurrentUrl.incrementAndGet()
-                    if (failures >= urlFailureThreshold) {
-                        val urls = sseUrls
-                        val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
-                        failuresOnCurrentUrl.set(0)
-                        // Intentionally do NOT reset reconnectAttempt here: backoff must keep
-                        // growing across URL switches so an outage eventually reaches MAX_BACKOFF_MS.
-                        AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                // Double guard: connectionJob.isActive handles cancelled coroutines; the
+                // synchronized+running.get() block closes the race where stop() resets the
+                // counters concurrently with this thread incrementing them.
+                if (connectionJob?.isActive == true) {
+                    synchronized(this@SseServerEventsClient) {
+                        if (running.get()) {
+                            val failures = failuresOnCurrentUrl.incrementAndGet()
+                            if (failures >= urlFailureThreshold) {
+                                val urls = sseUrls
+                                val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
+                                failuresOnCurrentUrl.set(0)
+                                // Intentionally do NOT reset reconnectAttempt here: backoff must keep
+                                // growing across URL switches so an outage eventually reaches MAX_BACKOFF_MS.
+                                AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                            }
+                        }
                     }
                 }
                 connectionDone.complete()
