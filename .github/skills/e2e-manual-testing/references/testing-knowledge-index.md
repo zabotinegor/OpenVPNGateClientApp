@@ -22,7 +22,7 @@ Entry template:
 
 ## Android VPN permission dialog (com.android.vpndialogs)
 
-- Service repo: d:\Apps\OpenVPNClient\OpenVPNClientClientApp
+- Service repo: zabotinegor/OpenVPNGateClientApp
 - Surface: android
 - When to use: First time tapping Connect after fresh install or session restart
 - Reusable workaround/setup: The system shows `com.android.vpndialogs/.ConfirmDialog` which uiautomator
@@ -37,7 +37,7 @@ Entry template:
 
 ## Android POST_NOTIFICATIONS permission (Android 13)
 
-- Service repo: d:\Apps\OpenVPNClient\OpenVPNClientClientApp
+- Service repo: zabotinegor/OpenVPNGateClientApp
 - Surface: android
 - When to use: First tap on Connect button in a fresh install — triggers GrantPermissionsActivity before VPN flow
 - Reusable workaround/setup: Grant via ADB before testing to skip dialog:
