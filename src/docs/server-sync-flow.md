@@ -133,12 +133,26 @@ without polling.
 to produce a **per-instance child client** for the SSE connection. The shared singleton `OkHttpClient`
 wired by Koin retains its default read timeout and is not mutated.
 
-### Endpoint derivation
+### Endpoint derivation and URL fallback (SUB-05)
 
-The SSE endpoint URL is derived from `PRIMARY_SERVERS_URL` via `PrimaryDomainRoutes.sseServersEventsUrl()`,
-consistent with all other primary-domain API routes. It is never hardcoded. If the derivation
-returns `null`, the client falls back to `https://openvpnclientgate.local/api/v1/servers/events`
-(a local-only placeholder that will always fail on a real device, keeping behavior safe).
+`SseServerEventsClient` accepts an ordered list of candidate SSE URLs (`sseUrlsProvider`). By
+default this list is built by `defaultSseUrls()`: the primary SSE URL derived from
+`PRIMARY_SERVERS_URL` via `PrimaryDomainRoutes.sseServersEventsUrl()` comes first, followed by
+the fallback URL derived from `FALLBACK_SERVERS_URL`. URLs are never hardcoded. If both
+derivations return `null` (e.g. build properties absent), the list falls back to the local
+placeholder `https://openvpnclientgate.local/api/v1/servers/events`, which always fails safely
+on a real device.
+
+After `urlFailureThreshold` (default 3) consecutive failures on the current URL the client
+advances `currentUrlIndex` to the next candidate and resets both `failuresOnCurrentUrl` and
+`reconnectAttempt`, so the next attempt starts immediately with fresh backoff. The rotation is
+circular: after the last URL the index wraps back to the primary. On a successful `onOpen` the
+failure counter for the active URL is reset to zero.
+
+> **Edge case — `urlFailureThreshold=0`**: Setting the threshold to 0 would cause `failures >= threshold`
+> to be true on every failure and switch URLs on every attempt. The `SupervisorJob`-based
+> `clientScope` contains this: the reconnect loop still applies exponential backoff per attempt,
+> so the rotation does not become a tight spin. This value is not recommended for production use.
 
 ### Koin wiring
 

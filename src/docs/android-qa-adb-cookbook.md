@@ -98,3 +98,30 @@ Two code paths enqueue a probe:
 2. **Watchdog recovery path** (`OpenVpnService.handleConnectedProbeResult()`): reads `SelectedCountryStore.currentServer(applicationContext)?.id` for the current server and enqueues a probe after the watchdog reconnects.
 
 Server IDs must be non-zero for a probe to be enqueued. A zero ID is silently skipped.
+
+---
+
+## SSE Client Verification (SUB-05)
+
+`SseServerEventsClient` logs under the tag `OpenVPNGateApp:SseServerEventsClient`.
+
+```powershell
+# Confirm SSE client started and how many candidate URLs are configured
+adb -s <SERIAL> logcat -d | Select-String "SseServerEventsClient"
+
+# Key log lines
+# "SSE client starting; 2 candidate url(s)"   → multi-URL mode active (primary + fallback)
+# "SSE client starting; 1 candidate url(s)"   → only primary URL resolved
+# "SSE connection opened (HTTP 200)"           → successful connection; failure counter reset
+# "SSE URL exhausted after 3 failure(s); switching to <url>"  → URL rotation triggered
+```
+
+### What to look for
+
+| Log signal | Meaning |
+|---|---|
+| `SSE client starting; 2 candidate url(s)` | Both `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` resolved to SSE endpoints |
+| `SSE connection opened (HTTP 200)` | Connection succeeded; `failuresOnCurrentUrl` reset to 0 |
+| `SSE URL exhausted after N failure(s); switching to <url>` | `urlFailureThreshold` (default 3) consecutive failures; rotating to next URL |
+| `SSE reconnect in Xms (attempt=N)` | Exponential backoff between reconnect attempts |
+| `servers-changed event received; triggering server re-fetch` | Backend push received; sync will fire after 500 ms debounce |
