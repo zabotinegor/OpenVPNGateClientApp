@@ -863,19 +863,6 @@ class SseServerEventsClientTest {
         val primaryServer = MockWebServer()
         val fallbackServer = MockWebServer()
 
-        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
-            override suspend fun sync(
-                forceRefresh: Boolean,
-                cacheOnly: Boolean,
-                clearCacheBeforeRefresh: Boolean
-            ): List<Server> = emptyList()
-
-            override suspend fun syncSelectedCountryServersForRelocalization(
-                forceRefresh: Boolean,
-                cacheOnly: Boolean
-            ) = Unit
-        }
-
         primaryServer.enqueue(MockResponse().setResponseCode(503))
         // Fallback: HTTP 200, close immediately
         fallbackServer.enqueue(

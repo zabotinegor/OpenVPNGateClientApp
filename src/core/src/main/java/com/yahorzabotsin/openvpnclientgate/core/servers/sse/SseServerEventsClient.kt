@@ -50,6 +50,10 @@ class SseServerEventsClient(
     internal val urlFailureThreshold: Int = URL_FAILURE_THRESHOLD
 ) : DefaultLifecycleObserver {
 
+    init {
+        require(urlFailureThreshold >= 1) { "urlFailureThreshold must be at least 1" }
+    }
+
     private val tag = LogTags.APP + ":SseServerEventsClient"
 
     private val sseUrls: List<String> by lazy { sseUrlsProvider() }
@@ -224,8 +228,7 @@ class SseServerEventsClient(
                 val failures = failuresOnCurrentUrl.incrementAndGet()
                 if (failures >= urlFailureThreshold) {
                     val urls = sseUrls
-                    val nextIndex = (currentUrlIndex.get() + 1) % urls.size
-                    currentUrlIndex.set(nextIndex)
+                    val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
                     failuresOnCurrentUrl.set(0)
                     reconnectAttempt.set(0)
                     AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
