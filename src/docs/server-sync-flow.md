@@ -144,10 +144,12 @@ placeholder `https://openvpnclientgate.local/api/v1/servers/events`, which alway
 on a real device.
 
 After `urlFailureThreshold` (default 3) consecutive failures on the current URL the client
-advances `currentUrlIndex` to the next candidate and resets both `failuresOnCurrentUrl` and
-`reconnectAttempt`, so the next attempt starts immediately with fresh backoff. The rotation is
-circular: after the last URL the index wraps back to the primary. On a successful `onOpen` the
-failure counter for the active URL is reset to zero.
+advances `currentUrlIndex` to the next candidate and resets `failuresOnCurrentUrl` to zero.
+`reconnectAttempt` is intentionally **not** reset on URL rotation: exponential backoff must keep
+accumulating across switches so that a complete outage (all URLs failing) eventually reaches
+`MAX_BACKOFF_MS` (5 min) instead of spinning at the initial delay. The rotation is circular:
+after the last URL the index wraps back to the primary. On a successful `onOpen` the failure
+counter for the active URL is reset to zero.
 
 > **Edge case — `urlFailureThreshold=0`**: Setting the threshold to 0 would cause `failures >= threshold`
 > to be true on every failure and switch URLs on every attempt. The `SupervisorJob`-based

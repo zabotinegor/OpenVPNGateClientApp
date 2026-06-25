@@ -860,24 +860,23 @@ class SseServerEventsClientTest {
     }
 
     @Test
-    fun `successful open on fallback resets failure count to zero`() {
-        val primaryServer = MockWebServer()
-        val fallbackServer = MockWebServer()
-
-        primaryServer.enqueue(MockResponse().setResponseCode(503))
-        // Fallback: HTTP 200, close immediately
-        fallbackServer.enqueue(
+    fun `successful open resets failure count from non-zero to zero`() {
+        // Use a single URL with urlFailureThreshold=2: the first attempt fails
+        // (failuresOnCurrentUrl rises to 1), the second attempt succeeds.
+        // onOpen must reset failuresOnCurrentUrl from 1 → 0.
+        // This avoids the vacuous-assertion pitfall of the two-URL / threshold=1 approach
+        // where the rotation block already resets the counter before onOpen fires.
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(
             MockResponse()
                 .setResponseCode(200)
                 .setHeader("Content-Type", "text/event-stream")
-                .setBody("")
+                .setBody(": keep\n\n")
         )
+        server.start()
 
-        primaryServer.start()
-        fallbackServer.start()
-
-        val primaryUrl = primaryServer.url("/api/v1/servers/events").toString()
-        val fallbackUrl = fallbackServer.url("/api/v1/servers/events").toString()
+        val url = server.url("/api/v1/servers/events").toString()
 
         val openLatch = CountDownLatch(1)
         val fakeCoordinatorWithLatch = object : ServerSelectionSyncCoordinator {
@@ -898,29 +897,29 @@ class SseServerEventsClientTest {
 
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(2, TimeUnit.SECONDS)
-            .readTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
             .build()
 
         val client = SseServerEventsClient(
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinatorWithLatch,
-            sseUrlsProvider = { listOf(primaryUrl, fallbackUrl) },
-            urlFailureThreshold = 1
+            sseUrlsProvider = { listOf(url) },
+            urlFailureThreshold = 2
         )
 
         try {
             client.start()
-            // Wait for fallback open (triggers sync)
-            openLatch.await(10, TimeUnit.SECONDS)
-            Thread.sleep(300) // let onOpen handler fully complete
+            // Wait for onOpen on the second attempt (triggers sync → latch)
+            val opened = openLatch.await(15, TimeUnit.SECONDS)
+            assertTrue("Connection must open on second attempt after first 503", opened)
+            Thread.sleep(300)
             assertEquals(
-                "failuresOnCurrentUrl must be reset to 0 when fallback opens successfully",
+                "failuresOnCurrentUrl must be reset to 0 by onOpen",
                 0, client.failuresOnCurrentUrl.get()
             )
         } finally {
             client.stop()
-            primaryServer.shutdown()
-            fallbackServer.shutdown()
+            server.shutdown()
         }
     }
 
