@@ -656,6 +656,124 @@ class SseServerEventsClientTest {
         }
     }
 
+    // ── Debounce collapse (AC-2 / AC-5) ─────────────────────────────────────
+
+    @Test
+    fun `burst of rapid servers-changed events collapses to a single debounced sync call`() {
+        val server = MockWebServer()
+        val syncCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCount.incrementAndGet()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        // 20 rapid servers-changed events in a single HTTP response body
+        val eventsBody = buildString {
+            repeat(20) { append("event: servers-changed\ndata: {}\n\n") }
+        }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(eventsBody)
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url },
+            debounceMs = 100L
+        )
+
+        try {
+            client.start()
+            // Comfortably after both onOpen sync (immediate) and debounce window (100 ms).
+            // Reconnect backoff is 5 000 ms, so no second onOpen fires within this window.
+            Thread.sleep(1_000)
+            assertEquals(
+                "20 rapid events must collapse to 1 debounced sync; plus 1 onOpen = 2 total",
+                2,
+                syncCount.get()
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `single servers-changed event still triggers sync within debounce window plus network RTT`() {
+        val server = MockWebServer()
+        val syncCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val twoSyncsLatch = CountDownLatch(2)
+
+        val fakeCoordinator = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                syncCount.incrementAndGet()
+                twoSyncsLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val sseBody = "event: servers-changed\ndata: {}\n\n"
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody)
+        )
+
+        server.start()
+        val url = server.url("/api/v1/servers/events").toString()
+        val okHttpClient = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinator,
+            sseUrlProvider = { url },
+            debounceMs = 100L
+        )
+
+        try {
+            client.start()
+            // Expect 2 syncs: 1 from onOpen (direct) + 1 from the single debounced event.
+            val bothFired = twoSyncsLatch.await(5, TimeUnit.SECONDS)
+            assertTrue(
+                "Isolated servers-changed event must trigger exactly 1 debounced sync (plus onOpen); " +
+                    "only ${syncCount.get()} sync(s) received within timeout",
+                bothFired
+            )
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
     // ── Constant sanity checks ───────────────────────────────────────────────
 
     @Test
@@ -666,6 +784,17 @@ class SseServerEventsClientTest {
     @Test
     fun `INITIAL_BACKOFF_MS is 5 seconds`() {
         assertEquals(5_000L, SseServerEventsClient.INITIAL_BACKOFF_MS)
+    }
+
+    @Test
+    fun `DEBOUNCE_MS constant is 500 milliseconds`() {
+        assertEquals(500L, SseServerEventsClient.DEBOUNCE_MS)
+    }
+
+    @Test
+    fun `debounceMs default matches DEBOUNCE_MS constant`() {
+        val client = buildClient()
+        assertEquals(SseServerEventsClient.DEBOUNCE_MS, client.debounceMs)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

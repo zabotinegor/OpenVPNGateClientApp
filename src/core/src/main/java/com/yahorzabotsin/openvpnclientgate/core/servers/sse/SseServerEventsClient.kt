@@ -12,7 +12,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,7 +43,8 @@ class SseServerEventsClient(
     private val okHttpClient: OkHttpClient,
     private val syncCoordinator: ServerSelectionSyncCoordinator,
     sseUrlProvider: () -> String = { defaultSseUrl() },
-    internal val stableConnectionResetDelayMs: Long = STABLE_CONNECTION_RESET_DELAY_MS
+    internal val stableConnectionResetDelayMs: Long = STABLE_CONNECTION_RESET_DELAY_MS,
+    internal val debounceMs: Long = DEBOUNCE_MS
 ) : DefaultLifecycleObserver {
 
     private val tag = LogTags.APP + ":SseServerEventsClient"
@@ -65,6 +69,15 @@ class SseServerEventsClient(
     /** Reconnect attempt counter; reset on a successful open. */
     internal val reconnectAttempt = AtomicInteger(0)
 
+    /**
+     * Receives a Unit each time a `servers-changed` event fires. The collector applies
+     * [debounce] so that rapid-fire bursts collapse into a single [doSync] call.
+     */
+    private val _syncTrigger = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     override fun onStart(owner: LifecycleOwner) {
@@ -86,6 +99,7 @@ class SseServerEventsClient(
         AppLog.i(tag, "SSE client starting; url=$sseUrl")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         clientScope = scope
+        scope.launch { collectSyncTrigger() }
         reconnectJob = scope.launch { runReconnectLoop() }
     }
 
@@ -151,15 +165,7 @@ class SseServerEventsClient(
             override fun onOpen(eventSource: EventSource, response: Response) {
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
                 openedAt.set(System.nanoTime())
-                clientScope?.launch {
-                    try {
-                        syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        AppLog.w(tag, "Server sync on SSE reconnect failed", e)
-                    }
-                }
+                clientScope?.launch { doSync() }
             }
 
             override fun onEvent(
@@ -219,18 +225,27 @@ class SseServerEventsClient(
         }
     }
 
+    /** Collects [_syncTrigger] with debounce and calls [doSync] per collapsed burst. */
+    private suspend fun collectSyncTrigger() {
+        _syncTrigger
+            .debounce(debounceMs)
+            .collect { doSync() }
+    }
+
+    /** Executes a forced server re-fetch; propagates [CancellationException]. */
+    private suspend fun doSync() {
+        try {
+            syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(tag, "Server re-fetch triggered by SSE event failed", e)
+        }
+    }
+
     private fun handleServersChangedEvent() {
         AppLog.i(tag, "servers-changed event received; triggering server re-fetch")
-        // Launch on a new coroutine so we don't block the OkHttp callback thread
-        clientScope?.launch {
-            try {
-                syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                AppLog.w(tag, "Server re-fetch triggered by SSE event failed", e)
-            }
-        }
+        _syncTrigger.tryEmit(Unit)
     }
 
     private fun cancelActiveEventSource() {
@@ -255,6 +270,7 @@ class SseServerEventsClient(
         internal const val INITIAL_BACKOFF_MS = 5_000L
         internal const val MAX_BACKOFF_MS = 5 * 60 * 1_000L // 5 minutes
         internal const val STABLE_CONNECTION_RESET_DELAY_MS = 10_000L
+        internal const val DEBOUNCE_MS = 500L
 
         /**
          * Derives the SSE endpoint URL from the same build-property chain used for all other
