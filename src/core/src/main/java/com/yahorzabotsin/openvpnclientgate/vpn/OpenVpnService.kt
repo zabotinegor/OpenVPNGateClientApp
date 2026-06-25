@@ -1708,7 +1708,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        if (controllerForegroundActive && level != ConnectionStatus.LEVEL_START && level != ConnectionStatus.UNKNOWN_LEVEL) {
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK mean the engine is idle — not actively running.
+        // Exiting foreground on those levels removes the startForeground() safety net that
+        // onCreate() established, re-opening the 5-second FGS timer race window that caused
+        // the RemoteServiceException crash on rapid reconnect (2026-06-25).
+        // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
+        // explicitly, so those paths are unaffected.
+        if (controllerForegroundActive
+            && level != ConnectionStatus.LEVEL_START
+            && level != ConnectionStatus.UNKNOWN_LEVEL
+            && level != ConnectionStatus.LEVEL_NOTCONNECTED
+            && level != ConnectionStatus.LEVEL_NONETWORK) {
             exitControllerForeground()
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return

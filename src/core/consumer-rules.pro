@@ -26,3 +26,9 @@
 -keep class com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 -keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServerV2
 -keep class com.yahorzabotsin.openvpnclientgate.core.servers.ServersPageResponse
+
+# Preserve ProbeApi so R8 cannot strip the Response<Unit> generic signature.
+# -keepattributes Signature alone is insufficient when R8 optimises the interface
+# under allowobfuscation — Retrofit throws "Response must include generic type"
+# at runtime.  (2026-06-25 crash, serverId probes)
+-keep interface com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeApi { *; }

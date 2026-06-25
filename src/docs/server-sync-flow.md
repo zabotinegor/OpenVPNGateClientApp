@@ -104,6 +104,32 @@ In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `L
 
 See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
 
+## Foreground Service Lifecycle Guard in `syncEngineState()`
+
+`OpenVpnService.syncEngineState()` is called on every engine-level callback and decides whether
+to call `exitControllerForeground()` — which cancels the `startForeground()` safety net established
+in `onCreate()`.
+
+**Guard condition (as of 2026-06-25 fix):** `exitControllerForeground()` is NOT called for the
+following engine levels:
+
+- `LEVEL_START` — connection is being established; foreground must stay active.
+- `UNKNOWN_LEVEL` — engine not yet initialized; foreground must stay active.
+- `LEVEL_NOTCONNECTED` — engine has returned to idle after a disconnect.
+- `LEVEL_NONETWORK` — device has no network.
+
+The last two (`LEVEL_NOTCONNECTED`, `LEVEL_NONETWORK`) were added to the exclusion list to close
+an FGS timer race on rapid reconnect. Without this guard, receiving an idle level mid-reconnect
+prematurely cancelled `startForeground()`, leaving the Android Activity Manager's 5-second
+foreground-service timeout running. If the user tapped Connect again before the window expired,
+the engine would move back through `LEVEL_START` without a matching `startForeground()` call,
+triggering a `RemoteServiceException` crash.
+
+Idle levels (`LEVEL_NOTCONNECTED`, `LEVEL_NONETWORK`) are handled by the explicit `ACTION_STOP`
+path and by the `DISCONNECTED` terminal branch in `ACTION_SYNC_STATUS`. These paths call
+`exitControllerForeground()` only after the engine has fully settled, ensuring the AMS timer
+is never left armed without a matching `startForeground()`.
+
 ## SSE Server-Push Sync (SUB-02)
 
 `SseServerEventsClient` opens a persistent HTTP/SSE connection to `GET /api/v1/servers/events`
