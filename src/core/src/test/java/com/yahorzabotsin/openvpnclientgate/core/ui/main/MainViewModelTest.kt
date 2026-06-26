@@ -354,6 +354,41 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `load initial selection does not overwrite pending user selection override`() = runTest {
+        val backgroundSelection = InitialSelection(
+            country = "Germany",
+            city = "Berlin",
+            config = "background-config",
+            countryCode = "DE",
+            ip = "9.9.9.9"
+        )
+        val viewModel = createViewModel(
+            selectionInteractor = FakeMainSelectionInteractor(initialSelection = backgroundSelection)
+        )
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Belarus",
+                    countryCode = "BY",
+                    city = "Minsk",
+                    config = "user-config",
+                    ip = "213.184.224.127"
+                )
+            )
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+
+        viewModel.onAction(MainAction.LoadInitialSelection)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+    }
+
+    @Test
     fun `server menu and successful selection reopens drawer and applies user config`() = runTest {
         val viewModel = createViewModel(connectionState = ConnectionState.CONNECTED)
 

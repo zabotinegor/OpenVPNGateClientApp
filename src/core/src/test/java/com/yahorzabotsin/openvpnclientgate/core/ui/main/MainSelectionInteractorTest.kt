@@ -171,6 +171,37 @@ class MainSelectionInteractorTest {
         assertTrue(SelectedCountryStore.getServers(context).size >= 2)
     }
 
+    @Test
+    fun loadInitialSelection_v2_hydration_selects_correct_server_by_config_when_all_share_same_ip() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "Belarus",
+            listOf(makeStoredServer(config = "by-3", countryCode = "BY", ip = "213.184.224.127"))
+        )
+
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("BY", "Belarus", 3)),
+            serversPerCountry = mapOf(
+                "BY" to listOf(
+                    ServerV2("213.184.224.127", "BY", "Belarus", "by-1", city = "Minsk"),
+                    ServerV2("213.184.224.127", "BY", "Belarus", "by-2", city = "Minsk"),
+                    ServerV2("213.184.224.127", "BY", "Belarus", "by-3", city = "Minsk")
+                )
+            )
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertNotNull(result)
+        assertEquals("by-3", result!!.config)
+        assertEquals(2, SelectedCountryStore.getCurrentIndex(context))
+    }
+
     // TS-3: Position-like city "–/–" triggers V2 rehydration to replace stale server position text.
     @Test
     fun loadInitialSelection_v2_with_dash_slash_dash_city_rehydrates_from_v2_servers() = runBlocking {
