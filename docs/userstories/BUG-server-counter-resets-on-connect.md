@@ -29,9 +29,9 @@ Counter drops to **1/3** the moment Connect is tapped, before the VPN starts.
 
 ---
 
-## Root Cause — Two cooperating defects
+## Root Cause — Three cooperating defects (all resolved in PR #111)
 
-### Defect A (primary — always triggers): `loadInitialSelection` clears `pendingUserSelectionOverride`
+### Defect A (primary — always triggers): `loadInitialSelection` clears `pendingUserSelectionOverride` — RESOLVED
 
 `MainViewModel.loadInitialSelection()` runs as a coroutine launched from `onCreate()`. When it
 completes it unconditionally calls:
@@ -60,7 +60,7 @@ displays **1/3**.
 `syncServersForForegroundIfDue()` already has the correct guard (line 135), but
 `loadInitialSelection()` does not.
 
-### Defect B (defense-in-depth): `hydrateStoredSelectionFromV2` uses OR-priority search
+### Defect B (defense-in-depth): `hydrateStoredSelectionFromV2` uses OR-priority search — RESOLVED
 
 `hydrateStoredSelectionFromV2()` is called whenever the stored city is blank (always true for
 V2 servers). It searches for the user's server using OR logic:
@@ -78,6 +78,18 @@ When multiple servers share the same IP (common in OpenVPN Gate, confirmed for B
 server 3 — because the IP branch is evaluated first and `indexOfFirst` stops at the first match.
 
 `configData` is unique per server and is the correct primary key. IP is a fallback.
+
+---
+
+### Defect C (defense-in-depth): `prepareStart()` uses stale `configData` from ViewModel state after SSE sync — RESOLVED
+
+`MainConnectionInteractor.prepareStart()` was reading `configData` from `selectedServer.config`
+(ViewModel state). After an SSE sync pushed a refreshed server list from the API, the ViewModel's
+cached `selectedServer.config` became stale while `SelectedCountryStore` held the fresh value. When
+`preferUserSelection=true`, the stale config was passed to the VPN engine.
+
+Fix: when `preferUserSelection=true`, `prepareStart()` reads `configData` from
+`SelectedCountryStore.currentServer()` at Connect time.
 
 ---
 
@@ -120,6 +132,16 @@ val selectedIndex = when {
 }
 ```
 
+### File 3: `MainConnectionInteractor.kt` — `prepareStart()` (Defect C)
+
+When `preferUserSelection=true`, read `configData` from `SelectedCountryStore.currentServer()`
+rather than from `selectedServer.config` in ViewModel state:
+
+```kotlin
+val freshConfig = if (preferUserSelection) selectedCountryStore.currentServer()?.config else null
+val configData = freshConfig ?: selectedServer.config
+```
+
 ---
 
 ## Regression Risk Areas
@@ -138,22 +160,30 @@ val selectedIndex = when {
    at call time; once Defect A is fixed, the flag correctly reflects the user's state.
 
 ## Acceptance Criteria
-- [ ] Select server 3/3 in a country with ≥ 2 servers → tap Connect → counter stays at **3/3**
+- [x] AC1: Select server 3/3 in a country with ≥ 2 servers → tap Connect → counter stays at **3/3**
       before connection starts
-- [ ] The `CountryServersInteractor` log `chosenIndex=3/3` matches the service log `server=3/3`
+- [x] AC2: The `CountryServersInteractor` log `chosenIndex=3/3` matches the service log `server=3/3`
       at session start
-- [ ] No regression: fresh launch (no prior selection) auto-selects server 1, counter shows **1/N**
-- [ ] No regression: background sync does not overwrite a user's explicit selection
-- [ ] No regression: `ServerAutoSwitcher` reconnect still picks the last-successful server
-- [ ] No regression: second connect after a successful connect still uses last-successful server
+- [x] AC3: No regression: fresh launch (no prior selection) auto-selects server 1, counter shows **1/N**
+- [x] AC4: No regression: background sync does not overwrite a user's explicit selection
+- N/A AC5: No regression: `ServerAutoSwitcher` reconnect still picks the last-successful server
+      (unchanged code path — not affected by this fix)
+- [x] AC6: No regression: second connect after a successful connect still uses last-successful server
       when user has not re-selected
 
 ## Implementation Handoff
 - Branch: `fix/server-counter-resets-on-connect`
+- PR: https://github.com/zabotinegor/OpenVPNGateClientApp/pull/111
 - Story path: `docs/userstories/BUG-server-counter-resets-on-connect.md`
-- Files to change:
+- Status: **RESOLVED**
+- Files changed:
   - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt`
-    - After line 98 (`logger.logInitialSelectionLoaded(selection)`): add
-      `if (_state.value.pendingUserSelectionOverride) return@launch`
+    - Double-guard (`pendingUserSelectionOverride` check) added to both `loadInitialSelection()`
+      and `syncServersForForegroundIfDue()`; `isBackgroundRefresh=true` set on the sync call
+      inside `loadInitialSelection()` (Defect A)
   - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainSelectionInteractor.kt`
-    - Lines 168-171: replace OR-logic `indexOfFirst` with sequential config-first, IP-fallback search
+    - `hydrateStoredSelectionFromV2()`: replaced OR-logic `indexOfFirst` with sequential
+      config-first, IP-fallback search (Defect B)
+  - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainConnectionInteractor.kt`
+    - `prepareStart()`: reads fresh `configData` from `SelectedCountryStore.currentServer()`
+      when `preferUserSelection=true` (Defect C)

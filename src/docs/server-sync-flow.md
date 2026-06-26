@@ -26,7 +26,7 @@ The coordinator owns this flow:
 | --- | --- | --- |
 | Splash preload | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/splash/SplashServerPreloadInteractor.kt` | `forceRefresh=false`, `cacheOnly=feature-flag dependent`, `clearCacheBeforeRefresh=false`. For `DEFAULT_V2`, only country list is pre-fetched; server configs are loaded lazily per country. |
 | Main foreground entry (`onStart`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` -> `MainViewModel` | `forceRefresh=false`, debounced, `cacheOnly=feature-flag dependent` |
-| Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)`. After the load completes, `updateSelectedServer(...)` is **skipped** when `pendingUserSelectionOverride=true` (user explicitly selected a server while the coroutine was in-flight). |
+| Main initial selection load | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` | Pre-sync before `MainSelectionInteractor.loadInitialSelection(...)`. After the load completes, `updateSelectedServer(...)` is **skipped** when `pendingUserSelectionOverride=true` (user explicitly selected a server while the coroutine was in-flight). Both `loadInitialSelection()` and `syncServersForForegroundIfDue()` carry this double-guard to prevent any async startup path from clobbering an in-flight user selection. `isBackgroundRefresh=true` is also set on the sync call inside `loadInitialSelection()` to signal that this is a non-user-initiated refresh path. |
 | Periodic background refresh | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false` |
 | SSE connection open (`onOpen`) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires immediately on every successful SSE connection open — covers foreground returns, network reconnects, and initial launch. Added in SUB-03 (SSE reconnect correctness). |
 | SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires when the backend pushes a `servers-changed` SSE event. Events are routed through a `MutableSharedFlow` with `debounce(500 ms)` so a burst of N rapid events collapses into a single sync call (added in SUB-04). Independent of the `onOpen` sync; both may fire in rapid succession on reconnect followed by an immediate push. |
@@ -39,6 +39,10 @@ The coordinator owns this flow:
 - `forceRefresh` bypasses fresh-cache short-circuit in repository fetch logic.
 - `clearCacheBeforeRefresh` is used for server-source transitions to avoid stale cross-source reuse.
 - Main foreground sync is debounced in `MainViewModel` to avoid duplicate work around lifecycle transitions.
+
+## Connect-time configData Freshness
+
+`MainConnectionInteractor.prepareStart()` decides which server config to pass to the VPN engine. When `preferUserSelection=true` (i.e. `pendingUserSelectionOverride` is set), `prepareStart()` reads `configData` from `SelectedCountryStore.currentServer()` at Connect time rather than from the `selectedServer` field in ViewModel state. This is necessary because SSE sync (or any background sync) can push a new server list from the API between user selection and the Connect tap, causing the ViewModel's cached `selectedServer.config` to become stale while `SelectedCountryStore` holds the fresh value.
 
 ## V2 Server Source (DEFAULT_V2)
 
