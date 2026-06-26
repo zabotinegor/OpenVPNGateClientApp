@@ -37,12 +37,13 @@ class DefaultMainConnectionInteractor(
         selectedServer: MainSelectedServer?,
         preferUserSelection: Boolean
     ): PreparedConnectionStart? {
+        selectedServer ?: return null
         val currentConfig = if (preferUserSelection) {
             runCatching { SelectedCountryStore.currentServer(appContext) }.getOrNull()
                 ?.config?.takeIf { it.isNotBlank() }
-                ?: selectedServer?.config
+                ?: selectedServer.config
         } else {
-            selectedServer?.config
+            selectedServer.config
         }
         if (currentConfig.isNullOrBlank()) return null
 
