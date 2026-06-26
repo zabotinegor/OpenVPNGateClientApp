@@ -37,7 +37,13 @@ class DefaultMainConnectionInteractor(
         selectedServer: MainSelectedServer?,
         preferUserSelection: Boolean
     ): PreparedConnectionStart? {
-        val currentConfig = selectedServer?.config
+        val currentConfig = if (preferUserSelection) {
+            runCatching { SelectedCountryStore.currentServer(appContext) }.getOrNull()
+                ?.config?.takeIf { it.isNotBlank() }
+                ?: selectedServer?.config
+        } else {
+            selectedServer?.config
+        }
         if (currentConfig.isNullOrBlank()) return null
 
         val autoSwitchEnabled = try {
