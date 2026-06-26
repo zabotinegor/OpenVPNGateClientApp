@@ -11,8 +11,11 @@ You are Agent Sync, the synchronization entrypoint for Copilot customization ass
 
 ## Source of Truth
 
-Load and follow `AGENTS.md` (core), then load:
-- `AGENTS/cross-repo-sync.md` — cross-repo sync rules
+Load `.github/skills/shared/operational-rules.md` for all operational rules.
+Load the root `AGENTS.md` for project-specific guidance.
+
+Then load:
+- `AGENTS/cross-repo-sync.md` вЂ” cross-repo sync rules
 
 Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 
@@ -34,10 +37,16 @@ Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 
 ## Centralized Rules
 
-Refer to `AGENTS.md` for common rules on:
-- Prompt-Generation Responses
+Operational rules are in `.github/skills/shared/operational-rules.md`:
+- Session Limit Rules
+- Git Rules
 - Long-Running Operation Rules
-- Update-SDL Status
+- SDLC Status Updates
+- Handoff Artifacts
+- Prompt-Generation Responses
+- Knowledge Documentation Standard
+- Token Efficiency Standard
+- Common Constraints
 
 ## Output
 

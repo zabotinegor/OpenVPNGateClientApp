@@ -116,6 +116,8 @@ artifacts
 
 
 
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -151,10 +153,13 @@ artifacts
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
+/.github/scripts/check-rate-limit.ps1
+/.github/scripts/checkpoint-session.ps1
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-master-plan.ps1
 /.github/scripts/invoke-story-flow.ps1
 /.github/scripts/poll-pr-reviews.ps1
+/.github/scripts/resume-session.ps1
 /.github/scripts/update-master-plan-status.ps1
 /.github/scripts/update-sdlc-status.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
@@ -187,6 +192,10 @@ artifacts
 /.github/skills/github-review-comments/SKILL.md
 /.github/skills/master-plan/SKILL.md
 /.github/skills/scope-quality-gate/SKILL.md
+/.github/skills/session-limit-tracking/references/agent-integration.md
+/.github/skills/session-limit-tracking/references/checkpoint-schema.md
+/.github/skills/session-limit-tracking/SKILL.md
+/.github/skills/shared/operational-rules.md
 /.github/skills/shared/protected-branches.md
 /.github/skills/shared/sdlc-report-contract.md
 /.github/skills/shared/sdlc-shared-flow-patterns.md
