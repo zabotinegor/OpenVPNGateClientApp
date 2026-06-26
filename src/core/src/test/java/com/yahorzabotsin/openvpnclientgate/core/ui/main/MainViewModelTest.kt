@@ -354,6 +354,43 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `foreground sync does not overwrite pending user selection override set during load`() = runTest {
+        val interactor = BlockingMainSelectionInteractor(
+            result = InitialSelection(
+                country = "Germany",
+                city = "Berlin",
+                config = "background-config",
+                countryCode = "DE",
+                ip = "9.9.9.9"
+            )
+        )
+        val viewModel = createViewModel(selectionInteractor = interactor)
+        advanceUntilIdle()
+
+        viewModel.onAction(MainAction.SyncServersForForeground)
+        interactor.loadStarted.await()
+
+        viewModel.onAction(
+            MainAction.OnServerSelectionResult(
+                SelectedServerResult(
+                    country = "Belarus",
+                    countryCode = "BY",
+                    city = "Minsk",
+                    config = "user-config",
+                    ip = "213.184.224.127"
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        interactor.allowCompletion.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.pendingUserSelectionOverride)
+        assertEquals("user-config", viewModel.state.value.selectedServer?.config)
+    }
+
+    @Test
     fun `load initial selection does not overwrite pending user selection override`() = runTest {
         val backgroundSelection = InitialSelection(
             country = "Germany",
