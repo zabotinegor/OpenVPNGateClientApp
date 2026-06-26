@@ -104,6 +104,46 @@ In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `L
 
 See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
 
+## Foreground Service Lifecycle Guard in `syncEngineState()`
+
+`OpenVpnService.syncEngineState()` is called on every engine-level callback and decides whether
+to call `exitControllerForeground()` — which cancels the `startForeground()` safety net established
+in `onCreate()`.
+
+**Guard condition (as of 2026-06-25 fix):** `exitControllerForeground()` is NOT called when:
+
+- The engine level is `LEVEL_START` — connection is being established; foreground must stay active.
+- The engine level is `UNKNOWN_LEVEL` — engine not yet initialized; foreground must stay active.
+- The engine level is an idle level (`LEVEL_NOTCONNECTED` or `LEVEL_NONETWORK`) **and**
+  `ConnectionStateManager.reconnectingHint.value` is `true` (a chained auto-switch is pending).
+
+In code this is expressed as:
+
+```kotlin
+val idleLevel = level == LEVEL_NOTCONNECTED || level == LEVEL_NONETWORK
+val reconnectPending = idleLevel && ConnectionStateManager.reconnectingHint.value
+if (controllerForegroundActive
+    && level != LEVEL_START
+    && level != UNKNOWN_LEVEL
+    && !reconnectPending) {
+    exitControllerForeground()
+}
+```
+
+**Conditional idle-level guard:** `LEVEL_NOTCONNECTED` and `LEVEL_NONETWORK` only skip
+`exitControllerForeground()` when `reconnectingHint=true`. During a chained auto-switch the
+engine is intentionally torn down before the next server is started, so keeping the FGS
+notification alive avoids reopening the Android Activity Manager's 5-second foreground-service
+timer. If the user then reconnects within that window without a matching `startForeground()` call,
+Android throws a `RemoteServiceException` crash.
+
+When `reconnectingHint=false` (no reconnect pending), idle levels cause `exitControllerForeground()`
+to be called normally, removing the stale "VPN connecting" notification.
+
+**`ACTION_STOP` and `ACTION_SYNC_STATUS` are unaffected:** both handlers call
+`exitControllerForeground()` directly and unconditionally on their own paths, so the
+`reconnectingHint` guard does not apply to them.
+
 ## SSE Server-Push Sync (SUB-02)
 
 `SseServerEventsClient` opens a persistent HTTP/SSE connection to `GET /api/v1/servers/events`

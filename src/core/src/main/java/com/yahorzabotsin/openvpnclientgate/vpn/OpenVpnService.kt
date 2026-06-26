@@ -112,10 +112,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
 
-    // Remember whether start/stop were user-driven vs auto-switch
-    private var userInitiatedStart = false
-    private var userInitiatedStop = false
-    private var ignoreConnectedUntilNotConnected = false
+    // Remember whether start/stop were user-driven vs auto-switch.
+    // @Volatile: written on the main thread (onStartCommand / startUserStopTeardown),
+    // read on the AIDL binder thread (IStatusCallbacks.Stub.updateStateString →
+    // syncEngineState / shouldIgnoreLevelAfterUserStop / handleEngineLevelForStop).
+    // Without @Volatile the JVM may cache stale values in the binder thread's register/cache,
+    // causing the FGS guard or stop-flow checks to act on outdated state.
+    @Volatile private var userInitiatedStart = false
+    @Volatile private var userInitiatedStop = false
+    @Volatile private var ignoreConnectedUntilNotConnected = false
     private var stopRequestId: String? = null
     private var stopStartedAtMs: Long = 0L
     private var stopAttempt: Int = 0
@@ -138,7 +143,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var aidlLastInBytes: Long = 0L
     private var aidlLastOutBytes: Long = 0L
     private var lastAidlByteUpdateTs: Long = 0L
-    private var controllerForegroundActive = false
+    @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
@@ -1708,8 +1713,33 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        if (controllerForegroundActive && level != ConnectionStatus.LEVEL_START && level != ConnectionStatus.UNKNOWN_LEVEL) {
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
+        // We must NOT exit the FGS notification in two situations:
+        // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
+        //    before the next server start — dropping the notification here reopens the 5-second
+        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
+        // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
+        //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
+        //    on the binder thread; dropping the FGS notification here removes the safety net
+        //    started by ACTION_START and reopens the same 5-second race window.
+        // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
+        // explicitly, so those paths are unaffected by this guard.
+        val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
+        val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
+        if (controllerForegroundActive
+            && level != ConnectionStatus.LEVEL_START
+            && level != ConnectionStatus.UNKNOWN_LEVEL
+            && !reconnectPending) {
             exitControllerForeground()
+        }
+        // Clear userInitiatedStart when the engine reports a successful connection via the AIDL
+        // path. updateState() (the VPN_STATUS path) already clears it at LEVEL_CONNECTED, but
+        // syncEngineState() is called from the AIDL callback path (updateStateString) which does
+        // not go through updateState(). Without this clear, userInitiatedStart stays true after a
+        // successful connect, causing the FGS guard to hold the "VPN connecting" notification
+        // indefinitely if the server later drops the connection without a user-initiated reconnect.
+        if (level == ConnectionStatus.LEVEL_CONNECTED) {
+            userInitiatedStart = false
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")

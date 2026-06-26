@@ -20,6 +20,34 @@ Entry template:
 
 ---
 
+## Android VPN permission dialog (com.android.vpndialogs)
+
+- Service repo: zabotinegor/OpenVPNGateClientApp
+- Surface: android
+- When to use: First time tapping Connect after fresh install or session restart
+- Reusable workaround/setup: The system shows `com.android.vpndialogs/.ConfirmDialog` which uiautomator
+  CANNOT capture in the app's node tree. After tapping Connect, wait 1-2 s then dump UI from the
+  `com.android.vpndialogs` package: look for "ОК" button. Typical bounds: [577,2084][991,2179],
+  center (784, 2131). Tap OK to grant. Permission persists across sessions (no regrant needed).
+- Source-of-truth doc: tests/manual-e2e/stories/bug-fgs-crash-rapid-reconnect-and-probe-type-erasure/suites/BUG-RRC-CORE.md
+- Last validated: 2026-06-25
+- Notes: Appears ONLY on first VPN connect per app install. After granting once, Connect taps go directly
+  to ACTION_START. To pre-check whether it was already granted:
+  `adb shell dumpsys connectivity | grep -i vpn` — if an entry for the package is present, already granted.
+
+## Android POST_NOTIFICATIONS permission (Android 13)
+
+- Service repo: zabotinegor/OpenVPNGateClientApp
+- Surface: android
+- When to use: First tap on Connect button in a fresh install — triggers GrantPermissionsActivity before VPN flow
+- Reusable workaround/setup: Grant via ADB before testing to skip dialog:
+  `adb -s <serial> shell pm grant com.yahorzabotsin.openvpnclientgate android.permission.POST_NOTIFICATIONS`
+  Alternatively, tap "Allow" in the GrantPermissionsActivity dialog (appears from permissioncontroller).
+  The VPN permission dialog (vpndialogs) appears AFTER this one resolves.
+- Source-of-truth doc: tests/manual-e2e/stories/bug-fgs-crash-rapid-reconnect-and-probe-type-erasure/suites/BUG-RRC-CORE.md
+- Last validated: 2026-06-25
+- Notes: `adb shell pm grant` is sufficient — no need to interact with the dialog UI.
+
 ## Seed entry
 - Service repo: N/A
 - Surface: N/A
@@ -28,23 +56,3 @@ Entry template:
 - Source-of-truth doc: N/A
 - Last validated: 2026-05-13
 - Notes: Add entries after each Manual QA run when reusable knowledge is discovered.
-
----
-
-## SSE client: splash→MainActivity transition causes expected brief onStop
-- Service repo: OpenVPNClientClientApp
-- Surface: android
-- When to use: Validating SSE lifecycle when app starts cold; logcat shows `SSE client stopping` before MainActivity appears
-- Reusable workaround/setup: This is expected behavior — ProcessLifecycleOwner fires onStop during the brief window between SplashActivity finishing and MainActivity resuming. The SSE client restarts immediately on MainActivity onStart. Look for a second `SSE client starting` log ~1–3 s after the first stop to confirm correct lifecycle handling.
-- Source-of-truth doc: tests/manual-e2e/stories/sub-02-android-sse-client/suites/SUB02-CORE.md
-- Last validated: 2026-06-23
-- Notes: Device screen must be on/unlocked for ProcessLifecycleOwner to fire onStart. If screen is off (locked), app stays in background state; wake with `adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard`.
-
-## WorkManager SystemJobService verification via dumpsys jobscheduler
-- Service repo: OpenVPNClientClientApp
-- Surface: android
-- When to use: Verifying WorkManager periodic refresh is still active (e.g. AC-4 in SUB-02 SSE client story)
-- Reusable workaround/setup: `adb shell dumpsys jobscheduler | grep -A10 "openvpnclientgate/androidx.work"` shows job registration, minimum latency, and last run timestamp. `dumpsys workmanager` is not available on Android 13; use jobscheduler instead.
-- Source-of-truth doc: tests/manual-e2e/stories/sub-02-android-sse-client/suites/SUB02-CORE.md
-- Last validated: 2026-06-23
-- Notes: Look for `SystemJobService` entry with `Minimum latency` (next scheduled run) and recent START/STOP in the history block.
