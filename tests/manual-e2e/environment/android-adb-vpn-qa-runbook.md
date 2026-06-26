@@ -2,7 +2,7 @@
 
 ## Device Setup
 
-- ADB serial: `R58N849XQEY` (MIUI/Xiaomi device in secondary space)
+- ADB serial: <your-device-serial> (MIUI/Xiaomi device in secondary space)
 - Package: `com.yahorzabotsin.openvpnclientgate`
 - Launch activity: `.mobile.SplashActivity`
 
