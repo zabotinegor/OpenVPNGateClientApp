@@ -118,6 +118,24 @@ artifacts
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -155,6 +173,7 @@ artifacts
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/check-rate-limit.ps1
 /.github/scripts/checkpoint-session.ps1
+/.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-master-plan.ps1
 /.github/scripts/invoke-story-flow.ps1
