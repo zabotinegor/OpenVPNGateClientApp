@@ -28,3 +28,23 @@ Entry template:
 - Source-of-truth doc: N/A
 - Last validated: 2026-05-13
 - Notes: Add entries after each Manual QA run when reusable knowledge is discovered.
+
+---
+
+## Android ADB — OpenVPN Gate Client QA setup and workarounds
+- Service repo: OpenVPNClientClientApp (local)
+- Surface: android
+- When to use: Any manual QA run on device R58N849XQEY (MIUI/Xiaomi secondary space)
+- Reusable workaround/setup: `pm list packages` fails with SecurityException — use `dumpsys package` instead; launch via `.mobile.SplashActivity`; wake screen with `input keyevent 224` if splash stalls; use `--tests` flag workaround (run full suite instead of filtered); force-stop and pm clear patterns documented.
+- Source-of-truth doc: tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md
+- Last validated: 2026-06-26
+- Notes: configData strings from the API are dynamic (change each fetch); this causes stale config in ViewModel to mismatch the store after SSE syncs, resulting in `matched by ip index=1/N` in logs. Belarus (3 servers, all IP 213.184.224.127) is the only known country exercising multi-server same-IP logic.
+
+## OpenVPN Gate configData instability — dynamic config strings
+- Service repo: OpenVPNClientClientApp (local)
+- Surface: android
+- When to use: Any test that selects server N/N, waits >5 seconds (SSE sync fires), then taps Connect
+- Reusable workaround/setup: The config string returned by the OpenVPN Gate API changes on each fetch. After the first SSE sync post-selection, the store has new config strings. Any code path comparing ViewModel-held configData against the store's configData will mismatch and fall back to IP-only matching, resetting the index to 0 (server 1/N). Tap Connect WITHIN the same SSE fetch cycle (<3 seconds after selection) to avoid this.
+- Source-of-truth doc: tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md
+- Last validated: 2026-06-26
+- Notes: Root cause of AC1/AC2 failures in BUG-server-counter-resets-on-connect QA run post-review-fix. Filed as Defect C.
