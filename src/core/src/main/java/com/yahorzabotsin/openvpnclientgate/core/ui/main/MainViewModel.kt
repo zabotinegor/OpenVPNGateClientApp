@@ -94,6 +94,7 @@ class MainViewModel(
                     if (e is CancellationException) throw e
                     AppLog.w(tag, "Startup server sync failed, loading from cache", e)
                 }
+                if (_state.value.pendingUserSelectionOverride) return@launch
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
                 if (_state.value.pendingUserSelectionOverride) return@launch
                 logger.logInitialSelectionLoaded(selection)
