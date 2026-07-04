@@ -435,6 +435,56 @@ class OpenVpnServiceStatusSyncTest {
         )
     }
 
+    @Test
+    fun aidlByteCountFieldsAreVolatile() {
+        // aidlLastInBytes/aidlLastOutBytes/lastAidlByteUpdateTs are written and read inside
+        // updateByteCount(inBytes, outBytes), invoked on the AIDL binder thread. Android's binder
+        // thread pool may service successive calls on different worker threads, so @Volatile is
+        // required for cross-call memory visibility even without concurrent invocation.
+        val aidlLastInBytesField = OpenVpnService::class.java.getDeclaredField("aidlLastInBytes")
+        val aidlLastOutBytesField = OpenVpnService::class.java.getDeclaredField("aidlLastOutBytes")
+        val lastAidlByteUpdateTsField = OpenVpnService::class.java.getDeclaredField("lastAidlByteUpdateTs")
+
+        assertTrue(
+            "aidlLastInBytes must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(aidlLastInBytesField.modifiers)
+        )
+        assertTrue(
+            "aidlLastOutBytes must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(aidlLastOutBytesField.modifiers)
+        )
+        assertTrue(
+            "lastAidlByteUpdateTs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(lastAidlByteUpdateTsField.modifiers)
+        )
+    }
+
+    @Test
+    fun userInitiatedStartIsClearedOnFailedConnectWhenAutoSwitchDisabled() {
+        // Regression: when auto-switch is disabled and a user-initiated start fails to
+        // LEVEL_NOTCONNECTED, the auto-switch block in updateState() is skipped entirely, so
+        // userInitiatedStart must still be cleared in the terminal-level branch below it.
+        // Otherwise syncEngineState's reconnectPending guard keeps suppressing
+        // exitControllerForeground() forever, leaving the "VPN connecting" notification stuck.
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.save(
+            appContext,
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.load(appContext)
+                .copy(autoSwitchWithinCountry = false)
+        )
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(
+            "userInitiatedStart must be cleared after a failed start when auto-switch is disabled",
+            ReflectionHelpers.getField<Boolean>(service, "userInitiatedStart")
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

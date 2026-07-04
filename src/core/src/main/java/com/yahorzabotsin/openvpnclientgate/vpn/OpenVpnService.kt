@@ -143,9 +143,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
-    private var aidlLastInBytes: Long = 0L
-    private var aidlLastOutBytes: Long = 0L
-    private var lastAidlByteUpdateTs: Long = 0L
+    // Written and read on the AIDL binder thread only (updateByteCount(inBytes, outBytes)),
+    // but Android's binder thread pool may service successive calls on different worker
+    // threads, so @Volatile is required for cross-call memory visibility.
+    @Volatile private var aidlLastInBytes: Long = 0L
+    @Volatile private var aidlLastOutBytes: Long = 0L
+    @Volatile private var lastAidlByteUpdateTs: Long = 0L
     @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
@@ -1123,6 +1126,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
+                // Reached when auto-switch is disabled (or the level isn't handled by the
+                // auto-switch block above): a failed user-initiated start must still clear
+                // userInitiatedStart here, otherwise syncEngineState's reconnectPending guard
+                // keeps suppressing exitControllerForeground() forever, leaving the "VPN
+                // connecting" foreground notification stuck after the failed attempt.
+                userInitiatedStart = false
                 resumeActionInFlight = false
                 statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
             }
