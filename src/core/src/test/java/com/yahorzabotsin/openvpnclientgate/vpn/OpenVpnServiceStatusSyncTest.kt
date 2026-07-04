@@ -485,6 +485,27 @@ class OpenVpnServiceStatusSyncTest {
         )
     }
 
+    @Test
+    fun userInitiatedStartIsClearedOnAidlTerminalFailureLevel() {
+        // Regression: when the status service is fresh (isAidlFresh()=true), updateState()
+        // (VPN_STATUS) returns early and never reaches the clear above — syncEngineState(),
+        // called from the AIDL callback path (updateStateString), is then the only place that
+        // can reset userInitiatedStart. Before this fix it only cleared on LEVEL_CONNECTED,
+        // leaving a failed user-initiated connect (e.g. LEVEL_NOTCONNECTED) stuck.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(
+            "userInitiatedStart must be cleared on an AIDL terminal failure level",
+            ReflectionHelpers.getField<Boolean>(service, "userInitiatedStart")
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

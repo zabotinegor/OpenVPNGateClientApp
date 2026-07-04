@@ -1744,13 +1744,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !reconnectPending) {
             exitControllerForeground()
         }
-        // Clear userInitiatedStart when the engine reports a successful connection via the AIDL
-        // path. updateState() (the VPN_STATUS path) already clears it at LEVEL_CONNECTED, but
-        // syncEngineState() is called from the AIDL callback path (updateStateString) which does
-        // not go through updateState(). Without this clear, userInitiatedStart stays true after a
-        // successful connect, causing the FGS guard to hold the "VPN connecting" notification
-        // indefinitely if the server later drops the connection without a user-initiated reconnect.
-        if (level == ConnectionStatus.LEVEL_CONNECTED) {
+        // Clear userInitiatedStart when the engine reports a successful connection, or a
+        // terminal failure, via the AIDL path. updateState() (the VPN_STATUS path) clears it in
+        // the equivalent cases, but when the status service is fresh (isAidlFresh()=true),
+        // updateState() returns early and never reaches that code — syncEngineState() (called
+        // from the AIDL callback path, updateStateString) is then the only place that can clear
+        // it. Without this clear, userInitiatedStart stays true after a failed user-initiated
+        // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
+        // reconnectPending stuck and the "VPN connecting" notification undismissable.
+        if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
             userInitiatedStart = false
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
