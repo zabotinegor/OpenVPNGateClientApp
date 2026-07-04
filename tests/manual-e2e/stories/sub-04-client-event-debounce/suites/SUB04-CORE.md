@@ -1,7 +1,7 @@
 # SUB04-CORE Manual QA Suite
 
 **Story:** SUB-04 Client-Side SSE Event Debounce  
-**Device:** Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)  
+**Device:** Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)  
 **APK:** mobile-debug.apk, branch feature/sub-04-client-event-debounce, commit c287234  
 **Run date:** 2026-06-25
 

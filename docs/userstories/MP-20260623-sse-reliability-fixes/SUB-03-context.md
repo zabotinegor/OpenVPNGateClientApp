@@ -20,4 +20,4 @@
 ## Skip in BA step
 
 - Full repo scan (already done)
-- SSE reconnect flow analysis (see D:\Apps\OpenVPNClient\OpenVPNGateClientReports\SSE improvements\SSE-analysis.md P1 and P3 sections)
+- SSE reconnect flow analysis (see OpenVPNGateClientReports/SSE improvements/SSE-analysis.md P1 and P3 sections)

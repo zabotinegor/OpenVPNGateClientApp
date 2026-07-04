@@ -747,6 +747,8 @@ try {
     # Untrack any synced files that git is still tracking despite being gitignored.
     # git rm --cached removes from the index only; the file stays on disk.
     # This prevents synced scripts from appearing as modified in git clients (Fork, VS Code).
+    # Gated on git check-ignore so this never untracks a normal synced asset (e.g. under
+    # .github/agents or .github/skills) that isn't actually gitignored.
     if (-not $DryRun) {
         $untrackedCount = 0
         foreach ($relativePath in $sourceFiles.Keys) {
@@ -754,10 +756,12 @@ try {
             if ($isExcluded) { continue }
             $repoPath = Convert-ToRepoRelativePath -Path $relativePath
             $tracked = git -C $targetRootResolved ls-files --error-unmatch $repoPath 2>$null
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$tracked)) {
-                git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
-                $untrackedCount++
-            }
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$tracked)) { continue }
+            git -C $targetRootResolved check-ignore --quiet $repoPath 2>$null | Out-Null
+            $isGitignored = ($LASTEXITCODE -eq 0)
+            if (-not $isGitignored) { continue }
+            git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
+            $untrackedCount++
         }
         if ($untrackedCount -gt 0) {
             Write-Host "  Untracked $untrackedCount gitignored file(s) from git index"

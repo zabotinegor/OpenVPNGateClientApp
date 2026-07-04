@@ -4,7 +4,7 @@
 
 ## Run 2 (PR #105 pre-merge retest)
 - Run date: 2026-06-23
-- Device: Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
+- Device: Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)
 - APK: mobile-debug.apk (built from feature/MP-20260621-server-push-sse HEAD, 131 tasks BUILD SUCCESSFUL)
 - Unit tests: SseServerEventsClientTest 18/18 PASS (`:core:testDebugUnitTest`)
 
@@ -85,7 +85,7 @@ NoBeanDefFoundException: 0
 ## Run 1 (initial QA run)
 
 - Run date: 2026-06-23
-- Device: Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
+- Device: Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)
 - APK: mobile-debug.apk (built from feature/MP-20260621-server-push-sse HEAD)
 - Build: assembleDebugApp BUILD SUCCESSFUL (131 tasks)
 

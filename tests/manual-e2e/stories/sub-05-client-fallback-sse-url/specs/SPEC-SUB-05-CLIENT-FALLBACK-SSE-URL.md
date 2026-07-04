@@ -13,7 +13,7 @@ the primary SSE endpoint is unreachable.
 
 ## Device
 
-Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
+Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)
 
 ## Prerequisites
 

@@ -21,4 +21,4 @@
 ## Skip in BA step
 
 - Full repo scan (already done)
-- Fallback URL analysis (see D:\Apps\OpenVPNClient\OpenVPNGateClientReports\SSE improvements\SSE-analysis.md P5 section)
+- Fallback URL analysis (see OpenVPNGateClientReports/SSE improvements/SSE-analysis.md P5 section)

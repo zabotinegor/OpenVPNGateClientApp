@@ -2,7 +2,7 @@
 
 **Story:** docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md  
 **Branch:** feature/sub-03-client-reconnect-correctness  
-**Device:** Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)  
+**Device:** Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)  
 **Run date:** 2026-06-24  
 **Overall: PASS**
 
@@ -10,7 +10,7 @@
 
 ## Pre-conditions
 
-- Debug APK installed on device R58N849XQEY from branch `feature/sub-03-client-reconnect-correctness` (no rebuild/reinstall required per context).
+- Debug APK installed on device <your-device-serial> from branch `feature/sub-03-client-reconnect-correctness` (no rebuild/reinstall required per context).
 - Quality gate evidence: `.sdlc/evidence/sub-03-sse-reconnect-quality-gate.md` — all 628 unit tests pass (20/20 SseServerEventsClientTest).
 - SDLC status: `qualityGate.status = "passed"` confirmed in `.sdlc/status.json`.
 - Package: `com.yahorzabotsin.openvpnclientgate` (resolved via `adb shell cmd package resolve-activity`).

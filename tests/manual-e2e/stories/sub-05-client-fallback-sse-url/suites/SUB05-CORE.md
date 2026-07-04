@@ -1,7 +1,7 @@
 # SUB05-CORE: Client Fallback SSE URL — Core Suite
 
 **Story:** SUB-05-client-fallback-sse-url  
-**Device:** Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)  
+**Device:** Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)  
 **Build:** bc7275a (feature/sub-05-client-fallback-sse-url)  
 **Date:** 2026-06-25
 

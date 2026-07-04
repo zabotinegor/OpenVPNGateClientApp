@@ -3,7 +3,7 @@
 ## Status: PASS
 
 ## Device
-Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
+Samsung Galaxy A71 SM-A715F Android 13 (<your-device-serial>)
 
 ## Steps executed
 1. `adb shell am force-stop com.yahorzabotsin.openvpnclientgate`

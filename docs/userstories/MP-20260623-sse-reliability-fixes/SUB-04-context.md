@@ -21,4 +21,4 @@
 ## Skip in BA step
 
 - Full repo scan (already done)
-- Event storm analysis (see D:\Apps\OpenVPNClient\OpenVPNGateClientReports\SSE improvements\SSE-analysis.md P2 section)
+- Event storm analysis (see OpenVPNGateClientReports/SSE improvements/SSE-analysis.md P2 section)

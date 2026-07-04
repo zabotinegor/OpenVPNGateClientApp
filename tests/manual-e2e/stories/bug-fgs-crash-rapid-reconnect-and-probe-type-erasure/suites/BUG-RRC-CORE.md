@@ -10,7 +10,7 @@
 2026-06-25
 
 ## Device
-Samsung Galaxy A71 SM-A715F, Android 13, ADB serial R58N849XQEY
+Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
 
 ## Build
 Debug APK, commit 9dd3004 (HEAD on fix/fgs-crash-rapid-reconnect)
