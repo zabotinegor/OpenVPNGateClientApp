@@ -703,6 +703,21 @@ try {
         }
     }
 
+    # Inject universal governance section into target AGENTS.md (marker-based; never overwrites)
+    $targetAgentsMd = Join-Path $targetRootResolved 'AGENTS.md'
+    $sourceAgentsCoreRules = Join-Path $tempRoot '.github/skills/shared/agents-core-rules.md'
+    $agentsCoreRulesInjection = $null
+
+    if ((Test-Path -LiteralPath $sourceAgentsCoreRules) -and (Test-Path -LiteralPath $targetAgentsMd)) {
+        $agentsCoreRulesInjection = Set-FileSectionByMarkers `
+            -TargetPath $targetAgentsMd `
+            -SourceSectionPath $sourceAgentsCoreRules `
+            -DryRun:$DryRun
+        if ($agentsCoreRulesInjection.changed) {
+            $changed.Add('AGENTS.md')
+        }
+    }
+
     $mergedJsonFiles = New-Object System.Collections.Generic.List[string]
     foreach ($mergeRelPath in $normalizedMergeJsonPaths) {
         $inScope = @($normalizedScope | Where-Object {
@@ -728,6 +743,27 @@ try {
         -ExcludePattern $ExcludeGitignorePattern
 
     $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
+
+    # Untrack any synced files that git is still tracking despite being gitignored.
+    # git rm --cached removes from the index only; the file stays on disk.
+    # This prevents synced scripts from appearing as modified in git clients (Fork, VS Code).
+    if (-not $DryRun) {
+        $untrackedCount = 0
+        foreach ($relativePath in $sourceFiles.Keys) {
+            $isExcluded = (@($ExcludeGitignorePattern | Where-Object { $relativePath -match [regex]::Escape($_) }).Count -gt 0)
+            if ($isExcluded) { continue }
+            $repoPath = Convert-ToRepoRelativePath -Path $relativePath
+            $tracked = git -C $targetRootResolved ls-files --error-unmatch $repoPath 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$tracked)) {
+                git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
+                $untrackedCount++
+            }
+        }
+        if ($untrackedCount -gt 0) {
+            Write-Host "  Untracked $untrackedCount gitignored file(s) from git index"
+        }
+    }
+
     $gitHooksConfiguration = $null
     if ($normalizedScope -icontains '.githooks') {
         $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
@@ -771,6 +807,16 @@ try {
         }
     }
 
+    if (-not $DryRun -and $agentsCoreRulesInjection -ne $null) {
+        $check = Set-FileSectionByMarkers `
+            -TargetPath $targetAgentsMd `
+            -SourceSectionPath $sourceAgentsCoreRules `
+            -DryRun
+        if ($check.changed) {
+            $mismatches.Add('AGENTS.md')
+        }
+    }
+
     $result = [ordered]@{
         sourceRepo = $SourceRepo
         sourceRef = $SourceRef
@@ -786,6 +832,7 @@ try {
         changed = @($changed)
         deleted = @($deleted)
         mergedJsonFiles = @($mergedJsonFiles)
+        agentsCoreRulesInjection = $agentsCoreRulesInjection
         gitignoreExactEntryCount = $gitignoreEntryCount
         transientGitignoreEntryCount = $transientGitignoreEntryCount
         gitHooksConfiguration = $gitHooksConfiguration

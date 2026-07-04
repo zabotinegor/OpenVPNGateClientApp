@@ -16,6 +16,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 - Reconcile stale synced files in a target repository.
 - Update target `.gitignore` entries for synced non-agent-sync files.
 - Add target `.gitignore` entries for transient Copilot handoff/prompt artifacts, runtime `.sdlc/status.json`, `.sdlc/operations/`, and `.claude/settings.local.json`.
+- Propagate universal agent governance rules from CopilotTools into client repo `AGENTS.md` without overwriting client-specific content.
 
 ## Expected input
 
@@ -30,7 +31,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 - Verify the target branch/worktree state before changing files.
 - Agent Sync works exclusively in the current branch — never creates, switches to, or checks out a different branch.
 - Agent Sync never commits, stages, or pushes — it only syncs file contents into the working tree. The user commits when ready.
-- Protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) are blocked from sync by default and require explicit user approval plus script flag `-AllowRootMdSync`.
+- Protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) are blocked from full-file sync by default and require explicit user approval plus script flag `-AllowRootMdSync`. Exception: the script always injects the universal governance section from `.github/skills/shared/agents-core-rules.md` into a target `AGENTS.md` that already exists, using `<!-- BEGIN COPILOT SYNC --> … <!-- END COPILOT SYNC -->` markers — client content outside the markers is never modified.
 - Do not delegate sync execution or comparison to a subagent. Run Agent Sync in the current chat because subagents may not receive terminal tools or the target workspace context.
 - Do not run sync through VS Code task labels or other task launchers. For Agent Sync, use `run_in_terminal` first and `runCommands` second for foreground PowerShell. Task launchers are not reliable for required sync because cancellation/completion may not return script output, source SHA, file counts, or exit code.
 - Do not infer that terminal execution is unavailable. Report terminal/command execution unavailable only after an actual terminal-capable tool call fails with an unavailable-tool/capability error.
@@ -62,7 +63,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 
 ## Output format
 
-Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by Copilot, Claude, and branch-guard asset types), stale-file deletion status, post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions.
+Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by Copilot, Claude, and branch-guard asset types), stale-file deletion status, `agentsCoreRulesInjection` action for the `AGENTS.md` governance section (added-markers, replaced-section, no-change, or skipped), post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions.
 
 ## Constraints or rules
 
@@ -73,7 +74,7 @@ Report source repository and commit SHA, target branch, sync scope, added/change
 - Never sync or create the root `.copilottools-source` marker in a client repository.
 - Never create, switch to, or check out a different branch. Agent Sync operates exclusively in the current branch.
 - Never commit, stage, or push. Agent Sync only syncs file contents into the working tree.
-- Never sync protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless user approval and `-AllowRootMdSync` are both present.
+- Never full-file-replace protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless user approval and `-AllowRootMdSync` are both present. The automatic marker-based injection into an existing `AGENTS.md` (from `.github/skills/shared/agents-core-rules.md`) is the sole exception and requires no flag.
 - Never create handoff/prompt markdown artifacts while reporting sync results; include handoff text in chat only.
 - Never invoke VS Code tasks, task labels, or "Run task" for sync dry-run or apply. Use `run_in_terminal` first and `runCommands` second with direct foreground PowerShell so the agent receives JSON output, exit code, and errors.
 - If terminal/command execution is unavailable after a real failed terminal-capable tool call, do not ask the user to run commands. Complete sync manually with available read/search/edit plus authenticated GitHub connector/API tools and report the fallback. Stop only if neither terminal nor authenticated source access is available.

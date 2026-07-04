@@ -1,25 +1,67 @@
 {
-  "autoCompactEnabled": true,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.ps1\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.py\""
-          }
-        ]
-      }
-    ]
-  }
+    "autoCompactEnabled":  true,
+    "hooks":  {
+                  "PreToolUse":  [
+                                     {
+                                         "matcher":  "PowerShell",
+                                         "hooks":  [
+                                                       {
+                                                           "type":  "command",
+                                                           "command":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.ps1\""
+                                                       }
+                                                   ]
+                                     },
+                                     {
+                                         "matcher":  "Bash",
+                                         "hooks":  [
+                                                       {
+                                                           "type":  "command",
+                                                           "command":  "python3 \"${CLAUDE_PROJECT_DIR}/.github/scripts/protect-agent-git-command.py\""
+                                                       }
+                                                   ]
+                                     },
+                                     {
+                                         "hooks":  [
+                                                       {
+                                                           "type":  "command",
+                                                           "command":  "pwsh -NoProfile -NonInteractive -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/check-session-before-tool.ps1\""
+                                                       }
+                                                   ]
+                                     }
+                                 ],
+                  "UserPromptSubmit":  [
+                                           {
+                                               "hooks":  [
+                                                             {
+                                                                 "type":  "command",
+                                                                 "command":  "pwsh -NoProfile -NonInteractive -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/ensure-rate-limit-server.ps1\""
+                                                             },
+                                                             {
+                                                                 "type":  "command",
+                                                                 "command":  "pwsh -NoProfile -NonInteractive -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/init-session.ps1\""
+                                                             }
+                                                         ]
+                                           }
+                                       ],
+                  "Stop":  [
+                               {
+                                   "hooks":  [
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "pwsh -NoProfile -NonInteractive -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/update-session-from-hook.ps1\""
+                                                 }
+                                             ]
+                               }
+                           ],
+                  "PostToolUse":  [
+                                      {
+                                          "hooks":  [
+                                                        {
+                                                            "type":  "command",
+                                                            "command":  "pwsh -NoProfile -NonInteractive -File \"${CLAUDE_PROJECT_DIR}/.github/scripts/warn-session-after-tool.ps1\""
+                                                        }
+                                                    ]
+                                      }
+                                  ]
+              }
 }

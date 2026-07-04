@@ -96,7 +96,6 @@ foreach ($file in $claudeCommandFiles) {
 }
 
 $expectedClaudeHandoffs = @{
-    'developer-flow-handoff.md' = @('/user-story', '/implement', '/code-review', '/quality-gate', '/manual-qa', '/docs', '/create-pr', '/create-release-pr')
     'user-story.md' = @('/implement')
     'implement.md' = @('/code-review', '/manual-qa')
     'code-review.md' = @('/quality-gate', '/implement')
@@ -106,6 +105,7 @@ $expectedClaudeHandoffs = @{
     'create-pr.md' = @('/review-comments')
     'create-release-pr.md' = @('/review-comments')
     'review-comments.md' = @('/merge-pr', '/merge-release-pr')
+    'release-flow-orchestrator.md' = @('/create-pr', '/review-comments', '/manual-qa', '/merge-pr', '/implement')
 }
 
 foreach ($entry in $expectedClaudeHandoffs.GetEnumerator()) {

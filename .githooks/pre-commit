@@ -13,4 +13,17 @@ case "$branch" in
     ;;
 esac
 
+session_file="$root/.sdlc/session.json"
+if [ -f "$session_file" ]; then
+  used_pct=$(cat "$session_file" | grep -o '"usedPercentage": *[0-9.]*' | head -1 | grep -o '[0-9.]*$')
+  if [ -n "$used_pct" ]; then
+    integer_part=$(echo "$used_pct" | cut -d. -f1)
+    if [ "$integer_part" -ge 80 ] 2>/dev/null; then
+      echo "BLOCKED: rate limit at ${used_pct}% (>=80%). Session must checkpoint before committing." >&2
+      echo "Run: pwsh -File .github/scripts/checkpoint-session.ps1" >&2
+      exit 1
+    fi
+  fi
+fi
+
 exit 0
