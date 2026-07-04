@@ -15,7 +15,7 @@ SUB-02 — Android SSE Client — Re-poll on Server Change Event
 ## Scope
 
 Surface: Android only.
-Backend SSE endpoint: `https://openvpngateclientgate.azurewebsites.net/api/v1/servers/events`
+Backend SSE endpoint: `https://openvpngateclient.azurewebsites.net/api/v1/servers/events`
 
 ## Test cases
 

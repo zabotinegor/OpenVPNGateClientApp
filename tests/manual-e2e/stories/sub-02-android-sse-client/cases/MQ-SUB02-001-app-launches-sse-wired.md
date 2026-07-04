@@ -14,7 +14,7 @@ Samsung Galaxy A71 SM-A715F Android 13 (R58N849XQEY)
 
 ## Observed logcat (key lines)
 ```
-13:44:00.550  I  OpenVPNGateApp:SseServerEventsClient: SSE client starting; url=https://openvpngateclientgate.azurewebsites.net/api/v1/servers/events
+13:44:00.550  I  OpenVPNGateApp:SseServerEventsClient: SSE client starting; url=https://openvpngateclient.azurewebsites.net/api/v1/servers/events
 13:44:00.552  D  OpenVPNGateApp:SseServerEventsClient: SSE connecting (attempt=0)
 ```
 

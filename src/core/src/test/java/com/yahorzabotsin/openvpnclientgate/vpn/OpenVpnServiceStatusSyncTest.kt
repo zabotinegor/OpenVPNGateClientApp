@@ -415,6 +415,26 @@ class OpenVpnServiceStatusSyncTest {
         assertFalse(ReflectionHelpers.getField(service, "ignoreConnectedUntilNotConnected"))
     }
 
+    @Test
+    fun stopRequestIdAndStopStartedAtMsAreVolatile() {
+        // stopRequestId/stopStartedAtMs are written on the main thread (startUserStopTeardown)
+        // and read on the AIDL binder thread (syncEngineState via
+        // maybeStartStaleStopReconciliation). Without @Volatile, the binder thread can observe a
+        // stale cached value. This locks in the fix alongside the existing
+        // userInitiatedStart/userInitiatedStop @Volatile fields.
+        val stopRequestIdField = OpenVpnService::class.java.getDeclaredField("stopRequestId")
+        val stopStartedAtMsField = OpenVpnService::class.java.getDeclaredField("stopStartedAtMs")
+
+        assertTrue(
+            "stopRequestId must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(stopRequestIdField.modifiers)
+        )
+        assertTrue(
+            "stopStartedAtMs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(stopStartedAtMsField.modifiers)
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

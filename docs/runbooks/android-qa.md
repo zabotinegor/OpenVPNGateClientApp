@@ -21,35 +21,35 @@ TS-8 is the end-to-end ping display verification. It is blocked on the server te
 
 ### Devices tested for SUB-01 regression (AC-5, AC-7 cache backward-compat)
 
-- Samsung Galaxy A71 SM_A715F, Android 13, ADB serial R58N849XQEY
+- Samsung Galaxy A71 SM_A715F, Android 13, ADB serial <your-device-serial>
 
 ---
 
 ## SUB-02 — WorkManager Probe Request Queue Manual QA
 
 **Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-02-workmanager-probe-request-queue.md`
-**Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial R58N849XQEY
+**Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
 
 ### ADB commands used for verification
 
 ```bash
 # Install debug APK
-adb -s R58N849XQEY install -r app-debug.apk
+adb -s <your-device-serial> install -r app-debug.apk
 
 # Launch app via SplashActivity (required — direct MainActivity launch is known to fail; see Known Issues below)
-adb -s R58N849XQEY shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+adb -s <your-device-serial> shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
 
 # Verify WorkManager SystemJobService is active
-adb -s R58N849XQEY shell dumpsys jobscheduler | grep -i openvpn
+adb -s <your-device-serial> shell dumpsys jobscheduler | grep -i openvpn
 
 # Watch for ProbeRequestWorker activity
-adb -s R58N849XQEY logcat -v time -s OpenVPNGateApp:ProbeRequestWorker
+adb -s <your-device-serial> logcat -v time -s OpenVPNGateApp:ProbeRequestWorker
 
 # Check for probe worker errors or unexpected crashes
-adb -s R58N849XQEY logcat -d | grep -E "(ProbeRequestWorker|FATAL EXCEPTION|AndroidRuntime)"
+adb -s <your-device-serial> logcat -d | grep -E "(ProbeRequestWorker|FATAL EXCEPTION|AndroidRuntime)"
 
 # Verify ServersV2Repository still fetches correctly after named("v2") Retrofit refactor (regression)
-adb -s R58N849XQEY logcat | grep -E "(ServersV2Repository|ServersV2SyncCoordinator|fetchAllPages)"
+adb -s <your-device-serial> logcat | grep -E "(ServersV2Repository|ServersV2SyncCoordinator|fetchAllPages)"
 ```
 
 ### Logcat tag for probe worker
@@ -101,8 +101,8 @@ See `docs/runbooks/solutions.md` for full details.
 ## MP-20260621 SUB-02 — Android SSE Client for Server-Push Notifications
 
 **Story:** `docs/userstories/MP-20260621-server-push-sse/SUB-02-android-sse-client.md`
-**Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial R58N849XQEY
-**Backend endpoint:** `https://openvpngateclientgate.azurewebsites.net/api/v1/servers/events`
+**Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
+**Backend endpoint:** `https://openvpngateclient.azurewebsites.net/api/v1/servers/events`
 
 ### Logcat tags
 
@@ -115,35 +115,35 @@ See `docs/runbooks/solutions.md` for full details.
 
 ```bash
 # Stream SSE-related logcat (connection lifecycle + event receipt)
-adb -s R58N849XQEY logcat -v time -s "OpenVPNGateApp:SseServerEventsClient"
+adb -s <your-device-serial> logcat -v time -s "OpenVPNGateApp:SseServerEventsClient"
 
 # Also show CoreApp registration line at startup
-adb -s R58N849XQEY logcat -v time -e "SseServerEventsClient|CoreApp"
+adb -s <your-device-serial> logcat -v time -e "SseServerEventsClient|CoreApp"
 
 # Confirm SSE connection opened (look for HTTP 200 and "SSE connection opened" log line)
-adb -s R58N849XQEY logcat -d | grep -E "SSE connection (opened|closed|failure)"
+adb -s <your-device-serial> logcat -d | grep -E "SSE connection (opened|closed|failure)"
 
 # Verify a servers-changed event triggered a sync (look for "servers-changed event received; triggering server re-fetch")
-adb -s R58N849XQEY logcat -d | grep "servers-changed"
+adb -s <your-device-serial> logcat -d | grep "servers-changed"
 
 # Monitor the downstream sync that fires on SSE event
-adb -s R58N849XQEY logcat | grep -E "(ServersV2Repository|ServersV2SyncCoordinator|fetchAllPages)"
+adb -s <your-device-serial> logcat | grep -E "(ServersV2Repository|ServersV2SyncCoordinator|fetchAllPages)"
 
 # Verify SSE client starts on foreground and stops on background
-adb -s R58N849XQEY logcat -d | grep -E "SSE client (starting|stopping)"
+adb -s <your-device-serial> logcat -d | grep -E "SSE client (starting|stopping)"
 
 # Check for SSE backoff retries (exponential delay log lines)
-adb -s R58N849XQEY logcat -d | grep "SSE reconnect in"
+adb -s <your-device-serial> logcat -d | grep "SSE reconnect in"
 
 # Check for any fatal errors during SSE lifecycle registration
-adb -s R58N849XQEY logcat -d | grep -E "(FATAL EXCEPTION|Failed to register SSE)"
+adb -s <your-device-serial> logcat -d | grep -E "(FATAL EXCEPTION|Failed to register SSE)"
 ```
 
 ### Manual QA steps for SSE
 
-1. Install debug APK: `adb -s R58N849XQEY install -r app-debug.apk`
-2. Start logcat in a separate terminal: `adb -s R58N849XQEY logcat -v time -e "SseServerEventsClient|CoreApp"`
-3. Launch app: `adb -s R58N849XQEY shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`
+1. Install debug APK: `adb -s <your-device-serial> install -r app-debug.apk`
+2. Start logcat in a separate terminal: `adb -s <your-device-serial> logcat -v time -e "SseServerEventsClient|CoreApp"`
+3. Launch app: `adb -s <your-device-serial> shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`
 4. Verify logcat shows "SSE lifecycle observer registered" (CoreApp) then "SSE client starting" and "SSE connection opened (HTTP 200)" (SseServerEventsClient)
 5. Background the app (press Home)
 6. Verify logcat shows "SSE client stopping" and "SSE connection closed"
@@ -190,7 +190,7 @@ adb shell cmd deviceidle whitelist +com.yahorzabotsin.openvpnclientgate
 
 and applying the SUB-05 fix (removing `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` from
 launch intents and adding `dismissUpdatePromptIfVisible()`), all 21 tests pass on Samsung Galaxy
-A71 SM-A715F Android 13 (ADB serial R58N849XQEY) — 0 failures.
+A71 SM-A715F Android 13 (ADB serial <your-device-serial>) — 0 failures.
 
 `SettingsActivity`, `DnsActivity`, and `ConnectionControlsView` tests continue to pass normally.
 

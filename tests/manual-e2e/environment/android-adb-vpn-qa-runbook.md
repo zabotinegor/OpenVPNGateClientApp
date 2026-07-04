@@ -12,13 +12,13 @@
 `adb shell pm list packages` fails with `Shell does not have permission to access user 150`.
 Use instead:
 ```
-adb -s R58N849XQEY shell dumpsys package com.yahorzabotsin.openvpnclientgate | grep -i "package\|version"
+adb -s <your-device-serial> shell dumpsys package com.yahorzabotsin.openvpnclientgate | grep -i "package\|version"
 ```
 
 ### Activity resolution
 Use `cmd package resolve-activity` to find the launchable activity:
 ```
-adb -s R58N849XQEY shell cmd package resolve-activity --brief com.yahorzabotsin.openvpnclientgate
+adb -s <your-device-serial> shell cmd package resolve-activity --brief com.yahorzabotsin.openvpnclientgate
 ```
 Result: `.mobile.SplashActivity`
 
@@ -26,13 +26,13 @@ Result: `.mobile.SplashActivity`
 If `SplashActivity` doesn't transition to `MainActivity`, the device screen may be locked.
 Fix:
 ```
-adb -s R58N849XQEY shell input keyevent 224   # wake screen
+adb -s <your-device-serial> shell input keyevent 224   # wake screen
 ```
 
 ### uiautomator dump — no PCRE grep on device
 `grep -P` fails on the device shell. Use `grep -E` for extended regex.
 ```
-adb -s R58N849XQEY shell "uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml" | grep -E "pattern"
+adb -s <your-device-serial> shell "uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml" | grep -E "pattern"
 ```
 
 ### `--tests` flag not supported on aggregate Gradle task
@@ -41,24 +41,24 @@ Run the full suite: `./gradlew.bat testDebugUnitTestApp`
 
 ### VPN force-stop
 ```
-adb -s R58N849XQEY shell am force-stop com.yahorzabotsin.openvpnclientgate
+adb -s <your-device-serial> shell am force-stop com.yahorzabotsin.openvpnclientgate
 ```
 
 ### App data wipe (fresh-install simulation without reinstall)
 ```
-adb -s R58N849XQEY shell pm clear com.yahorzabotsin.openvpnclientgate
+adb -s <your-device-serial> shell pm clear com.yahorzabotsin.openvpnclientgate
 ```
 
 ## Useful Log Filters
 
 ### Server selection + counter
 ```
-adb -s R58N849XQEY logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(chosenIndex|ensureIndex|Session attempt|ConnectionControlsView|pendingUser|Server sel)"
+adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(chosenIndex|ensureIndex|Session attempt|ConnectionControlsView|pendingUser|Server sel)"
 ```
 
 ### Full connect-flow trace
 ```
-adb -s R58N849XQEY logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(CountryServersInteractor|MainViewModel|MainConnectionInteractor|SelectedCountryStore|OpenVpnService)" | grep -E "(chosenIndex|ensureIndex|Session attempt|Server sel|getLastSuccessful|saveLastStart|prepareStart)"
+adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(CountryServersInteractor|MainViewModel|MainConnectionInteractor|SelectedCountryStore|OpenVpnService)" | grep -E "(chosenIndex|ensureIndex|Session attempt|Server sel|getLastSuccessful|saveLastStart|prepareStart)"
 ```
 
 ## Known Environmental Behaviour

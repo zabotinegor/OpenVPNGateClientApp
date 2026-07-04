@@ -121,8 +121,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var userInitiatedStart = false
     @Volatile private var userInitiatedStop = false
     @Volatile private var ignoreConnectedUntilNotConnected = false
-    private var stopRequestId: String? = null
-    private var stopStartedAtMs: Long = 0L
+    // Same cross-thread visibility requirement as above: stopRequestId/stopStartedAtMs are
+    // written on the main thread (startUserStopTeardown) and read on the AIDL binder thread
+    // (syncEngineState via maybeStartStaleStopReconciliation).
+    @Volatile private var stopRequestId: String? = null
+    @Volatile private var stopStartedAtMs: Long = 0L
     private var stopAttempt: Int = 0
     private var stopAwaitingConfirmation: Boolean = false
     private var stopBindPending: Boolean = false
