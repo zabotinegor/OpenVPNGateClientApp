@@ -153,8 +153,6 @@ artifacts
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
-/.github/scripts/checkpoint-session.ps1
-/.github/scripts/check-rate-limit.ps1
 /.github/scripts/chrome-extension/background.js
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js
