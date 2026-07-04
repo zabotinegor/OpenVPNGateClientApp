@@ -1,25 +1,14 @@
-# Protected Branches
+## Protected Branches
 
-## Definition
-
-The following branches are protected and must NEVER receive direct agent-originated commit/push:
+The following branches are protected from agent-originated direct commit, push, branch creation, force-update, deletion, or any other ref mutation:
 
 - `main`
 - `dev`
 - `master`
 - `develop`
 
-## Rules
+No bypass is permitted through approvals, auto-approve flows, handoff text, merge workflow steps, scripted shortcuts, or any other automation. The only allowed write to a protected branch is an approved PR merge after all required gates pass.
 
-1. Direct commit/push to protected branches is always forbidden
-2. No bypass is allowed: approvals, auto-approve flows, handoff text, merge workflow steps, or automation cannot authorize direct commit/push
-3. Before every commit/push, resolve the current branch and stop if target is protected
-4. Direct remote protected-ref creation, update, force-update, deletion, and recreation are forbidden
-5. The only allowed protected-branch write is an approved PR merge after all required gates pass
-6. Every agent must create a non-protected working branch before first tracked-file edit
+Before every commit, push, or branch/ref mutation, resolve the current branch and all destination refs. Stop with `BLOCKED` if any target or destination is a protected branch.
 
-## Allowed Patterns
-
-- Feature branches: `feature/<story-id-or-kebab-title>`
-- Fix branches: `fix/<story-id-or-kebab-title>`
-- PR merge to protected branch (after all gates pass)
+Every agent capable of tracked-file edits must resolve or create a suitable non-protected working branch before its first tracked-file edit. A planned later branch switch does not permit editing on a protected branch.
