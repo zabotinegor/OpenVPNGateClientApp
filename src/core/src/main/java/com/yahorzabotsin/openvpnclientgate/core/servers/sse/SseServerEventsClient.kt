@@ -182,13 +182,18 @@ class SseServerEventsClient(
         val connectionDone = Job()
         val openedAt = AtomicLong(-1L)
 
-        // Resets the backoff counter if the connection was alive long enough to be
-        // considered stable. Called from onClosed and onFailure — avoids a background
+        // Resets the backoff and URL-failure counters if the connection was alive long enough
+        // to be considered stable. Called from onClosed and onFailure — avoids a background
         // coroutine and does not require an activeEventSource identity check.
+        // failuresOnCurrentUrl must NOT reset unconditionally in onOpen: a URL that accepts the
+        // connection (HTTP 200) but drops it immediately every time would otherwise never
+        // accumulate failures past 0, and the client would stay stuck on that degraded URL
+        // forever instead of rotating to a fallback after urlFailureThreshold.
         fun maybeResetBackoff() {
             val t = openedAt.get()
             if (t >= 0L && System.nanoTime() - t >= TimeUnit.MILLISECONDS.toNanos(stableConnectionResetDelayMs)) {
                 reconnectAttempt.set(0)
+                failuresOnCurrentUrl.set(0)
             }
         }
 
@@ -197,7 +202,6 @@ class SseServerEventsClient(
                 if (connectionJob?.isActive != true) return
                 AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
                 openedAt.set(System.nanoTime())
-                failuresOnCurrentUrl.set(0)
                 clientScope?.launch { doSync() }
             }
 

@@ -860,20 +860,24 @@ class SseServerEventsClientTest {
     }
 
     @Test
-    fun `successful open resets failure count from non-zero to zero`() {
-        // Use a single URL with urlFailureThreshold=2: the first attempt fails
-        // (failuresOnCurrentUrl rises to 1), the second attempt succeeds.
-        // onOpen must reset failuresOnCurrentUrl from 1 → 0.
-        // This avoids the vacuous-assertion pitfall of the two-URL / threshold=1 approach
-        // where the rotation block already resets the counter before onOpen fires.
+    fun `onOpen does not reset failure count — only a stable connection does, on close`() {
+        // Regression: onOpen must NOT reset failuresOnCurrentUrl unconditionally. A URL that
+        // accepts the connection (HTTP 200) but drops it immediately every time would otherwise
+        // never accumulate failures past 0 and the client would never rotate to a fallback.
+        // Use a single URL with urlFailureThreshold=2: the first attempt fails (counter → 1),
+        // the second attempt succeeds and stays open long enough to be "stable"
+        // (stableConnectionResetDelayMs=50 ms), then closes — only then must the counter reset.
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(503))
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
-                .setHeader("Content-Type", "text/event-stream")
-                .setBody(": keep\n\n")
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(": k\n")           // 4 bytes
+                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, > 50 ms stable window
         )
+        // Third response for the reconnect after the stable close.
+        server.enqueue(MockResponse().setResponseCode(503))
         server.start()
 
         val url = server.url("/api/v1/servers/events").toString()
@@ -904,17 +908,34 @@ class SseServerEventsClientTest {
             okHttpClient = okHttpClient,
             syncCoordinator = fakeCoordinatorWithLatch,
             sseUrlsProvider = { listOf(url) },
-            urlFailureThreshold = 2
+            urlFailureThreshold = 2,
+            stableConnectionResetDelayMs = 50L
         )
 
         try {
             client.start()
+            val firstRequest = server.takeRequest(3, TimeUnit.SECONDS)
+            assertNotNull("First request (503) should have been made", firstRequest)
+            // The reconnect after a failure applies backoff (initial delay ~5 s), so allow
+            // enough time for the second request to arrive.
+            val secondRequest = server.takeRequest(10, TimeUnit.SECONDS)
+            assertNotNull("Second request (200, throttled body) should have been made", secondRequest)
+
             // Wait for onOpen on the second attempt (triggers sync → latch)
             val opened = openLatch.await(15, TimeUnit.SECONDS)
             assertTrue("Connection must open on second attempt after first 503", opened)
-            Thread.sleep(300)
             assertEquals(
-                "failuresOnCurrentUrl must be reset to 0 by onOpen",
+                "failuresOnCurrentUrl must NOT be reset immediately by onOpen",
+                1, client.failuresOnCurrentUrl.get()
+            )
+
+            // Wait for the throttled body to finish (~120 ms > 50 ms stable window), the
+            // connection to close (triggering maybeResetBackoff()), and the immediate reconnect
+            // (counter was reset, so no backoff delay) to reach the server as a third request.
+            val thirdRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("Third request (immediate reconnect after stable close) must arrive", thirdRequest)
+            assertEquals(
+                "failuresOnCurrentUrl must be reset to 0 only after a stable connection closes",
                 0, client.failuresOnCurrentUrl.get()
             )
         } finally {
