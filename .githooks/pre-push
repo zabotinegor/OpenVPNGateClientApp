@@ -7,9 +7,14 @@ fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
-    refs/heads/main|refs/heads/dev|refs/heads/master|refs/heads/develop)
+    refs/heads/main|refs/heads/master|refs/heads/develop)
       echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
       exit 1
+      ;;
+    refs/heads/dev)
+      # Narrow, explicit exception for the release-flow archive step: recreating
+      # dev from a merged main requires deleting and recreating refs/heads/dev
+      # directly. main, master, and develop remain fully blocked above.
       ;;
   esac
 

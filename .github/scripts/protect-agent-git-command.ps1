@@ -77,11 +77,27 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
                 if (-not $t.StartsWith('-')) { $eff = $t }
             }
         }
-        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
+        $isForce = $normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])'
+        $isBulk = $normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])'
+        # Narrow, explicit exception for the release-flow archive step: recreating `dev`
+        # from a merged `main` requires `git push origin --delete dev` followed by
+        # `git push [-u] origin dev`. Only the literal `dev` ref is exempted here — main,
+        # master, and develop remain fully protected, and force/bulk pushes are still
+        # blocked by the checks above regardless of this exception.
+        $isDevOnlyPushOrDelete = -not $isForce -and -not $isBulk -and (
+            $normalized -match "(?i)\b(?:origin|upstream)\s+(?:--delete|-d)\s+dev(?![-\w/.])" -or
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+(?:origin|upstream)\s+dev(?![-\w/.])" -or
+            $normalized -match "(?i)\b(?:origin|upstream)\s+dev(?![-\w/.])(?!.*(?:main|master|develop)(?![-\w/.]))" -or
+            $normalized -match "(?i)(?:^|\s):dev(?![-\w/.])"
+        )
+        if ($isForce) {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
+        elseif ($isBulk) {
             $reason = 'Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden.'
+        }
+        elseif ($isDevOnlyPushOrDelete) {
+            # Allowed: release-flow archive step recreating dev from merged main.
         }
         elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
             $reason = "Direct push from protected branch '$eff' is forbidden."
