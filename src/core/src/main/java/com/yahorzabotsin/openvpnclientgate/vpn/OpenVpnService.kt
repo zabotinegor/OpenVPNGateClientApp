@@ -112,12 +112,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var engineBinder: IOpenVPNServiceInternal? = null
     private var boundToEngine = false
 
-    // Remember whether start/stop were user-driven vs auto-switch
-    private var userInitiatedStart = false
-    private var userInitiatedStop = false
-    private var ignoreConnectedUntilNotConnected = false
-    private var stopRequestId: String? = null
-    private var stopStartedAtMs: Long = 0L
+    // Remember whether start/stop were user-driven vs auto-switch.
+    // @Volatile: written on the main thread (onStartCommand / startUserStopTeardown),
+    // read on the AIDL binder thread (IStatusCallbacks.Stub.updateStateString →
+    // syncEngineState / shouldIgnoreLevelAfterUserStop / handleEngineLevelForStop).
+    // Without @Volatile the JVM may cache stale values in the binder thread's register/cache,
+    // causing the FGS guard or stop-flow checks to act on outdated state.
+    @Volatile private var userInitiatedStart = false
+    @Volatile private var userInitiatedStop = false
+    @Volatile private var ignoreConnectedUntilNotConnected = false
+    // Same cross-thread visibility requirement as above: stopRequestId/stopStartedAtMs are
+    // written on the main thread (startUserStopTeardown) and read on the AIDL binder thread
+    // (syncEngineState via maybeStartStaleStopReconciliation).
+    @Volatile private var stopRequestId: String? = null
+    @Volatile private var stopStartedAtMs: Long = 0L
     private var stopAttempt: Int = 0
     private var stopAwaitingConfirmation: Boolean = false
     private var stopBindPending: Boolean = false
@@ -135,10 +143,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
-    private var aidlLastInBytes: Long = 0L
-    private var aidlLastOutBytes: Long = 0L
-    private var lastAidlByteUpdateTs: Long = 0L
-    private var controllerForegroundActive = false
+    // Written and read on the AIDL binder thread only (updateByteCount(inBytes, outBytes)),
+    // but Android's binder thread pool may service successive calls on different worker
+    // threads, so @Volatile is required for cross-call memory visibility.
+    @Volatile private var aidlLastInBytes: Long = 0L
+    @Volatile private var aidlLastOutBytes: Long = 0L
+    @Volatile private var lastAidlByteUpdateTs: Long = 0L
+    @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
     private var statusBinder: IServiceStatus? = null
@@ -1115,6 +1126,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED -> {
+                // Reached when auto-switch is disabled (or the level isn't handled by the
+                // auto-switch block above): a failed user-initiated start must still clear
+                // userInitiatedStart here, otherwise syncEngineState's reconnectPending guard
+                // keeps suppressing exitControllerForeground() forever, leaving the "VPN
+                // connecting" foreground notification stuck after the failed attempt.
+                userInitiatedStart = false
                 resumeActionInFlight = false
                 statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
             }
@@ -1708,8 +1725,45 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        if (controllerForegroundActive && level != ConnectionStatus.LEVEL_START && level != ConnectionStatus.UNKNOWN_LEVEL) {
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
+        // We must NOT exit the FGS notification in two situations:
+        // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
+        //    before the next server start — dropping the notification here reopens the 5-second
+        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
+        // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
+        //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
+        //    on the binder thread; dropping the FGS notification here removes the safety net
+        //    started by ACTION_START and reopens the same 5-second race window.
+        // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
+        // explicitly, so those paths are unaffected by this guard.
+        val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
+        val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
+        if (controllerForegroundActive
+            && level != ConnectionStatus.LEVEL_START
+            && level != ConnectionStatus.UNKNOWN_LEVEL
+            && !reconnectPending) {
             exitControllerForeground()
+        }
+        // Clear userInitiatedStart when the engine reports a successful connection, or a
+        // terminal failure, via the AIDL path. updateState() (the VPN_STATUS path) clears it in
+        // the equivalent cases, but when the status service is fresh (isAidlFresh()=true),
+        // updateState() returns early and never reaches that code — syncEngineState() (called
+        // from the AIDL callback path, updateStateString) is then the only place that can clear
+        // it. Without this clear, userInitiatedStart stays true after a failed user-initiated
+        // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
+        // reconnectPending stuck and the "VPN connecting" notification undismissable.
+        //
+        // NOTE: intentionally NOT followed by an immediate exitControllerForeground() for this
+        // callback (tried in rounds 7-8, reverted in round 10): a stale LEVEL_NOTCONNECTED from
+        // a PREVIOUS session can legitimately arrive here while a NEW user-initiated start is
+        // still in flight (userInitiatedStart=true, reconnectingHint=false) — indistinguishable
+        // from a genuine terminal failure of the current attempt without a start-generation
+        // token. Exiting foreground in that case reopens the exact FGS crash window the
+        // reconnectPending guard exists to prevent. Accepting the narrower, lower-severity
+        // gap instead: a single terminal-failure callback with no follow-up idle callback may
+        // leave the "VPN connecting" notification stuck until the next engine callback.
+        if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
+            userInitiatedStart = false
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")

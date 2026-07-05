@@ -140,6 +140,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.timber)
     implementation(libs.commonmark)
+    implementation(libs.square.okhttp.sse)
+    implementation(libs.androidx.lifecycle.process)
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)

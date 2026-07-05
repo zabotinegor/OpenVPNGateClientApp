@@ -108,6 +108,9 @@ object PrimaryDomainRoutes {
     fun v2ServersUrl(baseUrl: String): String? =
         buildUrl(baseUrl, "api/v2/servers")
 
+    fun sseServersEventsUrl(baseUrl: String): String? =
+        buildUrl(baseUrl, "api/v1/servers/events")
+
     fun versionByNumberAndBuildUrl(
         baseUrl: String,
         versionName: String,

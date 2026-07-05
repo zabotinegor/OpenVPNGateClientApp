@@ -94,7 +94,9 @@ class MainViewModel(
                     if (e is CancellationException) throw e
                     AppLog.w(tag, "Startup server sync failed, loading from cache", e)
                 }
+                if (_state.value.pendingUserSelectionOverride) return@launch
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
+                if (_state.value.pendingUserSelectionOverride) return@launch
                 logger.logInitialSelectionLoaded(selection)
                 updateSelectedServer(
                     country = selection.country,
@@ -102,7 +104,8 @@ class MainViewModel(
                     city = selection.city,
                     config = selection.config,
                     ip = selection.ip,
-                    fromUserSelection = false
+                    fromUserSelection = false,
+                    isBackgroundRefresh = true
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -137,13 +140,17 @@ class MainViewModel(
                 }
                 val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly)
                     ?: return@launch
+                if (_state.value.pendingUserSelectionOverride) {
+                    return@launch
+                }
                 updateSelectedServer(
                     country = selection.country,
                     countryCode = selection.countryCode,
                     city = selection.city,
                     config = selection.config,
                     ip = selection.ip,
-                    fromUserSelection = false
+                    fromUserSelection = false,
+                    isBackgroundRefresh = true
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e

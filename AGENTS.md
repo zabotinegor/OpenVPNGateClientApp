@@ -123,3 +123,228 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 ## When Extending Instructions
 - If the repository later needs module-specific guidance, add nested `AGENTS.md` files under `src/core`, `src/mobile`, `src/tv`, or `src/external/OpenVPNEngine` instead of overloading this root file.
+
+<!-- BEGIN COPILOT SYNC -->
+## MANDATORY FIRST STEP — Session Limit Check
+
+Before reading any other file or taking any action, every agent must:
+
+1. Run `pwsh -File .github/scripts/init-session.ps1` (these are PowerShell scripts; on Unix/bash agents, invoke via `pwsh -File`, not directly as `./script.ps1`, and ensure PowerShell 7+ (`pwsh`) is installed)
+2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
+3. If status is `warning` (>=80%) or `exhausted` (>=100%):
+   a. Finish any current atomic unit.
+   b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
+   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
+   d. Stop. Do not proceed with the requested task.
+4. During the session: check rate limit before every long operation and before every call to `update-sdlc-status.ps1`.
+5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
+
+This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
+
+## Core Principles
+
+- Prioritize correctness over speed.
+- Prefer the smallest safe change that solves the request.
+- Preserve existing architecture and naming patterns.
+- Do not introduce unrelated refactors.
+- Never expose secrets, tokens, credentials, or private keys.
+
+## Execution Flow
+
+1. Understand the user goal and expected output.
+2. Inspect relevant files before editing.
+3. Implement minimal focused changes.
+4. Run validation steps that match the change scope.
+5. Summarize what changed and why.
+
+## Editing Rules
+
+- Keep files ASCII unless non-ASCII is required by existing content.
+- Reuse existing patterns from nearby files.
+- Add brief comments only where logic is non-obvious.
+- Avoid formatting-only churn in unrelated code.
+- If requirements conflict, prefer safety and explicit assumptions.
+- Do not create persistent handoff or prompt artifact files such as `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, `CODE_REVIEW_HANDOFF_*.md`, or chat handoff markdown files unless the user explicitly asks for a file. Return handoffs in chat output or handoff buttons instead.
+- If a handoff/prompt artifact file is created accidentally, remove it before final output and return the same handoff content in chat or a handoff button. Do not report success while forbidden handoff artifacts remain in the worktree.
+- Real product, test, or helper scripts are allowed when required by the requested implementation or validation; do not create script-like prompt files just to pass instructions between agents.
+
+## Validation Rules
+
+- Run the narrowest useful checks first.
+- If tests are unavailable, run lint/build or static checks when possible.
+- Developer-side validation includes not only tests, but also debugging and target environment or device readiness checks when those are relevant to changed behavior.
+- If validation cannot be run, explicitly state why.
+- Do not claim success without evidence.
+
+## Long-Running Operation Rules
+
+- Agents must not abandon long-running commands, builds, tests, migrations, dev servers, CI checks, browser/mobile sessions, or background jobs after saying they are waiting.
+- Required validation/build/test/migration/deploy/check operations must run in a tracked mode: direct foreground shell execution until exit code, a tool with a real completion callback, or `.github/scripts/invoke-long-operation.ps1` with status polling.
+- Treat terminal execution as a capability, not a fixed tool ID. Use any available terminal-capable tool exposed in the session (for example `run_in_terminal`, `execute`, or `runCommands`) and do not stop solely because one specific tool name is unavailable.
+- If a terminal-capable call routes into a VS Code task launcher (for example, a task label starts and reports `Canceled`), treat it as a task-launcher path and switch to direct terminal tools (`run_in_terminal` or `runCommands`) before declaring terminal execution unavailable.
+- Do not use VS Code tasks, "Run task", or any fire-and-forget launcher for required operations unless the tool exposes reliable completion status, exit code, and recent logs to the agent. If a required task was started without trackable completion, switch to an equivalent shell/supervised command or stop with a concrete blocker.
+- Do not create or modify `.vscode/tasks.json` to run required operations unless the user explicitly asks for a persistent VS Code task. Prefer direct shell commands or `.github/scripts/invoke-long-operation.ps1`.
+- For agent-sync operations, treat root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) as protected by default; sync them only with explicit user approval and explicit script opt-in.
+- When starting a long operation, state what is running, what signal will prove completion, the tracking method, and the polling cadence or timeout.
+- Poll until the operation completes, fails, times out, is cancelled, or reaches a documented user-action blocker. Use process status, terminal output, supervisor status files, health checks, log tails, CI status APIs, browser/device readiness, or file/output changes as applicable.
+- Send concise progress updates during long waits, at least every 5 minutes or whenever the observed state changes. Include elapsed time, current state, and next check.
+- Do not provide a final answer while a required operation is still running unless the user explicitly asked to leave it running. In that case, report the process/session identifier, how to check it, and what remains.
+- If an operation exceeds its expected duration, extend polling with a clear reason or stop with a concrete blocker. Do not silently wait indefinitely.
+- Callback-style behavior is implemented as a real tool/platform completion callback when available; otherwise use foreground execution or `.github/scripts/invoke-long-operation.ps1` and poll `.sdlc/operations/*/status.json`.
+- On resume after interruption or context restoration, inspect `.sdlc/operations/*/status.json` before restarting required work. Continue polling running operations, consume completed exit codes/log tails, or report a blocker if the process disappeared without a terminal status.
+
+## Session Limit Rules
+
+Every agent must track Claude rate limits and checkpoint before exhaustion. See the **MANDATORY FIRST STEP** section above and `.github/skills/shared/operational-rules.md` for the authoritative rules.
+
+Summary:
+- **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
+- Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
+- On checkpoint: call `ScheduleWakeup` tool + inform user.
+- On new session: run `.github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
+- Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
+
+## Git Rules
+
+- Use clear commit messages in past tense.
+- Commit only relevant files.
+- Do not rewrite history unless explicitly requested.
+- Do not use destructive commands on user work.
+- After successful validation, commit only relevant files and push to the target branch. Do not commit or push when validation failed, relevant files cannot be isolated, or unrelated user changes would be included.
+- For Manual QA and evidence-heavy workflows, do not commit raw/noisy artifacts (for example screenshots, full logs, videos, generated reports, temporary exports, crash dumps, large binaries) unless the user explicitly requested persistent storage and approved their scope.
+- Do not use broad staging (`git add .`, `git add -A`) in Manual QA flows; stage explicit approved files only.
+- Manual QA commit allowlist is mandatory by default: `tests/manual-e2e/environment/**/*.md`, `tests/manual-e2e/stories/**/specs/**`, `tests/manual-e2e/stories/**/cases/**`, `tests/manual-e2e/stories/**/suites/**`, and the QA knowledge index path. If staged files are outside this allowlist, agents must stop with `BLOCKED` until the user explicitly approves additional paths.
+
+## Knowledge Documentation Standard
+
+Every agent must document any discovery that would save time in a future session. This is mandatory, not optional.
+
+**Document when:**
+- A non-obvious problem was encountered and solved (e.g., a specific error with a known fix).
+- A how-to was worked out during the session (e.g., how to generate a JWT token for this project, how to seed test data).
+- An environment quirk or gotcha was discovered (e.g., a service must be started in a specific order, a port conflict).
+- A workaround was applied (e.g., a library bug workaround, a platform-specific build flag).
+- A command or pattern was discovered that is not obvious from the codebase.
+- A QA or testing trick proved effective (e.g., a specific test account, a shortcut to reproduce a scenario).
+
+**Do not document:**
+- Things already obvious from README or standard docs.
+- Secrets, tokens, passwords, or credentials — never write actual values.
+- Personal preferences or style opinions.
+
+**Where to write:**
+All knowledge lives under `docs/runbooks/` in the target repository:
+
+| File | Content |
+|---|---|
+| `docs/runbooks/environment-setup.md` | Start commands, env var names, service dependencies, startup order |
+| `docs/runbooks/android-qa.md` | ADB commands, build variant, device prep, install procedure |
+| `docs/runbooks/api-testing.md` | Endpoint list, auth patterns, test data setup |
+| `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
+| `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
+
+Create files that do not exist. Append to existing files — never overwrite useful prior content.
+
+**Format for `solutions.md` entries:**
+```markdown
+### <Short problem title>
+**Context:** when this happens
+**Problem:** what goes wrong
+**Solution:** what fixes it
+**Commands/code:** (if applicable)
+```
+
+**Format for `how-to.md` entries:**
+```markdown
+### How to <do something>
+**When needed:** <scenario>
+**Steps:**
+1. ...
+**Notes:** <gotchas or platform-specific details>
+```
+
+Commit knowledge files to the same branch as the implementation. They travel with the PR and get merged alongside the feature or fix.
+
+## Communication Rules
+
+- Be concise and concrete.
+- Report blockers immediately with the exact reason.
+- State assumptions when input is incomplete.
+- Prefer actionable next steps over generic advice.
+
+## Safety Rules
+
+- No harmful, malicious, or privacy-violating instructions.
+- No secret extraction or credential harvesting.
+- No dependency upgrades outside requested scope unless required for a fix.
+
+## Language Policy
+
+- Governance/process documentation is written in English.
+- All user-facing chat output must use the language of the user's current request unless the user explicitly requests another language.
+- Apply the same rule to questions, progress updates, summaries, blockers, handoffs, and generated prompt payloads.
+- Explicit language requirements for repository artifacts or external-system messages take precedence only for those artifacts or messages.
+- Templates/checklists in references stay in English unless a repository-specific requirement says otherwise.
+
+## Runtime SDLC Status
+
+Developer Flow Handoff and its downstream SDLC skills coordinate independent chats through `.sdlc/status.json` at the Git repository root resolved by `git rev-parse --show-toplevel`. Developer Flow Handoff and completed downstream agents expose paired handoff buttons: `(Agent)` sends compact evidence directly to the next specialist, while `(Prompt)` returns a copy-ready prompt as exactly one fenced `text` block. This file is runtime-only, must remain gitignored, and stores compact machine-readable gate evidence by flow. Agents must update it through `.github/scripts/update-sdlc-status.ps1`, not by ad hoc JSON edits, and must not store secrets, credentials, private environment values, or long logs in it. Nested `.sdlc/status.json` files below the repo root are runtime drift and must be removed or merged into the root status file. SDLC step order: `story -> branch -> implementation -> review -> qualityGate -> manualQa -> docs -> pr`. Each agent updates only its own step and must pass `-ValidatePriorSteps` to enforce required prior-step statuses before writing.
+
+Manual QA sign-off rule:
+
+- `steps.manualQa.status=passed` is the authoritative QA approval for the current retest cycle and unblocks downstream `docs`/`pr` gates when their own prerequisites are satisfied.
+- Implementers provide fix evidence and required retest scope, but Manual QA owns final defect lifecycle transitions after retest.
+- Open defects from the same flow must be transitioned to non-open states (`resolved|verified|closed`) when QA retest passes; historical resolved defects must not block downstream steps.
+- When Manual QA cannot personally complete a required check after exhausting ALL steps in the self-sufficiency escalation chain (primary tool -> CLI fallback -> app/service startup -> emulator startup -> documented recovery -> proven impossible), it must stop the dependent QA flow and request user-assisted verification. The agent must document every attempt made during the escalation chain. Valid escalations include passkey, biometric, hardware-token, physical-device, external-approval, inaccessible UI, and missing-access checks. The request must provide simple numbered steps, the expected result, and the exact non-secret proof required. Manual QA must wait for and assess that proof before resuming; it must not silently skip the check, infer success, accept an unsupported confirmation, or mark the check `passed`/`notNeeded`.
+- In flow-backed runs, Manual QA must set `steps.manualQa.status=blocked` with the unresolved check and requested proof before yielding to the user, then update the status again after assessing returned proof. Inability to execute a check is a QA blocker, not by itself a product defect.
+- If requested user-assisted proof is missing, insufficient, contradictory, or cannot be assessed, Manual QA must report the exact unresolved check and keep `steps.manualQa.status=blocked`; downstream docs, PR, and merge gates must not proceed.
+
+Step-ownership rule:
+
+- Each specialist step must gate only on required prior steps from SDLC order and its own in-scope evidence.
+- Downstream steps must not be used as prerequisites for upstream steps (for example, `manualQa` cannot be a prerequisite for `review`).
+
+SDLC-core handoff report contract:
+
+- Scope: `user-story-spec`, `code-implementator`, `code-review`, `scope-quality-gate`, `e2e-manual-testing`, `docs-maintenance`, `github-create-pr`, and SDLC routing or orchestration handoffs that connect these steps.
+- Every SDLC-core handoff or execution report must include a required minimum set of fields; additional role-specific sections are allowed.
+- Required minimum fields: what was done, what went wrong or failed (or explicit `none`), what was fixed or changed, evidence (commands/results, paths, IDs, or concise artifacts), what remains or next actions, and blockers or errors (or explicit `none`).
+- For Manual QA defect-return loops, developers must include a QA retest handoff prompt when Manual QA explicitly requested retest scope.
+- The QA retest handoff prompt must list fixed items, executed validation/debugging evidence, explicit retest instructions, and residual risks.
+
+Copy-ready `(Prompt)` response protocol:
+
+- Return exactly one fenced `text` block with no text before or after it.
+- End the payload with `END OF PROMPT`.
+- If formatting is invalid, regenerate before final output.
+
+## Handoff Artifacts
+
+Handoff prompts are conversation output, not repository artifacts. Agents must not create files like `CODE_REVIEW_HANDOFF_*.md`, `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, or other chat-transfer markdown files unless the user explicitly requests a persistent file. If such a file is created accidentally, delete it and provide the content in chat instead. The supported durable SDLC runtime artifact is root `.sdlc/status.json`, updated only through `.github/scripts/update-sdlc-status.ps1`. Long operation runtime status/logs may live only under gitignored `.sdlc/operations/`.
+
+## Definition of Done
+
+A task is done when all points are true:
+
+- Requested change is implemented.
+- Relevant validation is completed or limitation is clearly stated.
+- Files are consistent with repository conventions.
+- Forbidden handoff/prompt artifacts and nested `.sdlc/status.json` drift have been checked and cleaned up when in scope.
+- User-facing summary is clear and accurate.
+
+## Centralized Rules and Constraints
+
+### Prompt-Generation Responses
+- Return exactly one fenced `text` block with no text before or after it.
+- End the payload with `END OF PROMPT`.
+- If formatting is invalid, regenerate before final output.
+
+### Long-Running Operation Rules
+- Follow foreground shell execution, real completion callback, or `.github/scripts/invoke-long-operation.ps1`.
+- Avoid fire-and-forget VS Code tasks or generated `.vscode/tasks.json` unless explicitly requested.
+- Do not final-answer while a required operation is still running; on resume, inspect `.sdlc/operations/*/status.json` before restarting work.
+
+### Update-SDLC Status
+- Never invoke `.github/scripts/update-sdlc-status.ps1` using positional shorthand (e.g., `steps.story.status ready`).
+- Always use named parameters (`-FlowId`, `-Branch`, `-Step`, `-Status`, plus required step-specific parameters).
+<!-- END COPILOT SYNC -->

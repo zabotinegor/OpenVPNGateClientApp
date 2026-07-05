@@ -415,6 +415,144 @@ class OpenVpnServiceStatusSyncTest {
         assertFalse(ReflectionHelpers.getField(service, "ignoreConnectedUntilNotConnected"))
     }
 
+    @Test
+    fun stopRequestIdAndStopStartedAtMsAreVolatile() {
+        // stopRequestId/stopStartedAtMs are written on the main thread (startUserStopTeardown)
+        // and read on the AIDL binder thread (syncEngineState via
+        // maybeStartStaleStopReconciliation). Without @Volatile, the binder thread can observe a
+        // stale cached value. This locks in the fix alongside the existing
+        // userInitiatedStart/userInitiatedStop @Volatile fields.
+        val stopRequestIdField = OpenVpnService::class.java.getDeclaredField("stopRequestId")
+        val stopStartedAtMsField = OpenVpnService::class.java.getDeclaredField("stopStartedAtMs")
+
+        assertTrue(
+            "stopRequestId must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(stopRequestIdField.modifiers)
+        )
+        assertTrue(
+            "stopStartedAtMs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(stopStartedAtMsField.modifiers)
+        )
+    }
+
+    @Test
+    fun aidlByteCountFieldsAreVolatile() {
+        // aidlLastInBytes/aidlLastOutBytes/lastAidlByteUpdateTs are written and read inside
+        // updateByteCount(inBytes, outBytes), invoked on the AIDL binder thread. Android's binder
+        // thread pool may service successive calls on different worker threads, so @Volatile is
+        // required for cross-call memory visibility even without concurrent invocation.
+        val aidlLastInBytesField = OpenVpnService::class.java.getDeclaredField("aidlLastInBytes")
+        val aidlLastOutBytesField = OpenVpnService::class.java.getDeclaredField("aidlLastOutBytes")
+        val lastAidlByteUpdateTsField = OpenVpnService::class.java.getDeclaredField("lastAidlByteUpdateTs")
+
+        assertTrue(
+            "aidlLastInBytes must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(aidlLastInBytesField.modifiers)
+        )
+        assertTrue(
+            "aidlLastOutBytes must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(aidlLastOutBytesField.modifiers)
+        )
+        assertTrue(
+            "lastAidlByteUpdateTs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(lastAidlByteUpdateTsField.modifiers)
+        )
+    }
+
+    @Test
+    fun userInitiatedStartIsClearedOnFailedConnectWhenAutoSwitchDisabled() {
+        // Regression: when auto-switch is disabled and a user-initiated start fails to
+        // LEVEL_NOTCONNECTED, the auto-switch block in updateState() is skipped entirely, so
+        // userInitiatedStart must still be cleared in the terminal-level branch below it.
+        // Otherwise syncEngineState's reconnectPending guard keeps suppressing
+        // exitControllerForeground() forever, leaving the "VPN connecting" notification stuck.
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.save(
+            appContext,
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.load(appContext)
+                .copy(autoSwitchWithinCountry = false)
+        )
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(
+            "userInitiatedStart must be cleared after a failed start when auto-switch is disabled",
+            ReflectionHelpers.getField<Boolean>(service, "userInitiatedStart")
+        )
+    }
+
+    @Test
+    fun userInitiatedStartIsClearedOnAidlTerminalFailureLevel() {
+        // Regression: when the status service is fresh (isAidlFresh()=true), updateState()
+        // (VPN_STATUS) returns early and never reaches the clear above — syncEngineState(),
+        // called from the AIDL callback path (updateStateString), is then the only place that
+        // can reset userInitiatedStart. Before this fix it only cleared on LEVEL_CONNECTED,
+        // leaving a failed user-initiated connect (e.g. LEVEL_NOTCONNECTED) stuck.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(
+            "userInitiatedStart must be cleared on an AIDL terminal failure level",
+            ReflectionHelpers.getField<Boolean>(service, "userInitiatedStart")
+        )
+    }
+
+    @Test
+    fun keepsForegroundActiveOnSingleAidlTerminalFailureCallback_staleCallbackAmbiguity() {
+        // Accepted limitation (round 10): an immediate exitControllerForeground() here was tried
+        // in rounds 7-8 and reverted. A stale LEVEL_NOTCONNECTED from a PREVIOUS session can
+        // legitimately arrive while a NEW user-initiated start is still in flight
+        // (userInitiatedStart=true, reconnectingHint=false) — indistinguishable from a genuine
+        // terminal failure of the current attempt without a start-generation token. Exiting
+        // foreground in that case would reopen the exact FGS crash window this guard exists to
+        // prevent, so foreground correctly stays active here; userInitiatedStart is still cleared
+        // (see userInitiatedStartIsClearedOnAidlTerminalFailureLevel) so a later idle callback,
+        // if any, will exit it.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertTrue(
+            "controllerForegroundActive must stay active on a single terminal-failure callback " +
+                "(cannot safely distinguish it from a stale callback for an in-flight new start)",
+            ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
+        )
+    }
+
+    @Test
+    fun keepsForegroundActiveDuringChainedAutoSwitch() {
+        // Guardrail: a terminal-failure callback during an active chained auto-switch
+        // (reconnectingHint=true) must NOT exit foreground — the engine is intentionally
+        // torn down before the next server start (2026-06-25 FGS crash fix).
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+        ConnectionStateManager.setReconnectingHint(true)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertTrue(
+            "controllerForegroundActive must stay active during a chained auto-switch",
+            ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

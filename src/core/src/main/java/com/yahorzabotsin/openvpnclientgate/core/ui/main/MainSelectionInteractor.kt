@@ -165,10 +165,17 @@ class DefaultMainSelectionInteractor(
         val legacyServers = servers.map { it.toLegacyServer() }
         SelectedCountryStore.saveSelection(appContext, country.name, legacyServers)
 
-        val selectedIndex = legacyServers.indexOfFirst { srv ->
-            (!selectedIp.isNullOrBlank() && srv.ip == selectedIp) ||
-                (!selectedConfig.isNullOrBlank() && srv.configData == selectedConfig)
-        }.takeIf { it >= 0 } ?: 0
+        val selectedIndex = when {
+            !selectedConfig.isNullOrBlank() ->
+                legacyServers.indexOfFirst { it.configData == selectedConfig }
+                    .takeIf { it >= 0 }
+                    ?: legacyServers.indexOfFirst { !selectedIp.isNullOrBlank() && it.ip == selectedIp }
+                        .takeIf { it >= 0 }
+                    ?: 0
+            !selectedIp.isNullOrBlank() ->
+                legacyServers.indexOfFirst { it.ip == selectedIp }.takeIf { it >= 0 } ?: 0
+            else -> 0
+        }
         SelectedCountryStore.setCurrentIndex(appContext, selectedIndex)
 
         val selected = legacyServers[selectedIndex]

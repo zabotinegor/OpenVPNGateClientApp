@@ -28,6 +28,31 @@ class PrimaryDomainRoutesTest {
     }
 
     @Test
+    fun `sseServersEventsUrl returns correct SSE endpoint for base url`() {
+        val baseUrl = "https://api.example.com"
+
+        assertEquals(
+            "https://api.example.com/api/v1/servers/events",
+            PrimaryDomainRoutes.sseServersEventsUrl(baseUrl)
+        )
+    }
+
+    @Test
+    fun `sseServersEventsUrl preserves path prefix`() {
+        val baseUrl = "https://api.example.com/custom/root"
+
+        assertEquals(
+            "https://api.example.com/custom/root/api/v1/servers/events",
+            PrimaryDomainRoutes.sseServersEventsUrl(baseUrl)
+        )
+    }
+
+    @Test
+    fun `sseServersEventsUrl returns null for invalid base url`() {
+        assertEquals(null, PrimaryDomainRoutes.sseServersEventsUrl("not-a-url"))
+    }
+
+    @Test
     fun `preserves safe shared path prefixes when deriving routes`() {
         val baseUrl = "https://api.example.com/custom/root"
 

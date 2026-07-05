@@ -254,3 +254,207 @@ The subsequent `ACTION_START` delivery in `onStartCommand()` retries with the de
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
 - `docs/userstories/BUG-foreground-service-crash-after-update.md`
+
+---
+
+## SSE long-poll times out: `readTimeout(0)` required on a child OkHttp client
+
+**Symptom**
+
+The `SseServerEventsClient` connection opens but drops after the default OkHttp read timeout
+(10 s by default). Logcat shows `SSE connection failure` with `SocketTimeoutException` or
+`SSE connection closed` appearing shortly after `SSE connection opened`, followed by repeated
+exponential-backoff reconnect cycles.
+
+**Root cause**
+
+SSE uses a persistent HTTP connection that holds open indefinitely between server events (long-polling).
+OkHttp's default read timeout fires if no bytes arrive within the timeout window, terminating the
+connection. A well-behaved SSE endpoint may send no data for minutes between actual events.
+
+**Solution**
+
+Create a **child** `OkHttpClient` with `readTimeout(0, TimeUnit.SECONDS)` (zero = no timeout)
+for the SSE connection only. Do **not** mutate the shared singleton `OkHttpClient` injected by
+Koin, because that client is reused by all other API calls and should retain its default timeouts:
+
+```kotlin
+val sseOkHttpClient = okHttpClient.newBuilder()
+    .readTimeout(0, TimeUnit.SECONDS)
+    .build()
+val factory = EventSources.createFactory(sseOkHttpClient)
+```
+
+`okHttpClient.newBuilder()` creates a shallow copy that shares connection pools and interceptors
+with the parent but can override individual settings. The parent client's read timeout is
+preserved.
+
+**First encountered**
+
+SUB-02 (`SseServerEventsClient`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`connectOnce`)
+
+---
+
+## `okhttp-sse` must be pinned to the same version as the main `okhttp` dependency
+
+**Symptom**
+
+Build or runtime classpath conflict between `okhttp` and `okhttp-sse` (e.g.,
+`NoSuchMethodError`, `ClassNotFoundException`, or Gradle version-conflict warnings) when
+the two artifacts are pinned to different versions.
+
+**Root cause**
+
+`com.squareup.okhttp3:okhttp-sse` is a companion artifact in the OkHttp3 release train. It
+shares internal classes with `com.squareup.okhttp3:okhttp`. If they are pinned to different
+versions, the JVM can load classes from one version that reference methods only present in the
+other, producing silent failures or hard crashes.
+
+**Solution**
+
+In `src/gradle/libs.versions.toml`, add the `okhttp-sse` catalog entry using the existing
+`square-okhttp` version reference so both artifacts are always in lock-step:
+
+```toml
+okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "square-okhttp" }
+```
+
+Then declare the dependency in `src/core/build.gradle.kts`:
+
+```kotlin
+implementation(libs.okhttp.sse)
+```
+
+Never use a bare `"com.squareup.okhttp3:okhttp-sse:x.y.z"` coordinate in `build.gradle.kts`
+— it will drift out of sync when the main OkHttp version is bumped.
+
+**First encountered**
+
+SUB-02 (`SseServerEventsClient`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/gradle/libs.versions.toml` (`okhttp-sse` entry)
+- `src/core/build.gradle.kts` (`okhttp-sse` dependency)
+
+---
+
+## SSE reconnect shows stale server data: `onOpen` was a no-op — fixed in SUB-03
+
+**Symptom**
+
+After an SSE reconnect (foreground return or network restore), the displayed server list remained
+stale until either the next `servers-changed` push event or the next WorkManager periodic refresh.
+Users saw outdated server availability, ping indicators, or country lists after coming back online.
+
+**Root cause**
+
+`SseServerEventsClient.onOpen` did nothing beyond recording the connection-open timestamp. Server
+sync fired only when the backend pushed an explicit `servers-changed` event. If the backend had
+pushed changes while the client was offline (backgrounded or network-down), those changes would
+not be applied until the *next* push event — which might be hours away.
+
+**Fix applied (SUB-03 — MP-20260623-sse-reliability-fixes)**
+
+Added `syncCoordinator.sync(forceRefresh = true, cacheOnly = false)` inside `onOpen`. The call is
+dispatched to a new coroutine on `clientScope` (same pattern as `handleServersChangedEvent`) so
+the OkHttp callback thread is not blocked. This ensures the server list is always fresh on every
+reconnect, independent of whether a push event follows.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onOpen`)
+- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+
+---
+
+## SSE hot-reconnect loop when degraded server sends events: `reconnectAttempt.set(0)` in `onEvent` bypassed backoff — fixed in SUB-03
+
+**Symptom**
+
+When a degraded backend server was sending SSE events but immediately dropping the connection
+afterwards (e.g., due to a misbehaving server-side keep-alive), the client entered a tight
+reconnect loop. Rather than backing off exponentially, it reconnected almost immediately on every
+cycle.
+
+Logcat evidence: repeated "SSE connection opened / SSE event received / SSE connection closed /
+SSE connecting (attempt=0)" sequences with no delay between cycles.
+
+**Root cause**
+
+`onEvent` contained `reconnectAttempt.set(0)`. Receiving even a single event was enough to
+reset the backoff counter to zero, so when the degraded server dropped the connection a fraction
+of a second later, the next reconnect loop iteration started with `attempt=0` and no delay. This
+defeated the exponential backoff entirely and caused CPU/battery waste and excessive reconnect
+traffic to the backend.
+
+**Fix applied (SUB-03 — MP-20260623-sse-reliability-fixes)**
+
+Removed `reconnectAttempt.set(0)` from `onEvent`. Backoff reset now happens **only** in
+`onClosed` and `onFailure` via `maybeResetBackoff()`, which enforces a stability-threshold guard:
+the counter is reset only when the connection was alive for at least
+`STABLE_CONNECTION_RESET_DELAY_MS` (10 000 ms). A connection that drops within 10 s of opening
+retains its backoff counter regardless of how many events it delivered.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onEvent`, `maybeResetBackoff`)
+- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+
+---
+
+## `ProcessLifecycleOwner` must be registered from the main thread after `startKoin`
+
+**Symptom**
+
+Calling `ProcessLifecycleOwner.get().lifecycle.addObserver(...)` before `startKoin` completes
+(or from a background thread during `Application.onCreate()`) results in one of:
+- `IllegalStateException` from Koin: `No definition found for ...` (Koin not yet started)
+- `CalledFromWrongThreadException`: `Only the original thread that created a view hierarchy
+  can touch its views` (lifecycle observer API called from a background thread)
+- Silently missing the first `onStart` event because the observer was added after the process
+  already entered the foreground
+
+**Root cause**
+
+`ProcessLifecycleOwner` is a main-thread-only component. `Lifecycle.addObserver()` must be
+called on the main thread. Additionally, the `SseServerEventsClient` is resolved from Koin, so
+Koin must be initialized first.
+
+**Solution**
+
+Register the `ProcessLifecycleOwner` observer in `Application.onCreate()`, on the main thread,
+**after** `startKoin` returns:
+
+```kotlin
+override fun onCreate() {
+    super.onCreate()
+    // 1. Initialize Koin first
+    startKoin { ... }
+    // 2. Then register lifecycle observers on the main thread
+    registerSseLifecycleObserver()
+}
+
+private fun registerSseLifecycleObserver() {
+    val sseClient = GlobalContext.get().get<SseServerEventsClient>()
+    ProcessLifecycleOwner.get().lifecycle.addObserver(sseClient)
+}
+```
+
+`Application.onCreate()` always runs on the main thread, so no explicit `Handler(mainLooper).post`
+is needed as long as `registerSseLifecycleObserver()` is called directly (not dispatched to a
+background coroutine). Wrap in `runCatching` to prevent a Koin resolution failure from crashing
+the whole process.
+
+**First encountered**
+
+SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client story.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`

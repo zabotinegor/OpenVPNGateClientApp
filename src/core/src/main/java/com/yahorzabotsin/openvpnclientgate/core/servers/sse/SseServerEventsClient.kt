@@ -1,0 +1,348 @@
+package com.yahorzabotsin.openvpnclientgate.core.servers.sse
+
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
+import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
+import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionSyncCoordinator
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.min
+import kotlin.math.pow
+
+/**
+ * SSE client that connects to `GET /api/v1/servers/events` and triggers a server-list re-fetch
+ * whenever a `servers-changed` event is received.
+ *
+ * The connection starts when the app enters the foreground and stops gracefully when it goes
+ * to the background. On network errors or non-2xx responses the client silently backs off
+ * with exponential backoff (initial 5 s, max 5 min). After [urlFailureThreshold] consecutive
+ * failures on the current URL the client cycles to the next candidate (primary → fallback →
+ * … → back to primary). The existing WorkManager periodic refresh
+ * ([ServerSelectionSyncCoordinator] via [ServerRefreshWorker]) is left untouched.
+ */
+class SseServerEventsClient(
+    private val okHttpClient: OkHttpClient,
+    private val syncCoordinator: ServerSelectionSyncCoordinator,
+    sseUrlsProvider: () -> List<String> = { defaultSseUrls() },
+    internal val stableConnectionResetDelayMs: Long = STABLE_CONNECTION_RESET_DELAY_MS,
+    internal val debounceMs: Long = DEBOUNCE_MS,
+    internal val urlFailureThreshold: Int = URL_FAILURE_THRESHOLD
+) : DefaultLifecycleObserver {
+
+    init {
+        require(urlFailureThreshold >= 1) { "urlFailureThreshold must be at least 1" }
+    }
+
+    private val tag = LogTags.APP + ":SseServerEventsClient"
+
+    private val sseUrls: List<String> by lazy { sseUrlsProvider() }
+
+    // ── URL-rotation state ─────────────────────────────────────────────────────
+
+    /** Index into [sseUrls] for the URL used on the next connection attempt. */
+    internal val currentUrlIndex = AtomicInteger(0)
+
+    /** Consecutive failures against the URL at [currentUrlIndex]; reset on successful open. */
+    internal val failuresOnCurrentUrl = AtomicInteger(0)
+
+    // ── Connection state ───────────────────────────────────────────────────────
+
+    /** Coroutine scope for this client; lives while the client is started. */
+    @Volatile
+    private var clientScope: CoroutineScope? = null
+
+    /** Current reconnect loop job. */
+    @Volatile
+    private var reconnectJob: Job? = null
+
+    /** Active OkHttp EventSource, if any. */
+    @Volatile
+    private var activeEventSource: EventSource? = null
+
+    /** Whether the client is currently "running" (foreground). */
+    private val running = AtomicBoolean(false)
+
+    /** Reconnect attempt counter; reset on a successful open. */
+    internal val reconnectAttempt = AtomicInteger(0)
+
+    /**
+     * Receives a Unit each time a `servers-changed` event fires. The collector applies
+     * [debounce] so that rapid-fire bursts collapse into a single [doSync] call.
+     */
+    private val _syncTrigger = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+    override fun onStart(owner: LifecycleOwner) {
+        start()
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        stop()
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────────
+
+    /** Starts the SSE connection loop. Idempotent. */
+    fun start() = synchronized(this) {
+        if (!running.compareAndSet(false, true)) {
+            AppLog.d(tag, "start() called but already running")
+            return@synchronized
+        }
+        require(sseUrls.isNotEmpty()) { "Candidate SSE URLs list must not be empty" }
+        AppLog.i(tag, "SSE client starting; ${sseUrls.size} candidate url(s)")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        clientScope = scope
+        scope.launch { collectSyncTrigger() }
+        reconnectJob = scope.launch { runReconnectLoop() }
+    }
+
+    /** Stops the SSE connection and cancels the reconnect loop. Idempotent. */
+    fun stop() = synchronized(this) {
+        if (!running.compareAndSet(true, false)) {
+            AppLog.d(tag, "stop() called but not running")
+            return@synchronized
+        }
+        AppLog.i(tag, "SSE client stopping")
+        cancelActiveEventSource()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        clientScope?.cancel()
+        clientScope = null
+        reconnectAttempt.set(0)
+        currentUrlIndex.set(0)
+        failuresOnCurrentUrl.set(0)
+    }
+
+    // ── Internal ───────────────────────────────────────────────────────────────
+
+    private fun currentSseUrl(): String {
+        val urls = sseUrls
+        return urls[currentUrlIndex.get() % urls.size]
+    }
+
+    private suspend fun runReconnectLoop() {
+        while (running.get()) {
+            val attempt = reconnectAttempt.getAndIncrement()
+            if (attempt > 0) {
+                val delayMs = backoffDelayMs(attempt)
+                AppLog.d(tag, "SSE reconnect in ${delayMs}ms (attempt=$attempt)")
+                delay(delayMs)
+                if (!running.get()) break
+            }
+
+            val url = currentSseUrl()
+            AppLog.d(tag, "SSE connecting (attempt=$attempt) url=$url")
+            try {
+                connectOnce(url)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(tag, "SSE connection attempt failed with an unexpected error", e)
+            }
+            // connectOnce() suspends until the connection closes; loop continues for retry.
+        }
+        AppLog.d(tag, "SSE reconnect loop exited")
+    }
+
+    /**
+     * Opens one EventSource connection and suspends until it closes (either cleanly or on error).
+     * Uses a Job + coroutine to bridge the callback-based OkHttp SSE API.
+     */
+    private suspend fun connectOnce(url: String) {
+        // Capture the Job of this specific connection attempt. OkHttp callbacks run on dispatcher
+        // threads outside the coroutine context; checking isActive here lets us ignore callbacks
+        // from stale/cancelled connection attempts without relying solely on the running flag.
+        val connectionJob = coroutineContext[Job]
+        val connectionDone = Job()
+        val openedAt = AtomicLong(-1L)
+
+        // Resets the backoff and URL-failure counters if the connection was alive long enough
+        // to be considered stable. Called from onClosed and onFailure — avoids a background
+        // coroutine and does not require an activeEventSource identity check.
+        // failuresOnCurrentUrl must NOT reset unconditionally in onOpen: a URL that accepts the
+        // connection (HTTP 200) but drops it immediately every time would otherwise never
+        // accumulate failures past 0, and the client would stay stuck on that degraded URL
+        // forever instead of rotating to a fallback after urlFailureThreshold.
+        fun maybeResetBackoff() {
+            val t = openedAt.get()
+            if (t >= 0L && System.nanoTime() - t >= TimeUnit.MILLISECONDS.toNanos(stableConnectionResetDelayMs)) {
+                reconnectAttempt.set(0)
+                failuresOnCurrentUrl.set(0)
+            }
+        }
+
+        val listener = object : EventSourceListener() {
+            override fun onOpen(eventSource: EventSource, response: Response) {
+                if (connectionJob?.isActive != true) return
+                AppLog.i(tag, "SSE connection opened (HTTP ${response.code})")
+                openedAt.set(System.nanoTime())
+                clientScope?.launch { doSync() }
+            }
+
+            override fun onEvent(
+                eventSource: EventSource,
+                id: String?,
+                type: String?,
+                data: String
+            ) {
+                val eventType = type ?: ""
+                AppLog.d(tag, "SSE event received: type='$eventType' id='$id'")
+                if (eventType == EVENT_SERVERS_CHANGED) {
+                    handleServersChangedEvent()
+                }
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                AppLog.i(tag, "SSE connection closed")
+                maybeResetBackoff()
+                connectionDone.complete()
+            }
+
+            override fun onFailure(
+                eventSource: EventSource,
+                t: Throwable?,
+                response: Response?
+            ) {
+                val code = response?.code ?: -1
+                if (t != null) {
+                    AppLog.d(tag, "SSE connection failure (HTTP $code): ${t.message}")
+                } else {
+                    AppLog.d(tag, "SSE connection failure (HTTP $code)")
+                }
+                maybeResetBackoff()
+                // Double guard: connectionJob.isActive handles cancelled coroutines; the
+                // synchronized+running.get() block closes the race where stop() resets the
+                // counters concurrently with this thread incrementing them.
+                if (connectionJob?.isActive == true) {
+                    synchronized(this@SseServerEventsClient) {
+                        if (running.get()) {
+                            val failures = failuresOnCurrentUrl.incrementAndGet()
+                            if (failures >= urlFailureThreshold) {
+                                val urls = sseUrls
+                                val nextIndex = currentUrlIndex.updateAndGet { (it + 1) % urls.size }
+                                failuresOnCurrentUrl.set(0)
+                                // Intentionally do NOT reset reconnectAttempt here: backoff must keep
+                                // growing across URL switches so an outage eventually reaches MAX_BACKOFF_MS.
+                                AppLog.w(tag, "SSE URL exhausted after $failures failure(s); switching to ${urls[nextIndex]}")
+                            }
+                        }
+                    }
+                }
+                connectionDone.complete()
+            }
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "text/event-stream")
+            .build()
+
+        // Use a read-timeout-free client for SSE long-polling
+        val sseOkHttpClient = okHttpClient.newBuilder()
+            .readTimeout(0, TimeUnit.SECONDS)
+            .build()
+
+        val factory = EventSources.createFactory(sseOkHttpClient)
+        val eventSource = factory.newEventSource(request, listener)
+        activeEventSource = eventSource
+
+        try {
+            connectionDone.join()
+        } finally {
+            eventSource.cancel()
+            activeEventSource = null
+        }
+    }
+
+    /** Collects [_syncTrigger] with debounce and calls [doSync] per collapsed burst. */
+    private suspend fun collectSyncTrigger() {
+        _syncTrigger
+            .debounce(debounceMs)
+            .collect { doSync() }
+    }
+
+    /** Executes a forced server re-fetch; propagates [CancellationException]. */
+    private suspend fun doSync() {
+        try {
+            syncCoordinator.sync(forceRefresh = true, cacheOnly = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(tag, "Server re-fetch triggered by SSE event failed", e)
+        }
+    }
+
+    private fun handleServersChangedEvent() {
+        AppLog.i(tag, "servers-changed event received; triggering server re-fetch")
+        _syncTrigger.tryEmit(Unit)
+    }
+
+    private fun cancelActiveEventSource() {
+        activeEventSource?.cancel()
+        activeEventSource = null
+    }
+
+    // ── Backoff ────────────────────────────────────────────────────────────────
+
+    /**
+     * Exponential backoff: 5 s * 2^(attempt-1), capped at [MAX_BACKOFF_MS].
+     * Attempt 1 → 5 s, 2 → 10 s, 3 → 20 s … cap at 5 min.
+     */
+    internal fun backoffDelayMs(attempt: Int): Long {
+        if (attempt <= 0) return INITIAL_BACKOFF_MS
+        val raw = INITIAL_BACKOFF_MS * 2.0.pow((attempt - 1).toDouble())
+        return min(raw.toLong(), MAX_BACKOFF_MS)
+    }
+
+    companion object {
+        internal const val EVENT_SERVERS_CHANGED = "servers-changed"
+        internal const val INITIAL_BACKOFF_MS = 5_000L
+        internal const val MAX_BACKOFF_MS = 5 * 60 * 1_000L // 5 minutes
+        internal const val STABLE_CONNECTION_RESET_DELAY_MS = 10_000L
+        internal const val DEBOUNCE_MS = 500L
+        internal const val URL_FAILURE_THRESHOLD = 3
+
+        /**
+         * Returns the SSE endpoint URL derived from PRIMARY_SERVERS_URL.
+         *
+         * FALLBACK_SERVERS_URL is the VPN Gate CSV URL (e.g. https://www.vpngate.net/api/iphone/)
+         * and is not an SSE-capable backend, so it is intentionally excluded here. When the
+         * primary SSE endpoint is unreachable the WorkManager periodic refresh acts as the safety
+         * net ([ServerRefreshWorker]).
+         */
+        fun defaultSseUrls(): List<String> = listOfNotNull(
+            com.yahorzabotsin.openvpnclientgate.core.PrimaryDomainRoutes.sseServersEventsUrl(
+                ApiConstants.PRIMARY_SERVERS_URL
+            )
+        ).ifEmpty { listOf("https://openvpnclientgate.local/api/v1/servers/events") }
+
+        /** Convenience: returns the primary SSE URL (first entry of [defaultSseUrls]). */
+        fun defaultSseUrl(): String = defaultSseUrls().first()
+    }
+}

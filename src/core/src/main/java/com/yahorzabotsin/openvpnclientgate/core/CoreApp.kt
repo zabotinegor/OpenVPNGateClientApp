@@ -7,7 +7,9 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.AppDebugTree
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppReleaseTree
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
+import com.yahorzabotsin.openvpnclientgate.core.servers.sse.SseServerEventsClient
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.GlobalPreferences
 import org.koin.android.ext.koin.androidContext
@@ -35,7 +37,18 @@ class CoreApp : Application() {
         UserSettingsStore.applyThemeAndLocale(this)
         if (isMainProcess()) {
             schedulePeriodicServerRefresh()
+            registerSseLifecycleObserver()
             AppLog.d(TAG, "Skipping OpenVpnService auto-start in Application")
+        }
+    }
+
+    private fun registerSseLifecycleObserver() {
+        runCatching {
+            val sseClient = GlobalContext.get().get<SseServerEventsClient>()
+            ProcessLifecycleOwner.get().lifecycle.addObserver(sseClient)
+            AppLog.i(TAG, "SSE lifecycle observer registered")
+        }.onFailure {
+            AppLog.w(TAG, "Failed to register SSE lifecycle observer", it)
         }
     }
 
