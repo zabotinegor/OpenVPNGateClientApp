@@ -507,13 +507,16 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
-    fun exitsForegroundOnSingleAidlTerminalFailureCallback() {
-        // Regression: the exitControllerForeground() decision runs before userInitiatedStart is
-        // cleared, using the stale (true) value, so a single terminal-failure callback with no
-        // follow-up idle callback would otherwise leave the "VPN connecting" notification stuck
-        // forever. Since reconnectingHint independently guards the chained-auto-switch case, it's
-        // safe to exit foreground immediately once we've determined suppression was solely due to
-        // userInitiatedStart.
+    fun keepsForegroundActiveOnSingleAidlTerminalFailureCallback_staleCallbackAmbiguity() {
+        // Accepted limitation (round 10): an immediate exitControllerForeground() here was tried
+        // in rounds 7-8 and reverted. A stale LEVEL_NOTCONNECTED from a PREVIOUS session can
+        // legitimately arrive while a NEW user-initiated start is still in flight
+        // (userInitiatedStart=true, reconnectingHint=false) — indistinguishable from a genuine
+        // terminal failure of the current attempt without a start-generation token. Exiting
+        // foreground in that case would reopen the exact FGS crash window this guard exists to
+        // prevent, so foreground correctly stays active here; userInitiatedStart is still cleared
+        // (see userInitiatedStartIsClearedOnAidlTerminalFailureLevel) so a later idle callback,
+        // if any, will exit it.
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         ReflectionHelpers.setField(service, "userInitiatedStart", true)
@@ -523,8 +526,9 @@ class OpenVpnServiceStatusSyncTest {
         val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
         callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
 
-        assertFalse(
-            "controllerForegroundActive must be cleared after a single terminal-failure callback",
+        assertTrue(
+            "controllerForegroundActive must stay active on a single terminal-failure callback " +
+                "(cannot safely distinguish it from a stale callback for an in-flight new start)",
             ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
         )
     }

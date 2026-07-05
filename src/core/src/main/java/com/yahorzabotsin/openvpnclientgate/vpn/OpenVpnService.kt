@@ -1737,10 +1737,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
         // explicitly, so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
-        // Captured before ServerAutoSwitcher.onEngineLevel() runs below: only a terminal failure
-        // that is NOT already covered by an active/about-to-start chained auto-switch qualifies
-        // for the deferred foreground-exit closeout further down.
-        val wasSuppressedOnlyByUserInitiatedStart = idleLevel && userInitiatedStart && !ConnectionStateManager.reconnectingHint.value
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
@@ -1756,6 +1752,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // it. Without this clear, userInitiatedStart stays true after a failed user-initiated
         // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
         // reconnectPending stuck and the "VPN connecting" notification undismissable.
+        //
+        // NOTE: intentionally NOT followed by an immediate exitControllerForeground() for this
+        // callback (tried in rounds 7-8, reverted in round 10): a stale LEVEL_NOTCONNECTED from
+        // a PREVIOUS session can legitimately arrive here while a NEW user-initiated start is
+        // still in flight (userInitiatedStart=true, reconnectingHint=false) — indistinguishable
+        // from a genuine terminal failure of the current attempt without a start-generation
+        // token. Exiting foreground in that case reopens the exact FGS crash window the
+        // reconnectPending guard exists to prevent. Accepting the narrower, lower-severity
+        // gap instead: a single terminal-failure callback with no follow-up idle callback may
+        // leave the "VPN connecting" notification stuck until the next engine callback.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
             userInitiatedStart = false
         }
@@ -1768,17 +1774,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
-        }
-        // Deferred foreground-exit closeout: the exitControllerForeground() decision above ran
-        // before userInitiatedStart was cleared (using the stale value) and before the
-        // auto-switch decision above, so a single terminal-failure callback with no follow-up
-        // idle callback would otherwise leave the notification stuck forever. Re-check
-        // reconnectingHint now, after ServerAutoSwitcher.onEngineLevel() has had the chance to
-        // start a chained switch — only exit if no chain is (now) in flight.
-        if (level in AUTO_SWITCH_LEVELS
-            && wasSuppressedOnlyByUserInitiatedStart
-            && !ConnectionStateManager.reconnectingHint.value) {
-            exitControllerForeground()
         }
         ConnectionStateManager.updateFromEngine(level, detail)
         handleEngineLevelForStop(level, "AIDL")
