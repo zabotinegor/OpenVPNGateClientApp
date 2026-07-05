@@ -1753,7 +1753,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
         // reconnectPending stuck and the "VPN connecting" notification undismissable.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
+            val wasSuppressedOnlyByUserInitiatedStart = userInitiatedStart && !ConnectionStateManager.reconnectingHint.value
             userInitiatedStart = false
+            // The exitControllerForeground() decision above ran before this clear, using the
+            // stale userInitiatedStart value, so a single terminal-failure callback (no follow-up
+            // idle callback) would otherwise leave the notification stuck forever. Since
+            // reconnectingHint (chained auto-switch) is independently checked and untouched here,
+            // it's safe to exit now for the case that was suppressed solely by userInitiatedStart.
+            if (level in AUTO_SWITCH_LEVELS && wasSuppressedOnlyByUserInitiatedStart) {
+                exitControllerForeground()
+            }
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")

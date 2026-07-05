@@ -506,6 +506,49 @@ class OpenVpnServiceStatusSyncTest {
         )
     }
 
+    @Test
+    fun exitsForegroundOnSingleAidlTerminalFailureCallback() {
+        // Regression: the exitControllerForeground() decision runs before userInitiatedStart is
+        // cleared, using the stale (true) value, so a single terminal-failure callback with no
+        // follow-up idle callback would otherwise leave the "VPN connecting" notification stuck
+        // forever. Since reconnectingHint independently guards the chained-auto-switch case, it's
+        // safe to exit foreground immediately once we've determined suppression was solely due to
+        // userInitiatedStart.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+        ConnectionStateManager.setReconnectingHint(false)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertFalse(
+            "controllerForegroundActive must be cleared after a single terminal-failure callback",
+            ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
+        )
+    }
+
+    @Test
+    fun keepsForegroundActiveDuringChainedAutoSwitch() {
+        // Guardrail: a terminal-failure callback during an active chained auto-switch
+        // (reconnectingHint=true) must NOT exit foreground — the engine is intentionally
+        // torn down before the next server start (2026-06-25 FGS crash fix).
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "userInitiatedStart", true)
+        ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+        ConnectionStateManager.setReconnectingHint(true)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertTrue(
+            "controllerForegroundActive must stay active during a chained auto-switch",
+            ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

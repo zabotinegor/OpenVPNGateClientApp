@@ -125,7 +125,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - If the repository later needs module-specific guidance, add nested `AGENTS.md` files under `src/core`, `src/mobile`, `src/tv`, or `src/external/OpenVPNEngine` instead of overloading this root file.
 
 <!-- BEGIN COPILOT SYNC -->
-## MANDATORY FIRST STEP вЂ” Session Limit Check
+## MANDATORY FIRST STEP — Session Limit Check
 
 Before reading any other file or taking any action, every agent must:
 
@@ -134,10 +134,10 @@ Before reading any other file or taking any action, every agent must:
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
    b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
-   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached вЂ” resuming at step <currentStep>", and `prompt` = the resume command.
+   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
    d. Stop. Do not proceed with the requested task.
 4. During the session: check rate limit before every long operation and before every call to `update-sdlc-status.ps1`.
-5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint вЂ” do not start new reasoning or tool sequences.
+5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
@@ -199,7 +199,7 @@ Every agent must track Claude rate limits and checkpoint before exhaustion. See 
 
 Summary:
 - **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
-- Session state is auto-updated by the Stop hook after every turn вЂ” read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
+- Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
 - On checkpoint: call `ScheduleWakeup` tool + inform user.
 - On new session: run `.github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
@@ -229,7 +229,7 @@ Every agent must document any discovery that would save time in a future session
 
 **Do not document:**
 - Things already obvious from README or standard docs.
-- Secrets, tokens, passwords, or credentials вЂ” never write actual values.
+- Secrets, tokens, passwords, or credentials — never write actual values.
 - Personal preferences or style opinions.
 
 **Where to write:**
@@ -243,7 +243,7 @@ All knowledge lives under `docs/runbooks/` in the target repository:
 | `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
 | `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
 
-Create files that do not exist. Append to existing files вЂ” never overwrite useful prior content.
+Create files that do not exist. Append to existing files — never overwrite useful prior content.
 
 **Format for `solutions.md` entries:**
 ```markdown
