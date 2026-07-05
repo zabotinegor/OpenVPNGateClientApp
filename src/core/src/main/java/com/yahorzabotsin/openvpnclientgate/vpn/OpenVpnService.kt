@@ -1737,6 +1737,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
         // explicitly, so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
+        // Captured before ServerAutoSwitcher.onEngineLevel() runs below: only a terminal failure
+        // that is NOT already covered by an active/about-to-start chained auto-switch qualifies
+        // for the deferred foreground-exit closeout further down.
+        val wasSuppressedOnlyByUserInitiatedStart = idleLevel && userInitiatedStart && !ConnectionStateManager.reconnectingHint.value
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
@@ -1753,16 +1757,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
         // reconnectPending stuck and the "VPN connecting" notification undismissable.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
-            val wasSuppressedOnlyByUserInitiatedStart = userInitiatedStart && !ConnectionStateManager.reconnectingHint.value
             userInitiatedStart = false
-            // The exitControllerForeground() decision above ran before this clear, using the
-            // stale userInitiatedStart value, so a single terminal-failure callback (no follow-up
-            // idle callback) would otherwise leave the notification stuck forever. Since
-            // reconnectingHint (chained auto-switch) is independently checked and untouched here,
-            // it's safe to exit now for the case that was suppressed solely by userInitiatedStart.
-            if (level in AUTO_SWITCH_LEVELS && wasSuppressedOnlyByUserInitiatedStart) {
-                exitControllerForeground()
-            }
         }
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
@@ -1773,6 +1768,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
+        }
+        // Deferred foreground-exit closeout: the exitControllerForeground() decision above ran
+        // before userInitiatedStart was cleared (using the stale value) and before the
+        // auto-switch decision above, so a single terminal-failure callback with no follow-up
+        // idle callback would otherwise leave the notification stuck forever. Re-check
+        // reconnectingHint now, after ServerAutoSwitcher.onEngineLevel() has had the chance to
+        // start a chained switch — only exit if no chain is (now) in flight.
+        if (level in AUTO_SWITCH_LEVELS
+            && wasSuppressedOnlyByUserInitiatedStart
+            && !ConnectionStateManager.reconnectingHint.value) {
+            exitControllerForeground()
         }
         ConnectionStateManager.updateFromEngine(level, detail)
         handleEngineLevelForStop(level, "AIDL")

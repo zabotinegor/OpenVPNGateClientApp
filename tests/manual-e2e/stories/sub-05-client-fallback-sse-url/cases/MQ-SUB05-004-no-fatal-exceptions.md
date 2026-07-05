@@ -13,4 +13,4 @@ No output — zero fatal exceptions.
 
 ## Result: PASS
 
-No FATAL EXCEPTION, NoBeanDefFoundException, or KoinException found in logcat after cold launch on R58N849XQEY.
+No FATAL EXCEPTION, NoBeanDefFoundException, or KoinException found in logcat after cold launch on <your-device-serial>.
