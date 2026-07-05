@@ -128,6 +128,17 @@ def protected_reason(command, branch, cwd="."):
         allow_release_archive_push = False
         is_dev_push = eff == "dev" or bool(re.search(r"(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])", normalized))
         is_dev_delete = bool(re.search(r"(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])", normalized))
+        # Guard: if the same command also targets main/master/develop in any push/delete
+        # context the exception does not apply — e.g. `git push origin --delete dev main`.
+        if is_dev_push or is_dev_delete:
+            for op in ("main", "master", "develop"):
+                if (re.search(rf"(?:^|\s)(?:--delete|-d)\s+{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\b(?:origin|upstream)\s+\+?{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"(?:^|\s):{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\brefs/heads/{op}(?![-\w/.])", normalized, re.IGNORECASE)):
+                    is_dev_push = False
+                    is_dev_delete = False
+                    break
         if is_dev_push or is_dev_delete:
             try:
                 remotes = subprocess.run(

@@ -93,6 +93,16 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             $allowReleaseArchivePush = $false
             $isDevPush   = $eff -eq 'dev' -or $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
             $isDevDelete = $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
+            # Guard: if command also targets main/master/develop in any push/delete context,
+            # the exception does not apply — e.g. `git push origin --delete dev main`.
+            foreach ($op in @('main', 'master', 'develop')) {
+                if ($normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+?$op(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s):$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\brefs/heads/$op(?![-\w/.])") {
+                    $isDevPush = $false; $isDevDelete = $false; break
+                }
+            }
             if ($isDevPush -or $isDevDelete) {
                 $previousEap2 = $ErrorActionPreference
                 try {
