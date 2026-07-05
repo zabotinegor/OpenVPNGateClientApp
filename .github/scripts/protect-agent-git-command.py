@@ -123,14 +123,20 @@ def protected_reason(command, branch):
         # master, and develop remain fully protected, and force/bulk pushes are still
         # blocked above regardless of this exception.
         is_dev_only_push_or_delete = not is_force and not is_bulk and (
-            re.search(r"\b(?:origin|upstream)\s+(?:--delete|-d)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
-            or re.search(r"(?:^|\s)(?:--delete|-d)\s+(?:origin|upstream)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
-            or (
-                re.search(r"\b(?:origin|upstream)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
-                and not re.search(r"\b(?:main|master|develop)(?![-\w/.])", normalized, re.IGNORECASE)
-            )
-            or re.search(r"(?:^|\s):dev(?![-\w/.])", normalized, re.IGNORECASE)
+            bool(re.search(r"(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])", normalized, re.IGNORECASE))
+            or bool(re.search(r"\b(?:origin|upstream)\s+dev(?![-\w/.])", normalized, re.IGNORECASE))
+            or bool(re.search(r"(?:^|\s):dev(?![-\w/.])", normalized, re.IGNORECASE))
         )
+        # Guard: if the same command also targets main/master/develop in any push/delete
+        # context the exception does not apply — e.g. `git push origin --delete dev main`.
+        if is_dev_only_push_or_delete:
+            for op in ("main", "master", "develop"):
+                if (re.search(rf"(?:^|\s)(?:--delete|-d)\s+{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\b(?:origin|upstream)\s+\+?{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"(?:^|\s):{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\brefs/heads/{op}(?![-\w/.])", normalized, re.IGNORECASE)):
+                    is_dev_only_push_or_delete = False
+                    break
         if is_force:
             return "Force-push is forbidden in client repositories."
         if is_bulk:

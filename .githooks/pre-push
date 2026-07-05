@@ -12,9 +12,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
       ;;
     refs/heads/dev)
-      # Narrow, explicit exception for the release-flow archive step: recreating
-      # dev from a merged main requires deleting and recreating refs/heads/dev
-      # directly. main, master, and develop remain fully blocked above.
+      # Narrow exception for the release-flow archive step only.
+      # Permit only delete (local_sha == zero) or fresh create (remote_sha == zero).
+      # In-place updates to an existing dev ref remain blocked.
+      zero=0000000000000000000000000000000000000000
+      if [ "$local_sha" != "$zero" ] && [ "$remote_sha" != "$zero" ]; then
+        echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
+        exit 1
+      fi
       ;;
   esac
 

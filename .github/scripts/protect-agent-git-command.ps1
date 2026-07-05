@@ -85,11 +85,23 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
         # master, and develop remain fully protected, and force/bulk pushes are still
         # blocked by the checks above regardless of this exception.
         $isDevOnlyPushOrDelete = -not $isForce -and -not $isBulk -and (
-            $normalized -match "(?i)\b(?:origin|upstream)\s+(?:--delete|-d)\s+dev(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+(?:origin|upstream)\s+dev(?![-\w/.])" -or
-            $normalized -match "(?i)\b(?:origin|upstream)\s+dev(?![-\w/.])(?!.*(?:main|master|develop)(?![-\w/.]))" -or
+            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])" -or
+            $normalized -match "(?i)\b(?:origin|upstream)\s+dev(?![-\w/.])" -or
             $normalized -match "(?i)(?:^|\s):dev(?![-\w/.])"
         )
+        # Guard: if the same command also targets main/master/develop in any push/delete
+        # context the exception does not apply — e.g. `git push origin --delete dev main`.
+        if ($isDevOnlyPushOrDelete) {
+            foreach ($op in @('main', 'master', 'develop')) {
+                if ($normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+?$op(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s):$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\brefs/heads/$op(?![-\w/.])") {
+                    $isDevOnlyPushOrDelete = $false
+                    break
+                }
+            }
+        }
         if ($isForce) {
             $reason = 'Force-push is forbidden in client repositories.'
         }
