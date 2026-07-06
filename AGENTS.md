@@ -129,11 +129,11 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `pwsh -File .github/scripts/init-session.ps1` (these are PowerShell scripts; on Unix/bash agents, invoke via `pwsh -File`, not directly as `./script.ps1`, and ensure PowerShell 7+ (`pwsh`) is installed)
+1. Run `pwsh -File .github/scripts/init-session.ps1` (invoke via `pwsh -File`, not directly, for cross-platform PowerShell 7+ execution)
 2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
-   b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
+   b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
    c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
    d. Stop. Do not proceed with the requested task.
 4. During the session: check rate limit before every long operation and before every call to `update-sdlc-status.ps1`.

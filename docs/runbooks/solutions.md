@@ -458,3 +458,32 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
+
+### Favoriting a legacy Server by id will collide across servers
+
+**Context:** implementing server-favorite UI on top of `FavoritesStore`/`FavoritesFilter` (SUB-02/SUB-03 of MP-20260706-favorite-countries-servers).
+
+**Problem:** `Server.id` (`src/core/.../servers/Server.kt`) defaults to `0` and is only populated with a real value by `ServerV2.toLegacyServer()`. When `UserSettingsStore.load(ctx).serverSource` is `LEGACY`, `VPNGATE`, or `CUSTOM` (not `DEFAULT_V2`), every `Server` in the list keeps `id == 0`. Favoriting one such server marks all of them as favorited under `FavoritesStore`, since favorites are keyed purely by `Server.id`.
+
+**Solution:** `FavoritesStore.addFavoriteServer()` now guards against `serverId <= 0` (added after PR #114 round-4 bot feedback), so `id == 0` can never be persisted as a favorite — this closes the immediate collision. It does not by itself make legacy servers favoritable: before wiring server-favorite UI, either (a) restrict server-favoriting to `DEFAULT_V2` source only, or (b) extend the favorite key to a composite (e.g. `ip` + `configData`, mirroring how `SelectedCountryStore.ensureIndexForConfig` matches servers) so non-V2 sources get distinct, stable identifiers. Still a pre-condition for SUB-02/SUB-03.
+
+**Commands/code:** n/a — design note, not a runtime fix.
+
+### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere
+
+**Context:** `FavoritesStore` (SUB-01) persists favorite country codes with plain string equality (raw values, matching the store's own convention), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`.
+
+**Problem:** if a backend country code ever differs in casing between calls (unlikely today, but the rest of the codebase treats codes as case-insensitive), a case-sensitive path could silently drop a match that other code paths would accept.
+
+**Solution:** Case-insensitivity has been addressed in SUB-01 by using case-insensitive filtering in `FavoritesFilter` (fixed after code review feedback on PR #114, round 2). `FavoritesStore`'s own add/remove/query methods intentionally keep raw string equality since store operations must use the unmutated value for consistent persistence; normalization is reserved for the external filtering step.
+
+**First encountered**
+
+SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-countries-servers, flagged during code review and quality gate.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStore.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesFilter.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
+- `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
