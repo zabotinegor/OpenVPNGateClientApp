@@ -1,0 +1,354 @@
+# Favorites UI Patterns and Implementation Guide
+
+## Overview
+
+The favorites feature allows users to mark and quickly access their preferred countries and servers. Implementation is split across multiple sub-plans and surfaces:
+
+- **SUB-01**: Data layer and persistence (`FavoritesStore`, `FavoritesCountryStore`, `FavoritesFilter`)
+- **SUB-02**: Countries screen UI (`ServerListActivity`, `CountryListAdapter`)
+- **SUB-03**: Servers-in-country screen UI (`CountryServersActivity`, `CountryServersAdapter`)
+- **SUB-04**: TV D-pad interaction (both screens)
+
+All surfaces use a consistent case-insensitive casing normalization strategy and long-press / D-pad interaction pattern.
+
+## Case Normalization Boundary
+
+### Strategy
+
+All favorite country codes are normalized to uppercase (Locale.ROOT) at the `FavoritesStore` boundary. This is the **single source of truth** for casing.
+
+**Key file:** `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStore.kt`
+
+**Implementation detail:**
+```kotlin
+private fun normalizeCountryCode(countryCode: String): String =
+    countryCode.uppercase(Locale.ROOT)
+```
+
+Every public method in `FavoritesStore` that deals with country codes normalizes the input:
+- `addFavoriteCountry(ctx, countryCode)` — normalizes before storage
+- `removeFavoriteCountry(ctx, countryCode)` — normalizes before lookup
+- `isFavoriteCountry(ctx, countryCode)` — normalizes for comparison
+- `getFavoriteCountryCodes(ctx)` — returns already-normalized codes
+
+### Why This Approach
+
+1. **Prevents duplicate favorites**: Different casing variants of the same country code (e.g., "AU" vs "au") are treated as identical.
+2. **Centralizes logic**: Callers (ViewModels, Activities, filters) do not need to normalize case independently.
+3. **Reduces test fragility**: Unit tests for UI layers don't need to verify casing edge cases; the store boundary is already covered by `FavoritesStoreTest`.
+4. **Matches real-world data**: VPN Gate and OpenVPN Gate APIs may return country codes in different casings across different data sources or API versions. Normalization at the store boundary absorbs these variations.
+
+### DI Facade Pattern
+
+`FavoritesCountryStore` is an interface that hides the underlying `FavoritesStore` implementation:
+
+```kotlin
+interface FavoritesCountryStore {
+    fun getFavoriteCountryCodes(): Set<String>
+    fun isFavoriteCountry(countryCode: String): Boolean
+    fun addFavoriteCountry(countryCode: String)
+    fun removeFavoriteCountry(countryCode: String)
+}
+
+class DefaultFavoritesCountryStore(private val appContext: Context) : FavoritesCountryStore {
+    // Delegates to FavoritesStore (which handles normalization)
+}
+```
+
+**Wiring** (in `CoreDi.kt`):
+```kotlin
+single<FavoritesCountryStore> { DefaultFavoritesCountryStore(get()) }
+```
+
+ViewModels and Activities depend on the interface, allowing for easy mocking in unit tests. The interface methods accept any casing and return normalized results.
+
+### Testing Pattern
+
+**Unit test example** (from `ServerListViewModelTest`):
+
+```kotlin
+@Test
+fun testToggleFavoriteCaseInsensitive() {
+    // API returns lowercase; user passes any casing
+    val country = Country(code = "au", name = "Australia")
+    viewModel.onAction(ServerListAction.ToggleFavorite(country))
+    
+    // Store normalizes to "AU" internally
+    assertTrue(fakeFavoritesStore.isFavoriteCountry("AU"))
+    assertTrue(fakeFavoritesStore.isFavoriteCountry("au"))  // Both casings work
+    assertTrue(fakeFavoritesStore.isFavoriteCountry("Au"))
+}
+```
+
+**Integration test pattern** (for SUB-03/SUB-04):
+When testing servers or TV interaction, rely on the store's casing handling. Do not add extra case-normalization logic to the ViewModel or Activity.
+
+### Precondition: Legacy Server.id Collision
+
+**See:** `docs/qa-evidence/favorites-data-layer-gate-1.md` — "Legacy Server.id=0 collision (major)"
+
+The `FavoritesStore` treats `serverId <= 0` as invalid and silently drops them:
+
+```kotlin
+fun addFavoriteServer(ctx: Context, serverId: Int) {
+    if (serverId <= 0) return  // Guard: ignore invalid IDs
+}
+```
+
+This is safe because:
+1. The V2 API always returns positive integer server IDs.
+2. Legacy CSV servers from VPN Gate do not have integer IDs and should not be favoritable (not scope for this feature).
+
+However, if a future migration allows legacy CSV favorites, this guard will need revision. Document this assumption in any change that relaxes the `serverId > 0` constraint.
+
+## Long-Press PopupMenu Pattern
+
+### Overview
+
+When a user long-presses a country or server row on mobile, a `PopupMenu` appears with an action to add or remove the item from favorites.
+
+**Implemented in SUB-02**: `ServerListActivity.showFavoriteActionMenu(country)`
+
+**To be replicated in SUB-03**: `CountryServersActivity.showFavoriteActionMenu(server)`
+
+**Adapted for SUB-04**: TV D-pad will use a different navigation paradigm but the state machine (favorite / not favorite) remains identical.
+
+### Menu Item Labeling
+
+The menu item text reflects the current favorite state:
+
+- If the country is currently a favorite: menu shows **"Remove from favorites"**
+- If the country is not a favorite: menu shows **"Add to favorites"**
+
+**Code pattern** (SUB-02):
+```kotlin
+private fun showFavoriteActionMenu(country: Country) {
+    val isFavorite = favoritesStore.isFavoriteCountry(country.code)
+    val actionLabel = if (isFavorite) {
+        "Remove from favorites"
+    } else {
+        "Add to favorites"
+    }
+    popupMenu.menu.add(actionLabel).setOnMenuItemClickListener {
+        viewModel.onAction(ServerListAction.ToggleFavorite(country))
+        true
+    }
+    popupMenu.show()
+}
+```
+
+This pattern ensures users always see the action they can take, not the state.
+
+### Toast Feedback
+
+After toggling, a toast message confirms the action:
+
+- **Added**: Toast displays string resource `@string/favorites_added_toast` (e.g., "Added to favorites")
+- **Removed**: Toast displays string resource `@string/favorites_removed_toast` (e.g., "Removed from favorites")
+
+**In ViewModel**:
+```kotlin
+private fun toggleFavorite(country: Country) {
+    val currentlyFavorite = favoritesStore.isFavoriteCountry(country.code)
+    if (currentlyFavorite) {
+        favoritesStore.removeFavoriteCountry(country.code)
+    } else {
+        favoritesStore.addFavoriteCountry(country.code)
+    }
+    viewModelScope.launch {
+        val text = if (currentlyFavorite) {
+            UiText.Res(R.string.favorites_removed_toast)
+        } else {
+            UiText.Res(R.string.favorites_added_toast)
+        }
+        _effects.emit(ServerListEffect.ShowToast(text))
+    }
+    updateState { it.copy(favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()) }
+}
+```
+
+### State Synchronization
+
+When a favorite is toggled:
+1. `FavoritesStore.add/removeFavoriteCountry()` updates SharedPreferences synchronously.
+2. ViewModel fetches the updated favorite set: `favoritesStore.getFavoriteCountryCodes()`.
+3. State is updated immediately: `updateState { it.copy(favoriteCountryCodes = ...) }`.
+4. UI re-renders (pinned section appears/disappears, menu label changes on next long-press).
+
+**No manual refresh is required.** The pattern is synchronous and self-contained.
+
+## Pinned Favorites Section
+
+### Rendering Logic
+
+The "Favorites" section appears at the top of the country list when at least one favorite country is currently available.
+
+**In `ServerListActivity` (SUB-02)**:
+
+```kotlin
+// Adapter receives two list segments: favorites + regular
+val favorites = allCountries.filter { it.code in favoriteCodes }
+val regular = allCountries.filter { it.code !in favoriteCodes }
+val listToDisplay = if (favorites.isNotEmpty()) {
+    listOf(SectionHeader("Favorites")) + favorites + listOf(SectionHeader("All Countries")) + regular
+} else {
+    listOf(SectionHeader("All Countries")) + regular
+}
+adapter.submitList(listToDisplay)
+```
+
+### Section Header Rendering
+
+**Layout file:** `src/core/src/main/res/layout/item_country_section_header.xml`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/section_header_title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="16dp"
+    android:layout_marginTop="16dp"
+    android:layout_marginEnd="16dp"
+    android:layout_marginBottom="4dp"
+    android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle"
+    android:textStyle="bold" />
+```
+
+### Country Row Rendering
+
+Favorite countries in the pinned section use **the same row component** as the regular list. No special styling or behavior is applied; they are identical rows, just positioned at the top.
+
+**Rationale**: Code reuse + visual consistency.
+
+### Hidden When Empty
+
+If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the "All Countries" section.
+
+**Trigger**: When `FavoritesFilter.filterAvailableFavorites(...)` returns an empty set, the pinned section is hidden entirely.
+
+### Availability Filtering
+
+The pinned section shows only **currently available** favorite countries. If a user's favorite country is not present in the latest server sync (e.g., the VPN Gate server list for that country is temporarily offline), the favorite is hidden from the pinned section but **remains in storage**.
+
+Once the country reappears in a future sync, it automatically reappears in the pinned section without requiring the user to re-favorite it.
+
+**Code pattern** (from `FavoritesFilter`):
+```kotlin
+fun filterAvailableFavorites(
+    allCountries: List<Country>,
+    favoriteCodes: Set<String>
+): List<Country> =
+    allCountries.filter { it.code in favoriteCodes }
+```
+
+## Testing Strategy
+
+### Unit Tests (ViewModel Layer)
+
+**File:** `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListViewModelTest.kt`
+
+Test patterns:
+
+1. **Toggling favorite**: Verify that `favoritesStore.add/removeFavoriteCountry()` is called with the correct country code.
+2. **State update**: Verify that the ViewModel state includes the updated `favoriteCountryCodes` set.
+3. **Toast emission**: Verify that the correct toast message is emitted as an effect.
+4. **Case insensitivity**: Verify that the ViewModel handles any casing of country codes (the store handles normalization).
+
+**Example test case**:
+```kotlin
+@Test
+fun testToggleFavoriteCausesToastAndStateUpdate() {
+    val country = Country(code = "AU", name = "Australia")
+    
+    viewModel.onAction(ServerListAction.ToggleFavorite(country))
+    
+    assertThat(fakeFavoritesStore.isFavoriteCountry("AU")).isTrue()
+    assertThat(viewModel.state.value.favoriteCountryCodes).contains("AU")
+    val toast = viewModel.effects.first() as ServerListEffect.ShowToast
+    assertThat(toast.text).isEqualTo(UiText.Res(R.string.favorites_added_toast))
+}
+```
+
+### Unit Tests (Store Layer)
+
+**File:** `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStoreTest.kt`
+
+Store tests verify:
+
+1. **Casing normalization**: `addFavoriteCountry("au")` followed by `isFavoriteCountry("AU")` returns true.
+2. **Persistence**: Favorites survive a simulated process kill (SharedPreferences save/restore).
+3. **Idempotency**: Adding the same favorite twice doesn't create duplicates.
+4. **Removal**: Removing a favorite that doesn't exist is a no-op.
+
+### Manual E2E Test Cases
+
+**Reference:** `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md`
+
+Test on a real device:
+
+1. **AC1 (Pinned section appearance)**: Long-press a country, add to favorites, verify "Favorites" header appears at top.
+2. **AC2 (Section hidden when empty)**: Remove the last favorite, verify "Favorites" section disappears.
+3. **AC3 (Menu state reflection)**: Verify menu shows "Add to favorites" or "Remove from favorites" correctly.
+4. **AC4 (Tap navigation)**: Tap a favorite in the pinned section, verify navigation to that country's servers.
+5. **AC5 (Immediate update)**: Verify no manual refresh is needed; state updates synchronously.
+6. **AC6 (Regression)**: Verify regular (non-favorite) country rows behave unchanged.
+
+**Device used in SUB-02 QA**: Samsung Galaxy A71 (R58N849XQEY), Android 13.
+
+**Commands**:
+```bash
+adb -s R58N849XQEY install -r mobile/build/outputs/apk/debug/mobile-debug.apk
+adb -s R58N849XQEY shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
+adb -s R58N849XQEY shell uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml | grep "Favorites"
+```
+
+## Implementation Checklist for SUB-03 and SUB-04
+
+### For SUB-03 (Servers-in-country screen)
+
+- [ ] Add `FavoritesServerStore` interface (parallel to `FavoritesCountryStore`, wrapping `FavoritesStore.addFavoriteServer/etc`)
+- [ ] Wire `FavoritesServerStore` in `CoreDi.kt`
+- [ ] Update `CountryServersViewModel` to call `favoritesStore.add/removeFavoriteServer()`
+- [ ] Add long-press menu handler in `CountryServersActivity`
+- [ ] Replicate pinned "Favorites servers" section at top of servers list
+- [ ] Add unit tests following the `ServerListViewModelTest` pattern
+- [ ] Add manual E2E test cases parallel to SUB-02 evidence
+- [ ] Update `src/docs/favorites-ui-patterns.md` with SUB-03-specific notes if needed
+
+### For SUB-04 (TV D-pad)
+
+- [ ] Adapt long-press pattern to D-pad navigation (single-select highlight + button press to toggle)
+- [ ] Verify menu/confirmation pattern works on TV Leanback UI
+- [ ] Test on an Android TV device or emulator
+- [ ] Reuse pinned-section logic and filtering from SUB-02/SUB-03
+- [ ] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
+
+## Logging Considerations
+
+**Reference:** `src/docs/logging-policy.md`
+
+When logging favorites state changes:
+
+- **Do NOT log raw user selections** (e.g., country codes derived from user input).
+- **Do log actions and results**: e.g., "toggled_favorite action=add_success" or "toggled_favorite action=remove_success".
+- **Do NOT log user data**: Avoid logging selected country name or server IP in production builds.
+
+**Pattern** (from `ServerListViewModel`):
+```kotlin
+private fun toggleFavorite(country: Country) {
+    val currentlyFavorite = favoritesStore.isFavoriteCountry(country.code)
+    val action = if (currentlyFavorite) "remove" else "add"
+    // Action is logged, but country code is not
+    logInfo("toggled_favorite action=$action")
+    ...
+}
+```
+
+## Related Documents
+
+- `src/docs/server-sync-flow.md` — How server list syncs trigger re-filtering of favorites
+- `src/docs/logging-policy.md` — Privacy and logging guidelines
+- `CLAUDE.md` — Architecture overview and entry points
+- `docs/qa-evidence/favorites-data-layer-gate-1.md` — Data-layer preconditions and residual risks
+- `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
