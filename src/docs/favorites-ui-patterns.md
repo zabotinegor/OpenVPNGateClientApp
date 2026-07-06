@@ -188,8 +188,7 @@ The "Favorites" section appears at the top of the country list when at least one
 The list is constructed as a single flattened sequence where:
 1. If there are any favorite countries, a "Favorites" section header is prepended first.
 2. The favorite countries are listed immediately after that header (same rows as in the regular list).
-3. An "All Countries" section header follows the favorites section.
-4. **All countries are included in the "All Countries" section below — including favorites**, so a favorited country appears in **both the pinned "Favorites" section AND in its normal alphabetical position** in the "All Countries" section.
+3. **All countries are appended below — no second section header — including favorites**, so a favorited country appears in **both the pinned "Favorites" section AND in its normal alphabetical position** in the regular (unheaded) list below.
 
 This design avoids duplication in the code (reusing the same row component) while giving users quick access to their favorites at the top.
 
