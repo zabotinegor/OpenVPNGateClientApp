@@ -335,22 +335,28 @@ class ServerListViewModelTest {
         override fun logSelectionError(countryName: String, error: Exception) = Unit
     }
 
+    /**
+     * Mirrors the real [com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesStore] contract
+     * (post case-normalization fix): country codes are normalized to uppercase at every boundary —
+     * add, remove, and read — so [ServerListViewModel.buildItems] can trust that
+     * `favoriteCountryCodes` is always already uppercase and does not need to re-normalize it.
+     */
     private class FakeFavoritesCountryStore(
         initialFavorites: Set<String> = emptySet()
     ) : FavoritesCountryStore {
-        private val favorites = initialFavorites.toMutableSet()
+        private val favorites = initialFavorites.map { it.uppercase(java.util.Locale.ROOT) }.toMutableSet()
 
         override fun getFavoriteCountryCodes(): Set<String> = favorites.toSet()
 
         override fun isFavoriteCountry(countryCode: String): Boolean =
-            favorites.any { it.equals(countryCode, ignoreCase = true) }
+            favorites.contains(countryCode.uppercase(java.util.Locale.ROOT))
 
         override fun addFavoriteCountry(countryCode: String) {
-            favorites.add(countryCode)
+            favorites.add(countryCode.uppercase(java.util.Locale.ROOT))
         }
 
         override fun removeFavoriteCountry(countryCode: String) {
-            favorites.removeAll { it.equals(countryCode, ignoreCase = true) }
+            favorites.remove(countryCode.uppercase(java.util.Locale.ROOT))
         }
     }
 

@@ -226,14 +226,13 @@ class ServerListViewModel(
     ): List<CountryListItem> {
         if (countries.isEmpty()) return emptyList()
 
-        // Normalize favoriteCountryCodes to uppercase for case-insensitive matching against synced country codes
-        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
-
+        // favoriteCountryCodes is already normalized to uppercase by FavoritesStore's
+        // read boundary — no need to re-map it here.
         // Compute favorite status once per country instead of re-uppercasing the code
         // for both the favorites-filtering pass and the full-list mapping pass.
         val countriesWithFavoriteStatus = countries.map { cws ->
             val code = cws.country.code
-            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in favoriteCountryCodes
             cws to isFavorite
         }
 
