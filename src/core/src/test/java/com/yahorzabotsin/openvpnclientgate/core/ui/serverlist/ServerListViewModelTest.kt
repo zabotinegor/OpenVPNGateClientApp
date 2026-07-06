@@ -617,4 +617,31 @@ class ServerListViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun `P2 finding - no FocusFirstItem effect when items list is empty`() = runTest {
+        // Regression test: guard against emitting FocusFirstItem for non-existent ViewHolders
+        val interactor = FakeInteractor(
+            v2Source = true,
+            getError = IOException("network error")
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val logger = CountingLogger()
+        val vm = ServerListViewModel(interactor, connection, logger, FakeFavoritesCountryStore())
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            // Drain all available effects (should be ShowSnackbar only, no FocusFirstItem)
+            vm.effects.take(1).toList(effects)
+        }
+        advanceUntilIdle()
+
+        // Empty list after load error
+        assertTrue(vm.state.value.countries.isEmpty())
+        // Effect should only be ShowSnackbar, not FocusFirstItem
+        assertTrue(effects.size == 1)
+        assertTrue(effects[0] is ServerListEffect.ShowSnackbar)
+        assertTrue(effects.none { it is ServerListEffect.FocusFirstItem })
+        job.cancel()
+    }
+
 }

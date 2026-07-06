@@ -20,6 +20,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -85,6 +86,10 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
+        // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
+        if (TvUtils.isTvDevice(this)) {
+            return
+        }
         val popup = PopupMenu(this, anchor)
         val actionTitle = if (isFavorite) {
             getString(R.string.favorites_remove_action)
