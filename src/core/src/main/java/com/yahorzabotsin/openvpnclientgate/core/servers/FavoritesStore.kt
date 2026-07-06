@@ -33,6 +33,9 @@ object FavoritesStore {
     private fun normalizeCountryCode(countryCode: String): String =
         countryCode.uppercase(Locale.ROOT)
 
+    private fun normalizeStoredSet(rawSet: MutableSet<String>): Set<String> =
+        rawSet.map { it.uppercase(Locale.ROOT) }.toSet()
+
     // --- Country favorites ---
 
     fun addFavoriteCountry(ctx: Context, countryCode: String) {
@@ -49,7 +52,8 @@ object FavoritesStore {
     fun removeFavoriteCountry(ctx: Context, countryCode: String) {
         val normalized = normalizeCountryCode(countryCode)
         synchronized(favoritesLock) {
-            val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
+            val rawSet = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
+            val current = normalizeStoredSet(rawSet).toMutableSet()
             if (current.remove(normalized)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
@@ -59,8 +63,17 @@ object FavoritesStore {
     fun isFavoriteCountry(ctx: Context, countryCode: String): Boolean =
         getFavoriteCountryCodes(ctx).contains(normalizeCountryCode(countryCode))
 
-    fun getFavoriteCountryCodes(ctx: Context): Set<String> =
-        prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, emptySet())?.toSet() ?: emptySet()
+    fun getFavoriteCountryCodes(ctx: Context): Set<String> {
+        synchronized(favoritesLock) {
+            val rawSet = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, emptySet())?.toMutableSet() ?: mutableSetOf()
+            val normalized = normalizeStoredSet(rawSet)
+            // If normalization changed anything (legacy lowercase entries existed), persist the migrated set.
+            if (normalized != rawSet) {
+                saveFavoriteCountryCodes(ctx, normalized)
+            }
+            return normalized
+        }
+    }
 
     private fun saveFavoriteCountryCodes(ctx: Context, codes: Set<String>) {
         prefs(ctx).edit().putStringSet(KEY_FAVORITE_COUNTRY_CODES, codes).apply()

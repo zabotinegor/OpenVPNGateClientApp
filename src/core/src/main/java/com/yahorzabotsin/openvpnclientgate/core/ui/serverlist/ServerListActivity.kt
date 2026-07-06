@@ -76,16 +76,15 @@ open class ServerListActivity : AppCompatActivity() {
                 onClick = { selected ->
                     viewModel.onAction(ServerListAction.CountrySelected(selected))
                 },
-                onLongClick = { country, isFavorite ->
-                    showFavoriteMenu(country, isFavorite)
+                onLongClick = { anchor, country, isFavorite ->
+                    showFavoriteMenu(anchor, country, isFavorite)
                 }
             )
             contentBinding.serversRecyclerView.adapter = adapter
         }
     }
 
-    private fun showFavoriteMenu(country: Country, isFavorite: Boolean) {
-        val anchor = contentBinding.serversRecyclerView
+    private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
         val popup = PopupMenu(this, anchor)
         val actionTitle = if (isFavorite) {
             getString(R.string.favorites_remove_action)

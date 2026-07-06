@@ -82,7 +82,7 @@ class CountryListAdapterTest {
             CountryListItem.CountryRow(CountryWithServers(Country("United States", "US"), 5), isFavorite = true),
             CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false)
         )
-        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _ -> })
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> })
 
         assertEquals(3, adapter.itemCount)
         assertEquals(0, adapter.getItemViewType(0))
@@ -97,7 +97,7 @@ class CountryListAdapterTest {
             CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false)
         )
         var clicked: Country? = null
-        val adapter = CountryListAdapter(items, onClick = { clicked = it }, onLongClick = { _, _ -> })
+        val adapter = CountryListAdapter(items, onClick = { clicked = it }, onLongClick = { _, _, _ -> })
         val holder = CountryListAdapter.ViewHolder(buildItemView(context))
         adapter.onBindViewHolder(holder, 0)
 
@@ -117,7 +117,7 @@ class CountryListAdapterTest {
         val adapter = CountryListAdapter(
             items,
             onClick = {},
-            onLongClick = { country, isFavorite ->
+            onLongClick = { _, country, isFavorite ->
                 longPressedCountry = country
                 longPressedIsFavorite = isFavorite
             }
@@ -136,7 +136,7 @@ class CountryListAdapterTest {
     fun `section header binds title text`() {
         val context = RuntimeEnvironment.getApplication()
         val items = listOf(CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
-        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _ -> })
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> })
         val holder = CountryListAdapter.HeaderViewHolder(buildHeaderView(context))
         adapter.onBindViewHolder(holder, 0)
 

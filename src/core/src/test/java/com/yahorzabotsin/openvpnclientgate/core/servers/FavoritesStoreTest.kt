@@ -129,6 +129,46 @@ class FavoritesStoreTest {
         assertEquals(setOf("DE", "FR"), FavoritesStore.getFavoriteCountryCodes(ctx))
     }
 
+    @Test
+    fun getFavoriteCountryCodes_normalizesLegacyLowercaseEntriesOnRead() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry that was stored before normalization was enforced.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us", "de")).apply()
+
+        // Reading should return the normalized uppercase set.
+        assertEquals(setOf("US", "DE"), FavoritesStore.getFavoriteCountryCodes(ctx))
+
+        // The raw prefs should have been migrated and persisted back.
+        assertEquals(setOf("US", "DE"), FavoritesStore.getFavoriteCountryCodes(ctx))
+    }
+
+    @Test
+    fun isFavoriteCountry_matchesLegacyLowercaseStoredEntry() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us")).apply()
+
+        // Query with uppercase should find the legacy lowercase entry (after normalization on read).
+        assertTrue(FavoritesStore.isFavoriteCountry(ctx, "US"))
+    }
+
+    @Test
+    fun removeFavoriteCountry_removesLegacyLowercaseStoredEntry() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us")).apply()
+
+        // Remove using uppercase should remove the legacy lowercase entry.
+        FavoritesStore.removeFavoriteCountry(ctx, "US")
+
+        // Verify it's gone.
+        assertFalse(FavoritesStore.isFavoriteCountry(ctx, "US"))
+        assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
+    }
+
     // --- Server favorites: add/remove/persist (AC1, AC2) ---
 
     @Test

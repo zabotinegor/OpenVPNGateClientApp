@@ -29,7 +29,7 @@ sealed interface CountryListItem {
 class CountryListAdapter(
     private val items: List<CountryListItem>,
     private val onClick: (Country) -> Unit,
-    private val onLongClick: (Country, isFavorite: Boolean) -> Unit
+    private val onLongClick: (view: View, country: Country, isFavorite: Boolean) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     override fun getItemViewType(position: Int): Int = when (items[position]) {
@@ -59,7 +59,7 @@ class CountryListAdapter(
                 rowHolder.bind(item.countryWithServers)
                 rowHolder.itemView.setOnClickListener { onClick(item.countryWithServers.country) }
                 rowHolder.itemView.setOnLongClickListener {
-                    onLongClick(item.countryWithServers.country, item.isFavorite)
+                    onLongClick(rowHolder.itemView, item.countryWithServers.country, item.isFavorite)
                     true
                 }
             }
