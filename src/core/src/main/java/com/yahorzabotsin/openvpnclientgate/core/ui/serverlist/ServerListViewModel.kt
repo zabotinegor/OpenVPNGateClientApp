@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
@@ -24,7 +25,8 @@ import java.util.Locale
 class ServerListViewModel(
     private val interactor: ServerListInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
-    private val logger: ServerListLogger
+    private val logger: ServerListLogger,
+    private val favoritesStore: FavoritesCountryStore
 ) : ViewModel() {
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListViewModel"
@@ -51,7 +53,28 @@ class ServerListViewModel(
         when (action) {
             is ServerListAction.Load -> loadServers(action.forceRefresh)
             is ServerListAction.CountrySelected -> handleCountrySelection(action.country)
+            is ServerListAction.ToggleFavorite -> toggleFavorite(action.country)
         }
+    }
+
+    private fun toggleFavorite(country: Country) {
+        val code = country.code
+        if (code.isNullOrBlank()) return
+        val currentlyFavorite = favoritesStore.isFavoriteCountry(code)
+        if (currentlyFavorite) {
+            favoritesStore.removeFavoriteCountry(code)
+        } else {
+            favoritesStore.addFavoriteCountry(code)
+        }
+        viewModelScope.launch {
+            val text = if (currentlyFavorite) {
+                UiText.Res(R.string.favorites_removed_toast)
+            } else {
+                UiText.Res(R.string.favorites_added_toast)
+            }
+            _effects.emit(ServerListEffect.ShowToast(text))
+        }
+        updateState { it.copy(favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()) }
     }
 
     private fun observeConnectionState() {
@@ -100,7 +123,12 @@ class ServerListViewModel(
                         .sortedBy { it.country.name }
                 }
 
-                updateState { it.copy(countries = countries) }
+                updateState {
+                    it.copy(
+                        countries = countries,
+                        favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()
+                    )
+                }
                 _effects.emit(ServerListEffect.FocusFirstItem)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -179,8 +207,40 @@ class ServerListViewModel(
         val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
         return copy(
             isRefreshEnabled = !isLoading && !cacheOnly,
-            showRefreshHint = cacheOnly
+            showRefreshHint = cacheOnly,
+            items = buildItems(countries, favoriteCountryCodes)
         )
+    }
+
+    private fun buildItems(
+        countries: List<CountryWithServers>,
+        favoriteCountryCodes: Set<String>
+    ): List<CountryListItem> {
+        if (countries.isEmpty()) return emptyList()
+
+        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
+        val favorites = if (upperCaseFavorites.isEmpty()) {
+            emptyList()
+        } else {
+            countries.filter { cws ->
+                val code = cws.country.code
+                !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+            }
+        }
+
+        val items = mutableListOf<CountryListItem>()
+        if (favorites.isNotEmpty()) {
+            items.add(CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
+            favorites.forEach { cws ->
+                items.add(CountryListItem.CountryRow(cws, isFavorite = true))
+            }
+        }
+        countries.forEach { cws ->
+            val code = cws.country.code
+            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+            items.add(CountryListItem.CountryRow(cws, isFavorite = isFavorite))
+        }
+        return items
     }
 
     private fun logInfo(message: String) {

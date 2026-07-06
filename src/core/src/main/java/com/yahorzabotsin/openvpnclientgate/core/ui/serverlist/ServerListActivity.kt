@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.PopupMenu
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -14,6 +15,7 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentServerListBin
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
@@ -27,7 +29,7 @@ open class ServerListActivity : AppCompatActivity() {
     private val viewModel: ServerListViewModel by viewModel()
     private lateinit var contentBinding: ContentServerListBinding
     private var adapter: CountryListAdapter? = null
-    private var lastRenderedCountries: List<CountryWithServers> = emptyList()
+    private var lastRenderedItems: List<CountryListItem> = emptyList()
     private val countryServersLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -67,13 +69,35 @@ open class ServerListActivity : AppCompatActivity() {
         contentBinding.refreshFab.isEnabled = state.isRefreshEnabled
         contentBinding.refreshHint.isVisible = state.showRefreshHint
 
-        if (adapter == null || state.countries != lastRenderedCountries) {
-            lastRenderedCountries = state.countries
-            adapter = CountryListAdapter(state.countries) { selected ->
-                viewModel.onAction(ServerListAction.CountrySelected(selected))
-            }
+        if (adapter == null || state.items != lastRenderedItems) {
+            lastRenderedItems = state.items
+            adapter = CountryListAdapter(
+                items = state.items,
+                onClick = { selected ->
+                    viewModel.onAction(ServerListAction.CountrySelected(selected))
+                },
+                onLongClick = { country, isFavorite ->
+                    showFavoriteMenu(country, isFavorite)
+                }
+            )
             contentBinding.serversRecyclerView.adapter = adapter
         }
+    }
+
+    private fun showFavoriteMenu(country: Country, isFavorite: Boolean) {
+        val anchor = contentBinding.serversRecyclerView
+        val popup = PopupMenu(this, anchor)
+        val actionTitle = if (isFavorite) {
+            getString(R.string.favorites_remove_action)
+        } else {
+            getString(R.string.favorites_add_action)
+        }
+        popup.menu.add(actionTitle)
+        popup.setOnMenuItemClickListener {
+            viewModel.onAction(ServerListAction.ToggleFavorite(country))
+            true
+        }
+        popup.show()
     }
 
     private fun handleEffect(effect: ServerListEffect) {

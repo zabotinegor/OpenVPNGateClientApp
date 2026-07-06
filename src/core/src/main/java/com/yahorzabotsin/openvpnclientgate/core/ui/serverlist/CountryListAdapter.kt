@@ -9,29 +9,71 @@ import androidx.recyclerview.widget.RecyclerView
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
 
 data class CountryWithServers(
     val country: Country,
     val serverCount: Int
 )
 
+/**
+ * Flattened list item used by [CountryListAdapter] so a single RecyclerView can render both
+ * the pinned favorites section and the regular alphabetical country list.
+ */
+sealed interface CountryListItem {
+    data class SectionHeader(val title: UiText) : CountryListItem
+    data class CountryRow(val countryWithServers: CountryWithServers, val isFavorite: Boolean) : CountryListItem
+}
+
 class CountryListAdapter(
-    private val countries: List<CountryWithServers>,
-    private val onClick: (Country) -> Unit
-) : RecyclerView.Adapter<CountryListAdapter.ViewHolder>() {
+    private val items: List<CountryListItem>,
+    private val onClick: (Country) -> Unit,
+    private val onLongClick: (Country, isFavorite: Boolean) -> Unit
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_country_row, parent, false)
-        return ViewHolder(v)
+    override fun getItemViewType(position: Int): Int = when (items[position]) {
+        is CountryListItem.SectionHeader -> VIEW_TYPE_HEADER
+        is CountryListItem.CountryRow -> VIEW_TYPE_COUNTRY
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val country = countries[position]
-        holder.bind(country)
-        holder.itemView.setOnClickListener { onClick(country.country) }
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return when (viewType) {
+            VIEW_TYPE_HEADER -> {
+                val v = inflater.inflate(R.layout.item_country_section_header, parent, false)
+                HeaderViewHolder(v)
+            }
+            else -> {
+                val v = inflater.inflate(R.layout.item_country_row, parent, false)
+                ViewHolder(v)
+            }
+        }
     }
 
-    override fun getItemCount(): Int = countries.size
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (val item = items[position]) {
+            is CountryListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
+            is CountryListItem.CountryRow -> {
+                val rowHolder = holder as ViewHolder
+                rowHolder.bind(item.countryWithServers)
+                rowHolder.itemView.setOnClickListener { onClick(item.countryWithServers.country) }
+                rowHolder.itemView.setOnLongClickListener {
+                    onLongClick(item.countryWithServers.country, item.isFavorite)
+                    true
+                }
+            }
+        }
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val title: TextView = itemView.findViewById(R.id.section_header_title)
+        fun bind(header: CountryListItem.SectionHeader) {
+            title.text = title.context.resolve(header.title)
+        }
+    }
 
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val name: TextView = itemView.findViewById(R.id.country_name)
@@ -56,5 +98,9 @@ class CountryListAdapter(
             chevronIcon.visibility = View.VISIBLE
         }
     }
-}
 
+    private companion object {
+        const val VIEW_TYPE_HEADER = 0
+        const val VIEW_TYPE_COUNTRY = 1
+    }
+}

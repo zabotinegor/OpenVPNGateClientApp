@@ -14,6 +14,8 @@ import com.yahorzabotsin.openvpnclientgate.core.filter.AppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.filter.DefaultAppFilterRepository
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultFavoritesCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServersV2SyncCoordinator
@@ -157,6 +159,7 @@ val coreModule = module {
     single { SelectedCountryServerSync(androidContext(), get()) }
     single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get(), get()) }
+    single<FavoritesCountryStore> { DefaultFavoritesCountryStore(androidContext()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get(), get()) }
     single { WorkManager.getInstance(androidContext()) }
     single<PeriodicWorkEnqueuer> { WorkManagerPeriodicWorkEnqueuer(get()) }
@@ -178,7 +181,7 @@ val coreModule = module {
     viewModel { FilterViewModel(get(), get()) }
     single<VpnConnectionStateProvider> { DefaultVpnConnectionStateProvider() }
     single<ServerListLogger> { DefaultServerListLogger() }
-    viewModel { ServerListViewModel(get(), get(), get()) }
+    viewModel { ServerListViewModel(get(), get(), get(), get()) }
     single<CountryServersLogger> { DefaultCountryServersLogger() }
     viewModel { CountryServersViewModel(get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
