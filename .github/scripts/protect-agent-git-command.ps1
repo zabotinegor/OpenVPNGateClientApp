@@ -77,41 +77,65 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
                 if (-not $t.StartsWith('-')) { $eff = $t }
             }
         }
-        $isForce = $normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])'
-        $isBulk = $normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])'
-        # Narrow, explicit exception for the release-flow archive step: recreating `dev`
-        # from a merged `main` requires `git push origin --delete dev` followed by
-        # `git push [-u] origin dev`. Only the literal `dev` ref is exempted here — main,
-        # master, and develop remain fully protected, and force/bulk pushes are still
-        # blocked by the checks above regardless of this exception.
-        $isDevOnlyPushOrDelete = -not $isForce -and -not $isBulk -and (
-            $normalized -match "(?i)\b(?:origin|upstream)\s+(?:--delete|-d)\s+dev(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+(?:origin|upstream)\s+dev(?![-\w/.])" -or
-            $normalized -match "(?i)\b(?:origin|upstream)\s+dev(?![-\w/.])(?!.*(?:main|master|develop)(?![-\w/.]))" -or
-            $normalized -match "(?i)(?:^|\s):dev(?![-\w/.])"
-        )
-        if ($isForce) {
+        if ($normalized -match '(?i)(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])') {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($isBulk) {
+        elseif ($normalized -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
             $reason = 'Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden.'
         }
-        elseif ($isDevOnlyPushOrDelete) {
-            # Allowed: release-flow archive step recreating dev from merged main.
-        }
-        elseif ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
-            $reason = "Direct push from protected branch '$eff' is forbidden."
-        }
-        elseif (
-            $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
-            $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
-        ) {
-            $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
+        else {
+            # Release-flow archive exception: permit the two dev-branch mutations that occur in
+            # the archive step after a release squash merge (step 5 of release-flow-orchestrator).
+            #   1. git push origin --delete dev   (remove old dev after pushing the archive branch)
+            #   2. git push [-u] origin dev        (push new dev recreated from merged main)
+            # Authorization condition for (1): origin/archive/archive-dev-* exists (archive was pushed).
+            # Authorization condition for (2): same + local dev SHA == origin/main SHA.
+            $allowReleaseArchivePush = $false
+            $isDevPush   = $eff -eq 'dev' -or $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
+            $isDevDelete = $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
+            # Guard: if command also targets main/master/develop in any push/delete context,
+            # the exception does not apply — e.g. `git push origin --delete dev main`.
+            foreach ($op in @('main', 'master', 'develop')) {
+                if ($normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+?$op(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s):$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\brefs/heads/$op(?![-\w/.])") {
+                    $isDevPush = $false; $isDevDelete = $false; break
+                }
+            }
+            if ($isDevPush -or $isDevDelete) {
+                $previousEap2 = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    $remotes = (git -C $cwd branch -r 2>$null) -join "`n"
+                    if ($remotes -match 'archive/archive-dev-') {
+                        if ($isDevDelete) {
+                            $allowReleaseArchivePush = $true
+                        } elseif ($isDevPush) {
+                            $devSha  = ((git -C $cwd rev-parse dev        2>$null) | Out-String).Trim()
+                            $mainSha = ((git -C $cwd rev-parse origin/main 2>$null) | Out-String).Trim()
+                            if ($devSha -and $mainSha -and $devSha -eq $mainSha) { $allowReleaseArchivePush = $true }
+                        }
+                    }
+                }
+                finally { $ErrorActionPreference = $previousEap2 }
+            }
+            if (-not $allowReleaseArchivePush) {
+                if ($protected -contains $eff -and $normalized -notmatch '(?i)\bHEAD:') {
+                    $reason = "Direct push from protected branch '$eff' is forbidden."
+                }
+                elseif (
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
+                ) {
+                    $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
+                }
+            }
         }
     }
 
