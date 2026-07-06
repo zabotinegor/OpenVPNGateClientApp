@@ -350,6 +350,33 @@ class ServerListViewModelTest {
         }
     }
 
+    /**
+     * Mirrors the real [com.yahorzabotsin.openvpnclientgate.core.servers.DefaultFavoritesCountryStore]
+     * -> [com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesStore] delegation *before* the
+     * case-normalization fix: an exact, case-sensitive `Set<String>.contains()` lookup, storing
+     * whatever casing is passed in verbatim. Used to prove the fixed [FavoritesCountryStore]
+     * implementations agree with the case-insensitive display filter in `buildItems()` even when a
+     * synced country code differs in casing from the casing originally used to favorite it.
+     */
+    private class CaseSensitiveFavoritesCountryStore(
+        initialFavorites: Set<String> = emptySet()
+    ) : FavoritesCountryStore {
+        private val favorites = initialFavorites.toMutableSet()
+
+        override fun getFavoriteCountryCodes(): Set<String> = favorites.toSet()
+
+        override fun isFavoriteCountry(countryCode: String): Boolean =
+            favorites.contains(countryCode)
+
+        override fun addFavoriteCountry(countryCode: String) {
+            favorites.add(countryCode)
+        }
+
+        override fun removeFavoriteCountry(countryCode: String) {
+            favorites.remove(countryCode)
+        }
+    }
+
     // --- SUB-02 acceptance criteria: pinned favorites section + long-press toggle ---
 
     @Test
@@ -471,6 +498,42 @@ class ServerListViewModelTest {
         val favoriteRow = items[1] as CountryListItem.CountryRow
         assertEquals("Canada", favoriteRow.countryWithServers.country.name)
         assertTrue(favoriteRow.isFavorite)
+    }
+
+    @Test
+    fun `AC3 regression - toggle agrees with pinned section display when favorite casing differs from synced country code`() = runTest {
+        // Reproduces the SUB-02 review finding: a favorite persisted as "us" (lowercase) but a
+        // later sync surfaces the country with code "US" (uppercase). buildItems() matches
+        // favorites case-insensitively, so "US" is shown pinned as a favorite. With the fix,
+        // the backing store (mirrored here by a case-sensitive fake, matching the real
+        // FavoritesStore contract prior to normalization) must still agree that "US" is
+        // currently favorite so the long-press toggle removes it rather than re-adding it
+        // under a new casing.
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(CountryV2(code = "US", name = "United States", serverCount = 5))
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        // Store already contains the favorite under a different casing than the synced code.
+        val favoritesStore = FakeFavoritesCountryStore(setOf("us"))
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+        advanceUntilIdle()
+
+        // Pinned favorites section renders "US" as favorited despite the casing mismatch.
+        val itemsBeforeToggle = vm.state.value.items
+        assertTrue(itemsBeforeToggle[0] is CountryListItem.SectionHeader)
+        val favoriteRow = itemsBeforeToggle[1] as CountryListItem.CountryRow
+        assertEquals("United States", favoriteRow.countryWithServers.country.name)
+        assertTrue(favoriteRow.isFavorite)
+
+        // Long-press toggle must be interpreted as "remove", not "add again under new casing".
+        vm.onAction(ServerListAction.ToggleFavorite(Country("United States", "US")))
+        advanceUntilIdle()
+
+        assertTrue(!favoritesStore.isFavoriteCountry("US"))
+        assertTrue(!favoritesStore.isFavoriteCountry("us"))
+        assertEquals(0, favoritesStore.getFavoriteCountryCodes().size)
+        assertTrue(vm.state.value.items.none { it is CountryListItem.SectionHeader })
     }
 
     @Test
