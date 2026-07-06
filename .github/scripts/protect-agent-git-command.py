@@ -126,7 +126,11 @@ def protected_reason(command, branch, cwd="."):
         # Authorization condition for (1): origin/archive/archive-dev-* exists (archive was pushed).
         # Authorization condition for (2): same + local dev SHA == origin/main SHA.
         allow_release_archive_push = False
-        is_dev_push = eff == "dev" or bool(re.search(r"(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])", normalized))
+        # Use only explicit remote-target patterns — NOT eff == "dev". When the caller
+        # is checked out on dev, eff == "dev" would set is_dev_push=True for ANY push
+        # command (e.g. `git push origin HEAD:main`), letting the archive+SHA check
+        # grant allow_release_archive_push=True and skip all protected-branch checks.
+        is_dev_push = bool(re.search(r"(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])", normalized))
         is_dev_delete = bool(re.search(r"(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])", normalized))
         # Guard: if the same command also targets main/master/develop in any push/delete
         # context the exception does not apply — e.g. `git push origin --delete dev main`.

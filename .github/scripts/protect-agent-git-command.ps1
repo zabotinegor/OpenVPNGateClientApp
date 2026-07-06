@@ -91,7 +91,11 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             # Authorization condition for (1): origin/archive/archive-dev-* exists (archive was pushed).
             # Authorization condition for (2): same + local dev SHA == origin/main SHA.
             $allowReleaseArchivePush = $false
-            $isDevPush   = $eff -eq 'dev' -or $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
+            # Use only explicit remote-target patterns — NOT $eff -eq 'dev'. When the caller
+            # is checked out on dev, $eff -eq 'dev' would set $isDevPush for ANY push command
+            # (e.g. `git push origin HEAD:main`), letting archive+SHA grant $allowReleaseArchivePush
+            # and skip all protected-branch checks.
+            $isDevPush   = $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
             $isDevDelete = $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
             # Guard: if command also targets main/master/develop in any push/delete context,
             # the exception does not apply — e.g. `git push origin --delete dev main`.
