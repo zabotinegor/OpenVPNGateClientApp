@@ -17,6 +17,7 @@ object FavoritesStore {
     private const val PREFS_NAME = "favorites_prefs"
     private const val KEY_FAVORITE_COUNTRY_CODES = "favorite_country_codes"
     private const val KEY_FAVORITE_SERVER_IDS = "favorite_server_ids"
+    private val favoritesLock = Any()
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -25,16 +26,20 @@ object FavoritesStore {
 
     fun addFavoriteCountry(ctx: Context, countryCode: String) {
         if (countryCode.isBlank()) return
-        val current = getFavoriteCountryCodes(ctx).toMutableSet()
-        if (current.add(countryCode)) {
-            saveFavoriteCountryCodes(ctx, current)
+        synchronized(favoritesLock) {
+            val current = getFavoriteCountryCodes(ctx).toMutableSet()
+            if (current.add(countryCode)) {
+                saveFavoriteCountryCodes(ctx, current)
+            }
         }
     }
 
     fun removeFavoriteCountry(ctx: Context, countryCode: String) {
-        val current = getFavoriteCountryCodes(ctx).toMutableSet()
-        if (current.remove(countryCode)) {
-            saveFavoriteCountryCodes(ctx, current)
+        synchronized(favoritesLock) {
+            val current = getFavoriteCountryCodes(ctx).toMutableSet()
+            if (current.remove(countryCode)) {
+                saveFavoriteCountryCodes(ctx, current)
+            }
         }
     }
 
@@ -51,16 +56,20 @@ object FavoritesStore {
     // --- Server favorites ---
 
     fun addFavoriteServer(ctx: Context, serverId: Int) {
-        val current = getFavoriteServerIds(ctx).toMutableSet()
-        if (current.add(serverId)) {
-            saveFavoriteServerIds(ctx, current)
+        synchronized(favoritesLock) {
+            val current = getFavoriteServerIds(ctx).toMutableSet()
+            if (current.add(serverId)) {
+                saveFavoriteServerIds(ctx, current)
+            }
         }
     }
 
     fun removeFavoriteServer(ctx: Context, serverId: Int) {
-        val current = getFavoriteServerIds(ctx).toMutableSet()
-        if (current.remove(serverId)) {
-            saveFavoriteServerIds(ctx, current)
+        synchronized(favoritesLock) {
+            val current = getFavoriteServerIds(ctx).toMutableSet()
+            if (current.remove(serverId)) {
+                saveFavoriteServerIds(ctx, current)
+            }
         }
     }
 

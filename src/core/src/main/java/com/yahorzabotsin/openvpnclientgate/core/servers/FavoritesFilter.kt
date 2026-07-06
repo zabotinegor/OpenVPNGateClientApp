@@ -19,7 +19,11 @@ object FavoritesFilter {
         countries: List<CountryV2>
     ): List<CountryV2> {
         if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
-        return countries.filter { favoriteCountryCodes.contains(it.code) }
+        return countries.filter { countryV2 ->
+            favoriteCountryCodes.any { favoriteCode ->
+                favoriteCode.equals(countryV2.code, ignoreCase = true)
+            }
+        }
     }
 
     /**
