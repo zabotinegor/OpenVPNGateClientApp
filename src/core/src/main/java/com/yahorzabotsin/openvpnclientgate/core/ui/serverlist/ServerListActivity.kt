@@ -31,6 +31,7 @@ open class ServerListActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentServerListBinding
     private var adapter: CountryListAdapter? = null
     private var lastRenderedItems: List<CountryListItem> = emptyList()
+    private var activePopupMenu: PopupMenu? = null
     private val countryServersLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -48,6 +49,12 @@ open class ServerListActivity : AppCompatActivity() {
             viewModel.onAction(ServerListAction.Load(forceRefresh = true))
         }
         observeViewModel()
+    }
+
+    override fun onDestroy() {
+        activePopupMenu?.dismiss()
+        activePopupMenu = null
+        super.onDestroy()
     }
 
     private fun observeViewModel() {
@@ -97,7 +104,16 @@ open class ServerListActivity : AppCompatActivity() {
         if (TvUtils.isTvDevice(this)) {
             return
         }
+        // Dismiss any previously showing popup to prevent window leaks
+        activePopupMenu?.dismiss()
+
         val popup = PopupMenu(this, anchor)
+        activePopupMenu = popup
+        popup.setOnDismissListener {
+            if (activePopupMenu == popup) {
+                activePopupMenu = null
+            }
+        }
         val actionTitle = if (isFavorite) {
             getString(R.string.favorites_remove_action)
         } else {

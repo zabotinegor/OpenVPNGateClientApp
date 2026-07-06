@@ -185,17 +185,13 @@ The "Favorites" section appears at the top of the country list when at least one
 
 **In `ServerListActivity` (SUB-02)**:
 
-```kotlin
-// Adapter receives two list segments: favorites + regular
-val favorites = allCountries.filter { it.code in favoriteCodes }
-val regular = allCountries.filter { it.code !in favoriteCodes }
-val listToDisplay = if (favorites.isNotEmpty()) {
-    listOf(SectionHeader("Favorites")) + favorites + listOf(SectionHeader("All Countries")) + regular
-} else {
-    listOf(SectionHeader("All Countries")) + regular
-}
-adapter.submitList(listToDisplay)
-```
+The list is constructed as a single flattened sequence where:
+1. If there are any favorite countries, a "Favorites" section header is prepended first.
+2. The favorite countries are listed immediately after that header (same rows as in the regular list).
+3. An "All Countries" section header follows the favorites section.
+4. **All countries are included in the "All Countries" section below — including favorites**, so a favorited country appears in **both the pinned "Favorites" section AND in its normal alphabetical position** in the "All Countries" section.
+
+This design avoids duplication in the code (reusing the same row component) while giving users quick access to their favorites at the top.
 
 ### Section Header Rendering
 
@@ -294,13 +290,13 @@ Test on a real device:
 5. **AC5 (Immediate update)**: Verify no manual refresh is needed; state updates synchronously.
 6. **AC6 (Regression)**: Verify regular (non-favorite) country rows behave unchanged.
 
-**Device used in SUB-02 QA**: Samsung Galaxy A71 (R58N849XQEY), Android 13.
+**Device used in SUB-02 QA**: Samsung Galaxy A71, Android 13.
 
 **Commands**:
 ```bash
-adb -s R58N849XQEY install -r mobile/build/outputs/apk/debug/mobile-debug.apk
-adb -s R58N849XQEY shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
-adb -s R58N849XQEY shell uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml | grep "Favorites"
+adb -s <your-device-serial> install -r mobile/build/outputs/apk/debug/mobile-debug.apk
+adb -s <your-device-serial> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
+adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml | grep "Favorites"
 ```
 
 ## Implementation Checklist for SUB-03 and SUB-04
