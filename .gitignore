@@ -235,6 +235,7 @@ artifacts
 *_PROMPT*.md
 *_PROMT*.md
 CODE_REVIEW_HANDOFF_*.md
+/docs/qa-evidence/
 /.sdlc/status.json
 **/.sdlc/status.json
 /.sdlc/operations/
