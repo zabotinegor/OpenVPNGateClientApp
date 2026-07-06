@@ -14,6 +14,17 @@ Use instead:
 ```
 adb -s <your-device-serial> shell dumpsys package com.yahorzabotsin.openvpnclientgate | grep -i "package\|version"
 ```
+Alternative that also works: `adb shell pm list packages --user 0` (explicit user 0 avoids the
+default-user resolution that triggers the SecurityException on some multi-user devices).
+
+### Launching the app without a resolvable explicit activity name
+`adb shell am start -n <pkg>/.SplashActivity` can fail with `does not exist` even though the app is
+installed, because the manifest-declared short name resolves differently per launcher/build variant.
+Use the launcher category instead, which always resolves correctly:
+```
+adb -s <your-device-serial> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
+```
+Then confirm with `adb shell dumpsys window | grep mCurrentFocus` to see the actual resolved activity name.
 
 ### Activity resolution
 Use `cmd package resolve-activity` to find the launchable activity:
