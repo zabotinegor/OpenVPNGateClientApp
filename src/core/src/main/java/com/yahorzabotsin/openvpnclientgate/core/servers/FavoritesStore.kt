@@ -56,6 +56,7 @@ object FavoritesStore {
     // --- Server favorites ---
 
     fun addFavoriteServer(ctx: Context, serverId: Int) {
+        if (serverId <= 0) return
         synchronized(favoritesLock) {
             val current = getFavoriteServerIds(ctx).toMutableSet()
             if (current.add(serverId)) {

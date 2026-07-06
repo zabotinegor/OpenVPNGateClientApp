@@ -85,6 +85,16 @@ class FavoritesStoreTest {
     }
 
     @Test
+    fun addFavoriteServer_rejectsNonPositiveId() {
+        val ctx = freshContext()
+
+        FavoritesStore.addFavoriteServer(ctx, 0)
+        FavoritesStore.addFavoriteServer(ctx, -1)
+
+        assertTrue(FavoritesStore.getFavoriteServerIds(ctx).isEmpty())
+    }
+
+    @Test
     fun addFavoriteServer_survivesAcrossStoreInstances_simulatingRestart() {
         val ctx = freshContext()
         FavoritesStore.addFavoriteServer(ctx, 7)
