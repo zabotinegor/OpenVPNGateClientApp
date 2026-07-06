@@ -228,25 +228,24 @@ class ServerListViewModel(
 
         // Normalize favoriteCountryCodes to uppercase for case-insensitive matching against synced country codes
         val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
-        val favorites = if (upperCaseFavorites.isEmpty()) {
-            emptyList()
-        } else {
-            countries.filter { cws ->
-                val code = cws.country.code
-                !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
-            }
+
+        // Compute favorite status once per country instead of re-uppercasing the code
+        // for both the favorites-filtering pass and the full-list mapping pass.
+        val countriesWithFavoriteStatus = countries.map { cws ->
+            val code = cws.country.code
+            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+            cws to isFavorite
         }
 
         val items = mutableListOf<CountryListItem>()
+        val favorites = countriesWithFavoriteStatus.filter { it.second }
         if (favorites.isNotEmpty()) {
             items.add(CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
-            favorites.forEach { cws ->
+            favorites.forEach { (cws, _) ->
                 items.add(CountryListItem.CountryRow(cws, isFavorite = true))
             }
         }
-        countries.forEach { cws ->
-            val code = cws.country.code
-            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+        countriesWithFavoriteStatus.forEach { (cws, isFavorite) ->
             items.add(CountryListItem.CountryRow(cws, isFavorite = isFavorite))
         }
         return items
