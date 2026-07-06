@@ -458,3 +458,32 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
+
+### Favoriting a legacy Server by id will collide across servers
+
+**Context:** implementing server-favorite UI on top of `FavoritesStore`/`FavoritesFilter` (SUB-02/SUB-03 of MP-20260706-favorite-countries-servers).
+
+**Problem:** `Server.id` (`src/core/.../servers/Server.kt`) defaults to `0` and is only populated with a real value by `ServerV2.toLegacyServer()`. When `UserSettingsStore.load(ctx).serverSource` is `LEGACY`, `VPNGATE`, or `CUSTOM` (not `DEFAULT_V2`), every `Server` in the list keeps `id == 0`. Favoriting one such server marks all of them as favorited under `FavoritesStore`, since favorites are keyed purely by `Server.id`.
+
+**Solution:** before wiring server-favorite UI, either (a) restrict server-favoriting to `DEFAULT_V2` source only, or (b) extend the favorite key to a composite (e.g. `ip` + `configData`, mirroring how `SelectedCountryStore.ensureIndexForConfig` matches servers) so non-V2 sources don't collide. Flagged as non-blocking for SUB-01 (data-layer-only, no consumer yet) but must be resolved as part of SUB-02/SUB-03.
+
+**Commands/code:** n/a — design note, not a runtime fix.
+
+### Country-code comparisons: case-sensitive in FavoritesStore/FavoritesFilter, case-insensitive elsewhere
+
+**Context:** `FavoritesStore`/`FavoritesFilter` (SUB-01) compare favorite country codes with plain string equality, while `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) matches country codes with `equals(ignoreCase = true)`.
+
+**Problem:** if a backend country code ever differs in casing between calls (unlikely today, but the rest of the codebase treats codes as case-insensitive), favorite filtering could silently drop a match that other code paths would accept.
+
+**Solution:** no fix applied in SUB-01 (backend codes are stable today, no AC requires it). Recommended as an optional hardening item when SUB-02/SUB-03 touch this code — align `FavoritesFilter`'s country-code comparison to `ignoreCase = true` for consistency.
+
+**First encountered**
+
+SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-countries-servers, flagged during code review and quality gate.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStore.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesFilter.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
+- `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
