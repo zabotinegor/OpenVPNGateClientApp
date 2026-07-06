@@ -153,6 +153,9 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun focusAdapterPosition(position: Int) {
+        // Scroll first: findViewHolderForAdapterPosition returns null for a position
+        // RecyclerView hasn't bound yet because it's off-screen.
+        contentBinding.serversRecyclerView.scrollToPosition(position)
         focusAdapterPositionWhenReady(position, attemptsLeft = 10)
     }
 
