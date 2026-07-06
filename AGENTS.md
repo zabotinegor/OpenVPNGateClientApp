@@ -129,8 +129,8 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `.github/scripts/init-session.ps1`
-2. Run `.github/scripts/check-rate-limit.ps1`
+1. Run `pwsh -File .github/scripts/init-session.ps1` (invoke via `pwsh -File`, not directly, for cross-platform PowerShell 7+ execution)
+2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
    b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.

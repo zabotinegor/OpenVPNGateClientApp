@@ -15,7 +15,7 @@ Load `.github/skills/shared/operational-rules.md` for all operational rules.
 Load the root `AGENTS.md` for project-specific guidance.
 
 Then load:
-- `AGENTS/cross-repo-sync.md` вЂ” cross-repo sync rules
+- `AGENTS/cross-repo-sync.md` — cross-repo sync rules
 
 Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 
