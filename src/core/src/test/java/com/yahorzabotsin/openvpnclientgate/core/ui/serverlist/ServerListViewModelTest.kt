@@ -74,7 +74,9 @@ class ServerListViewModelTest {
         assertEquals(2, state.countries.size)
         assertEquals("Canada", state.countries[0].country.name)
         assertEquals(1, state.countries[0].serverCount)
-        assertTrue(effects.first() is ServerListEffect.FocusFirstItem)
+        val effect = effects.first()
+        assertTrue(effect is ServerListEffect.FocusFirstItem)
+        assertEquals(0, (effect as ServerListEffect.FocusFirstItem).adapterPosition)
         job.cancel()
     }
 
@@ -200,7 +202,9 @@ class ServerListViewModelTest {
         assertEquals(3, state.countries[0].serverCount)
         assertEquals("United States", state.countries[1].country.name)
         assertEquals(5, state.countries[1].serverCount)
-        assertTrue(effects.first() is ServerListEffect.FocusFirstItem)
+        val effect = effects.first()
+        assertTrue(effect is ServerListEffect.FocusFirstItem)
+        assertEquals(0, (effect as ServerListEffect.FocusFirstItem).adapterPosition)
         job.cancel()
     }
 
@@ -534,6 +538,56 @@ class ServerListViewModelTest {
         assertTrue(!favoritesStore.isFavoriteCountry("us"))
         assertEquals(0, favoritesStore.getFavoriteCountryCodes().size)
         assertTrue(vm.state.value.items.none { it is CountryListItem.SectionHeader })
+    }
+
+    @Test
+    fun `focus skips non-focusable section header when favorites exist`() = runTest {
+        // Regression test for P2 finding: when a SectionHeader is inserted at position 0,
+        // TV/keyboard users need focus on the first CountryRow (position 1), not the header.
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "US", name = "United States", serverCount = 5),
+                CountryV2(code = "CA", name = "Canada", serverCount = 3)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val favoritesStore = FakeFavoritesCountryStore(setOf("US"))
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+        advanceUntilIdle()
+
+        val effect = effects.first()
+        assertTrue(effect is ServerListEffect.FocusFirstItem)
+        // Focus position should be 1 (the first CountryRow after the SectionHeader at 0)
+        assertEquals(1, (effect as ServerListEffect.FocusFirstItem).adapterPosition)
+        job.cancel()
+    }
+
+    @Test
+    fun `focus position 0 when no favorites section exists`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "US", name = "United States", serverCount = 5),
+                CountryV2(code = "CA", name = "Canada", serverCount = 3)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val favoritesStore = FakeFavoritesCountryStore()  // No favorites
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+
+        val effects = mutableListOf<ServerListEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+        advanceUntilIdle()
+
+        val effect = effects.first()
+        assertTrue(effect is ServerListEffect.FocusFirstItem)
+        // Focus position should be 0 (no header, so first item is a CountryRow)
+        assertEquals(0, (effect as ServerListEffect.FocusFirstItem).adapterPosition)
+        job.cancel()
     }
 
     @Test

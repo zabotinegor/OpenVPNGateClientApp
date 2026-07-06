@@ -129,7 +129,15 @@ class ServerListViewModel(
                         favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()
                     )
                 }
-                _effects.emit(ServerListEffect.FocusFirstItem)
+
+                // Compute focus position: skip SectionHeader at position 0 when favorites exist
+                val currentItems = _state.value.items
+                val focusPosition = if (currentItems.isNotEmpty() && currentItems[0] is CountryListItem.SectionHeader) {
+                    1  // Focus first CountryRow after the header
+                } else {
+                    0  // Focus first item (should be a CountryRow)
+                }
+                _effects.emit(ServerListEffect.FocusFirstItem(focusPosition))
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (shouldSuppressRecoverableV2CountriesError(e)) {

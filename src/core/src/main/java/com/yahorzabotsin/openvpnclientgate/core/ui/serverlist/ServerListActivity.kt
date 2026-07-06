@@ -121,12 +121,12 @@ open class ServerListActivity : AppCompatActivity() {
                 setResult(Activity.RESULT_CANCELED)
                 finish()
             }
-            ServerListEffect.FocusFirstItem -> focusFirstItem()
+            is ServerListEffect.FocusFirstItem -> focusAdapterPosition(effect.adapterPosition)
         }
     }
 
-    private fun focusFirstItem() {
-        focusAdapterPositionWhenReady(position = 0, attemptsLeft = 10)
+    private fun focusAdapterPosition(position: Int) {
+        focusAdapterPositionWhenReady(position, attemptsLeft = 10)
     }
 
     private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {

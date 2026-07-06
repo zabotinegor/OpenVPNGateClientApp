@@ -27,5 +27,5 @@ sealed interface ServerListEffect {
     data class FinishWithSelection(val result: ServerSelectionResult) : ServerListEffect
     data object SetResultCanceled : ServerListEffect
     data object FinishCanceled : ServerListEffect
-    data object FocusFirstItem : ServerListEffect
+    data class FocusFirstItem(val adapterPosition: Int) : ServerListEffect
 }
