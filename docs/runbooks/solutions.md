@@ -469,13 +469,13 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 **Commands/code:** n/a — design note, not a runtime fix.
 
-### Country-code comparisons: case-sensitive in FavoritesStore/FavoritesFilter, case-insensitive elsewhere
+### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere
 
-**Context:** `FavoritesStore`/`FavoritesFilter` (SUB-01) compare favorite country codes with plain string equality, while `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) matches country codes with `equals(ignoreCase = true)`.
+**Context:** `FavoritesStore` (SUB-01) persists favorite country codes with plain string equality (raw values, matching the store's own convention), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`.
 
-**Problem:** if a backend country code ever differs in casing between calls (unlikely today, but the rest of the codebase treats codes as case-insensitive), favorite filtering could silently drop a match that other code paths would accept.
+**Problem:** if a backend country code ever differs in casing between calls (unlikely today, but the rest of the codebase treats codes as case-insensitive), a case-sensitive path could silently drop a match that other code paths would accept.
 
-**Solution:** no fix applied in SUB-01 (backend codes are stable today, no AC requires it). Recommended as an optional hardening item when SUB-02/SUB-03 touch this code — align `FavoritesFilter`'s country-code comparison to `ignoreCase = true` for consistency.
+**Solution:** Case-insensitivity has been addressed in SUB-01 by using case-insensitive filtering in `FavoritesFilter` (fixed after code review feedback on PR #114, round 2). `FavoritesStore`'s own add/remove/query methods intentionally keep raw string equality since store operations must use the unmutated value for consistent persistence; normalization is reserved for the external filtering step.
 
 **First encountered**
 
