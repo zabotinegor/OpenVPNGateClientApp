@@ -70,7 +70,7 @@ open class ServerListActivity : AppCompatActivity() {
         contentBinding.refreshFab.isEnabled = state.isRefreshEnabled
         contentBinding.refreshHint.isVisible = state.showRefreshHint
 
-        if (adapter == null || state.items != lastRenderedItems) {
+        if (adapter == null) {
             lastRenderedItems = state.items
             adapter = CountryListAdapter(
                 items = state.items,
@@ -82,10 +82,17 @@ open class ServerListActivity : AppCompatActivity() {
                 }
             )
             contentBinding.serversRecyclerView.adapter = adapter
+        } else if (state.items != lastRenderedItems) {
+            lastRenderedItems = state.items
+            adapter?.updateItems(state.items)
         }
     }
 
     private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
+        // Guard against blank country codes — favoriting silently does nothing, so hide the menu
+        if (country.code.isNullOrBlank()) {
+            return
+        }
         // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
         if (TvUtils.isTvDevice(this)) {
             return

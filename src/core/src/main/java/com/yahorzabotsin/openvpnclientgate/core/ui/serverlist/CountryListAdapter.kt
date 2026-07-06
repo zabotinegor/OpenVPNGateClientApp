@@ -27,10 +27,15 @@ sealed interface CountryListItem {
 }
 
 class CountryListAdapter(
-    private val items: List<CountryListItem>,
+    private var items: List<CountryListItem>,
     private val onClick: (Country) -> Unit,
     private val onLongClick: (view: View, country: Country, isFavorite: Boolean) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    fun updateItems(newItems: List<CountryListItem>) {
+        items = newItems
+        notifyDataSetChanged()
+    }
 
     override fun getItemViewType(position: Int): Int = when (items[position]) {
         is CountryListItem.SectionHeader -> VIEW_TYPE_HEADER

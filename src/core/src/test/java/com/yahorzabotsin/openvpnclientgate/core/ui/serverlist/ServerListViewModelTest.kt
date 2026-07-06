@@ -591,6 +591,26 @@ class ServerListViewModelTest {
     }
 
     @Test
+    fun `Finding 4 - toggle favorite with blank country code returns early and does not emit effect`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(CountryV2(code = "", name = "No Code Country", serverCount = 1))
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val favoritesStore = FakeFavoritesCountryStore()
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+        advanceUntilIdle()
+
+        // Attempt to toggle favorite for a country with blank code
+        vm.onAction(ServerListAction.ToggleFavorite(Country("No Code Country", "")))
+        advanceUntilIdle()
+
+        // No toast effect should be emitted (tryEmit was not called)
+        // and state should not change
+        assertEquals(0, favoritesStore.getFavoriteCountryCodes().size)
+    }
+
+    @Test
     fun `AC6 - short-tap navigation for non-favorite countries is unchanged`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,

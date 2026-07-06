@@ -143,4 +143,28 @@ class CountryListAdapterTest {
         val titleView = holder.itemView.findViewById<TextView>(R.id.section_header_title)
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
     }
+
+    @Test
+    fun `Finding 1 - updateItems changes items without recreating adapter`() {
+        val context = RuntimeEnvironment.getApplication()
+        val initialItems = listOf(
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false)
+        )
+        val adapter = CountryListAdapter(initialItems, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(1, adapter.itemCount)
+
+        val newItems = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = true),
+            CountryListItem.CountryRow(CountryWithServers(Country("United States", "US"), 5), isFavorite = false)
+        )
+        adapter.updateItems(newItems)
+
+        // Item count should reflect the update without recreating the adapter instance
+        assertEquals(3, adapter.itemCount)
+        assertEquals(0, adapter.getItemViewType(0))  // SectionHeader
+        assertEquals(1, adapter.getItemViewType(1))  // CountryRow
+        assertEquals(1, adapter.getItemViewType(2))  // CountryRow
+    }
 }

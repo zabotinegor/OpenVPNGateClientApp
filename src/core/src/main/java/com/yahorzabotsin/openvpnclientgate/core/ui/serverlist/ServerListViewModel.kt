@@ -66,14 +66,12 @@ class ServerListViewModel(
         } else {
             favoritesStore.addFavoriteCountry(code)
         }
-        viewModelScope.launch {
-            val text = if (currentlyFavorite) {
-                UiText.Res(R.string.favorites_removed_toast)
-            } else {
-                UiText.Res(R.string.favorites_added_toast)
-            }
-            _effects.emit(ServerListEffect.ShowToast(text))
+        val text = if (currentlyFavorite) {
+            UiText.Res(R.string.favorites_removed_toast)
+        } else {
+            UiText.Res(R.string.favorites_added_toast)
         }
+        _effects.tryEmit(ServerListEffect.ShowToast(text))
         updateState { it.copy(favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()) }
     }
 
@@ -228,6 +226,7 @@ class ServerListViewModel(
     ): List<CountryListItem> {
         if (countries.isEmpty()) return emptyList()
 
+        // Normalize favoriteCountryCodes to uppercase for case-insensitive matching against synced country codes
         val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
         val favorites = if (upperCaseFavorites.isEmpty()) {
             emptyList()
