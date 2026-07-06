@@ -115,11 +115,29 @@ def protected_reason(command, branch):
     )
     if push_m:
         eff = _effective_branch_at(normalized, branch, push_m.start())
-        if re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
+        is_force = re.search(r"(?:^|\s)(?:--force(?:-with-lease(?:=\S*)?|-if-includes)?|-f)(?:\s|$|[;&|])", normalized, re.IGNORECASE)
+        is_bulk = re.search(r"(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])", normalized, re.IGNORECASE)
+        # Narrow, explicit exception for the release-flow archive step: recreating `dev`
+        # from a merged `main` requires `git push origin --delete dev` followed by
+        # `git push [-u] origin dev`. Only the literal `dev` ref is exempted here — main,
+        # master, and develop remain fully protected, and force/bulk pushes are still
+        # blocked above regardless of this exception.
+        is_dev_only_push_or_delete = not is_force and not is_bulk and (
+            re.search(r"\b(?:origin|upstream)\s+(?:--delete|-d)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
+            or re.search(r"(?:^|\s)(?:--delete|-d)\s+(?:origin|upstream)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
+            or (
+                re.search(r"\b(?:origin|upstream)\s+dev(?![-\w/.])", normalized, re.IGNORECASE)
+                and not re.search(r"\b(?:main|master|develop)(?![-\w/.])", normalized, re.IGNORECASE)
+            )
+            or re.search(r"(?:^|\s):dev(?![-\w/.])", normalized, re.IGNORECASE)
+        )
+        if is_force:
             return "Force-push is forbidden in client repositories."
-        if re.search(r"(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
+        if is_bulk:
             return "Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden."
-        if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
+        if is_dev_only_push_or_delete:
+            pass  # Allowed: release-flow archive step recreating dev from merged main.
+        elif eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
             return f"Direct push from protected branch '{eff}' is forbidden."
         push_patterns = (
             rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
@@ -130,7 +148,7 @@ def protected_reason(command, branch):
             rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
             rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",
         )
-        if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
+        if not is_dev_only_push_or_delete and any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
             return "Direct push, deletion, or recreation of a protected branch is forbidden."
 
     if re.search(

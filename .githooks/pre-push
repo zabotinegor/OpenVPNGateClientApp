@@ -7,9 +7,26 @@ fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
-    refs/heads/main|refs/heads/dev|refs/heads/master|refs/heads/develop)
+    refs/heads/main|refs/heads/master|refs/heads/develop)
       echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
       exit 1
+      ;;
+    refs/heads/dev)
+      # Narrow exception for the release-flow archive step: allow delete and
+      # recreation of dev from merged main. main, master, develop stay blocked.
+      zero=0000000000000000000000000000000000000000
+      archive_exists=$(git branch -r 2>/dev/null | grep -c 'archive/archive-dev-' 2>/dev/null || echo 0)
+      if [ "$archive_exists" -eq 0 ]; then
+        echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
+        exit 1
+      fi
+      if [ "$local_sha" != "$zero" ]; then
+        main_sha=$(git rev-parse origin/main 2>/dev/null || echo "")
+        if [ -z "$main_sha" ] || [ "$local_sha" != "$main_sha" ]; then
+          echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
+          exit 1
+        fi
+      fi
       ;;
   esac
 
