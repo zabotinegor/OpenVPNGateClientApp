@@ -121,6 +121,10 @@ artifacts
 
 .sdlc
 
+
+
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -163,6 +167,7 @@ artifacts
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js
 /.github/scripts/chrome-extension/manifest.json
+/.github/scripts/ensure-cdp-chrome.ps1
 /.github/scripts/ensure-rate-limit-server.ps1
 /.github/scripts/fetch-claude-usage.js
 /.github/scripts/fetch-usage-api.ps1
@@ -175,6 +180,7 @@ artifacts
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/rate-limit-server.js
 /.github/scripts/resolve-pr-threads.ps1
+/.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
 /.github/scripts/run-review-round.ps1
 /.github/scripts/test-session-tracking.ps1
