@@ -27,7 +27,7 @@ object FavoritesStore {
     fun addFavoriteCountry(ctx: Context, countryCode: String) {
         if (countryCode.isBlank()) return
         synchronized(favoritesLock) {
-            val current = getFavoriteCountryCodes(ctx).toMutableSet()
+            val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
             if (current.add(countryCode)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
@@ -36,7 +36,7 @@ object FavoritesStore {
 
     fun removeFavoriteCountry(ctx: Context, countryCode: String) {
         synchronized(favoritesLock) {
-            val current = getFavoriteCountryCodes(ctx).toMutableSet()
+            val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
             if (current.remove(countryCode)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
@@ -58,7 +58,8 @@ object FavoritesStore {
     fun addFavoriteServer(ctx: Context, serverId: Int) {
         if (serverId <= 0) return
         synchronized(favoritesLock) {
-            val current = getFavoriteServerIds(ctx).toMutableSet()
+            val current = prefs(ctx).getStringSet(KEY_FAVORITE_SERVER_IDS, null)
+                ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
             if (current.add(serverId)) {
                 saveFavoriteServerIds(ctx, current)
             }
@@ -67,7 +68,8 @@ object FavoritesStore {
 
     fun removeFavoriteServer(ctx: Context, serverId: Int) {
         synchronized(favoritesLock) {
-            val current = getFavoriteServerIds(ctx).toMutableSet()
+            val current = prefs(ctx).getStringSet(KEY_FAVORITE_SERVER_IDS, null)
+                ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
             if (current.remove(serverId)) {
                 saveFavoriteServerIds(ctx, current)
             }

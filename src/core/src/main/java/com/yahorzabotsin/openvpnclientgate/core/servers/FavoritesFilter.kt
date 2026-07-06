@@ -19,11 +19,8 @@ object FavoritesFilter {
         countries: List<CountryV2>
     ): List<CountryV2> {
         if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
-        return countries.filter { countryV2 ->
-            favoriteCountryCodes.any { favoriteCode ->
-                favoriteCode.equals(countryV2.code, ignoreCase = true)
-            }
-        }
+        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase() }.toSet()
+        return countries.filter { countryV2 -> countryV2.code.uppercase() in upperCaseFavorites }
     }
 
     /**
