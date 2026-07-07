@@ -1,4 +1,4 @@
-# Project Guidelines
+﻿# Project Guidelines
 
 ## Project Overview
 - This repository contains an Android VPN client for VPN Gate and compatible server lists.
@@ -84,7 +84,7 @@
 
 ## Long-Running Operation Rules
 
-Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code — through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
+Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code вЂ” through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
 
 Terminal execution is capability-based: use any terminal-capable tool exposed in the current session (`run_in_terminal`, `execute`, `runCommands`). Do not stop solely because one specific tool ID is unavailable.
 
@@ -94,7 +94,7 @@ When generating a handoff prompt at user or agent request, return exactly one fe
 
 ## SDLC Status Updates
 
-Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only — never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
+Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only вЂ” never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
 
 ## SDLC Minimum Report Contract
 
@@ -125,19 +125,19 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - If the repository later needs module-specific guidance, add nested `AGENTS.md` files under `src/core`, `src/mobile`, `src/tv`, or `src/external/OpenVPNEngine` instead of overloading this root file.
 
 <!-- BEGIN COPILOT SYNC -->
-## MANDATORY FIRST STEP — Session Limit Check
+## MANDATORY FIRST STEP вЂ” Session Limit Check
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `pwsh -File .github/scripts/init-session.ps1` (invoke via `pwsh -File`, not directly, for cross-platform PowerShell 7+ execution)
-2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
+1. Run `.github/scripts/init-session.ps1`
+2. Run `.github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
    b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
-   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
+   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached вЂ” resuming at step <currentStep>", and `prompt` = the resume command.
    d. Stop. Do not proceed with the requested task.
 4. During the session: check rate limit before every long operation and before every call to `update-sdlc-status.ps1`.
-5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
+5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint вЂ” do not start new reasoning or tool sequences.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
@@ -199,7 +199,7 @@ Every agent must track Claude rate limits and checkpoint before exhaustion. See 
 
 Summary:
 - **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
-- Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
+- Session state is auto-updated by the Stop hook after every turn вЂ” read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
 - On checkpoint: call `ScheduleWakeup` tool + inform user.
 - On new session: run `.github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
@@ -229,7 +229,7 @@ Every agent must document any discovery that would save time in a future session
 
 **Do not document:**
 - Things already obvious from README or standard docs.
-- Secrets, tokens, passwords, or credentials — never write actual values.
+- Secrets, tokens, passwords, or credentials вЂ” never write actual values.
 - Personal preferences or style opinions.
 
 **Where to write:**
@@ -243,7 +243,7 @@ All knowledge lives under `docs/runbooks/` in the target repository:
 | `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
 | `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
 
-Create files that do not exist. Append to existing files — never overwrite useful prior content.
+Create files that do not exist. Append to existing files вЂ” never overwrite useful prior content.
 
 **Format for `solutions.md` entries:**
 ```markdown
@@ -347,4 +347,5 @@ A task is done when all points are true:
 ### Update-SDLC Status
 - Never invoke `.github/scripts/update-sdlc-status.ps1` using positional shorthand (e.g., `steps.story.status ready`).
 - Always use named parameters (`-FlowId`, `-Branch`, `-Step`, `-Status`, plus required step-specific parameters).
+
 <!-- END COPILOT SYNC -->
