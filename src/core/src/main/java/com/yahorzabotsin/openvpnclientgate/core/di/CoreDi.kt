@@ -16,6 +16,8 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultCountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultFavoritesCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultFavoritesServerStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesServerStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServerSelectionSyncCoordinator
 import com.yahorzabotsin.openvpnclientgate.core.servers.DefaultServersV2SyncCoordinator
@@ -160,6 +162,7 @@ val coreModule = module {
     single<ServerSelectionSyncCoordinator> { DefaultServerSelectionSyncCoordinator(androidContext(), get(), get(), get()) }
     single<ServerListInteractor> { DefaultServerListInteractor(androidContext(), get(), get()) }
     single<FavoritesCountryStore> { DefaultFavoritesCountryStore(androidContext()) }
+    single<FavoritesServerStore> { DefaultFavoritesServerStore(androidContext()) }
     single<CountryServersInteractor> { DefaultCountryServersInteractor(androidContext(), get(), get()) }
     single { WorkManager.getInstance(androidContext()) }
     single<PeriodicWorkEnqueuer> { WorkManagerPeriodicWorkEnqueuer(get()) }
@@ -183,7 +186,7 @@ val coreModule = module {
     single<ServerListLogger> { DefaultServerListLogger() }
     viewModel { ServerListViewModel(get(), get(), get(), get()) }
     single<CountryServersLogger> { DefaultCountryServersLogger() }
-    viewModel { CountryServersViewModel(get(), get(), get()) }
+    viewModel { CountryServersViewModel(get(), get(), get(), get()) }
     single<SettingsLogger> { DefaultSettingsLogger() }
     viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
     single<MainSelectionInteractor> { DefaultMainSelectionInteractor(androidContext(), get(), get()) }

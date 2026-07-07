@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesServerStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
@@ -36,7 +37,8 @@ class CountryServersViewModelTest {
         val vm = CountryServersViewModel(
             interactor = FakeInteractor(),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeLogger()
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
         )
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -60,7 +62,8 @@ class CountryServersViewModelTest {
         val vm = CountryServersViewModel(
             interactor = interactor,
             connectionStateProvider = FakeConnectionProvider(ConnectionState.CONNECTED),
-            logger = FakeLogger()
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
         )
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -81,7 +84,8 @@ class CountryServersViewModelTest {
         val vm = CountryServersViewModel(
             interactor = FakeInteractor(loaded = emptyList()),
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeLogger()
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
         )
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -116,7 +120,8 @@ class CountryServersViewModelTest {
         val vm = CountryServersViewModel(
             interactor = interactor,
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeLogger()
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
         )
         vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
         advanceUntilIdle()
@@ -142,7 +147,8 @@ class CountryServersViewModelTest {
         val vm = CountryServersViewModel(
             interactor = interactor,
             connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
-            logger = FakeLogger()
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
         )
         vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
         advanceUntilIdle()
@@ -162,7 +168,7 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    private fun server(countryName: String, code: String?, index: Int): Server =
+    private fun server(countryName: String, code: String?, index: Int, id: Int = 0): Server =
         Server(
             lineIndex = index,
             name = "srv-$index",
@@ -180,7 +186,8 @@ class CountryServersViewModelTest {
             logType = "log",
             operator = "op",
             message = "msg",
-            configData = ""
+            configData = "",
+            id = id
         )
 
     private class FakeInteractor(
@@ -223,5 +230,219 @@ class CountryServersViewModelTest {
         override fun logLoadError(countryName: String, error: Exception) = Unit
         override fun logNoServers(countryName: String) = Unit
         override fun logSelectionError(serverIp: String?, error: Exception) = Unit
+    }
+
+    private class FakeFavoritesServerStore(
+        initialFavorites: Set<Int> = emptySet()
+    ) : FavoritesServerStore {
+        private val favorites = initialFavorites.toMutableSet()
+
+        override fun getFavoriteServerIds(): Set<Int> = favorites.toSet()
+
+        override fun isFavoriteServer(serverId: Int): Boolean = favorites.contains(serverId)
+
+        override fun addFavoriteServer(serverId: Int) {
+            if (serverId > 0) favorites.add(serverId)
+        }
+
+        override fun removeFavoriteServer(serverId: Int) {
+            favorites.remove(serverId)
+        }
+    }
+
+    // --- SUB-03 acceptance criteria: pinned favorites section + long-press toggle ---
+
+    @Test
+    fun `AC1 - pinned favorites section appears above regular list when a favorite server is present`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore(setOf(20))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        assertTrue(items[0] is ServerListItem.SectionHeader)
+        val favoriteRow = items[1] as ServerListItem.ServerRow
+        assertEquals(20, favoriteRow.server.id)
+        assertTrue(favoriteRow.isFavorite)
+        // regular list still contains both servers afterwards
+        assertEquals(10, (items[2] as ServerListItem.ServerRow).server.id)
+        assertEquals(20, (items[3] as ServerListItem.ServerRow).server.id)
+        assertEquals(4, items.size)
+    }
+
+    @Test
+    fun `AC2 - no favorites section when no favorite from this country is available`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        // Favorite id 999 is not present among this country's servers.
+        val favoritesStore = FakeFavoritesServerStore(setOf(999))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        assertTrue(items.none { it is ServerListItem.SectionHeader })
+        assertEquals(2, items.size)
+        assertTrue(items.all { it is ServerListItem.ServerRow })
+    }
+
+    @Test
+    fun `AC3 - toggle favorite reflects current state via add then remove`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA))
+        val favoritesStore = FakeFavoritesServerStore()
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+
+        vm.onAction(CountryServersAction.ToggleFavorite(serverA))
+        advanceUntilIdle()
+        assertTrue(favoritesStore.isFavoriteServer(10))
+        assertTrue(vm.state.value.items[0] is ServerListItem.SectionHeader)
+
+        vm.onAction(CountryServersAction.ToggleFavorite(serverA))
+        advanceUntilIdle()
+        assertTrue(!favoritesStore.isFavoriteServer(10))
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+    }
+
+    @Test
+    fun `AC3 - servers with id 0 are not favoritable`() = runTest {
+        val legacyServer = server("France", "FR", 1, id = 0)
+        val interactor = FakeInteractor(loaded = listOf(legacyServer))
+        val favoritesStore = FakeFavoritesServerStore()
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.ToggleFavorite(legacyServer))
+        advanceUntilIdle()
+
+        assertEquals(0, favoritesStore.getFavoriteServerIds().size)
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+    }
+
+    @Test
+    fun `AC4 - tapping a server row in the favorites section selects it like the regular list`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val result = ServerSelectionResult(
+            countryName = "France",
+            countryCode = "FR",
+            city = "Paris",
+            config = "cfg",
+            ip = "1.2.3.4"
+        )
+        val interactor = FakeInteractor(loaded = listOf(serverA), selectionResult = result)
+        val favoritesStore = FakeFavoritesServerStore(setOf(10))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val favoriteRow = vm.state.value.items[1] as ServerListItem.ServerRow
+
+        val effects = mutableListOf<CountryServersEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+
+        vm.onAction(CountryServersAction.ServerSelected(favoriteRow.server))
+        advanceUntilIdle()
+
+        val effect = effects.first()
+        assertTrue(effect is CountryServersEffect.FinishWithSelection)
+        assertEquals(result, (effect as CountryServersEffect.FinishWithSelection).result)
+        job.cancel()
+    }
+
+    @Test
+    fun `AC5 - favoriting updates pinned section immediately without reload`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore()
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+
+        vm.onAction(CountryServersAction.ToggleFavorite(serverA))
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        assertTrue(items[0] is ServerListItem.SectionHeader)
+        val favoriteRow = items[1] as ServerListItem.ServerRow
+        assertEquals(10, favoriteRow.server.id)
+        assertTrue(favoriteRow.isFavorite)
+    }
+
+    @Test
+    fun `AC6 - short-tap selection for non-favorite servers is unchanged`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val result = ServerSelectionResult(
+            countryName = "France",
+            countryCode = "FR",
+            city = "Nice",
+            config = "cfg2",
+            ip = "5.6.7.8"
+        )
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB), selectionResult = result)
+        // Only serverB is favorite; serverA remains in the regular (non-favorite) list.
+        val favoritesStore = FakeFavoritesServerStore(setOf(20))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val effects = mutableListOf<CountryServersEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+
+        vm.onAction(CountryServersAction.ServerSelected(serverA))
+        advanceUntilIdle()
+
+        val effect = effects.first()
+        assertTrue(effect is CountryServersEffect.FinishWithSelection)
+        assertEquals(result, (effect as CountryServersEffect.FinishWithSelection).result)
+        job.cancel()
     }
 }

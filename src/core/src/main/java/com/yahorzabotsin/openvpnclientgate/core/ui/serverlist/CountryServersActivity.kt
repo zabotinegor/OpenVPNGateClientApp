@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -15,10 +16,12 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBind
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentCountryServersBinding
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -28,8 +31,9 @@ class CountryServersActivity : AppCompatActivity() {
     private lateinit var contentBinding: ContentCountryServersBinding
     private val viewModel: CountryServersViewModel by viewModel()
     private var adapter: ServerPickerAdapter? = null
-    private var lastRenderedServers = emptyList<com.yahorzabotsin.openvpnclientgate.core.servers.Server>()
+    private var lastRenderedItems: List<ServerListItem> = emptyList()
     private var lastRenderedDefaultV2Source: Boolean? = null
+    private var activePopupMenu: PopupMenu? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +55,12 @@ class CountryServersActivity : AppCompatActivity() {
         )
     }
 
+    override fun onDestroy() {
+        activePopupMenu?.dismiss()
+        activePopupMenu = null
+        super.onDestroy()
+    }
+
     private fun observeViewModel() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -66,14 +76,57 @@ class CountryServersActivity : AppCompatActivity() {
         state.countryName?.let { templateBinding.toolbarTitle.text = it }
         val isDefaultV2Source = UserSettingsStore.load(this).serverSource == ServerSource.DEFAULT_V2
 
-        if (adapter == null || state.servers != lastRenderedServers || lastRenderedDefaultV2Source != isDefaultV2Source) {
-            lastRenderedServers = state.servers
+        if (adapter == null || lastRenderedDefaultV2Source != isDefaultV2Source) {
+            lastRenderedItems = state.items
             lastRenderedDefaultV2Source = isDefaultV2Source
-            adapter = ServerPickerAdapter(state.servers, isDefaultV2Source) { selected ->
-                viewModel.onAction(CountryServersAction.ServerSelected(selected))
-            }
+            adapter = ServerPickerAdapter(
+                items = state.items,
+                isDefaultV2Source = isDefaultV2Source,
+                onClick = { selected ->
+                    viewModel.onAction(CountryServersAction.ServerSelected(selected))
+                },
+                onLongClick = { anchor, server, isFavorite ->
+                    showFavoriteMenu(anchor, server, isFavorite)
+                }
+            )
             contentBinding.serversRecyclerView.adapter = adapter
+        } else if (state.items != lastRenderedItems) {
+            lastRenderedItems = state.items
+            adapter?.updateItems(state.items)
         }
+    }
+
+    private fun showFavoriteMenu(anchor: android.view.View, server: Server, isFavorite: Boolean) {
+        // Servers with id == 0 (legacy/un-synced) cannot be favorited — known limitation
+        // carried forward from SUB-01/SUB-02.
+        if (server.id <= 0) {
+            return
+        }
+        // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
+        if (TvUtils.isTvDevice(this)) {
+            return
+        }
+        // Dismiss any previously showing popup to prevent window leaks
+        activePopupMenu?.dismiss()
+
+        val popup = PopupMenu(this, anchor)
+        activePopupMenu = popup
+        popup.setOnDismissListener {
+            if (activePopupMenu == popup) {
+                activePopupMenu = null
+            }
+        }
+        val actionTitle = if (isFavorite) {
+            getString(R.string.favorites_remove_action)
+        } else {
+            getString(R.string.favorites_add_action)
+        }
+        popup.menu.add(actionTitle)
+        popup.setOnMenuItemClickListener {
+            viewModel.onAction(CountryServersAction.ToggleFavorite(server))
+            true
+        }
+        popup.show()
     }
 
     private fun handleEffect(effect: CountryServersEffect) {
