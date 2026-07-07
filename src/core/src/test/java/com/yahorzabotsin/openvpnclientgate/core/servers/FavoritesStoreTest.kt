@@ -72,6 +72,103 @@ class FavoritesStoreTest {
         assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
     }
 
+    // --- Country favorites: case-insensitivity regression (SUB-02 review finding #1) ---
+    //
+    // ServerListViewModel.buildItems() matches favorites case-insensitively when rendering
+    // the pinned favorites section, but toggleFavorite() decides add-vs-remove via
+    // FavoritesStore.isFavoriteCountry. If the store compared case-sensitively while the
+    // display filter was case-insensitive, a country shown as favorited (uppercase match)
+    // could be evaluated as "not currently favorite" on long-press (exact-casing miss),
+    // causing it to be re-added under a different casing instead of removed. FavoritesStore
+    // now normalizes country codes to uppercase at the add/remove/query boundary so all
+    // operations agree on favorite state regardless of the casing passed in.
+
+    @Test
+    fun isFavoriteCountry_matchesRegardlessOfCasingUsedToAdd() {
+        val ctx = freshContext()
+        FavoritesStore.addFavoriteCountry(ctx, "us")
+
+        assertTrue(FavoritesStore.isFavoriteCountry(ctx, "US"))
+        assertTrue(FavoritesStore.isFavoriteCountry(ctx, "Us"))
+        assertTrue(FavoritesStore.isFavoriteCountry(ctx, "us"))
+    }
+
+    @Test
+    fun addFavoriteCountry_differentCasingDoesNotCreateDuplicateEntries() {
+        val ctx = freshContext()
+        FavoritesStore.addFavoriteCountry(ctx, "us")
+
+        // A later sync surfaces the same logical country with different casing (e.g. "US").
+        // Adding it again (simulating a mismatched toggle) must not create a second entry.
+        FavoritesStore.addFavoriteCountry(ctx, "US")
+
+        assertEquals(setOf("US"), FavoritesStore.getFavoriteCountryCodes(ctx))
+    }
+
+    @Test
+    fun removeFavoriteCountry_removesEntryAddedWithDifferentCasing() {
+        val ctx = freshContext()
+        FavoritesStore.addFavoriteCountry(ctx, "us")
+
+        // Toggle-to-remove arrives with the casing supplied by a fresh sync ("US"), not the
+        // original casing used when the favorite was added ("us"). This must still remove it,
+        // reproducing the exact mismatched-casing toggle scenario from the review finding.
+        FavoritesStore.removeFavoriteCountry(ctx, "US")
+
+        assertFalse(FavoritesStore.isFavoriteCountry(ctx, "us"))
+        assertFalse(FavoritesStore.isFavoriteCountry(ctx, "US"))
+        assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
+    }
+
+    @Test
+    fun getFavoriteCountryCodes_alwaysReturnsUppercaseNormalizedCodes() {
+        val ctx = freshContext()
+        FavoritesStore.addFavoriteCountry(ctx, "de")
+        FavoritesStore.addFavoriteCountry(ctx, "fr")
+
+        assertEquals(setOf("DE", "FR"), FavoritesStore.getFavoriteCountryCodes(ctx))
+    }
+
+    @Test
+    fun getFavoriteCountryCodes_normalizesLegacyLowercaseEntriesOnRead() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry that was stored before normalization was enforced.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us", "de")).apply()
+
+        // Reading should return the normalized uppercase set.
+        assertEquals(setOf("US", "DE"), FavoritesStore.getFavoriteCountryCodes(ctx))
+
+        // The raw prefs should have been migrated and persisted back.
+        assertEquals(setOf("US", "DE"), FavoritesStore.getFavoriteCountryCodes(ctx))
+    }
+
+    @Test
+    fun isFavoriteCountry_matchesLegacyLowercaseStoredEntry() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us")).apply()
+
+        // Query with uppercase should find the legacy lowercase entry (after normalization on read).
+        assertTrue(FavoritesStore.isFavoriteCountry(ctx, "US"))
+    }
+
+    @Test
+    fun removeFavoriteCountry_removesLegacyLowercaseStoredEntry() {
+        val ctx = freshContext()
+        // Simulate a legacy lowercase entry.
+        val prefs = ctx.getSharedPreferences("favorites_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("favorite_country_codes", setOf("us")).apply()
+
+        // Remove using uppercase should remove the legacy lowercase entry.
+        FavoritesStore.removeFavoriteCountry(ctx, "US")
+
+        // Verify it's gone.
+        assertFalse(FavoritesStore.isFavoriteCountry(ctx, "US"))
+        assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
+    }
+
     // --- Server favorites: add/remove/persist (AC1, AC2) ---
 
     @Test

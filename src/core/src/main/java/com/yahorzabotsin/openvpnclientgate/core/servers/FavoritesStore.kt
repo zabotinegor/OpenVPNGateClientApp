@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.util.Locale
 
 /**
  * Persists favorite country codes and favorite server ids in SharedPreferences.
@@ -12,6 +13,13 @@ import android.content.SharedPreferences
  * never removes an absent favorite from persistence — it only excludes it from
  * the filtered result — so a favorite automatically reappears once its
  * country/server is present again in a later sync.
+ *
+ * Country codes are normalized to uppercase (Locale.ROOT) at this store boundary
+ * for every add/remove/query operation. This is the single source of truth for
+ * casing: callers may pass any casing (e.g. differing casing across synced data
+ * sources) and add/remove/isFavoriteCountry/getFavoriteCountryCodes will all agree
+ * on favorite state consistently, without relying on every consumer independently
+ * normalizing case (see countries-favorites-ui-mobile review finding #1).
  */
 object FavoritesStore {
     private const val PREFS_NAME = "favorites_prefs"
@@ -22,32 +30,50 @@ object FavoritesStore {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private fun normalizeCountryCode(countryCode: String): String =
+        countryCode.uppercase(Locale.ROOT)
+
+    private fun normalizeStoredSet(rawSet: MutableSet<String>): Set<String> =
+        rawSet.map { it.uppercase(Locale.ROOT) }.toSet()
+
     // --- Country favorites ---
 
     fun addFavoriteCountry(ctx: Context, countryCode: String) {
         if (countryCode.isBlank()) return
+        val normalized = normalizeCountryCode(countryCode)
         synchronized(favoritesLock) {
             val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
-            if (current.add(countryCode)) {
+            if (current.add(normalized)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
         }
     }
 
     fun removeFavoriteCountry(ctx: Context, countryCode: String) {
+        val normalized = normalizeCountryCode(countryCode)
         synchronized(favoritesLock) {
-            val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
-            if (current.remove(countryCode)) {
+            val rawSet = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
+            val current = normalizeStoredSet(rawSet).toMutableSet()
+            if (current.remove(normalized)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
         }
     }
 
     fun isFavoriteCountry(ctx: Context, countryCode: String): Boolean =
-        getFavoriteCountryCodes(ctx).contains(countryCode)
+        getFavoriteCountryCodes(ctx).contains(normalizeCountryCode(countryCode))
 
-    fun getFavoriteCountryCodes(ctx: Context): Set<String> =
-        prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, emptySet())?.toSet() ?: emptySet()
+    fun getFavoriteCountryCodes(ctx: Context): Set<String> {
+        synchronized(favoritesLock) {
+            val rawSet = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, emptySet())?.toMutableSet() ?: mutableSetOf()
+            val normalized = normalizeStoredSet(rawSet)
+            // If normalization changed anything (legacy lowercase entries existed), persist the migrated set.
+            if (normalized != rawSet) {
+                saveFavoriteCountryCodes(ctx, normalized)
+            }
+            return normalized
+        }
+    }
 
     private fun saveFavoriteCountryCodes(ctx: Context, codes: Set<String>) {
         prefs(ctx).edit().putStringSet(KEY_FAVORITE_COUNTRY_CODES, codes).apply()

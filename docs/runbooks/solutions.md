@@ -469,17 +469,17 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 **Commands/code:** n/a — design note, not a runtime fix.
 
-### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere
+### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere — RESOLVED in SUB-02 (superseded prior note)
 
-**Context:** `FavoritesStore` (SUB-01) persists favorite country codes with plain string equality (raw values, matching the store's own convention), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`.
+**Context:** `FavoritesStore` (SUB-01) originally persisted favorite country codes with plain string equality (raw values), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`. SUB-01's review/gate carried this forward as a non-blocking risk, on the assumption that case-insensitive filtering elsewhere was enough.
 
-**Problem:** if a backend country code ever differs in casing between calls (unlikely today, but the rest of the codebase treats codes as case-insensitive), a case-sensitive path could silently drop a match that other code paths would accept.
+**Problem (materialized in SUB-02):** `ServerListViewModel.buildItems()` built the pinned favorites section using the same case-insensitive matching as `FavoritesFilter`, but `toggleFavorite()` decided add-vs-remove via `FavoritesStore.isFavoriteCountry()` — still an exact, case-sensitive lookup. If a country code's casing ever drifted between the persisted favorite and a freshly synced code, the toggle handler disagreed with the display filter: duplicate/differently-cased favorite entries, wrong "Add"/"Remove" popup label, wrong toast. Confirmed as a real, reachable defect by SUB-02 code review round 1 (`docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`), not just a theoretical risk.
 
-**Solution:** Case-insensitivity has been addressed in SUB-01 by using case-insensitive filtering in `FavoritesFilter` (fixed after code review feedback on PR #114, round 2). `FavoritesStore`'s own add/remove/query methods intentionally keep raw string equality since store operations must use the unmutated value for consistent persistence; normalization is reserved for the external filtering step.
+**Solution:** Normalized casing at the `FavoritesStore` boundary itself (single source of truth) — `addFavoriteCountry`, `removeFavoriteCountry`, `isFavoriteCountry`, and `getFavoriteCountryCodes` now all uppercase country codes via `Locale.ROOT` before storing/comparing/returning. This supersedes the SUB-01 note's assumption that keeping the store case-sensitive was safe — it wasn't, once a second call site (the toggle handler) needed to agree with a case-insensitive display filter. Any future store with a similar "raw persistence + case-insensitive display filter elsewhere" split should normalize at the store boundary from the start rather than relying on every caller to filter consistently.
 
 **First encountered**
 
-SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-countries-servers, flagged during code review and quality gate.
+SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-countries-servers, flagged as non-blocking during code review and quality gate. Materialized as a blocking defect and fixed in SUB-02 (`ServerListViewModel.kt`, `FavoritesStore.kt`), commit `ae6f393`.
 
 **References**
 
@@ -487,3 +487,4 @@ SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-coun
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesFilter.kt`
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
 - `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
+- `docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`, `docs/qa-evidence/countries-favorites-ui-mobile-review-2.md`

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.PopupMenu
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -14,10 +15,12 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentServerListBin
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -27,7 +30,8 @@ open class ServerListActivity : AppCompatActivity() {
     private val viewModel: ServerListViewModel by viewModel()
     private lateinit var contentBinding: ContentServerListBinding
     private var adapter: CountryListAdapter? = null
-    private var lastRenderedCountries: List<CountryWithServers> = emptyList()
+    private var lastRenderedItems: List<CountryListItem> = emptyList()
+    private var activePopupMenu: PopupMenu? = null
     private val countryServersLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -45,6 +49,12 @@ open class ServerListActivity : AppCompatActivity() {
             viewModel.onAction(ServerListAction.Load(forceRefresh = true))
         }
         observeViewModel()
+    }
+
+    override fun onDestroy() {
+        activePopupMenu?.dismiss()
+        activePopupMenu = null
+        super.onDestroy()
     }
 
     private fun observeViewModel() {
@@ -67,13 +77,54 @@ open class ServerListActivity : AppCompatActivity() {
         contentBinding.refreshFab.isEnabled = state.isRefreshEnabled
         contentBinding.refreshHint.isVisible = state.showRefreshHint
 
-        if (adapter == null || state.countries != lastRenderedCountries) {
-            lastRenderedCountries = state.countries
-            adapter = CountryListAdapter(state.countries) { selected ->
-                viewModel.onAction(ServerListAction.CountrySelected(selected))
-            }
+        if (adapter == null) {
+            lastRenderedItems = state.items
+            adapter = CountryListAdapter(
+                items = state.items,
+                onClick = { selected ->
+                    viewModel.onAction(ServerListAction.CountrySelected(selected))
+                },
+                onLongClick = { anchor, country, isFavorite ->
+                    showFavoriteMenu(anchor, country, isFavorite)
+                }
+            )
             contentBinding.serversRecyclerView.adapter = adapter
+        } else if (state.items != lastRenderedItems) {
+            lastRenderedItems = state.items
+            adapter?.updateItems(state.items)
         }
+    }
+
+    private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
+        // Guard against blank country codes — favoriting silently does nothing, so hide the menu
+        if (country.code.isNullOrBlank()) {
+            return
+        }
+        // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
+        if (TvUtils.isTvDevice(this)) {
+            return
+        }
+        // Dismiss any previously showing popup to prevent window leaks
+        activePopupMenu?.dismiss()
+
+        val popup = PopupMenu(this, anchor)
+        activePopupMenu = popup
+        popup.setOnDismissListener {
+            if (activePopupMenu == popup) {
+                activePopupMenu = null
+            }
+        }
+        val actionTitle = if (isFavorite) {
+            getString(R.string.favorites_remove_action)
+        } else {
+            getString(R.string.favorites_add_action)
+        }
+        popup.menu.add(actionTitle)
+        popup.setOnMenuItemClickListener {
+            viewModel.onAction(ServerListAction.ToggleFavorite(country))
+            true
+        }
+        popup.show()
     }
 
     private fun handleEffect(effect: ServerListEffect) {
@@ -97,12 +148,15 @@ open class ServerListActivity : AppCompatActivity() {
                 setResult(Activity.RESULT_CANCELED)
                 finish()
             }
-            ServerListEffect.FocusFirstItem -> focusFirstItem()
+            is ServerListEffect.FocusFirstItem -> focusAdapterPosition(effect.adapterPosition)
         }
     }
 
-    private fun focusFirstItem() {
-        focusAdapterPositionWhenReady(position = 0, attemptsLeft = 10)
+    private fun focusAdapterPosition(position: Int) {
+        // Scroll first: findViewHolderForAdapterPosition returns null for a position
+        // RecyclerView hasn't bound yet because it's off-screen.
+        contentBinding.serversRecyclerView.scrollToPosition(position)
+        focusAdapterPositionWhenReady(position, attemptsLeft = 10)
     }
 
     private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {

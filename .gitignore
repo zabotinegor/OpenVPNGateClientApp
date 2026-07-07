@@ -244,3 +244,5 @@ CODE_REVIEW_HANDOFF_*.md
 /.claude/settings.local.json
 **/.claude/settings.local.json
 # END transient-copilot-artifacts
+.github/scripts/session-refresh-watchdog.js
+.github/scripts/ensure-session-watchdog.ps1
