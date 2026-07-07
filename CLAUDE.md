@@ -65,6 +65,8 @@ media/     ← app icon/banner assets (submodule)
 | [src/core/…/vpn/OpenVpnService.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt) | VPN lifecycle integration |
 | [src/core/…/vpn/ServerAutoSwitcher.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt) | Auto-switch logic and hardprobe trigger (inactivity → probe enqueue) |
 | [src/core/…/servers/sse/SseServerEventsClient.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt) | SSE client — foreground-only long-poll; triggers server sync on connection open (`onOpen`) and on `servers-changed` push events; rotates through multiple candidate URLs (primary → fallback) after `urlFailureThreshold` consecutive failures |
+| [src/core/…/servers/FavoritesCountryStore.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesCountryStore.kt) | Favorites data layer facade for countries; normalizes country codes to uppercase at store boundary |
+| [src/core/…/servers/FavoritesServerStore.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesServerStore.kt) | Favorites data layer facade for servers; guards against invalid server IDs (≤0) |
 
 ## Conventions
 
@@ -74,6 +76,7 @@ media/     ← app icon/banner assets (submodule)
 - **Endpoints**: Never hardcode production URLs in source. Use build properties → env → `servers.local.json`.
 - **`app_name`**: Injected via Gradle `resValue`; don't duplicate in string resources.
 - **Branch naming**: `feature/<name>`, `bugfix/<issue>`, `hotfix/<issue>`.
+- **Favorites UI**: Long-press on countries/servers uses `PopupMenu` to reflect current state ("Add to favorites" vs "Remove from favorites"). Pattern reused across countries (SUB-02), servers (SUB-03), and TV D-pad (SUB-04). Pinned "Favorites" section at top, hidden when empty. See [src/docs/favorites-ui-patterns.md](src/docs/favorites-ui-patterns.md).
 
 ## Critical Pitfalls
 

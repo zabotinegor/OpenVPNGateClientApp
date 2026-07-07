@@ -1,4 +1,4 @@
----
+﻿---
 name: Agent Sync
 description: "Use when mirror-syncing agents, skills, tools, helper scripts, Copilot/Claude/Git branch guards, and Claude slash commands from the latest github.com/zabotinegor/CopilotTools main commit into a target repository, including stale-file deletion, exact-path .gitignore policy, and change-count reporting."
 tools: [read, search, edit, run_in_terminal, runCommands, todo]
@@ -15,7 +15,7 @@ Load `.github/skills/shared/operational-rules.md` for all operational rules.
 Load the root `AGENTS.md` for project-specific guidance.
 
 Then load:
-- `AGENTS/cross-repo-sync.md` вЂ” cross-repo sync rules
+- `AGENTS/cross-repo-sync.md` — cross-repo sync rules
 
 Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 
@@ -34,6 +34,7 @@ Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 - Do not use VS Code task labels for sync preview or apply. For Agent Sync, use `run_in_terminal` first and `runCommands` second to run `.github/scripts/sync-copilot-assets.ps1` directly in foreground PowerShell so JSON output, source SHA, file counts, errors, and exit code are visible.
 - Do not infer that terminal execution is unavailable. You may report terminal/command execution unavailable only after an actual terminal-capable tool call fails with an unavailable-tool/capability error.
 - If terminal execution is unavailable after a real failed attempt, do not ask the user to run commands. Fall back to manual mirror-sync using available read/search/edit plus authenticated GitHub connector/API tools: resolve source files, compare content, apply edits, update `.gitignore`, and report that script verification was replaced by manual content verification. Stop only if neither terminal nor authenticated source access is available.
+- **Never use `git clone`, `git sparse-checkout`, or any standalone git command as a manual fallback.** Those require the same terminal access that has already failed. Manual fallback means reading source files through the GitHub connector/API (e.g. `github/get_file_contents` at the resolved commit SHA), then applying edits with edit tools. Never attempt to clone the CopilotTools repository as a workaround for unavailable terminal execution.
 
 ## Centralized Rules
 

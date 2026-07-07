@@ -488,3 +488,92 @@ SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-coun
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
 - `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
 - `docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`, `docs/qa-evidence/countries-favorites-ui-mobile-review-2.md`
+
+---
+
+## Server-favorite toggle blocks servers with `id <= 0`: defense-in-depth guard at three layers — SUB-03
+
+**Symptom**
+
+Attempting to favorite a server with `id <= 0` (legacy sources: `LEGACY`, `VPNGATE`, `CUSTOM`) would collide with all other non-V2 servers under the same zero ID. If a user long-pressed a legacy server and tapped "Add to favorites," **all** legacy servers would be marked favorited under `FavoritesStore`, not just the one tapped.
+
+**Root cause**
+
+`Server.id` defaults to `0` and is only populated with a real integer by `ServerV2.toLegacyServer()` hydration. When `UserSettingsStore.load(ctx).serverSource` is not `DEFAULT_V2`, every server in the list retains `id == 0`. Favorites are keyed purely by `Server.id`, so favoriting under `id == 0` is a collision vector. The immediate pre-condition is: avoid persisting `id <= 0` as a favorite key.
+
+**Solution — defense-in-depth**
+
+Three independent guards ensure `id <= 0` never reaches persistent storage:
+
+1. **ViewModel layer** (`ServerListViewModel.toggleFavorite()`): Early return if `serverId <= 0` before calling `favoritesStore`.
+2. **Activity layer** (`ServersInCountryActivityCore.onLongClickServer()`): Hide the `PopupMenu` action entirely when `item.id <= 0`.
+3. **Store layer** (`FavoritesServerStore.addFavoriteServer()`): Guard with `require(serverId > 0)` before persisting, so even an unexpected call site cannot bypass the check.
+
+This multi-layer defense means each layer can be audited independently. A breach in one layer (e.g., ViewModel check removed) is still caught by the next (Activity hides the menu, or Store rejects it). Any new code path that favorits servers must also satisfy the ViewModel and Activity guards before the Store write is reachable.
+
+**First encountered**
+
+SUB-03 (`ServerListViewModel.kt`, `ServersInCountryActivityCore.kt`, `FavoritesServerStore.kt`) — MP-20260706-favorite-countries-servers.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/servers_in_country/ServerListViewModel.kt` (`toggleFavorite`)
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (`onLongClickServer`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesServerStore.kt` (`addFavoriteServer`)
+
+---
+
+## PopupMenu window-leak guard: instance tracking with dismiss-listener null-out — SUB-03
+
+**Symptom**
+
+Showing a new `PopupMenu` while an old one is still anchored (e.g., user taps long-press, cancels the menu by tapping elsewhere, then immediately long-presses again on a different item) causes the old menu's window to persist invisibly, consuming system resources and potentially blocking recomposition or triggering layout warnings in instrumented tests.
+
+**Root cause**
+
+`PopupMenu` holds a reference to a `PopupWindow` that remains attached to the window manager after the menu is hidden/dismissed. Showing a second `PopupMenu` without explicitly dismissing the first leaves both windows active — the second is visible on top, but the first remains allocated in the window manager.
+
+**Solution**
+
+Track the active `PopupMenu` instance in a mutable reference and dismiss it before showing a new one:
+
+```kotlin
+private var activePopupMenu: PopupMenu? = null
+
+private fun showPopupMenu(view: View, item: Item) {
+    // Dismiss any pre-existing popup
+    activePopupMenu?.dismiss()
+    
+    activePopupMenu = PopupMenu(this, view).apply {
+        // Populate menu items...
+        setOnMenuItemClickListener { ... }
+        setOnDismissListener {
+            // Clear reference only if this is still the active popup
+            if (activePopupMenu === this) {
+                activePopupMenu = null
+            }
+        }
+        show()
+    }
+}
+
+override fun onDestroy() {
+    super.onDestroy()
+    activePopupMenu?.dismiss()
+    activePopupMenu = null
+}
+```
+
+Key points:
+- Dismiss before showing: prevents stale window from accumulating.
+- Check reference identity in `setOnDismissListener` before null-out: avoids clobbering a newer popup that fired `setOnDismissListener` after we already created a replacement.
+- Dismiss in `onDestroy`: cleans up on activity destruction.
+
+**First demonstrated**
+
+SUB-03 (`ServersInCountryActivityCore.kt`).
+
+**References**
+
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (`showPopupMenu`, `onDestroy`)
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)

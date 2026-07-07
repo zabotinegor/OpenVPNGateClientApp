@@ -256,3 +256,125 @@ Only `onClosed` / `onFailure` with a stable-connection elapsed time ≥ 10 s res
 - `src/docs/server-sync-flow.md` (SSE Server-Push Sync section)
 - `docs/runbooks/android-qa.md` (MP-20260621 SUB-02 section)
 - `docs/userstories/MP-20260621-server-push-sse/SUB-02-android-sse-client.md`
+
+---
+
+## Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern
+
+**When to use**
+
+When building a scrollable list that displays a "pinned favorites" header + rows at the top, followed by a regular section. Favorites are hidden if empty. Long-press on any row should reflect the current favorite state ("Add to favorites" vs "Remove from favorites").
+
+**Architecture overview**
+
+Use a **sealed class** to represent different item types:
+
+```kotlin
+sealed class ListItem {
+    data class SectionHeader(val label: String) : ListItem()
+    data class Row(val item: Item, val isFavorite: Boolean) : ListItem()
+}
+```
+
+The `isFavorite` boolean is computed fresh on every list build so the `PopupMenu` always shows the correct "Add" or "Remove" label.
+
+**Step 1 — Define the sealed ListItem type**
+
+```kotlin
+sealed class ListItem {
+    data class SectionHeader(val label: String) : ListItem()
+    data class Row(val item: Server, val isFavorite: Boolean) : ListItem()
+}
+```
+
+**Step 2 — Build the list with favorites pinned at top**
+
+In your ViewModel's `buildItems()` method:
+
+```kotlin
+fun buildItems(): List<ListItem> {
+    val favorites = favoritesFilter.filterFavoriteServers(allServers)
+    val nonFavorites = allServers.filter { it !in favorites }
+    
+    return mutableListOf<ListItem>().apply {
+        // Pinned section (hidden if empty)
+        if (favorites.isNotEmpty()) {
+            add(ListItem.SectionHeader("Favorites"))
+            favorites.forEach { server ->
+                add(ListItem.Row(server, isFavorite = true))
+            }
+        }
+        // Regular section
+        if (nonFavorites.isNotEmpty()) {
+            add(ListItem.SectionHeader("All Servers"))
+            nonFavorites.forEach { server ->
+                add(ListItem.Row(server, isFavorite = false))
+            }
+        }
+    }
+}
+```
+
+**Step 3 — Two RecyclerView view types**
+
+In your adapter:
+
+```kotlin
+const val VIEW_TYPE_SECTION_HEADER = 0
+const val VIEW_TYPE_ROW = 1
+
+override fun getItemViewType(position: Int): Int = when (items[position]) {
+    is ListItem.SectionHeader -> VIEW_TYPE_SECTION_HEADER
+    is ListItem.Row -> VIEW_TYPE_ROW
+}
+
+override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = when (viewType) {
+    VIEW_TYPE_SECTION_HEADER -> SectionHeaderViewHolder(...)
+    VIEW_TYPE_ROW -> RowViewHolder(...)
+    else -> throw IllegalArgumentException("Unknown view type: $viewType")
+}
+```
+
+**Step 4 — Long-press with PopupMenu**
+
+In your Activity, handle long-press on rows:
+
+```kotlin
+private fun onLongClickServer(anchorView: View, server: Server, isFavorite: Boolean) {
+    if (server.id <= 0) return  // Legacy servers cannot be favorited
+    
+    showPopupMenu(anchorView) { action ->
+        when (action) {
+            "add_favorite" -> viewModel.toggleFavorite(server.id, favorite = true)
+            "remove_favorite" -> viewModel.toggleFavorite(server.id, favorite = false)
+        }
+    }
+}
+```
+
+Pass the long-click callback from the adapter to the Activity. See `ServersInCountryActivityCore.kt` for the complete pattern.
+
+**TV-only variant (D-pad navigation)**
+
+On Android TV, long-press is not available. Instead, use D-pad down / center actions to navigate and select items. Apply the same sealed-list architecture but gate the long-press menu behind `TvUtils.isTvDevice(context)`:
+
+```kotlin
+// In onLongClickServer or equivalent handler:
+if (!TvUtils.isTvDevice(this)) {
+    showPopupMenu(anchorView, server, isFavorite)
+}
+```
+
+This pattern is reused identically across SUB-02 (countries) and SUB-03 (servers in country).
+
+**First demonstrated**
+
+SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`ServersInCountryActivityCore.kt`, `ServerListViewModel.kt`).
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/countries_list/CountriesListViewModel.kt` (`buildItems`)
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (PopupMenu adapter)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/servers_in_country/ServerListViewModel.kt` (`buildItems`)
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (long-press handler)
+- `src/docs/favorites-ui-patterns.md`
