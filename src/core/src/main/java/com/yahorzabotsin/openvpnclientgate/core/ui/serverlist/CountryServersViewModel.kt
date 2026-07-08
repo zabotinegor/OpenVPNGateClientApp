@@ -81,7 +81,16 @@ class CountryServersViewModel(
                             favoriteServerIds = favoritesStore.getFavoriteServerIds()
                         )
                     }
-                    _effects.emit(CountryServersEffect.FocusFirstItem)
+                    // Compute focus position: skip SectionHeader at position 0 when favorites exist
+                    val currentItems = _state.value.items
+                    if (currentItems.isNotEmpty()) {
+                        val focusPosition = if (currentItems[0] is ServerListItem.SectionHeader) {
+                            1  // Focus first ServerRow after the header
+                        } else {
+                            0  // Focus first item (should be a ServerRow)
+                        }
+                        _effects.emit(CountryServersEffect.FocusFirstItem(focusPosition))
+                    }
                 }
             } catch (e: Exception) {
                 logger.logLoadError(countryName, e)
@@ -150,6 +159,7 @@ class CountryServersViewModel(
         if (servers.isEmpty()) return emptyList()
 
         val favorites = FavoritesFilter.filterFavoriteServers(favoriteServerIds, servers)
+        val nonFavorites = servers.filter { it !in favorites }
 
         val items = mutableListOf<ServerListItem>()
         if (favorites.isNotEmpty()) {
@@ -158,9 +168,8 @@ class CountryServersViewModel(
                 items.add(ServerListItem.ServerRow(server, isFavorite = true))
             }
         }
-        servers.forEach { server ->
-            val isFavorite = server.id > 0 && favoriteServerIds.contains(server.id)
-            items.add(ServerListItem.ServerRow(server, isFavorite = isFavorite))
+        nonFavorites.forEach { server ->
+            items.add(ServerListItem.ServerRow(server, isFavorite = false))
         }
         return items
     }

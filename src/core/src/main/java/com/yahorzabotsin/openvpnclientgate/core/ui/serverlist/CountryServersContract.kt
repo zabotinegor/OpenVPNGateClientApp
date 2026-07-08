@@ -24,5 +24,5 @@ sealed interface CountryServersEffect {
     data class ShowSnackbar(val text: UiText) : CountryServersEffect
     data class FinishWithSelection(val result: ServerSelectionResult) : CountryServersEffect
     data object FinishCanceled : CountryServersEffect
-    data object FocusFirstItem : CountryServersEffect
+    data class FocusFirstItem(val adapterPosition: Int) : CountryServersEffect
 }
