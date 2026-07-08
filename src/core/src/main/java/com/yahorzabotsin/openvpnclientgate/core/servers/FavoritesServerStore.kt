@@ -22,6 +22,7 @@ class DefaultFavoritesServerStore(private val appContext: Context) : FavoritesSe
         FavoritesStore.isFavoriteServer(appContext, serverId)
 
     override fun addFavoriteServer(serverId: Int) {
+        require(serverId > 0) { "Server ID must be greater than 0 to be favorited" }
         FavoritesStore.addFavoriteServer(appContext, serverId)
     }
 

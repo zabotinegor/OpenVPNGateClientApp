@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -52,7 +53,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `initialize loads servers and emits focus effect`() = runTest {
+    fun `initialize loads servers and emits focus effect with position 0 when no favorites`() = runTest {
         val interactor = FakeInteractor(
             loaded = listOf(
                 server("France", "FR", 1),
@@ -75,7 +76,8 @@ class CountryServersViewModelTest {
         assertEquals(false, interactor.lastCacheOnly)
         assertEquals("FR", interactor.lastCountryCode)
         assertEquals(2, vm.state.value.servers.size)
-        assertTrue(effects.first() is CountryServersEffect.FocusFirstItem)
+        val focusEffect = effects.first() as CountryServersEffect.FocusFirstItem
+        assertEquals(0, focusEffect.adapterPosition)
         job.cancel()
     }
 
@@ -273,10 +275,10 @@ class CountryServersViewModelTest {
         val favoriteRow = items[1] as ServerListItem.ServerRow
         assertEquals(20, favoriteRow.server.id)
         assertTrue(favoriteRow.isFavorite)
-        // regular list still contains both servers afterwards
+        // regular list contains only non-favorites (server 10, not 20)
         assertEquals(10, (items[2] as ServerListItem.ServerRow).server.id)
-        assertEquals(20, (items[3] as ServerListItem.ServerRow).server.id)
-        assertEquals(4, items.size)
+        assertFalse((items[2] as ServerListItem.ServerRow).isFavorite)
+        assertEquals(3, items.size)
     }
 
     @Test
@@ -443,6 +445,94 @@ class CountryServersViewModelTest {
         val effect = effects.first()
         assertTrue(effect is CountryServersEffect.FinishWithSelection)
         assertEquals(result, (effect as CountryServersEffect.FinishWithSelection).result)
+        job.cancel()
+    }
+
+    // --- Fix 1: Favorites duplicated in regular list ---
+    @Test
+    fun `fix1_favorited_server_appears_exactly_once_not_duplicated`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore(setOf(10))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        // Expected structure:
+        // [0] SectionHeader
+        // [1] ServerRow(serverA, isFavorite=true)
+        // [2] ServerRow(serverB, isFavorite=false)
+        // Total: 3 items (serverA appears once, serverB appears once)
+        assertEquals(3, items.size)
+        assertTrue(items[0] is ServerListItem.SectionHeader)
+        val favoriteRow = items[1] as ServerListItem.ServerRow
+        assertEquals(10, favoriteRow.server.id)
+        assertTrue(favoriteRow.isFavorite)
+        val nonFavoriteRow = items[2] as ServerListItem.ServerRow
+        assertEquals(20, nonFavoriteRow.server.id)
+        assertTrue(!nonFavoriteRow.isFavorite)
+    }
+
+    // --- Fix 2: Missing require(serverId > 0) guard ---
+    @Test
+    fun fix2_favorites_server_store_requires_serverId_greater_than_zero() {
+        val store = object : FavoritesServerStore {
+            private val favorites = mutableSetOf<Int>()
+            override fun getFavoriteServerIds(): Set<Int> = favorites.toSet()
+            override fun isFavoriteServer(serverId: Int): Boolean = favorites.contains(serverId)
+            override fun addFavoriteServer(serverId: Int) {
+                require(serverId > 0) { "Server ID must be greater than 0 to be favorited" }
+                favorites.add(serverId)
+            }
+            override fun removeFavoriteServer(serverId: Int) {
+                favorites.remove(serverId)
+            }
+        }
+
+        // Valid ID should succeed
+        store.addFavoriteServer(10)
+        assertTrue(store.isFavoriteServer(10))
+
+        // Invalid ID should throw IllegalArgumentException
+        var exceptionThrown = false
+        try {
+            store.addFavoriteServer(0)
+        } catch (e: IllegalArgumentException) {
+            exceptionThrown = true
+        }
+        assertTrue(exceptionThrown)
+    }
+
+    // --- Fix 3: FocusFirstItem lands on section header instead of first server row ---
+    @Test
+    fun fix3_focus_position_is_1_when_favorites_section_present_skips_header() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore(setOf(10))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+
+        val effects = mutableListOf<CountryServersEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val focusEffect = effects.first() as CountryServersEffect.FocusFirstItem
+        assertEquals(1, focusEffect.adapterPosition)
         job.cancel()
     }
 }
