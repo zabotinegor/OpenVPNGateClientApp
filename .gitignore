@@ -98,9 +98,6 @@ artifacts
 .sdlc
 
 # BEGIN synced-copilot-assets
-/.claude/commands/agent-sync.md
-
-# BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
 /.claude/commands/create-pr.md
@@ -119,7 +116,6 @@ artifacts
 /.claude/commands/update-engine.md
 /.claude/commands/user-story.md
 /.claude/settings.json
-/.github/agents/agent-sync.agent.md
 /.github/agents/bug-flow.agent.md
 /.github/agents/code-implementator.agent.md
 /.github/agents/code-review.agent.md
@@ -163,7 +159,6 @@ artifacts
 /.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
 /.github/scripts/run-review-round.ps1
-/.github/scripts/sync-copilot-assets.ps1
 /.github/scripts/session-refresh-watchdog.js
 /.github/scripts/setup-multi-account.ps1
 /.github/scripts/setup-session-tracking.ps1
@@ -173,7 +168,6 @@ artifacts
 /.github/scripts/update-session-from-hook.ps1
 /.github/scripts/validate-agent-skill-definitions.ps1
 /.github/scripts/warn-session-after-tool.ps1
-/.github/skills/agent-sync/SKILL.md
 /.github/skills/bug-flow/SKILL.md
 /.github/skills/code-implementator/SKILL.md
 /.github/skills/code-review/references/review-checklist-android.md
@@ -212,7 +206,6 @@ artifacts
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 /.github/skills/user-story-spec/SKILL.md
-/.mcp.json
 # END synced-copilot-assets
 
 # BEGIN transient-copilot-artifacts
