@@ -206,6 +206,7 @@ artifacts
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
 /.github/skills/user-story-spec/SKILL.md
+/.mcp.json
 # END synced-copilot-assets
 
 # BEGIN transient-copilot-artifacts
