@@ -159,7 +159,8 @@ class CountryServersViewModel(
         if (servers.isEmpty()) return emptyList()
 
         val favorites = FavoritesFilter.filterFavoriteServers(favoriteServerIds, servers)
-        val nonFavorites = servers.filter { it !in favorites }
+        val favoriteSet = favorites.toSet()
+        val nonFavorites = servers.filter { it !in favoriteSet }
 
         val items = mutableListOf<ServerListItem>()
         if (favorites.isNotEmpty()) {

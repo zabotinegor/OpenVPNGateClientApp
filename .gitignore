@@ -119,8 +119,6 @@ artifacts
 /.claude/commands/update-engine.md
 /.claude/commands/user-story.md
 /.claude/settings.json
-/.githooks/pre-commit
-/.githooks/pre-push
 /.github/agents/agent-sync.agent.md
 /.github/agents/bug-flow.agent.md
 /.github/agents/code-implementator.agent.md
