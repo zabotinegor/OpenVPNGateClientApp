@@ -352,7 +352,7 @@ private fun onLongClickServer(anchorView: View, server: Server, isFavorite: Bool
 }
 ```
 
-Pass the long-click callback from the adapter to the Activity. See `ServersInCountryActivityCore.kt` for the complete pattern.
+Pass the long-click callback from the adapter to the Activity. See `CountryServersActivity.kt` for the complete pattern.
 
 **TV-only variant (D-pad navigation)**
 
@@ -369,12 +369,12 @@ This pattern is reused identically across SUB-02 (countries) and SUB-03 (servers
 
 **First demonstrated**
 
-SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`ServersInCountryActivityCore.kt`, `ServerListViewModel.kt`).
+SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`).
 
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/countries_list/CountriesListViewModel.kt` (`buildItems`)
 - `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (PopupMenu adapter)
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/servers_in_country/ServerListViewModel.kt` (`buildItems`)
-- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (long-press handler)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`buildItems`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler)
 - `src/docs/favorites-ui-patterns.md`

@@ -505,20 +505,20 @@ Attempting to favorite a server with `id <= 0` (legacy sources: `LEGACY`, `VPNGA
 
 Three independent guards ensure `id <= 0` never reaches persistent storage:
 
-1. **ViewModel layer** (`ServerListViewModel.toggleFavorite()`): Early return if `serverId <= 0` before calling `favoritesStore`.
-2. **Activity layer** (`ServersInCountryActivityCore.onLongClickServer()`): Hide the `PopupMenu` action entirely when `item.id <= 0`.
+1. **ViewModel layer** (`CountryServersViewModel.toggleFavorite()`): Early return if `serverId <= 0` before calling `favoritesStore`.
+2. **Activity layer** (`CountryServersActivity.onLongClickServer()`): Hide the `PopupMenu` action entirely when `item.id <= 0`.
 3. **Store layer** (`FavoritesServerStore.addFavoriteServer()`): Guard with `require(serverId > 0)` before persisting, so even an unexpected call site cannot bypass the check.
 
 This multi-layer defense means each layer can be audited independently. A breach in one layer (e.g., ViewModel check removed) is still caught by the next (Activity hides the menu, or Store rejects it). Any new code path that favorits servers must also satisfy the ViewModel and Activity guards before the Store write is reachable.
 
 **First encountered**
 
-SUB-03 (`ServerListViewModel.kt`, `ServersInCountryActivityCore.kt`, `FavoritesServerStore.kt`) — MP-20260706-favorite-countries-servers.
+SUB-03 (`CountryServersViewModel.kt`, `CountryServersActivity.kt`, `FavoritesServerStore.kt`) — MP-20260706-favorite-countries-servers.
 
 **References**
 
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/servers_in_country/ServerListViewModel.kt` (`toggleFavorite`)
-- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (`onLongClickServer`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`toggleFavorite`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`onLongClickServer`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesServerStore.kt` (`addFavoriteServer`)
 
 ---
@@ -571,9 +571,9 @@ Key points:
 
 **First demonstrated**
 
-SUB-03 (`ServersInCountryActivityCore.kt`).
+SUB-03 (`CountryServersActivity.kt`).
 
 **References**
 
-- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/servers_in_country/ServersInCountryActivityCore.kt` (`showPopupMenu`, `onDestroy`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`showPopupMenu`, `onDestroy`)
 - `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)
