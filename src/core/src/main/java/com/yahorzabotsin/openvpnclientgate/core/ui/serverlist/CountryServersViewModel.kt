@@ -158,9 +158,10 @@ class CountryServersViewModel(
     ): List<ServerListItem> {
         if (servers.isEmpty()) return emptyList()
 
+        // Mirrors ServerListViewModel.buildItems() (SUB-02 countries screen): the pinned
+        // favorites section is purely additive — favorited servers also stay at their
+        // normal position in the regular list below, marked favorite by O(1) id lookup.
         val favorites = FavoritesFilter.filterFavoriteServers(favoriteServerIds, servers)
-        val favoriteSet = favorites.toSet()
-        val nonFavorites = servers.filter { it !in favoriteSet }
 
         val items = mutableListOf<ServerListItem>()
         if (favorites.isNotEmpty()) {
@@ -169,8 +170,8 @@ class CountryServersViewModel(
                 items.add(ServerListItem.ServerRow(server, isFavorite = true))
             }
         }
-        nonFavorites.forEach { server ->
-            items.add(ServerListItem.ServerRow(server, isFavorite = false))
+        servers.forEach { server ->
+            items.add(ServerListItem.ServerRow(server, isFavorite = server.id in favoriteServerIds))
         }
         return items
     }

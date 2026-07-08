@@ -287,29 +287,33 @@ sealed class ListItem {
 }
 ```
 
-**Step 2 — Build the list with favorites pinned at top**
+**Step 2 — Build the list with favorites pinned at top (ADDITIVE pattern)**
+
+The pinned Favorites section is purely **additive**: favorited items appear in the pinned
+section at the top AND remain at their normal position in the regular list below, marked
+favorite by id membership. Do NOT filter favorites out of the regular list — the pinned
+section is a shortcut, not a re-homing. This is the shared pattern across the countries
+screen (SUB-02, `ServerListViewModel.buildItems()`) and the servers-in-country screen
+(SUB-03, `CountryServersViewModel.buildItems()`); both screens must stay consistent.
 
 In your ViewModel's `buildItems()` method:
 
 ```kotlin
 fun buildItems(): List<ListItem> {
-    val favorites = favoritesFilter.filterFavoriteServers(allServers)
-    val nonFavorites = allServers.filter { it !in favorites }
-    
+    val favorites = favoritesFilter.filterFavoriteServers(favoriteIds, allServers)
+
     return mutableListOf<ListItem>().apply {
-        // Pinned section (hidden if empty)
+        // Pinned section (hidden if empty) — additive shortcut on top
         if (favorites.isNotEmpty()) {
             add(ListItem.SectionHeader("Favorites"))
             favorites.forEach { server ->
                 add(ListItem.Row(server, isFavorite = true))
             }
         }
-        // Regular section
-        if (nonFavorites.isNotEmpty()) {
-            add(ListItem.SectionHeader("All Servers"))
-            nonFavorites.forEach { server ->
-                add(ListItem.Row(server, isFavorite = false))
-            }
+        // Regular section: ALL items, favorites included at their normal position.
+        // Mark favorite status via O(1) Set lookup (favoriteIds is a Set), not List.contains.
+        allServers.forEach { server ->
+            add(ListItem.Row(server, isFavorite = server.id in favoriteIds))
         }
     }
 }

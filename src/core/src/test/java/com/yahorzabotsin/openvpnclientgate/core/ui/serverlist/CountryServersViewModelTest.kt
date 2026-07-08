@@ -275,10 +275,13 @@ class CountryServersViewModelTest {
         val favoriteRow = items[1] as ServerListItem.ServerRow
         assertEquals(20, favoriteRow.server.id)
         assertTrue(favoriteRow.isFavorite)
-        // regular list contains only non-favorites (server 10, not 20)
+        // Regular list is additive (mirrors SUB-02 countries screen): it contains ALL
+        // servers, with the favorited one still at its normal position, marked favorite.
         assertEquals(10, (items[2] as ServerListItem.ServerRow).server.id)
         assertFalse((items[2] as ServerListItem.ServerRow).isFavorite)
-        assertEquals(3, items.size)
+        assertEquals(20, (items[3] as ServerListItem.ServerRow).server.id)
+        assertTrue((items[3] as ServerListItem.ServerRow).isFavorite)
+        assertEquals(4, items.size)
     }
 
     @Test
@@ -448,9 +451,11 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    // --- Fix 1: Favorites duplicated in regular list ---
+    // --- Additive pinned section (round-5 review): favorite stays in the regular list ---
+    // Mirrors ServerListViewModelTest's SUB-02 expectations: the pinned Favorites section
+    // is a shortcut ON TOP of the regular list, which always contains every server.
     @Test
-    fun `fix1_favorited_server_appears_exactly_once_not_duplicated`() = runTest {
+    fun `favorited_server_appears_in_pinned_section_and_regular_list_additive`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -468,47 +473,20 @@ class CountryServersViewModelTest {
         val items = vm.state.value.items
         // Expected structure:
         // [0] SectionHeader
-        // [1] ServerRow(serverA, isFavorite=true)
-        // [2] ServerRow(serverB, isFavorite=false)
-        // Total: 3 items (serverA appears once, serverB appears once)
-        assertEquals(3, items.size)
+        // [1] ServerRow(serverA, isFavorite=true)   <- pinned shortcut
+        // [2] ServerRow(serverA, isFavorite=true)   <- still at its normal list position
+        // [3] ServerRow(serverB, isFavorite=false)
+        assertEquals(4, items.size)
         assertTrue(items[0] is ServerListItem.SectionHeader)
-        val favoriteRow = items[1] as ServerListItem.ServerRow
-        assertEquals(10, favoriteRow.server.id)
-        assertTrue(favoriteRow.isFavorite)
-        val nonFavoriteRow = items[2] as ServerListItem.ServerRow
+        val pinnedRow = items[1] as ServerListItem.ServerRow
+        assertEquals(10, pinnedRow.server.id)
+        assertTrue(pinnedRow.isFavorite)
+        val regularFavoriteRow = items[2] as ServerListItem.ServerRow
+        assertEquals(10, regularFavoriteRow.server.id)
+        assertTrue(regularFavoriteRow.isFavorite)
+        val nonFavoriteRow = items[3] as ServerListItem.ServerRow
         assertEquals(20, nonFavoriteRow.server.id)
         assertTrue(!nonFavoriteRow.isFavorite)
-    }
-
-    // --- Fix 2: Missing require(serverId > 0) guard ---
-    @Test
-    fun fix2_favorites_server_store_requires_serverId_greater_than_zero() {
-        val store = object : FavoritesServerStore {
-            private val favorites = mutableSetOf<Int>()
-            override fun getFavoriteServerIds(): Set<Int> = favorites.toSet()
-            override fun isFavoriteServer(serverId: Int): Boolean = favorites.contains(serverId)
-            override fun addFavoriteServer(serverId: Int) {
-                require(serverId > 0) { "Server ID must be greater than 0 to be favorited" }
-                favorites.add(serverId)
-            }
-            override fun removeFavoriteServer(serverId: Int) {
-                favorites.remove(serverId)
-            }
-        }
-
-        // Valid ID should succeed
-        store.addFavoriteServer(10)
-        assertTrue(store.isFavoriteServer(10))
-
-        // Invalid ID should throw IllegalArgumentException
-        var exceptionThrown = false
-        try {
-            store.addFavoriteServer(0)
-        } catch (e: IllegalArgumentException) {
-            exceptionThrown = true
-        }
-        assertTrue(exceptionThrown)
     }
 
     // --- Fix 3: FocusFirstItem lands on section header instead of first server row ---

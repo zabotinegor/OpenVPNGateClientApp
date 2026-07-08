@@ -230,4 +230,49 @@ class FavoritesStoreTest {
 
         assertEquals(setOf(5), FavoritesStore.getFavoriteServerIds(ctx))
     }
+
+    // --- DefaultFavoritesServerStore: defense-in-depth require(serverId > 0) guard ---
+    //
+    // The ViewModel already filters out servers with id <= 0 before toggling, but the store
+    // facade guards independently (documented in docs/runbooks/solutions.md) so unexpected
+    // call sites cannot persist invalid IDs. These tests exercise the REAL production class
+    // (round-5 review: an earlier version asserted on a test-local anonymous impl, which was
+    // vacuous).
+
+    @Test
+    fun defaultFavoritesServerStore_addFavoriteServer_persistsValidId() {
+        val store = DefaultFavoritesServerStore(freshContext())
+
+        store.addFavoriteServer(10)
+
+        assertTrue(store.isFavoriteServer(10))
+        assertEquals(setOf(10), store.getFavoriteServerIds())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun defaultFavoritesServerStore_addFavoriteServer_zeroIdThrows() {
+        DefaultFavoritesServerStore(freshContext()).addFavoriteServer(0)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun defaultFavoritesServerStore_addFavoriteServer_negativeIdThrows() {
+        DefaultFavoritesServerStore(freshContext()).addFavoriteServer(-1)
+    }
+
+    @Test
+    fun defaultFavoritesServerStore_removeAndQuery_delegateWithoutGuard() {
+        // Production code intentionally guards only addFavoriteServer; remove and query are
+        // plain delegations and must not throw for non-positive IDs.
+        val store = DefaultFavoritesServerStore(freshContext())
+        store.addFavoriteServer(7)
+
+        assertFalse(store.isFavoriteServer(0))
+        store.removeFavoriteServer(0)
+        store.removeFavoriteServer(-1)
+
+        assertTrue(store.isFavoriteServer(7))
+        store.removeFavoriteServer(7)
+        assertFalse(store.isFavoriteServer(7))
+        assertTrue(store.getFavoriteServerIds().isEmpty())
+    }
 }
