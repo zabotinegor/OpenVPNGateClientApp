@@ -16,8 +16,17 @@ acceptance: AC1, AC4 (countries half of AC5)
 
 1. Open the countries screen (ServerListActivity) — D-pad to the country selector row and press OK.
 2. D-pad DOWN/UP to focus a non-favorite country row; note its displayed name.
-3. Long-press OK: `adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` (falls back to
-   `adb shell input keyevent --longpress 23`).
+3. Long-press OK by injecting a genuinely held key via `sendevent` on the remote's input device
+   (validated on MIBOX4 — "Xiaomi RC" = `/dev/input/event2`, KEY_SELECT scancode 353):
+
+   ```
+   adb shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/event2 0 0 0 && sleep 1.2 && sendevent /dev/input/event2 1 353 0 && sendevent /dev/input/event2 0 0 0"
+   ```
+
+   Do NOT use `input keyevent --longpress KEYCODE_DPAD_CENTER` / `--longpress 23` — on MIBOX4
+   (Android 9) it is delivered as a SHORT press (the row click fires instead of the dialog). On
+   other TV hardware re-run `getevent -pl` to find the equivalent device/scancode. See
+   [android-tv-dpad-qa-runbook.md](../../../environment/android-tv-dpad-qa-runbook.md).
 4. Dump UI (`uiautomator dump`) and assert:
    - a dialog is present with title = the focused row's country name;
    - exactly one action item "Add to favorites";
