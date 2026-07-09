@@ -130,7 +130,7 @@ class CountryServersViewModel(
     private fun onToggleFavorite(server: Server) {
         val serverId = server.id
         if (serverId <= 0) return
-        val currentlyFavorite = favoritesStore.isFavoriteServer(serverId)
+        val currentlyFavorite = serverId in _state.value.favoriteServerIds
         if (currentlyFavorite) {
             favoritesStore.removeFavoriteServer(serverId)
         } else {

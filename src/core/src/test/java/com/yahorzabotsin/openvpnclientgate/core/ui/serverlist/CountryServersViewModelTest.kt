@@ -238,10 +238,15 @@ class CountryServersViewModelTest {
         initialFavorites: Set<Int> = emptySet()
     ) : FavoritesServerStore {
         private val favorites = initialFavorites.toMutableSet()
+        var isFavoriteServerCalls = 0
+            private set
 
         override fun getFavoriteServerIds(): Set<Int> = favorites.toSet()
 
-        override fun isFavoriteServer(serverId: Int): Boolean = favorites.contains(serverId)
+        override fun isFavoriteServer(serverId: Int): Boolean {
+            isFavoriteServerCalls++
+            return favorites.contains(serverId)
+        }
 
         override fun addFavoriteServer(serverId: Int) {
             if (serverId > 0) favorites.add(serverId)
@@ -487,6 +492,34 @@ class CountryServersViewModelTest {
         val nonFavoriteRow = items[3] as ServerListItem.ServerRow
         assertEquals(20, nonFavoriteRow.server.id)
         assertTrue(!nonFavoriteRow.isFavorite)
+    }
+
+    // --- Round-7 review: toggle uses in-memory favoriteServerIds, no store re-read ---
+    @Test
+    fun `toggle favorite uses in-memory state and does not re-read store for current state`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA))
+        val favoritesStore = FakeFavoritesServerStore()
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.ToggleFavorite(serverA))
+        advanceUntilIdle()
+        assertEquals(setOf(10), favoritesStore.getFavoriteServerIds())
+
+        vm.onAction(CountryServersAction.ToggleFavorite(serverA))
+        advanceUntilIdle()
+        assertEquals(emptySet<Int>(), favoritesStore.getFavoriteServerIds())
+
+        // The current-state check must come from _state.value.favoriteServerIds,
+        // never from a SharedPreferences read via isFavoriteServer.
+        assertEquals(0, favoritesStore.isFavoriteServerCalls)
     }
 
     // --- Fix 3: FocusFirstItem lands on section header instead of first server row ---
