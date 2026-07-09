@@ -1,8 +1,14 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
+import android.app.Activity
 import com.yahorzabotsin.openvpnclientgate.core.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * SUB-04 (TV D-pad favorites interaction) unit tests.
@@ -13,7 +19,13 @@ import org.junit.Test
  * rows. The full themed Activities/dialog cannot be launched here because core unit tests
  * run Robolectric in legacy resources mode, which cannot resolve AppCompat/Material theme
  * resources (same constraint documented in CountryServersActivityFocusTest).
+ *
+ * The [FavoriteActionDialog.show] lifecycle guard IS testable here: it returns null before
+ * touching AlertDialog.Builder when the host Activity is finishing/destroyed, so a plain
+ * (non-AppCompat) Robolectric Activity suffices.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [27])
 class FavoriteActionDialogTest {
 
     // --- resolvePresentation: which affordance a long-press opens (AC1, AC4) ---
@@ -65,6 +77,39 @@ class FavoriteActionDialogTest {
         assertEquals(
             R.string.favorites_add_action,
             FavoriteActionDialog.actionLabelRes(isFavorite = false)
+        )
+    }
+
+    // --- show: lifecycle guard against WindowManager.BadTokenException (async race) ---
+
+    @Test
+    fun `show returns null and shows nothing when the activity is finishing`() {
+        val activity = Robolectric.buildActivity(Activity::class.java).create().get()
+        activity.finish()
+
+        assertNull(
+            FavoriteActionDialog.show(
+                activity = activity,
+                itemTitle = "Tokyo",
+                isFavorite = false,
+                onToggle = {}
+            )
+        )
+    }
+
+    @Test
+    fun `show returns null and shows nothing when the activity is destroyed`() {
+        val controller = Robolectric.buildActivity(Activity::class.java).create()
+        val activity = controller.get()
+        controller.destroy()
+
+        assertNull(
+            FavoriteActionDialog.show(
+                activity = activity,
+                itemTitle = "Tokyo",
+                isFavorite = false,
+                onToggle = {}
+            )
         )
     }
 

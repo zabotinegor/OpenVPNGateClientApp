@@ -50,13 +50,20 @@ internal object FavoriteActionDialog {
      *
      * Returns the dialog so callers can track it and dismiss it in onDestroy (window-leak
      * guard, mirrors the activePopupMenu pattern from SUB-02/SUB-03).
+     *
+     * Returns `null` without showing anything when [activity] is finishing or destroyed —
+     * favorite-state resolution is asynchronous, so a rapid D-pad long-press can race with
+     * Activity teardown and showing a dialog then would throw WindowManager.BadTokenException.
      */
     fun show(
         activity: Activity,
         itemTitle: String?,
         isFavorite: Boolean,
         onToggle: () -> Unit
-    ): AlertDialog {
+    ): AlertDialog? {
+        if (activity.isFinishing || activity.isDestroyed) {
+            return null
+        }
         val builder = AlertDialog.Builder(activity)
         if (!itemTitle.isNullOrBlank()) {
             builder.setTitle(itemTitle)

@@ -150,8 +150,9 @@ class CountryServersActivity : AppCompatActivity() {
             isFavorite = isFavorite,
             onToggle = { viewModel.onAction(CountryServersAction.ToggleFavorite(server)) }
         )
+        // show() returns null when the Activity is finishing/destroyed (BadTokenException guard)
         activeTvFavoriteDialog = dialog
-        dialog.setOnDismissListener {
+        dialog?.setOnDismissListener {
             if (activeTvFavoriteDialog == dialog) {
                 activeTvFavoriteDialog = null
             }
