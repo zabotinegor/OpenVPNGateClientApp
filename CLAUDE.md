@@ -76,7 +76,7 @@ media/     ← app icon/banner assets (submodule)
 - **Endpoints**: Never hardcode production URLs in source. Use build properties → env → `servers.local.json`.
 - **`app_name`**: Injected via Gradle `resValue`; don't duplicate in string resources.
 - **Branch naming**: `feature/<name>`, `bugfix/<issue>`, `hotfix/<issue>`.
-- **Favorites UI**: Long-press on countries/servers uses `PopupMenu` to reflect current state ("Add to favorites" vs "Remove from favorites"). Pattern reused across countries (SUB-02), servers (SUB-03), and TV D-pad (SUB-04). Pinned "Favorites" section at top, hidden when empty. See [src/docs/favorites-ui-patterns.md](src/docs/favorites-ui-patterns.md).
+- **Favorites UI**: Long-press on countries/servers reflects current state ("Add to favorites" vs "Remove from favorites") — anchored `PopupMenu` on mobile touch (SUB-02/SUB-03), remote-navigable `AlertDialog` on TV D-pad long-press of OK/center (SUB-04, via `FavoriteActionDialog.resolvePresentation`). Pinned "Favorites" section at top, hidden when empty. See [src/docs/favorites-ui-patterns.md](src/docs/favorites-ui-patterns.md).
 
 ## Critical Pitfalls
 

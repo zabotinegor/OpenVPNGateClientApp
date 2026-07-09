@@ -34,6 +34,7 @@ class CountryServersActivity : AppCompatActivity() {
     private var lastRenderedItems: List<ServerListItem> = emptyList()
     private var lastRenderedDefaultV2Source: Boolean? = null
     private var activePopupMenu: PopupMenu? = null
+    private var activeTvFavoriteDialog: androidx.appcompat.app.AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +59,8 @@ class CountryServersActivity : AppCompatActivity() {
     override fun onDestroy() {
         activePopupMenu?.dismiss()
         activePopupMenu = null
+        activeTvFavoriteDialog?.dismiss()
+        activeTvFavoriteDialog = null
         super.onDestroy()
     }
 
@@ -97,14 +100,18 @@ class CountryServersActivity : AppCompatActivity() {
     }
 
     private fun showFavoriteMenu(anchor: android.view.View, server: Server, isFavorite: Boolean) {
-        // Servers with id == 0 (legacy/un-synced) cannot be favorited — known limitation
-        // carried forward from SUB-01/SUB-02.
-        if (server.id <= 0) {
-            return
-        }
-        // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
-        if (TvUtils.isTvDevice(this)) {
-            return
+        when (FavoriteActionDialog.resolvePresentation(
+            isTvDevice = TvUtils.isTvDevice(this),
+            // Servers with id == 0 (legacy/un-synced) cannot be favorited — known limitation
+            // carried forward from SUB-01/SUB-02.
+            canFavorite = server.id > 0
+        )) {
+            FavoriteActionDialog.Presentation.NONE -> return
+            FavoriteActionDialog.Presentation.TV_DIALOG -> {
+                showTvFavoriteDialog(server, isFavorite)
+                return
+            }
+            FavoriteActionDialog.Presentation.POPUP_MENU -> Unit // fall through to PopupMenu below
         }
         // Dismiss any previously showing popup to prevent window leaks
         activePopupMenu?.dismiss()
@@ -127,6 +134,28 @@ class CountryServersActivity : AppCompatActivity() {
             true
         }
         popup.show()
+    }
+
+    /**
+     * TV (D-pad) presentation of the favorites toggle: a self-contained, remote-navigable
+     * AlertDialog opened by holding OK/center on a focused row (SUB-04). Short-press
+     * select/connect behavior is untouched — this only runs on long-press.
+     */
+    private fun showTvFavoriteDialog(server: Server, isFavorite: Boolean) {
+        // Dismiss any previously showing dialog to prevent window leaks
+        activeTvFavoriteDialog?.dismiss()
+        val dialog = FavoriteActionDialog.show(
+            activity = this,
+            itemTitle = tvFavoriteDialogTitle(server.city, server.ip),
+            isFavorite = isFavorite,
+            onToggle = { viewModel.onAction(CountryServersAction.ToggleFavorite(server)) }
+        )
+        activeTvFavoriteDialog = dialog
+        dialog.setOnDismissListener {
+            if (activeTvFavoriteDialog == dialog) {
+                activeTvFavoriteDialog = null
+            }
+        }
     }
 
     private fun handleEffect(effect: CountryServersEffect) {
@@ -205,6 +234,14 @@ class CountryServersActivity : AppCompatActivity() {
             scrollToPosition(position)
             focusWhenReady(position)
         }
+
+        /**
+         * TV favorite-dialog title for a server row: the city when present, otherwise the
+         * IP — mirrors the row-title fallback used by [ServerPickerAdapter]. Extracted as a
+         * testable seam (same rationale as [applyFocusFirstItem]).
+         */
+        internal fun tvFavoriteDialogTitle(city: String, ip: String): String =
+            city.trim().ifEmpty { ip }
 
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
         const val EXTRA_SELECTED_SERVER_COUNTRY_CODE = "EXTRA_SELECTED_SERVER_COUNTRY_CODE"
