@@ -4,8 +4,14 @@ This directory is the canonical location for manual end-to-end test documentatio
 
 ## Structure
 - [automation/](automation): reusable PowerShell helpers to execute repeatable manual checks.
+- [environment/](environment): device/environment runbooks with validated setup, injection, and inspection commands.
 - [stories/](stories): organized story folders, each containing specs, cases, and suite documentation for one feature/story.
 - [reference/](reference): validated notes and supporting references organized by topic.
+
+## Environment Runbooks
+- [environment/android-adb-vpn-qa-runbook.md](environment/android-adb-vpn-qa-runbook.md): Android mobile adb VPN QA runbook.
+- [environment/android-miui-manual-qa-notes.md](environment/android-miui-manual-qa-notes.md): MIUI device quirks for manual QA.
+- [environment/android-tv-dpad-qa-runbook.md](environment/android-tv-dpad-qa-runbook.md): Android TV D-pad QA runbook (Leanback launch, `sendevent` long-press injection, dialog focus gotchas).
 
 ## Story Organization
 
@@ -47,6 +53,18 @@ stories/{story-id}-{kebab-title}/
   - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md)
   - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md)
   - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-003.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-003.md)
+
+### SUB-04 - TV D-pad Favorites Interaction
+- Location: [stories/SUB-04-tv-favorites-interaction/](stories/SUB-04-tv-favorites-interaction/)
+- Suite: [stories/SUB-04-tv-favorites-interaction/suites/SUITE-SUB-04-tv-favorites-interaction.md](stories/SUB-04-tv-favorites-interaction/suites/SUITE-SUB-04-tv-favorites-interaction.md)
+- Spec: [stories/SUB-04-tv-favorites-interaction/specs/SPEC-SUB-04-tv-favorites-interaction.md](stories/SUB-04-tv-favorites-interaction/specs/SPEC-SUB-04-tv-favorites-interaction.md)
+- Environment: [environment/android-tv-dpad-qa-runbook.md](environment/android-tv-dpad-qa-runbook.md)
+- Cases:
+  - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-001-countries-dialog.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-001-countries-dialog.md)
+  - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-002-servers-dialog.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-002-servers-dialog.md)
+  - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-003-favorites-section-focus.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-003-favorites-section-focus.md)
+  - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-004-pinned-section-dialog.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-004-pinned-section-dialog.md)
+  - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-005-regression-short-press-drawer.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-005-regression-short-press-drawer.md)
 
 ### TV-DRAWER-FALSE-CLICK
 - Location: [stories/TV-DRAWER-FALSE-CLICK/](stories/TV-DRAWER-FALSE-CLICK/)

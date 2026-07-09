@@ -577,3 +577,13 @@ SUB-03 (`CountryServersActivity.kt`).
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`showPopupMenu`, `onDestroy`)
 - `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)
+
+### `adb input keyevent --longpress` delivers a short press on Android TV
+**Context:** Manual QA of D-pad long-press features (SUB-04 FavoriteActionDialog) on MIBOX4 / Android 9 TV over adb.
+**Problem:** Both `input keyevent --longpress KEYCODE_DPAD_CENTER` and `--longpress 23` fire the row's click (short press) instead of `performLongClick` — the injected pair never holds the key across the confirm-key long-press timeout, so the dialog cannot be opened via `input`.
+**Solution:** Inject a genuinely held key with `sendevent` on the remote's input device (found via `getevent -pl`; on MIBOX4 the "Xiaomi RC" is `/dev/input/event2`, KEY_SELECT scancode 353 maps to DPAD_CENTER).
+**Commands/code:**
+```
+adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/event2 0 0 0 && sleep 1.2 && sendevent /dev/input/event2 1 353 0 && sendevent /dev/input/event2 0 0 0"
+```
+See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).

@@ -315,7 +315,7 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
 
 - [x] Adapt long-press pattern to D-pad navigation (hold OK/center on a focused row)
 - [x] Use a remote-navigable dialog (not a `PopupMenu`) on TV — see "TV D-pad Dialog Pattern"
-- [ ] Test on an Android TV device or emulator (SUB-05 Manual E2E)
+- [x] Test on an Android TV device (SUB-04 Manual QA on MIBOX4/Android 9 passed all 5 cases; consolidated coverage continues in SUB-05 Manual E2E)
 - [x] Reuse pinned-section logic and filtering from SUB-02/SUB-03 (unchanged; rows already focusable)
 - [x] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
 
@@ -361,7 +361,11 @@ guard from SUB-02/SUB-03.
 
 `FavoriteActionDialogTest` covers the presentation gate, the state-reflecting action label,
 and the server dialog-title fallback. The themed dialog itself cannot be built in core unit
-tests (legacy Robolectric resources mode); on-device verification happens in SUB-05 Manual E2E.
+tests (legacy Robolectric resources mode); on-device verification is done manually. SUB-04
+Manual QA passed all 5 cases (SUITE-SUB-04) on a MIBOX4 Android 9 TV; consolidated phone+TV
+coverage continues in SUB-05 Manual E2E. For device setup, `sendevent`-based D-pad long-press
+injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
+focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
 
 ## Logging Considerations
 
@@ -391,3 +395,4 @@ private fun toggleFavorite(country: Country) {
 - `CLAUDE.md` — Architecture overview and entry points
 - `docs/qa-evidence/favorites-data-layer-gate-1.md` — Data-layer preconditions and residual risks
 - `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
+- `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)
