@@ -753,7 +753,10 @@ try {
             $isExcluded = (@($ExcludeGitignorePattern | Where-Object { $relativePath -match [regex]::Escape($_) }).Count -gt 0)
             if ($isExcluded) { continue }
             $repoPath = Convert-ToRepoRelativePath -Path $relativePath
-            $tracked = git -C $targetRootResolved ls-files --error-unmatch $repoPath 2>$null
+            # Plain ls-files (no --error-unmatch): untracked files yield empty
+            # output instead of stderr, which Windows PowerShell 5.1 would turn
+            # into a terminating NativeCommandError under EAP=Stop.
+            $tracked = git -C $targetRootResolved ls-files -- $repoPath
             if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$tracked)) {
                 git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
                 $untrackedCount++

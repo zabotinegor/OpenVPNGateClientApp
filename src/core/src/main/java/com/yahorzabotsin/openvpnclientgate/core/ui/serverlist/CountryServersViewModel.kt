@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesFilter
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesServerStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
@@ -18,7 +20,8 @@ import kotlinx.coroutines.launch
 class CountryServersViewModel(
     private val interactor: CountryServersInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
-    private val logger: CountryServersLogger
+    private val logger: CountryServersLogger,
+    private val favoritesStore: FavoritesServerStore
 ) : ViewModel() {
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
@@ -33,6 +36,7 @@ class CountryServersViewModel(
         when (action) {
             is CountryServersAction.Initialize -> onInitialize(action.countryName, action.countryCode)
             is CountryServersAction.ServerSelected -> onServerSelected(action.server)
+            is CountryServersAction.ToggleFavorite -> onToggleFavorite(action.server)
         }
     }
 
@@ -71,8 +75,22 @@ class CountryServersViewModel(
                     _effects.emit(CountryServersEffect.FinishCanceled)
                 } else {
                     logger.logLoadSuccess(countryName, loaded.size)
-                    updateState { it.copy(servers = loaded) }
-                    _effects.emit(CountryServersEffect.FocusFirstItem)
+                    updateState {
+                        it.copy(
+                            servers = loaded,
+                            favoriteServerIds = favoritesStore.getFavoriteServerIds()
+                        )
+                    }
+                    // Compute focus position: skip SectionHeader at position 0 when favorites exist
+                    val currentItems = _state.value.items
+                    if (currentItems.isNotEmpty()) {
+                        val focusPosition = if (currentItems[0] is ServerListItem.SectionHeader) {
+                            1  // Focus first ServerRow after the header
+                        } else {
+                            0  // Focus first item (should be a ServerRow)
+                        }
+                        _effects.emit(CountryServersEffect.FocusFirstItem(focusPosition))
+                    }
                 }
             } catch (e: Exception) {
                 logger.logLoadError(countryName, e)
@@ -109,8 +127,53 @@ class CountryServersViewModel(
         }
     }
 
+    private fun onToggleFavorite(server: Server) {
+        val serverId = server.id
+        if (serverId <= 0) return
+        val currentlyFavorite = serverId in _state.value.favoriteServerIds
+        if (currentlyFavorite) {
+            favoritesStore.removeFavoriteServer(serverId)
+        } else {
+            favoritesStore.addFavoriteServer(serverId)
+        }
+        val text = if (currentlyFavorite) {
+            UiText.Res(R.string.favorites_removed_toast)
+        } else {
+            UiText.Res(R.string.favorites_added_toast)
+        }
+        viewModelScope.launch { _effects.emit(CountryServersEffect.ShowToast(text)) }
+        updateState { it.copy(favoriteServerIds = favoritesStore.getFavoriteServerIds()) }
+    }
+
     private fun updateState(block: (CountryServersUiState) -> CountryServersUiState) {
-        _state.value = block(_state.value)
+        _state.value = block(_state.value).derived()
+    }
+
+    private fun CountryServersUiState.derived(): CountryServersUiState =
+        copy(items = buildItems(servers, favoriteServerIds))
+
+    private fun buildItems(
+        servers: List<Server>,
+        favoriteServerIds: Set<Int>
+    ): List<ServerListItem> {
+        if (servers.isEmpty()) return emptyList()
+
+        // Mirrors ServerListViewModel.buildItems() (SUB-02 countries screen): the pinned
+        // favorites section is purely additive — favorited servers also stay at their
+        // normal position in the regular list below, marked favorite by O(1) id lookup.
+        val favorites = FavoritesFilter.filterFavoriteServers(favoriteServerIds, servers)
+
+        val items = mutableListOf<ServerListItem>()
+        if (favorites.isNotEmpty()) {
+            items.add(ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
+            favorites.forEach { server ->
+                items.add(ServerListItem.ServerRow(server, isFavorite = true))
+            }
+        }
+        servers.forEach { server ->
+            items.add(ServerListItem.ServerRow(server, isFavorite = server.id in favoriteServerIds))
+        }
+        return items
     }
 
     private fun logInfo(message: String) {

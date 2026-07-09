@@ -60,6 +60,17 @@ adb -s <your-device-serial> shell am force-stop com.yahorzabotsin.openvpnclientg
 adb -s <your-device-serial> shell pm clear com.yahorzabotsin.openvpnclientgate
 ```
 
+### Favorites state inspection/reset (debug builds only)
+Favorites persist in `shared_prefs/favorites_prefs.xml` (`favorite_server_ids`, `favorite_country_codes`).
+Inspect without root via run-as (works on debug builds):
+```
+adb -s <your-device-serial> shell "run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml"
+```
+Use this to verify clean pre-test state (empty `<set>` elements) and post-test cleanup.
+Note: favorites UI strings have no ru/pl translations, so on Russian/Polish device locales the header and
+menu items render in English ("Favorites", "Add to favorites", "Remove from favorites") — match uiautomator
+dumps against the English strings.
+
 ## Useful Log Filters
 
 ### Server selection + counter

@@ -49,6 +49,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
    Then run the apply command only after reviewing the dry-run JSON:
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-copilot-assets.ps1`
 4. If direct script execution is unavailable, use manual fallback through authenticated GitHub connector/API tools at the resolved source revision; compare source and target assets in scope by relative path and content. Do not use unauthenticated browser pages as source evidence for private repositories.
+   **HARD STOP — manual fallback is GitHub connector/API tools only.** When `run_in_terminal` and `runCommands` are unavailable, never attempt `git clone`, `git sparse-checkout`, or any other git command as a substitute. Those require terminal access that has already failed. Use only read/search/edit tools plus authenticated GitHub connector/API calls (e.g. `github/get_file_contents`) to retrieve and compare source files at the resolved commit SHA.
 5. Verify differences before editing, especially frequently changed agent/skill files.
 6. Apply add/update/delete operations only inside the agreed sync scope.
 7. Delete target files in scope that do not exist in source, except paths containing `agent-sync` or `sync-copilot-assets`.
@@ -78,6 +79,7 @@ Report source repository and commit SHA, target branch, sync scope, added/change
 - Never create handoff/prompt markdown artifacts while reporting sync results; include handoff text in chat only.
 - Never invoke VS Code tasks, task labels, or "Run task" for sync dry-run or apply. Use `run_in_terminal` first and `runCommands` second with direct foreground PowerShell so the agent receives JSON output, exit code, and errors.
 - If terminal/command execution is unavailable after a real failed terminal-capable tool call, do not ask the user to run commands. Complete sync manually with available read/search/edit plus authenticated GitHub connector/API tools and report the fallback. Stop only if neither terminal nor authenticated source access is available.
+- **Never use `git clone`, `git sparse-checkout`, or any standalone git command as a manual fallback.** These require the same terminal access that has already failed. Manual fallback means reading each source file individually through the GitHub connector/API (e.g. `github/get_file_contents` at the resolved commit SHA) and applying edits with edit tools.
 - If a previous task-based attempt was cancelled, explicitly switch to `run_in_terminal` and then `runCommands` with direct foreground PowerShell; if unavailable after real failed attempts, use manual mirror-sync fallback before reporting any blocker.
 - If any post-sync file mismatches source, stop and report the mismatch.
 - Keep instructions token-efficient by using scripts for deterministic sync mechanics.

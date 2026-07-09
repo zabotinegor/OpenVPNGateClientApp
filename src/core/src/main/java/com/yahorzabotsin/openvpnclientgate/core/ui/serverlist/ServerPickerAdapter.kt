@@ -11,25 +11,72 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.countryFlagEmoji
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.ServerDisplayFormatter
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+
+/**
+ * Flattened list item used by [ServerPickerAdapter] so a single RecyclerView can render both
+ * the pinned favorites section and the regular server list.
+ */
+sealed interface ServerListItem {
+    data class SectionHeader(val title: UiText) : ServerListItem
+    data class ServerRow(val server: Server, val isFavorite: Boolean) : ServerListItem
+}
 
 class ServerPickerAdapter(
-    private val servers: List<Server>,
+    private var items: List<ServerListItem>,
     private val isDefaultV2Source: Boolean,
-    private val onClick: (Server) -> Unit
-) : RecyclerView.Adapter<ServerPickerAdapter.ViewHolder>() {
+    private val onClick: (Server) -> Unit,
+    private val onLongClick: (view: View, server: Server, isFavorite: Boolean) -> Unit
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_server_row, parent, false)
-        return ViewHolder(v, isDefaultV2Source)
+    fun updateItems(newItems: List<ServerListItem>) {
+        items = newItems
+        notifyDataSetChanged()
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val server = servers[position]
-        holder.bind(server)
-        holder.itemView.setOnClickListener { onClick(server) }
+    override fun getItemViewType(position: Int): Int = when (items[position]) {
+        is ServerListItem.SectionHeader -> VIEW_TYPE_HEADER
+        is ServerListItem.ServerRow -> VIEW_TYPE_SERVER
     }
 
-    override fun getItemCount(): Int = servers.size
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return when (viewType) {
+            VIEW_TYPE_HEADER -> {
+                val v = inflater.inflate(R.layout.item_country_section_header, parent, false)
+                HeaderViewHolder(v)
+            }
+            else -> {
+                val v = inflater.inflate(R.layout.item_server_row, parent, false)
+                ViewHolder(v, isDefaultV2Source)
+            }
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (val item = items[position]) {
+            is ServerListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
+            is ServerListItem.ServerRow -> {
+                val rowHolder = holder as ViewHolder
+                rowHolder.bind(item.server)
+                rowHolder.itemView.setOnClickListener { onClick(item.server) }
+                rowHolder.itemView.setOnLongClickListener {
+                    onLongClick(rowHolder.itemView, item.server, item.isFavorite)
+                    true
+                }
+            }
+        }
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val title: TextView = itemView.findViewById(R.id.section_header_title)
+        fun bind(header: ServerListItem.SectionHeader) {
+            title.text = title.context.resolve(header.title)
+        }
+    }
 
     class ViewHolder(
         itemView: View,
@@ -84,5 +131,9 @@ class ServerPickerAdapter(
             )
         }
     }
-}
 
+    private companion object {
+        const val VIEW_TYPE_HEADER = 0
+        const val VIEW_TYPE_SERVER = 1
+    }
+}

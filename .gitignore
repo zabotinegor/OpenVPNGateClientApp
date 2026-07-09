@@ -95,35 +95,7 @@ README.local.md
 *.lnk
 artifacts
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 .sdlc
-
-
-
-
 
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
@@ -160,6 +132,7 @@ artifacts
 /.github/agents/scope-quality-gate.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
+/.github/scripts/account-context.ps1
 /.github/scripts/check-rate-limit.ps1
 /.github/scripts/check-session-before-tool.ps1
 /.github/scripts/checkpoint-session.ps1
@@ -169,6 +142,7 @@ artifacts
 /.github/scripts/chrome-extension/manifest.json
 /.github/scripts/ensure-cdp-chrome.ps1
 /.github/scripts/ensure-rate-limit-server.ps1
+/.github/scripts/ensure-session-watchdog.ps1
 /.github/scripts/fetch-claude-usage.js
 /.github/scripts/fetch-usage-api.ps1
 /.github/scripts/get-pr-bot-comments.ps1
@@ -176,13 +150,18 @@ artifacts
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-master-plan.ps1
 /.github/scripts/invoke-story-flow.ps1
+/.github/scripts/map-desktop-accounts.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/rate-limit-server.js
+/.github/scripts/resolve-account.ps1
 /.github/scripts/resolve-pr-threads.ps1
 /.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
 /.github/scripts/run-review-round.ps1
+/.github/scripts/session-refresh-watchdog.js
+/.github/scripts/setup-multi-account.ps1
+/.github/scripts/setup-session-tracking.ps1
 /.github/scripts/test-session-tracking.ps1
 /.github/scripts/update-master-plan-status.ps1
 /.github/scripts/update-sdlc-status.ps1
@@ -235,7 +214,6 @@ artifacts
 *_PROMPT*.md
 *_PROMT*.md
 CODE_REVIEW_HANDOFF_*.md
-/docs/qa-evidence/
 /.sdlc/status.json
 **/.sdlc/status.json
 /.sdlc/operations/
@@ -244,5 +222,4 @@ CODE_REVIEW_HANDOFF_*.md
 /.claude/settings.local.json
 **/.claude/settings.local.json
 # END transient-copilot-artifacts
-.github/scripts/session-refresh-watchdog.js
-.github/scripts/ensure-session-watchdog.ps1
+docs/qa-evidence
