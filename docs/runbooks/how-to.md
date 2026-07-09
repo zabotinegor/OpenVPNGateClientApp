@@ -358,27 +358,43 @@ private fun onLongClickServer(anchorView: View, server: Server, isFavorite: Bool
 
 Pass the long-click callback from the adapter to the Activity. See `CountryServersActivity.kt` for the complete pattern.
 
-**TV-only variant (D-pad navigation)**
+**TV-only variant (D-pad long-press → dialog, not PopupMenu)**
 
-On Android TV, long-press is not available. Instead, use D-pad down / center actions to navigate and select items. Apply the same sealed-list architecture but gate the long-press menu behind `TvUtils.isTvDevice(context)`:
+On Android TV, `PopupMenu` doesn't anchor well to a D-pad-focused row, so TV uses a D-pad long-press (hold OK/center, delivered as `performLongClick()` on the focused row by the platform) to open a remote-navigable `AlertDialog` instead. Branch presentation with `FavoriteActionDialog.resolvePresentation(isTvDevice, canFavorite)`, which returns `NONE` / `TV_DIALOG` / `POPUP_MENU`:
 
 ```kotlin
-// In onLongClickServer or equivalent handler:
-if (!TvUtils.isTvDevice(this)) {
-    showPopupMenu(anchorView, server, isFavorite)
+private fun showFavoriteMenu(anchor: View, server: Server, isFavorite: Boolean) {
+    when (FavoriteActionDialog.resolvePresentation(
+        isTvDevice = TvUtils.isTvDevice(this),
+        canFavorite = server.id > 0
+    )) {
+        FavoriteActionDialog.Presentation.NONE -> return
+        FavoriteActionDialog.Presentation.TV_DIALOG -> {
+            showTvFavoriteDialog(server, isFavorite)
+            return
+        }
+        FavoriteActionDialog.Presentation.POPUP_MENU -> Unit // fall through to PopupMenu below
+    }
+    // ... existing PopupMenu path
 }
 ```
 
-This pattern is reused identically across SUB-02 (countries) and SUB-03 (servers in country).
+Guard the dialog against window leaks the same way the PopupMenu path already is (dismiss any previous instance before showing a new one, dismiss in `onDestroy`, identity-checked dismiss listener). This pattern is reused identically across the countries screen (`ServerListActivity`) and servers-in-country screen (`CountryServersActivity`).
 
 **First demonstrated**
 
-SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`).
+SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`). TV D-pad long-press dialog variant added in SUB-04 (`FavoriteActionDialog.kt`, `ServerListActivity.kt`, `CountryServersActivity.kt`).
+
+**Testing the TV long-press with adb**
+
+`adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` delivers a **short** press on at least some TV hardware (Xiaomi/MIBOX4), not a held key — it will not trigger the dialog. Use a held `sendevent` injection instead; see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` and `docs/runbooks/solutions.md` for the working sequence.
 
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/countries_list/CountriesListViewModel.kt` (`buildItems`)
 - `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (PopupMenu adapter)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`buildItems`)
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler, TV dialog handler)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`
 - `src/docs/favorites-ui-patterns.md`
+- `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`
