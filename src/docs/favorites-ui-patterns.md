@@ -111,7 +111,7 @@ When a user long-presses a country or server row on mobile, a `PopupMenu` appear
 
 **To be replicated in SUB-03**: `CountryServersActivity.showFavoriteActionMenu(server)`
 
-**Adapted for SUB-04**: TV D-pad will use a different navigation paradigm but the state machine (favorite / not favorite) remains identical.
+**Adapted for SUB-04**: TV D-pad uses a different presentation (self-contained `AlertDialog`, see "TV D-pad Dialog Pattern" below) but the state machine (favorite / not favorite) and the ViewModel `ToggleFavorite` action remain identical.
 
 ### Menu Item Labeling
 
@@ -313,11 +313,59 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
 
 ### For SUB-04 (TV D-pad)
 
-- [ ] Adapt long-press pattern to D-pad navigation (single-select highlight + button press to toggle)
-- [ ] Verify menu/confirmation pattern works on TV Leanback UI
-- [ ] Test on an Android TV device or emulator
-- [ ] Reuse pinned-section logic and filtering from SUB-02/SUB-03
-- [ ] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
+- [x] Adapt long-press pattern to D-pad navigation (hold OK/center on a focused row)
+- [x] Use a remote-navigable dialog (not a `PopupMenu`) on TV — see "TV D-pad Dialog Pattern"
+- [x] Test on an Android TV device (SUB-04 Manual QA on MIBOX4/Android 9 passed all 5 cases; consolidated coverage continues in SUB-05 Manual E2E)
+- [x] Reuse pinned-section logic and filtering from SUB-02/SUB-03 (unchanged; rows already focusable)
+- [x] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
+
+## TV D-pad Dialog Pattern (SUB-04)
+
+**Key file:** `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`
+
+### Interaction model
+
+- **Trigger**: holding the D-pad OK/center (or ENTER) button on a focused country/server row.
+  No key handling was added — Android's `View` natively converts a held confirm key on a
+  focused, long-clickable view into `performLongClick()`, so the same adapter
+  `setOnLongClickListener` used for mobile long-press fires on TV. Rows are focusable via the
+  `WidgetOpenVPNClientGateFocusableSurface` style; the section header is not focusable, so
+  D-pad navigation naturally skips it.
+- **Presentation**: a plain AppCompat `AlertDialog` (same widget family as
+  `MainActivityCore.showUpdateDialog`) with the row's display name as title, a single action
+  item ("Add to favorites" / "Remove from favorites") and a Cancel button. `PopupMenu` is NOT
+  used on TV — it anchors to touch coordinates and does not participate in D-pad focus order.
+- **Short-press select/connect is unchanged**: the dialog only opens on long-press;
+  `TvDrawerInteractionGuard` (main screen drawer) is untouched — it never applied to the list
+  Activities.
+
+### Presentation gate
+
+`FavoriteActionDialog.resolvePresentation(isTvDevice, canFavorite)` is the single seam that
+decides `NONE` (invalid target: blank country code, `server.id <= 0`), `TV_DIALOG` (TV), or
+`POPUP_MENU` (touch). Both Activities route `showFavoriteMenu` through it, replacing the
+early-return TV gates left by SUB-02/SUB-03.
+
+### Dialog title for server rows
+
+`CountryServersActivity.tvFavoriteDialogTitle(city, ip)` — trimmed city when present,
+otherwise IP — mirrors the row-title fallback in `ServerPickerAdapter`.
+
+### Window-leak guard
+
+The Activity tracks the dialog in `activeTvFavoriteDialog`, dismisses any previous instance
+before showing a new one, and dismisses it in `onDestroy()` — mirroring the `activePopupMenu`
+guard from SUB-02/SUB-03.
+
+### Testing
+
+`FavoriteActionDialogTest` covers the presentation gate, the state-reflecting action label,
+and the server dialog-title fallback. The themed dialog itself cannot be built in core unit
+tests (legacy Robolectric resources mode); on-device verification is done manually. SUB-04
+Manual QA passed all 5 cases (SUITE-SUB-04) on a MIBOX4 Android 9 TV; consolidated phone+TV
+coverage continues in SUB-05 Manual E2E. For device setup, `sendevent`-based D-pad long-press
+injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
+focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
 
 ## Logging Considerations
 
@@ -347,3 +395,4 @@ private fun toggleFavorite(country: Country) {
 - `CLAUDE.md` — Architecture overview and entry points
 - `docs/qa-evidence/favorites-data-layer-gate-1.md` — Data-layer preconditions and residual risks
 - `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
+- `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)

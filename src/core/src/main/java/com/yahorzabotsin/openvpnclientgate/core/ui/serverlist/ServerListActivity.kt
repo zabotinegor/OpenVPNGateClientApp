@@ -32,6 +32,7 @@ open class ServerListActivity : AppCompatActivity() {
     private var adapter: CountryListAdapter? = null
     private var lastRenderedItems: List<CountryListItem> = emptyList()
     private var activePopupMenu: PopupMenu? = null
+    private var activeTvFavoriteDialog: androidx.appcompat.app.AlertDialog? = null
     private val countryServersLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -54,6 +55,8 @@ open class ServerListActivity : AppCompatActivity() {
     override fun onDestroy() {
         activePopupMenu?.dismiss()
         activePopupMenu = null
+        activeTvFavoriteDialog?.dismiss()
+        activeTvFavoriteDialog = null
         super.onDestroy()
     }
 
@@ -96,13 +99,17 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
-        // Guard against blank country codes — favoriting silently does nothing, so hide the menu
-        if (country.code.isNullOrBlank()) {
-            return
-        }
-        // Gate PopupMenu to mobile only — TV story (SUB-04) will handle D-pad dialog UI
-        if (TvUtils.isTvDevice(this)) {
-            return
+        when (FavoriteActionDialog.resolvePresentation(
+            isTvDevice = TvUtils.isTvDevice(this),
+            // Guard against blank country codes — favoriting silently does nothing, so hide the menu
+            canFavorite = !country.code.isNullOrBlank()
+        )) {
+            FavoriteActionDialog.Presentation.NONE -> return
+            FavoriteActionDialog.Presentation.TV_DIALOG -> {
+                showTvFavoriteDialog(country, isFavorite)
+                return
+            }
+            FavoriteActionDialog.Presentation.POPUP_MENU -> Unit // fall through to PopupMenu below
         }
         // Dismiss any previously showing popup to prevent window leaks
         activePopupMenu?.dismiss()
@@ -125,6 +132,29 @@ open class ServerListActivity : AppCompatActivity() {
             true
         }
         popup.show()
+    }
+
+    /**
+     * TV (D-pad) presentation of the favorites toggle: a self-contained, remote-navigable
+     * AlertDialog opened by holding OK/center on a focused row (SUB-04). Short-press
+     * select/connect behavior is untouched — this only runs on long-press.
+     */
+    private fun showTvFavoriteDialog(country: Country, isFavorite: Boolean) {
+        // Dismiss any previously showing dialog to prevent window leaks
+        activeTvFavoriteDialog?.dismiss()
+        val dialog = FavoriteActionDialog.show(
+            activity = this,
+            itemTitle = country.name,
+            isFavorite = isFavorite,
+            onToggle = { viewModel.onAction(ServerListAction.ToggleFavorite(country)) }
+        )
+        // show() returns null when the Activity is finishing/destroyed (BadTokenException guard)
+        activeTvFavoriteDialog = dialog
+        dialog?.setOnDismissListener {
+            if (activeTvFavoriteDialog == dialog) {
+                activeTvFavoriteDialog = null
+            }
+        }
     }
 
     private fun handleEffect(effect: ServerListEffect) {
