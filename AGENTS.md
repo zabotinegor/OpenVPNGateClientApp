@@ -84,7 +84,7 @@
 
 ## Long-Running Operation Rules
 
-Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code — through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
+Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code Р Р†Р вЂљРІР‚Сњ through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
 
 Terminal execution is capability-based: use any terminal-capable tool exposed in the current session (`run_in_terminal`, `execute`, `runCommands`). Do not stop solely because one specific tool ID is unavailable.
 
@@ -94,7 +94,7 @@ When generating a handoff prompt at user or agent request, return exactly one fe
 
 ## SDLC Status Updates
 
-Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only — never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
+Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only Р Р†Р вЂљРІР‚Сњ never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
 
 ## SDLC Minimum Report Contract
 
@@ -129,15 +129,17 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `pwsh -File .github/scripts/init-session.ps1`
-2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
+1. Run `.github/scripts/init-session.ps1`
+2. Run `.github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
-   b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
+   b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
    c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
    d. Stop. Do not proceed with the requested task.
-4. During the session: check rate limit before every long operation and before every call to `pwsh -File .github/scripts/update-sdlc-status.ps1`.
+4. During the session: check rate limit before every long operation, before every call to `update-sdlc-status.ps1`, AND periodically during long-running phases — at every substep/iteration/surface boundary and at least every ~10 tool operations or ~5 minutes of continuous work. A start-of-run check alone is not enough: many short tool calls in a row can exhaust the window without any single "long operation".
 5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
+6. On `warning`/`exhausted` mid-run: write the substep checkpoint first (`update-sdlc-status.ps1 -Substep ...`). Then, if running as a **subagent**, return `GATE: BLOCKED`, `REASON: rate-limit` with completed substeps and remaining scope — never call `ScheduleWakeup`/`CronCreate` from a subagent; the orchestrator checkpoints the session and schedules resume. Standalone sessions follow step 3.
+7. Orchestrators: run `check-rate-limit.ps1` before every subagent spawn; do not spawn an expensive specialist (manual-qa, implement, code-review, quality-gate, merge, bug-flow) at >=80% — checkpoint and stop instead.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
