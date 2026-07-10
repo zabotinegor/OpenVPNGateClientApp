@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,6 +77,29 @@ class FavoritesFilterTest {
         val result = FavoritesFilter.filterFavoriteCountries(setOf("US"), emptyList())
 
         assertTrue(result.isEmpty())
+    }
+
+    // --- Countries: locale-independent code matching (PR #118 review R2) ---
+
+    @Test
+    fun filterFavoriteCountries_matchesLowercaseCodesRegardlessOfDefaultLocale() {
+        val defaultLocale = Locale.getDefault()
+        try {
+            // Turkish locale: locale-sensitive "i".uppercase() yields dotted capital I (U+0130),
+            // which would break matching against the store-normalized "TR"/"IT" codes.
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+
+            val favorites = setOf("tr", "it")
+            val current = listOf(country("TR"), country("IT"), country("US"))
+
+            val result = FavoritesFilter.filterFavoriteCountries(favorites, current)
+
+            assertEquals(2, result.size)
+            assertTrue(result.any { it.code == "TR" })
+            assertTrue(result.any { it.code == "IT" })
+        } finally {
+            Locale.setDefault(defaultLocale)
+        }
     }
 
     // --- Countries: restoration after re-appearance (AC4) ---
