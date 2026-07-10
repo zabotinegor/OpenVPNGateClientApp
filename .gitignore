@@ -118,6 +118,8 @@ docs/qa-evidence
 
 
 
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -172,6 +174,7 @@ docs/qa-evidence
 /.github/scripts/map-desktop-accounts.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1
+/.github/scripts/post-round-summary.ps1
 /.github/scripts/rate-limit-server.js
 /.github/scripts/resolve-account.ps1
 /.github/scripts/resolve-pr-threads.ps1
