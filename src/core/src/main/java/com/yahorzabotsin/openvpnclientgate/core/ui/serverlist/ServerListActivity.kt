@@ -183,10 +183,12 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun focusAdapterPosition(position: Int) {
-        // Scroll first: findViewHolderForAdapterPosition returns null for a position
-        // RecyclerView hasn't bound yet because it's off-screen.
-        contentBinding.serversRecyclerView.scrollToPosition(position)
-        focusAdapterPositionWhenReady(position, attemptsLeft = 10)
+        applyFocusFirstItem(
+            isTvDevice = TvUtils.isTvDevice(this),
+            position = position,
+            scrollToPosition = contentBinding.serversRecyclerView::scrollToPosition,
+            focusWhenReady = { focusAdapterPositionWhenReady(it, attemptsLeft = 10) }
+        )
     }
 
     private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {
@@ -213,6 +215,30 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * Handles the [ServerListEffect.FocusFirstItem] effect. This is a TV/D-pad
+         * concern only: on touch devices both the scroll and the focus request are
+         * skipped entirely, because scrollToPosition(1) on open would hide the pinned
+         * Favorites section header at position 0 (DEF-sub05-serverlist-header-misscroll-on-open,
+         * same defect class as DEF-sub03-header-misscroll-on-open in CountryServersActivity)
+         * and touch users don't need item-level focus. Extracted as a testable seam
+         * (mirrors CountryServersActivity.applyFocusFirstItem).
+         */
+        internal fun applyFocusFirstItem(
+            isTvDevice: Boolean,
+            position: Int,
+            scrollToPosition: (Int) -> Unit,
+            focusWhenReady: (Int) -> Unit
+        ) {
+            if (!isTvDevice) {
+                return
+            }
+            // Scroll first: findViewHolderForAdapterPosition returns null for a position
+            // RecyclerView hasn't bound yet because it's off-screen.
+            scrollToPosition(position)
+            focusWhenReady(position)
+        }
+
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
         const val EXTRA_SELECTED_SERVER_COUNTRY_CODE = "EXTRA_SELECTED_SERVER_COUNTRY_CODE"
         const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"

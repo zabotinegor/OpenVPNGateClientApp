@@ -217,9 +217,9 @@ class CountryServersActivity : AppCompatActivity() {
          * skipped entirely, because scrollToPosition(1) on open would hide the pinned
          * Favorites section header at position 0 (DEF-sub03-header-misscroll-on-open)
          * and touch users don't need item-level focus. Extracted as a testable seam
-         * (mirrors ConnectionControlsView.resolveFocusTarget). Note: the same
-         * unconditional scroll pattern still exists in ServerListActivity (merged
-         * SUB-02) and is tracked as a separate follow-up.
+         * (mirrors ConnectionControlsView.resolveFocusTarget). Note: the same pattern
+         * is mirrored in ServerListActivity.applyFocusFirstItem
+         * (DEF-sub05-serverlist-header-misscroll-on-open).
          */
         internal fun applyFocusFirstItem(
             isTvDevice: Boolean,
