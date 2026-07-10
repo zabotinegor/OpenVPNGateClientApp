@@ -32,8 +32,8 @@ acceptance: AC1 (country half)
    single item "Add to favorites" (uiautomator dump shows a PopupWindow container with the item
    text).
 5. Tap "Add to favorites". Assert:
-   - a toast "Added to favorites" appears (visual; optionally
-     `logcat -d | grep "toggled_favorite action=add"`);
+   - a toast "Added to favorites" appears (visual only — the app logs no
+     favorites-toggle line; persistence is asserted via the prefs check below);
    - a pinned "Favorites" section header (`section_header_title` text "Favorites") appears at the
      top with the country row beneath it, with NO manual refresh;
    - the same country still appears at its normal alphabetical position in the regular list below
