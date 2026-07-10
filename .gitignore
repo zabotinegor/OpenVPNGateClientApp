@@ -100,6 +100,14 @@ artifacts
 
 docs/qa-evidence
 
+
+
+
+
+
+
+
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -127,8 +135,8 @@ docs/qa-evidence
 /.github/agents/e2e-manual-tester.agent.md
 /.github/agents/github-create-pr.agent.md
 /.github/agents/github-create-release.agent.md
-/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-pr-merger.agent.md
+/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-review-comments.agent.md
 /.github/agents/master-plan.agent.md
 /.github/agents/release-flow-orchestrator.agent.md
@@ -136,9 +144,9 @@ docs/qa-evidence
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/account-context.ps1
+/.github/scripts/checkpoint-session.ps1
 /.github/scripts/check-rate-limit.ps1
 /.github/scripts/check-session-before-tool.ps1
-/.github/scripts/checkpoint-session.ps1
 /.github/scripts/chrome-extension/background.js
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js

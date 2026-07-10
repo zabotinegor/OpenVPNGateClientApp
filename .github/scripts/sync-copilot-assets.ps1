@@ -86,7 +86,10 @@ function Get-SectionFromSourceFile {
         throw "Source section file '$SourcePath' does not exist."
     }
 
-    $sourceLines = @(Get-Content -LiteralPath $SourcePath)
+    # Explicit UTF-8: under Windows PowerShell 5.1 the default is ANSI, which
+    # mangles non-ASCII content (em-dashes) in BOM-less UTF-8 markdown and made
+    # the marker-injection verify fail with mojibake in the target file.
+    $sourceLines = @(Get-Content -LiteralPath $SourcePath -Encoding UTF8)
     $beginIdx = $sourceLines.IndexOf($BeginMarker)
     $endIdx = $sourceLines.IndexOf($EndMarker)
     if ($beginIdx -ge 0 -and $endIdx -gt $beginIdx) {
@@ -125,7 +128,7 @@ function Set-FileSectionByMarkers {
         }
     }
 
-    $targetLines = @(Get-Content -LiteralPath $TargetPath)
+    $targetLines = @(Get-Content -LiteralPath $TargetPath -Encoding UTF8)
     $beginIdx = $targetLines.IndexOf($BeginMarker)
     $endIdx = $targetLines.IndexOf($EndMarker)
 
@@ -225,7 +228,7 @@ function Set-ExactGitignoreEntries {
     $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**')
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
-        $existing = @(Get-Content -LiteralPath $gitignorePath)
+        $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
     }
 
     foreach ($blockedPattern in $blockedPatterns) {
@@ -300,7 +303,7 @@ function Set-TransientCopilotArtifactGitignoreEntries {
 
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
-        $existing = @(Get-Content -LiteralPath $gitignorePath)
+        $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
     }
 
     $next = New-Object System.Collections.Generic.List[string]
@@ -441,7 +444,7 @@ function Merge-JsonSettings {
         return [pscustomobject]@{ changed = $false; action = 'source-missing' }
     }
 
-    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw
+    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw -Encoding UTF8
     try {
         $sourceObj = $sourceRaw | ConvertFrom-Json
     } catch {
@@ -452,7 +455,7 @@ function Merge-JsonSettings {
 
     $targetObj = [pscustomobject]@{}
     if (Test-Path -LiteralPath $TargetPath) {
-        $targetContent = Get-Content -LiteralPath $TargetPath -Raw
+        $targetContent = Get-Content -LiteralPath $TargetPath -Raw -Encoding UTF8
         if (-not [string]::IsNullOrWhiteSpace($targetContent)) {
             try {
                 $targetObj = $targetContent | ConvertFrom-Json

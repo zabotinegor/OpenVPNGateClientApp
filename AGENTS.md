@@ -84,7 +84,7 @@
 
 ## Long-Running Operation Rules
 
-Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code Р Р†Р вЂљРІР‚Сњ through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
+Required builds, tests, migrations, validation, deploys, CI checks, browser/mobile sessions, and background jobs must run in foreground shell until exit code Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ through a real tool callback, or through `.github/scripts/invoke-long-operation.ps1` with `.sdlc/operations/*/status.json` polling. Fire-and-forget VS Code tasks are forbidden for required validation unless completion status, exit code, and recent logs are readable by the agent.
 
 Terminal execution is capability-based: use any terminal-capable tool exposed in the current session (`run_in_terminal`, `execute`, `runCommands`). Do not stop solely because one specific tool ID is unavailable.
 
@@ -94,7 +94,7 @@ When generating a handoff prompt at user or agent request, return exactly one fe
 
 ## SDLC Status Updates
 
-Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only Р Р†Р вЂљРІР‚Сњ never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
+Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using named parameters only Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ never positional shorthand. Always include `-FlowId`, `-Branch`, `-Step`, `-Status`, `-StoryId`, `-StoryPath`, and `-ValidatePriorSteps` for the current step. Read `.sdlc/status.json` before starting work to verify prerequisite step statuses. See `.github/skills/shared/sdlc-status-gate.md` for the full parameter reference and per-skill prior-step table.
 
 ## SDLC Minimum Report Contract
 
@@ -134,7 +134,7 @@ Before reading any other file or taking any action, every agent must:
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
    b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
-   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
+   c. Schedule in-session auto-resume: if the reset is <=58 min away (3480s), call `ScheduleWakeup` with `delaySeconds` = seconds until `resetsAtUtc` + 120 (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command; otherwise call `CronCreate` with `recurring: false` pinned to `resetsAtUtc` + 2 minutes (local time) with the resume command as the prompt. Keep the app window open — these jobs are session-local (see operational-rules.md, Session Limit Rules item 5).
    d. Stop. Do not proceed with the requested task.
 4. During the session: check rate limit before every long operation, before every call to `update-sdlc-status.ps1`, AND periodically during long-running phases — at every substep/iteration/surface boundary and at least every ~10 tool operations or ~5 minutes of continuous work. A start-of-run check alone is not enough: many short tool calls in a row can exhaust the window without any single "long operation".
 5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
