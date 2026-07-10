@@ -220,7 +220,7 @@ Favorite countries in the pinned section use **the same row component** as the r
 
 If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the "All Countries" section.
 
-**Trigger**: When `FavoritesFilter.filterAvailableFavorites(...)` returns an empty set, the pinned section is hidden entirely.
+**Trigger**: When `FavoritesFilter.filterFavoriteCountries(...)` (or `filterFavoriteServers(...)` on the servers screen) returns an empty list, the pinned section is hidden entirely.
 
 ### Availability Filtering
 
@@ -230,12 +230,17 @@ Once the country reappears in a future sync, it automatically reappears in the p
 
 **Code pattern** (from `FavoritesFilter`):
 ```kotlin
-fun filterAvailableFavorites(
-    allCountries: List<Country>,
-    favoriteCodes: Set<String>
-): List<Country> =
-    allCountries.filter { it.code in favoriteCodes }
+fun filterFavoriteCountries(
+    favoriteCountryCodes: Set<String>,
+    countries: List<CountryV2>
+): List<CountryV2> {
+    if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
+    val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase() }.toSet()
+    return countries.filter { countryV2 -> countryV2.code.uppercase() in upperCaseFavorites }
+}
 ```
+
+The server-side equivalent is `filterFavoriteServers(favoriteServerIds: Set<Int>, servers: List<Server>)`, matching by `Server.id`.
 
 ## Testing Strategy
 
@@ -315,7 +320,7 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
 
 - [x] Adapt long-press pattern to D-pad navigation (hold OK/center on a focused row)
 - [x] Use a remote-navigable dialog (not a `PopupMenu`) on TV — see "TV D-pad Dialog Pattern"
-- [x] Test on an Android TV device (SUB-04 Manual QA on MIBOX4/Android 9 passed all 5 cases; consolidated coverage continues in SUB-05 Manual E2E)
+- [x] Test on an Android TV device (SUB-04 Manual QA on MIBOX4/Android 9 passed all 5 cases; consolidated coverage completed in SUB-05 Manual E2E — SUITE-SUB-05 executed and passed on a real phone + TV)
 - [x] Reuse pinned-section logic and filtering from SUB-02/SUB-03 (unchanged; rows already focusable)
 - [x] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
 
@@ -363,7 +368,9 @@ guard from SUB-02/SUB-03.
 and the server dialog-title fallback. The themed dialog itself cannot be built in core unit
 tests (legacy Robolectric resources mode); on-device verification is done manually. SUB-04
 Manual QA passed all 5 cases (SUITE-SUB-04) on a MIBOX4 Android 9 TV; consolidated phone+TV
-coverage continues in SUB-05 Manual E2E. For device setup, `sendevent`-based D-pad long-press
+coverage was completed in SUB-05 Manual E2E (SUITE-SUB-05 executed and passed on a real phone
+and TV, including availability hide/restore verified via a controlled local mock backend — see
+`tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/`). For device setup, `sendevent`-based D-pad long-press
 injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
 focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
 

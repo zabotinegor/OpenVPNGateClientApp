@@ -398,3 +398,57 @@ SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`
 - `src/docs/favorites-ui-patterns.md`
 - `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`
+
+---
+
+## Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)
+
+**When needed**
+
+A manual QA case requires the synced server-list content to change deterministically (e.g.
+SUB-05 CASE-SUB05-005: a favorited country must disappear from a sync and reappear in a later
+one), but the canonical backend is hosted and cannot be mutated safely, and natural content
+churn cannot be relied on in-session.
+
+**Steps:**
+
+1. Fetch the real payloads from the canonical backend (`PRIMARY_SERVERS_URL` from
+   `servers.local.json`): `countries/active` per supported language, each per-country
+   `/api/v2/servers` payload, and the legacy v1 CSV. Save them as local files.
+2. Serve them with a small local Python HTTP mock bound to `127.0.0.1:18081`, mapping the API
+   routes to the saved files. Have the mock re-read the countries JSON from disk per request so
+   payload edits take effect on the next sync without restarting the mock.
+3. Bridge the device to the host loopback: `adb reverse tcp:18081 tcp:18081`.
+4. Rebuild the debug APK pointed at the mock:
+   `-PPRIMARY_SERVERS_URL=http://127.0.0.1:18081 -PFALLBACK_SERVERS_URL=http://127.0.0.1:18081`.
+   A cleartext loopback URL needs two LOCAL, test-only, **uncommitted** tweaks:
+   - `src/core/build.gradle.kts`: allow loopback `http://` at the config-time URL guard (it
+     otherwise rejects non-HTTPS endpoints at configuration time);
+   - a mobile debug-manifest overlay setting `android:usesCleartextTraffic="true"`.
+5. Install the mock build and confirm the runtime is actually on-mock via logcat (SSE
+   `connecting url=http://127.0.0.1:18081/...`, countries/servers fetched from the mock)
+   before asserting anything.
+6. Drive content changes by editing the served JSON; trigger an immediate re-sync via HOME +
+   reopen (SSE `onOpen` fires a `forceRefresh` sync on every foreground return).
+7. Cleanup (mandatory): revert both local patches (`git checkout` / delete the overlay; verify
+   `git status` is clean of QA patches), stop the mock, `adb reverse --remove tcp:18081`,
+   reinstall the canonical APK, and verify the installed `base.apk` md5 equals the canonical
+   build artifact.
+
+**Notes:**
+
+- Never commit the two build tweaks — they defeat the HTTPS-only endpoint guard.
+- The mock-build APK has a different md5 than the canonical build; record both so evidence is
+  attributable to the right build.
+- If `adb install -r` fails with `INSTALL_FAILED_INSUFFICIENT_STORAGE`, uninstall + fresh
+  install works.
+
+**First demonstrated**
+
+SUB-05 Manual QA (`CASE-SUB05-005-mock`, AC3 favorites availability hide/restore).
+
+**References**
+
+- `tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md`
+- `docs/runbooks/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
+- `src/docs/server-sync-flow.md` (sync trigger matrix)

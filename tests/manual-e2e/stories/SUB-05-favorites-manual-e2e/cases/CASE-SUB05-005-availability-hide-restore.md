@@ -9,8 +9,8 @@ acceptance: AC3 (mid-state also evidences AC4)
 ## Background
 
 The pinned Favorites section shows only **currently available** favorites:
-`FavoritesFilter.filterAvailableFavorites(...)` intersects the stored favorite set with the
-latest synced list. When a favorited country/server is absent from a sync it is hidden from the
+`FavoritesFilter.filterFavoriteCountries(...)` / `FavoritesFilter.filterFavoriteServers(...)`
+intersect the stored favorite set with the latest synced list. When a favorited country/server is absent from a sync it is hidden from the
 pinned section but its entry **stays in `favorites_prefs.xml`**; when a later sync contains it
 again it reappears automatically with no re-favoriting. See
 [src/docs/favorites-ui-patterns.md](../../../../../src/docs/favorites-ui-patterns.md)
@@ -34,7 +34,10 @@ trigger is practical for the session, in order of preference:
    AGENTS.local.md is available and the app points at it, remove the favorited country's servers
    (or the favorited server) from the backend data, let it push an SSE `servers-changed` event
    (or restart its list), then re-add them for the restore half. SSE-driven sync applies within
-   seconds while the app is foregrounded (500 ms debounce).
+   seconds while the app is foregrounded (500 ms debounce). If no mutable local backend is
+   available, a local mock backend serving captured real payloads works the same way — see
+   [docs/runbooks/how-to.md](../../../../../docs/runbooks/how-to.md)
+   ("Serve a local mock backend to drive availability-driven QA").
 2. **Natural backend churn (observational)**: VPN Gate-backed content churns frequently; SUB-02
    QA observed a favorited country disappearing live mid-session. Favorite a country that looks
    volatile (few servers, low uptime) and keep the app foregrounded; each SSE `servers-changed`
