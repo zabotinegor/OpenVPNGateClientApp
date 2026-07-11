@@ -21,7 +21,8 @@ again it reappears automatically with no re-favoriting. See
 
 - Same phone build/launch preconditions as CASE-SUB05-001.
 - At least one favorite country pinned on the countries screen (reuse from CASE-SUB05-001 or add
-  one now); optionally one favorite server in a target country for the server-level variant.
+  one now); AND one favorite server in a target country for the required server-level variant
+  (carry it forward from CASE-SUB05-002 per suite order, or add one now).
 - Pre-test `favorites_prefs.xml` recorded — this exact content must remain byte-identical for the
   whole case (the point of AC3 is that storage never changes).
 
@@ -72,11 +73,16 @@ churn), mark the case BLOCKED with the attempts documented — do not pass it va
      (no long-press, no re-favoriting performed at any point in this case);
    - `favorites_prefs.xml` is still byte-identical to the baseline;
    - long-press on the restored pinned row still shows "Remove from favorites" (state intact).
-6. Server-level variant (same mechanics, run when a controllable backend makes it practical):
-   with a favorited server in the target country, induce a sync where that server is absent from
-   the country's server list, assert its pinned row hides while `favorite_server_ids` is
-   unchanged, then restore and assert automatic reappearance. If only the country-level variant
-   is executable in-session, record the server-level variant explicitly as not-run with reason.
+6. Server-level variant (same mechanics, REQUIRED for AC3 sign-off): server favorites use
+   separate persisted state (`favorite_server_ids` in `favorites_prefs.xml`) and a separate
+   filter path (`FavoritesFilter.filterFavoriteServers`), so country-level churn alone cannot
+   evidence server re-filtering across syncs — both variants are load-bearing. With a favorited
+   server in the target country, induce a sync where that server is absent from the country's
+   server list, assert its pinned row hides while `favorite_server_ids` is unchanged, then
+   restore and assert automatic reappearance. If no server-level content-change trigger is
+   achievable in-session, mark the whole case BLOCKED with the attempts documented (same rule as
+   the trigger section above) — never record the server-level variant as not-run while signing
+   off AC3 as PASS on country-level evidence alone.
 
 ## Expected
 
