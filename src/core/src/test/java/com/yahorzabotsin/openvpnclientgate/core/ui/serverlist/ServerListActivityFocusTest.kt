@@ -3,9 +3,6 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
 /**
  * Regression test for DEF-sub05-serverlist-header-misscroll-on-open.
@@ -24,8 +21,6 @@ import org.robolectric.annotation.Config
  * The full themed Activity cannot be launched here because core unit tests run Robolectric
  * in legacy resources mode, which cannot resolve AppCompat/Material library theme resources.
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [27])
 class ServerListActivityFocusTest {
 
     @Test
