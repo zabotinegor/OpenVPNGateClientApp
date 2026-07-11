@@ -65,4 +65,29 @@ class ServerListActivityFocusTest {
         // returns null for positions RecyclerView hasn't bound yet.
         assertEquals(listOf("scroll:1", "focus:1"), calls)
     }
+
+    @Test
+    fun `tv device - negative position is ignored so no scroll or focus is attempted`() {
+        val scrollCalls = mutableListOf<Int>()
+        val focusCalls = mutableListOf<Int>()
+
+        // RecyclerView.NO_POSITION (-1) or any other invalid position must be a no-op:
+        // scrollToPosition(-1) is meaningless and focusWhenReady(-1) can never resolve
+        // a ViewHolder.
+        TvUtils.applyFocusFirstItem(
+            isTvDevice = true,
+            position = -1,
+            scrollToPosition = { scrollCalls.add(it) },
+            focusWhenReady = { focusCalls.add(it) }
+        )
+
+        assertTrue(
+            "scrollToPosition must NOT be called for a negative adapter position",
+            scrollCalls.isEmpty()
+        )
+        assertTrue(
+            "focusWhenReady must NOT be called for a negative adapter position",
+            focusCalls.isEmpty()
+        )
+    }
 }

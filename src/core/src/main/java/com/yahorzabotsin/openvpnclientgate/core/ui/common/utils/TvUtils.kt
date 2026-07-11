@@ -32,7 +32,9 @@ object TvUtils {
         scrollToPosition: (Int) -> Unit,
         focusWhenReady: (Int) -> Unit
     ) {
-        if (!isTvDevice) {
+        // position < 0 covers RecyclerView.NO_POSITION (-1) without pulling a
+        // RecyclerView dependency into this utility.
+        if (!isTvDevice || position < 0) {
             return
         }
         // Scroll first: findViewHolderForAdapterPosition returns null for a position
