@@ -23,7 +23,19 @@ data class CountryWithServers(
  */
 sealed interface CountryListItem {
     data class SectionHeader(val title: UiText) : CountryListItem
-    data class CountryRow(val countryWithServers: CountryWithServers, val isFavorite: Boolean) : CountryListItem
+
+    /**
+     * @param isPinnedSection true only for the row instance rendered inside the pinned
+     * "Favorites" block at the top of the list (immediately after [SectionHeader]). A
+     * favorited country also appears a second time at its normal alphabetical position in
+     * the regular list below with [isPinnedSection] = false (see [CountryListAdapter] doc).
+     * Used purely for visual framing (SUB-06); does not affect click/long-click behavior.
+     */
+    data class CountryRow(
+        val countryWithServers: CountryWithServers,
+        val isFavorite: Boolean,
+        val isPinnedSection: Boolean = false
+    ) : CountryListItem
 }
 
 class CountryListAdapter(
@@ -72,6 +84,26 @@ class CountryListAdapter(
     }
 
     override fun getItemCount(): Int = items.size
+
+    /**
+     * Number of leading items (the [CountryListItem.SectionHeader] plus its pinned
+     * [CountryListItem.CountryRow] entries) that make up the pinned "Favorites" block, or 0
+     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration]
+     * to draw a border/frame around exactly that block (SUB-06).
+     */
+    fun pinnedSectionItemCount(): Int {
+        if (items.isEmpty() || items[0] !is CountryListItem.SectionHeader) return 0
+        var count = 1
+        for (i in 1 until items.size) {
+            val item = items[i]
+            if (item is CountryListItem.CountryRow && item.isPinnedSection) {
+                count++
+            } else {
+                break
+            }
+        }
+        return count
+    }
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_header_title)

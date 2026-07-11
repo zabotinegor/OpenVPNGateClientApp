@@ -168,6 +168,54 @@ class ServerPickerAdapterTest {
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
     }
 
+    // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
+
+    @Test
+    fun `pinnedSectionItemCount is zero when favorites section is hidden`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(ServerListItem.ServerRow(serverA, isFavorite = false))
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount counts header plus pinned rows only, excluding regular list rows`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val serverB = buildServer(city = "Nice", name = "srv-b").copy(id = 2)
+        val serverC = buildServer(city = "Lyon", name = "srv-c").copy(id = 3)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverB, isFavorite = true, isPinnedSection = true),
+            // Regular (unheaded) list below: includes the same favorites again at their
+            // normal position, but isPinnedSection = false so it must not extend the frame.
+            ServerListItem.ServerRow(serverA, isFavorite = true),
+            ServerListItem.ServerRow(serverB, isFavorite = true),
+            ServerListItem.ServerRow(serverC, isFavorite = false)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        // header (1) + 2 pinned favorite rows = 3; the 3 regular-list rows are excluded.
+        assertEquals(3, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount updates to zero after last favorite is removed via updateItems`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val initialItems = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverA, isFavorite = true)
+        )
+        val adapter = ServerPickerAdapter(initialItems, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        assertEquals(2, adapter.pinnedSectionItemCount())
+
+        adapter.updateItems(listOf(ServerListItem.ServerRow(serverA, isFavorite = false)))
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
     @Test
     fun `updateItems changes items without recreating adapter`() {
         val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)

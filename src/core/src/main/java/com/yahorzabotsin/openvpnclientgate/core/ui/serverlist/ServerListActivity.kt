@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
@@ -72,6 +73,11 @@ open class ServerListActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
         contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
+        // SUB-06: frame drawn purely from adapter.pinnedSectionItemCount(); returns 0 (no
+        // drawing) whenever the pinned Favorites section is hidden.
+        contentBinding.serversRecyclerView.addItemDecoration(
+            FavoritesSectionFrameDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
+        )
     }
 
     private fun render(state: ServerListUiState) {
