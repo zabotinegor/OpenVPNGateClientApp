@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,9 +16,9 @@ import org.junit.Test
  * natural top position (no scroll at all) so the header stays visible. TV devices (D-pad)
  * keep the existing scroll-then-focus behavior.
  *
- * Exercises [ServerListActivity.applyFocusFirstItem] — the production handler of the
- * FocusFirstItem effect, extracted as a testable seam (mirrors
- * CountryServersActivity.applyFocusFirstItem, the DEF-sub03-header-misscroll-on-open fix).
+ * Exercises [TvUtils.applyFocusFirstItem] — the shared production handler of the
+ * FocusFirstItem effect used by ServerListActivity (also covers the
+ * DEF-sub03-header-misscroll-on-open fix path shared with CountryServersActivity).
  * The full themed Activity cannot be launched here because core unit tests run Robolectric
  * in legacy resources mode, which cannot resolve AppCompat/Material library theme resources.
  */
@@ -30,7 +31,7 @@ class ServerListActivityFocusTest {
 
         // ViewModel emits FocusFirstItem(1) when a SectionHeader occupies position 0
         // (>=1 favorite country persisted).
-        ServerListActivity.applyFocusFirstItem(
+        TvUtils.applyFocusFirstItem(
             isTvDevice = false,
             position = 1,
             scrollToPosition = { scrollCalls.add(it) },
@@ -53,7 +54,7 @@ class ServerListActivityFocusTest {
     fun `tv device - FocusFirstItem scrolls to the target row and then requests focus`() {
         val calls = mutableListOf<String>()
 
-        ServerListActivity.applyFocusFirstItem(
+        TvUtils.applyFocusFirstItem(
             isTvDevice = true,
             position = 1,
             scrollToPosition = { calls.add("scroll:$it") },

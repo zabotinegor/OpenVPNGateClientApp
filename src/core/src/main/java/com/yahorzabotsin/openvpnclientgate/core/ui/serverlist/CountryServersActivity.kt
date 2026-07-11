@@ -174,7 +174,9 @@ class CountryServersActivity : AppCompatActivity() {
     }
 
     private fun focusAdapterPosition(position: Int) {
-        applyFocusFirstItem(
+        // TV-gated scroll+focus; skipped on touch devices
+        // (DEF-sub03-header-misscroll-on-open). See TvUtils.applyFocusFirstItem.
+        TvUtils.applyFocusFirstItem(
             isTvDevice = TvUtils.isTvDevice(this),
             position = position,
             scrollToPosition = contentBinding.serversRecyclerView::scrollToPosition,
@@ -212,34 +214,9 @@ class CountryServersActivity : AppCompatActivity() {
 
     companion object {
         /**
-         * Handles the [CountryServersEffect.FocusFirstItem] effect. This is a TV/D-pad
-         * concern only: on touch devices both the scroll and the focus request are
-         * skipped entirely, because scrollToPosition(1) on open would hide the pinned
-         * Favorites section header at position 0 (DEF-sub03-header-misscroll-on-open)
-         * and touch users don't need item-level focus. Extracted as a testable seam
-         * (mirrors ConnectionControlsView.resolveFocusTarget). Note: the same pattern
-         * is mirrored in ServerListActivity.applyFocusFirstItem
-         * (DEF-sub05-serverlist-header-misscroll-on-open).
-         */
-        internal fun applyFocusFirstItem(
-            isTvDevice: Boolean,
-            position: Int,
-            scrollToPosition: (Int) -> Unit,
-            focusWhenReady: (Int) -> Unit
-        ) {
-            if (!isTvDevice) {
-                return
-            }
-            // Scroll first: findViewHolderForAdapterPosition returns null for a position
-            // RecyclerView hasn't bound yet because it's off-screen.
-            scrollToPosition(position)
-            focusWhenReady(position)
-        }
-
-        /**
          * TV favorite-dialog title for a server row: the city when present, otherwise the
          * IP — mirrors the row-title fallback used by [ServerPickerAdapter]. Extracted as a
-         * testable seam (same rationale as [applyFocusFirstItem]).
+         * testable seam (same rationale as [TvUtils.applyFocusFirstItem]).
          */
         internal fun tvFavoriteDialogTitle(city: String, ip: String): String =
             city.trim().ifEmpty { ip }

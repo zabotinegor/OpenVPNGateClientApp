@@ -183,7 +183,9 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun focusAdapterPosition(position: Int) {
-        applyFocusFirstItem(
+        // TV-gated scroll+focus; skipped on touch devices
+        // (DEF-sub05-serverlist-header-misscroll-on-open). See TvUtils.applyFocusFirstItem.
+        TvUtils.applyFocusFirstItem(
             isTvDevice = TvUtils.isTvDevice(this),
             position = position,
             scrollToPosition = contentBinding.serversRecyclerView::scrollToPosition,
@@ -215,30 +217,6 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     companion object {
-        /**
-         * Handles the [ServerListEffect.FocusFirstItem] effect. This is a TV/D-pad
-         * concern only: on touch devices both the scroll and the focus request are
-         * skipped entirely, because scrollToPosition(1) on open would hide the pinned
-         * Favorites section header at position 0 (DEF-sub05-serverlist-header-misscroll-on-open,
-         * same defect class as DEF-sub03-header-misscroll-on-open in CountryServersActivity)
-         * and touch users don't need item-level focus. Extracted as a testable seam
-         * (mirrors CountryServersActivity.applyFocusFirstItem).
-         */
-        internal fun applyFocusFirstItem(
-            isTvDevice: Boolean,
-            position: Int,
-            scrollToPosition: (Int) -> Unit,
-            focusWhenReady: (Int) -> Unit
-        ) {
-            if (!isTvDevice) {
-                return
-            }
-            // Scroll first: findViewHolderForAdapterPosition returns null for a position
-            // RecyclerView hasn't bound yet because it's off-screen.
-            scrollToPosition(position)
-            focusWhenReady(position)
-        }
-
         const val EXTRA_SELECTED_SERVER_COUNTRY = "EXTRA_SELECTED_SERVER_COUNTRY"
         const val EXTRA_SELECTED_SERVER_COUNTRY_CODE = "EXTRA_SELECTED_SERVER_COUNTRY_CODE"
         const val EXTRA_SELECTED_SERVER_CITY = "EXTRA_SELECTED_SERVER_CITY"

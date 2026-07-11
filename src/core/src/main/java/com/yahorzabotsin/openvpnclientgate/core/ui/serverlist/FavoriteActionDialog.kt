@@ -14,7 +14,7 @@ import com.yahorzabotsin.openvpnclientgate.core.R
  * ToggleFavorite action are identical on both surfaces; only the presentation differs.
  *
  * [resolvePresentation] and [actionLabelRes] are extracted as testable seams (mirrors the
- * [CountryServersActivity.applyFocusFirstItem] pattern) because the full themed Activity
+ * TvUtils.applyFocusFirstItem pattern) because the full themed Activity
  * cannot be launched in core unit tests (legacy Robolectric resources mode cannot resolve
  * AppCompat/Material theme resources).
  */
