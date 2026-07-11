@@ -129,11 +129,11 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `.github/scripts/init-session.ps1`
-2. Run `.github/scripts/check-rate-limit.ps1`
+1. Run `pwsh -File .github/scripts/init-session.ps1`
+2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
-   b. Run `.github/scripts/checkpoint-session.ps1` with current flow state.
+   b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
    c. Schedule in-session auto-resume: if the reset is <=58 min away (3480s), call `ScheduleWakeup` with `delaySeconds` = seconds until `resetsAtUtc` + 120 (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command; otherwise call `CronCreate` with `recurring: false` pinned to `resetsAtUtc` + 2 minutes (local time) with the resume command as the prompt. Keep the app window open — these jobs are session-local (see operational-rules.md, Session Limit Rules item 5).
    d. Stop. Do not proceed with the requested task.
 4. During the session: check rate limit before every long operation, before every call to `update-sdlc-status.ps1`, AND periodically during long-running phases — at every substep/iteration/surface boundary and at least every ~10 tool operations or ~5 minutes of continuous work. A start-of-run check alone is not enough: many short tool calls in a row can exhaust the window without any single "long operation".
@@ -205,7 +205,7 @@ Summary:
 - **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
 - Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
 - On checkpoint: call `ScheduleWakeup` tool + inform user.
-- On new session: run `.github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
+- On new session: run `pwsh -File .github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
 
 ## Git Rules

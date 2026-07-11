@@ -250,6 +250,11 @@ function Set-ExactGitignoreEntries {
     foreach ($line in $existing) {
         if ($line -eq $beginMarker) {
             $insideManagedBlock = $true
+            # Drop the separator blank line(s) a previous sync added before the
+            # block, so re-syncs do not accumulate blank lines mid-file.
+            while ($next.Count -gt 0 -and $next[$next.Count - 1] -eq '') {
+                $next.RemoveAt($next.Count - 1)
+            }
             continue
         }
 
@@ -311,6 +316,11 @@ function Set-TransientCopilotArtifactGitignoreEntries {
     foreach ($line in $existing) {
         if ($line -eq $beginMarker) {
             $insideManagedBlock = $true
+            # Drop the separator blank line(s) a previous sync added before the
+            # block, so re-syncs do not accumulate blank lines mid-file.
+            while ($next.Count -gt 0 -and $next[$next.Count - 1] -eq '') {
+                $next.RemoveAt($next.Count - 1)
+            }
             continue
         }
 
