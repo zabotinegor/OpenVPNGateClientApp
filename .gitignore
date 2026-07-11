@@ -97,6 +97,8 @@ artifacts
 
 .sdlc
 
+docs/qa-evidence
+
 # BEGIN synced-copilot-assets
 /.claude/commands/bug-flow.md
 /.claude/commands/code-review.md
@@ -148,20 +150,20 @@ artifacts
 /.github/scripts/get-pr-bot-comments.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
-/.github/scripts/invoke-master-plan.ps1
-/.github/scripts/invoke-story-flow.ps1
 /.github/scripts/map-desktop-accounts.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1
+/.github/scripts/post-round-summary.ps1
 /.github/scripts/rate-limit-server.js
 /.github/scripts/resolve-account.ps1
 /.github/scripts/resolve-pr-threads.ps1
 /.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
-/.github/scripts/run-review-round.ps1
 /.github/scripts/session-refresh-watchdog.js
 /.github/scripts/setup-multi-account.ps1
 /.github/scripts/setup-session-tracking.ps1
+/.github/scripts/start-review-round.ps1
+/.github/scripts/test-sdlc-lease.ps1
 /.github/scripts/test-session-tracking.ps1
 /.github/scripts/update-master-plan-status.ps1
 /.github/scripts/update-sdlc-status.ps1
@@ -222,4 +224,3 @@ CODE_REVIEW_HANDOFF_*.md
 /.claude/settings.local.json
 **/.claude/settings.local.json
 # END transient-copilot-artifacts
-docs/qa-evidence

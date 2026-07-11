@@ -1,5 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import java.util.Locale
+
 /**
  * Pure filtering utilities that intersect persisted favorites ([FavoritesStore]) with a
  * currently synced list. A favorite that is absent from the current list is simply excluded
@@ -19,8 +21,8 @@ object FavoritesFilter {
         countries: List<CountryV2>
     ): List<CountryV2> {
         if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
-        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase() }.toSet()
-        return countries.filter { countryV2 -> countryV2.code.uppercase() in upperCaseFavorites }
+        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
+        return countries.filter { countryV2 -> countryV2.code.uppercase(Locale.ROOT) in upperCaseFavorites }
     }
 
     /**

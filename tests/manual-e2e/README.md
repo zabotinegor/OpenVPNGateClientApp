@@ -66,6 +66,19 @@ stories/{story-id}-{kebab-title}/
   - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-004-pinned-section-dialog.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-004-pinned-section-dialog.md)
   - [stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-005-regression-short-press-drawer.md](stories/SUB-04-tv-favorites-interaction/cases/CASE-SUB04-005-regression-short-press-drawer.md)
 
+### SUB-05 - Favorites Manual E2E (Phone + TV)
+- Location: [stories/SUB-05-favorites-manual-e2e/](stories/SUB-05-favorites-manual-e2e/)
+- Suite: [stories/SUB-05-favorites-manual-e2e/suites/SUITE-SUB-05-favorites-manual-e2e.md](stories/SUB-05-favorites-manual-e2e/suites/SUITE-SUB-05-favorites-manual-e2e.md)
+- Spec: [stories/SUB-05-favorites-manual-e2e/specs/SPEC-SUB-05-favorites-manual-e2e.md](stories/SUB-05-favorites-manual-e2e/specs/SPEC-SUB-05-favorites-manual-e2e.md)
+- Environment: [environment/android-adb-vpn-qa-runbook.md](environment/android-adb-vpn-qa-runbook.md) (phone), [environment/android-tv-dpad-qa-runbook.md](environment/android-tv-dpad-qa-runbook.md) (TV)
+- Cases:
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-001-phone-country-add-remove.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-001-phone-country-add-remove.md)
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-002-phone-server-add-remove.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-002-phone-server-add-remove.md)
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-003-tv-country-add-remove.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-003-tv-country-add-remove.md)
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-004-tv-server-add-remove.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-004-tv-server-add-remove.md)
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md)
+  - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-006-empty-favorites-section-absent.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-006-empty-favorites-section-absent.md)
+
 ### TV-DRAWER-FALSE-CLICK
 - Location: [stories/TV-DRAWER-FALSE-CLICK/](stories/TV-DRAWER-FALSE-CLICK/)
 - Suite: [stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md](stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md)

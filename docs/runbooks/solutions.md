@@ -587,3 +587,9 @@ SUB-03 (`CountryServersActivity.kt`).
 adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/event2 0 0 0 && sleep 1.2 && sendevent /dev/input/event2 1 353 0 && sendevent /dev/input/event2 0 0 0"
 ```
 See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
+
+### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen
+**Context:** Screens with a pinned Favorites section at adapter position 0 (SUB-02/SUB-03 pattern) also emit a `FocusFirstItem` effect that scrolls/focuses the first *data* row (position 1) for TV D-pad UX.
+**Problem:** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
+**Solution:** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. When adding a pinned section (or the FocusFirstItem effect) to any new list screen, apply the gate there too and add the matching Robolectric focus test (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
+**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8).

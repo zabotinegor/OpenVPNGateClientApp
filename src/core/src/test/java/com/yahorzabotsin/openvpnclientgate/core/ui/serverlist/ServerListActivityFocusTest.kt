@@ -4,30 +4,25 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
 /**
- * Regression test for DEF-sub03-header-misscroll-on-open.
+ * Regression test for DEF-sub05-serverlist-header-misscroll-on-open.
  *
- * With >=1 favorite server in the current country, the pinned "Favorites" section header
- * occupies adapter position 0 and CountryServersViewModel emits FocusFirstItem(1) to skip
- * it. On a touch (non-TV) device the Activity must NOT act on that effect: calling
+ * With >=1 favorite country persisted, the pinned "Favorites" section header occupies
+ * adapter position 0 and ServerListViewModel emits FocusFirstItem(1) to skip it. On a
+ * touch (non-TV) device the Activity must NOT act on that effect: calling
  * scrollToPosition(1) on open hides the section header, making the pinned favorite row
  * look like a caption-less duplicate of its regular-list twin. The list must stay at its
  * natural top position (no scroll at all) so the header stays visible. TV devices (D-pad)
  * keep the existing scroll-then-focus behavior.
  *
  * Exercises [TvUtils.applyFocusFirstItem] — the shared production handler of the
- * FocusFirstItem effect used by CountryServersActivity (extracted as a testable seam,
- * mirrors the ConnectionControlsView.resolveFocusTarget pattern). The full themed Activity cannot be
- * launched here because core unit tests run Robolectric in legacy resources mode, which
- * cannot resolve AppCompat/Material library theme resources.
+ * FocusFirstItem effect used by ServerListActivity (also covers the
+ * DEF-sub03-header-misscroll-on-open fix path shared with CountryServersActivity).
+ * The full themed Activity cannot be launched here because core unit tests run Robolectric
+ * in legacy resources mode, which cannot resolve AppCompat/Material library theme resources.
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [27])
-class CountryServersActivityFocusTest {
+class ServerListActivityFocusTest {
 
     @Test
     fun `touch device - FocusFirstItem does not call scrollToPosition so pinned header stays visible`() {
@@ -35,7 +30,7 @@ class CountryServersActivityFocusTest {
         val focusCalls = mutableListOf<Int>()
 
         // ViewModel emits FocusFirstItem(1) when a SectionHeader occupies position 0
-        // (>=1 favorite in the current country).
+        // (>=1 favorite country persisted).
         TvUtils.applyFocusFirstItem(
             isTvDevice = false,
             position = 1,
@@ -46,7 +41,7 @@ class CountryServersActivityFocusTest {
         assertTrue(
             "scrollToPosition must NOT be called on touch devices: it would hide the " +
                 "pinned Favorites header at position 0 on open " +
-                "(DEF-sub03-header-misscroll-on-open)",
+                "(DEF-sub05-serverlist-header-misscroll-on-open)",
             scrollCalls.isEmpty()
         )
         assertTrue(
@@ -69,5 +64,30 @@ class CountryServersActivityFocusTest {
         // Scroll must happen before the focus attempt: findViewHolderForAdapterPosition
         // returns null for positions RecyclerView hasn't bound yet.
         assertEquals(listOf("scroll:1", "focus:1"), calls)
+    }
+
+    @Test
+    fun `tv device - negative position is ignored so no scroll or focus is attempted`() {
+        val scrollCalls = mutableListOf<Int>()
+        val focusCalls = mutableListOf<Int>()
+
+        // RecyclerView.NO_POSITION (-1) or any other invalid position must be a no-op:
+        // scrollToPosition(-1) is meaningless and focusWhenReady(-1) can never resolve
+        // a ViewHolder.
+        TvUtils.applyFocusFirstItem(
+            isTvDevice = true,
+            position = -1,
+            scrollToPosition = { scrollCalls.add(it) },
+            focusWhenReady = { focusCalls.add(it) }
+        )
+
+        assertTrue(
+            "scrollToPosition must NOT be called for a negative adapter position",
+            scrollCalls.isEmpty()
+        )
+        assertTrue(
+            "focusWhenReady must NOT be called for a negative adapter position",
+            focusCalls.isEmpty()
+        )
     }
 }

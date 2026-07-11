@@ -183,10 +183,14 @@ open class ServerListActivity : AppCompatActivity() {
     }
 
     private fun focusAdapterPosition(position: Int) {
-        // Scroll first: findViewHolderForAdapterPosition returns null for a position
-        // RecyclerView hasn't bound yet because it's off-screen.
-        contentBinding.serversRecyclerView.scrollToPosition(position)
-        focusAdapterPositionWhenReady(position, attemptsLeft = 10)
+        // TV-gated scroll+focus; skipped on touch devices
+        // (DEF-sub05-serverlist-header-misscroll-on-open). See TvUtils.applyFocusFirstItem.
+        TvUtils.applyFocusFirstItem(
+            isTvDevice = TvUtils.isTvDevice(this),
+            position = position,
+            scrollToPosition = contentBinding.serversRecyclerView::scrollToPosition,
+            focusWhenReady = { focusAdapterPositionWhenReady(it, attemptsLeft = 10) }
+        )
     }
 
     private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {
