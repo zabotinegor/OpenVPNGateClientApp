@@ -7,7 +7,7 @@ surface: android
 
 ## Preconditions
 - Debug APK from branch `feature/sub-07-favorites-localization` HEAD `533e834` installed on
-  ADB serial `R58N849XQEY`.
+  ADB serial `<your-device-serial>`.
 - Device system language set to Polish (Ustawienia > Języki i wpisywanie > Języki > Polski, moved
   to top).
 - At least one country available and not yet favorited.

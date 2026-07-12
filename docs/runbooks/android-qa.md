@@ -247,7 +247,7 @@ adb shell am force-stop com.yahorzabotsin.openvpnclientgate
 # Relaunch the app
 adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
 
-# Verify active locale in UI — you should see Polish strings (CZAS, STATUS, SERWER, MIASTA, URUCHOM POŁĄCZENIE, Ulubione, etc.)
+# Verify active locale in UI — you should see Polish strings (CZAS, STATUS, SERWER, MIASTO, URUCHOM POŁĄCZENIE, Ulubione, etc.)
 ```
 
 ### Clearing the Override

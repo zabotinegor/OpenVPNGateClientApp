@@ -639,4 +639,4 @@ adb shell cmd locale set-app-locales <package> --user 0 --locales <locale>   # e
 adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # clear override when done
 ```
 Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
-**First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 R58N849XQEY).
+**First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).

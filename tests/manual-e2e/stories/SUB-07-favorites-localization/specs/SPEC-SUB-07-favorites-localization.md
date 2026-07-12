@@ -28,7 +28,7 @@ surfaces: [android]
 
 ## Test Data and Environment
 - Branch `feature/sub-07-favorites-localization`, HEAD commit `533e834` (533e8341df7891859a3d3792d422ca1eb78ab4c5).
-- Device: Samsung Galaxy A71, ADB serial `R58N849XQEY` (real device, mobile debug build).
+- Device: Samsung Galaxy A71, ADB serial `<your-device-serial>` (real device, mobile debug build).
 - Package: `com.yahorzabotsin.openvpnclientgate`.
 - Preconditions: at least one country and one server favorited beforehand so the pinned Favorites
   section and add/remove toasts are exercisable.

@@ -83,7 +83,7 @@ stories/{story-id}-{kebab-title}/
 - Location: [stories/SUB-07-favorites-localization/](stories/SUB-07-favorites-localization/)
 - Suite: [stories/SUB-07-favorites-localization/suites/SUITE-SUB-07-favorites-localization.md](stories/SUB-07-favorites-localization/suites/SUITE-SUB-07-favorites-localization.md)
 - Spec: [stories/SUB-07-favorites-localization/specs/SPEC-SUB-07-favorites-localization.md](stories/SUB-07-favorites-localization/specs/SPEC-SUB-07-favorites-localization.md)
-- Environment: [environment/android-adb-vpn-qa-runbook.md](environment/android-adb-vpn-qa-runbook.md) (per-app locale override technique documented)
+- Environment: [../../docs/runbooks/android-qa.md](../../docs/runbooks/android-qa.md) (per-app locale override technique documented — see "Per-App Locale Override (Samsung/One UI Workaround — SUB-07)")
 - Cases:
   - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-001-ru-countries-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-001-ru-countries-locale.md)
   - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-002-ru-servers-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-002-ru-servers-locale.md)

@@ -467,7 +467,7 @@ The following 5 favorites-related string keys have been translated to Russian (r
 - `favorites_added_toast` — "Добавлено в избранное" (ru), "Dodano do ulubionych" (pl)
 - `favorites_removed_toast` — "Удалено из избранного" (ru), "Usunięto z ulubionych" (pl)
 
-Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). See `docs/qa-evidence/favorites-localization-qa-1.md`.
+Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/` (`docs/qa-evidence/` is gitignored and not tracked in the repo).
 
 ## Related Documents
 

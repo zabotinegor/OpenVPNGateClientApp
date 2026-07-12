@@ -7,7 +7,7 @@ surface: android
 
 ## Preconditions
 - Debug APK built from branch `feature/sub-07-favorites-localization` HEAD `533e834`, installed on
-  ADB serial `R58N849XQEY`.
+  ADB serial `<your-device-serial>`.
 - Device system language set to Russian (Настройки > Язык и ввод > Языки > Русский, moved to top).
 - At least one country (e.g. Belarus) available and not yet favorited.
 
