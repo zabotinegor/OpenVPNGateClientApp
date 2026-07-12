@@ -462,8 +462,8 @@ private fun toggleFavorite(country: Country) {
 The following 5 favorites-related string keys have been translated to Russian (ru) and Polish (pl):
 
 - `favorites_section_title` — "Избранное" (ru), "Ulubione" (pl)
-- `favorites_add_action_label` — "Добавить в избранное" (ru), "Dodaj do ulubionych" (pl)
-- `favorites_remove_action_label` — "Удалить из избранного" (ru), "Usuń z ulubionych" (pl)
+- `favorites_add_action` — "Добавить в избранное" (ru), "Dodaj do ulubionych" (pl)
+- `favorites_remove_action` — "Удалить из избранного" (ru), "Usuń z ulubionych" (pl)
 - `favorites_added_toast` — "Добавлено в избранное" (ru), "Dodano do ulubionych" (pl)
 - `favorites_removed_toast` — "Удалено из избранного" (ru), "Usunięto z ulubionych" (pl)
 
