@@ -30,6 +30,11 @@
     </plurals>
     <string name="action_refresh">Обновить</string>
     <string name="server_list_refresh_locked_hint">Обновление недоступно при активном VPN.</string>
+    <string name="favorites_section_title">Избранное</string>
+    <string name="favorites_add_action">Добавить в избранное</string>
+    <string name="favorites_remove_action">Удалить из избранного</string>
+    <string name="favorites_added_toast">Добавлено в избранное</string>
+    <string name="favorites_removed_toast">Удалено из избранного</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>
