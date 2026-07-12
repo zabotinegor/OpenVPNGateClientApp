@@ -102,7 +102,8 @@ class CountryListAdapter(
                 break
             }
         }
-        return count
+        // Return 0 if header has no pinned rows following it (only header alone doesn't count)
+        return if (count > 1) count else 0
     }
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {

@@ -231,13 +231,13 @@ The pinned "Favorites" section is visually distinguished from the rest of the li
 
 ```xml
 <!-- Frame stroke width -->
-<dimen name="favorites_section_frame_stroke_width">2dp</dimen>
+<dimen name="favorites_section_frame_stroke_width">1.5dp</dimen>
 
 <!-- Corner radius for the frame border -->
 <dimen name="favorites_section_frame_corner_radius">8dp</dimen>
 
 <!-- Horizontal padding/inset of the frame from the recyclerview edges -->
-<dimen name="favorites_section_frame_inset">16dp</dimen>
+<dimen name="favorites_section_frame_inset">2dp</dimen>
 ```
 
 **Code pattern** (from adapter):

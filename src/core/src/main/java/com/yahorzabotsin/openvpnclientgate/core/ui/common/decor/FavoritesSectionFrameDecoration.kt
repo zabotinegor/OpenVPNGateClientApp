@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.decor
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -42,29 +43,63 @@ class FavoritesSectionFrameDecoration(
         )
     }
     private val frameRect = RectF()
+    private val framePath = Path()
 
     override fun onDrawOver(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
         val count = pinnedItemCount()
         if (count <= 0) return
 
-        var top = Float.NaN
-        var bottom = Float.NaN
+        var minTop = Float.MAX_VALUE
+        var maxBottom = Float.MIN_VALUE
         var left = Float.MAX_VALUE
         var right = Float.MIN_VALUE
+        var minPosition = Int.MAX_VALUE
+        var maxPosition = Int.MIN_VALUE
 
+        // Find children within the pinned range and track min/max positions explicitly
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             val position = parent.getChildAdapterPosition(child)
             if (position < 0 || position >= count) continue
-            if (top.isNaN()) top = child.top.toFloat()
-            bottom = child.bottom.toFloat()
-            left = minOf(left, child.left.toFloat())
-            right = maxOf(right, child.right.toFloat())
+
+            minPosition = minOf(minPosition, position)
+            maxPosition = maxOf(maxPosition, position)
+
+            // Account for child view translations (animation/scroll)
+            val childTop = child.top + child.translationY
+            val childBottom = child.bottom + child.translationY
+            val childLeft = child.left + child.translationX
+            val childRight = child.right + child.translationX
+
+            minTop = minOf(minTop, childTop)
+            maxBottom = maxOf(maxBottom, childBottom)
+            left = minOf(left, childLeft)
+            right = maxOf(right, childRight)
         }
 
-        if (top.isNaN() || bottom.isNaN() || left >= right) return
+        if (minTop >= maxBottom || left >= right || minPosition == Int.MAX_VALUE) return
 
-        frameRect.set(left + inset, top + inset, right - inset, bottom - inset)
-        canvas.drawRoundRect(frameRect, cornerRadius, cornerRadius, paint)
+        val l = left + inset
+        val t = minTop + inset
+        val r = right - inset
+        val b = maxBottom - inset
+
+        // Handle off-screen clipping: only round corners at actual section boundaries
+        // If a boundary is scrolled off-screen, use 0 radius for that corner
+        val radiusTopLeft = if (minPosition == 0) cornerRadius else 0f
+        val radiusTopRight = if (minPosition == 0) cornerRadius else 0f
+        val radiusBottomRight = if (maxPosition == count - 1) cornerRadius else 0f
+        val radiusBottomLeft = if (maxPosition == count - 1) cornerRadius else 0f
+
+        // Use Path to support per-corner radii
+        framePath.reset()
+        framePath.addRoundRect(RectF(l, t, r, b), floatArrayOf(
+            radiusTopLeft, radiusTopLeft,
+            radiusTopRight, radiusTopRight,
+            radiusBottomRight, radiusBottomRight,
+            radiusBottomLeft, radiusBottomLeft
+        ), Path.Direction.CW)
+
+        canvas.drawPath(framePath, paint)
     }
 }
