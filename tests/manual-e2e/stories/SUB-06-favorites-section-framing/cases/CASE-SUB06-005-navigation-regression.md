@@ -47,3 +47,22 @@ any TV uiautomator dump (TV correctly uses the dialog presentation only).
 
 Full-session logcat scan on both devices (filtered for the app package): no FATAL EXCEPTION, ANR,
 or app-attributable exception across either testing session.
+
+## Merge-gate re-check (2026-07-12, HEAD `130d6f9`, TV MIBOX4 192.168.1.94:5555 only)
+
+PASS. Re-verified after 5 rounds of PR review fixes landed since the pass above (at `2ad24c9`).
+
+Countries screen: D-pad select on pinned "Австралия" row opened `CountryServersActivity`.
+Long-press (`sendevent` held-key on `/dev/input/event3`, scancode 353) on the pinned "Беларусь" row
+showed dialog title "Беларусь" with action label "Remove from favorites" (matching its favorited
+state, confirmed via `uiautomator dump`); long-press on the regular (non-favorite) "Австралия"
+duplicate row showed "Add to favorites". Cancel (`ОТМЕНА`) dismissed both without state change.
+
+Servers screen (Australia): D-pad select on the pinned "Сидней" row long-press showed "Remove from
+favorites"; long-press on the regular "Брисбен" row showed "Add to favorites". Short-select on the
+regular "Брисбен" row selected it and returned to `MainActivity` showing "Австралия" / "Брисбен"
+(2/3) as the selected server — confirmed via screenshot, no crash.
+
+All dialog labels verified by parsing `uiautomator dump` XML `text=` attributes rather than visual
+inspection alone. Full-session logcat scan: 0 hits for FATAL EXCEPTION, ANR, WindowLeaked, or
+BadTokenException; crash log buffer empty.

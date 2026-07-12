@@ -40,3 +40,33 @@ D-pad navigation (DPAD_UP/DOWN to move focus, DPAD_CENTER to select/long-press) 
 around the framed rows with no visual clipping or focus-highlight conflicts with the frame.
 
 No FATAL EXCEPTION, ANR, or app-attributable exception in TV logcat during this session.
+
+## Merge-gate re-check (2026-07-12, HEAD `130d6f9`, TV MIBOX4 192.168.1.94:5555)
+
+PASS. Debug build fresh at commit `130d6f9` (tv-debug.apk `lastUpdateTime` 2026-07-12 09:33,
+confirmed via `dumpsys package`, no rebuild needed). Re-verified specifically the areas touched by
+the 5 rounds of PR review fixes since the pass above (at `2ad24c9`): child-view ordering, scroll/
+translation clipping, `pinnedSectionItemCount` edge case, per-frame GC-allocation jank,
+`Float.MIN_VALUE` sentinel, header-width bounds pollution, and the off-screen false-closing-edge
+bug.
+
+**Header-width bounds pollution**: with the "Favorites" header scrolled into view above the pinned
+Belarus row (countries screen), the frame's left/right edges hug the row card width, not the wider
+"Список серверов" info-card width above it — confirmed via screenshot at multiple scroll positions.
+
+**Scroll/translation clipping + off-screen false-closing-edge**: favorited Australia + Belarus
+(2-row pinned block). Scrolled the list down via D-pad so the "Favorites" header scrolled fully
+behind the info card — the frame's top edge was naturally clipped by the canvas with no spurious
+horizontal closing line drawn at the clip boundary. Continued scrolling until the entire pinned
+block (both rows) scrolled off-screen — the frame disappeared cleanly with zero residual line or
+clipping artifact on the subsequent regular-list rows (Belarus, Bulgaria, Brazil, UK, Venezuela,
+Vietnam all rendered as plain unframed rows).
+
+D-pad navigation (`DPAD_UP`/`DPAD_DOWN` to move focus and scroll, `DPAD_CENTER` to select,
+held-key `sendevent` on `/dev/input/event3` scancode 353 for long-press) worked normally around
+the framed section at every scroll position tested, with no visual clipping or focus-highlight
+conflicts.
+
+Full-session logcat scan (`adb logcat -d` plus `-b crash`): 0 hits for FATAL EXCEPTION, ANR,
+WindowLeaked, or BadTokenException; crash log buffer empty. `favorites_prefs.xml` restored to
+pre-test baseline (`BY` country, server `20838`).

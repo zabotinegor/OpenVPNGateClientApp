@@ -51,3 +51,23 @@ traced to the backend server list temporarily not including Russia in the curren
 Behavior Constraints"), not a framing defect. Confirmed non-issue by favoriting a country
 (Australia) that was stably present in the loaded list at the time — the frame appeared
 immediately as expected.
+
+## Merge-gate re-check (2026-07-12, HEAD `130d6f9`, TV MIBOX4 192.168.1.94:5555 only)
+
+PASS. Re-verified after 5 rounds of PR review fixes landed since the pass above (at `2ad24c9`),
+specifically the scroll/translation clipping and off-screen false-closing-edge fixes.
+
+Countries screen: with Australia + Belarus both favorited (2-row pinned block), removed Australia
+via D-pad long-press (`sendevent` held-key on `/dev/input/event3`, scancode 353) —
+frame shrank from 2 rows to 1 row (Belarus only); removed Belarus — section and frame disappeared
+entirely (no header, no frame, no empty box), toast "Removed from favorites" shown. Re-added
+Belarus via long-press "Add to favorites" — section and frame reappeared immediately with correct
+row, toast "Added to favorites" shown.
+
+Servers screen (Australia): removed the favorited Sydney server via long-press — frame disappeared
+entirely (0 favorites), toast "Removed from favorites" shown, plain unframed list remained.
+Re-added Sydney — frame reappeared immediately, toast "Added to favorites" shown.
+
+Full-session logcat scan: 0 hits for FATAL EXCEPTION, ANR, WindowLeaked, or BadTokenException;
+crash log buffer empty. `favorites_prefs.xml` restored to pre-test baseline (`BY` country, server
+`20838`) via UI toggles (add/remove pairs canceled out).
