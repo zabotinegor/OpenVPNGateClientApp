@@ -44,6 +44,7 @@ class FavoritesSectionFrameDecoration(
     }
     private val frameRect = RectF()
     private val framePath = Path()
+    private val radii = FloatArray(8)
 
     override fun onDrawOver(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
         val count = pinnedItemCount()
@@ -91,14 +92,19 @@ class FavoritesSectionFrameDecoration(
         val radiusBottomRight = if (maxPosition == count - 1) cornerRadius else 0f
         val radiusBottomLeft = if (maxPosition == count - 1) cornerRadius else 0f
 
-        // Use Path to support per-corner radii
+        // Use Path to support per-corner radii; reuse pre-allocated objects
+        frameRect.set(l, t, r, b)
+        radii[0] = radiusTopLeft
+        radii[1] = radiusTopLeft
+        radii[2] = radiusTopRight
+        radii[3] = radiusTopRight
+        radii[4] = radiusBottomRight
+        radii[5] = radiusBottomRight
+        radii[6] = radiusBottomLeft
+        radii[7] = radiusBottomLeft
+
         framePath.reset()
-        framePath.addRoundRect(RectF(l, t, r, b), floatArrayOf(
-            radiusTopLeft, radiusTopLeft,
-            radiusTopRight, radiusTopRight,
-            radiusBottomRight, radiusBottomRight,
-            radiusBottomLeft, radiusBottomLeft
-        ), Path.Direction.CW)
+        framePath.addRoundRect(frameRect, radii, Path.Direction.CW)
 
         canvas.drawPath(framePath, paint)
     }
