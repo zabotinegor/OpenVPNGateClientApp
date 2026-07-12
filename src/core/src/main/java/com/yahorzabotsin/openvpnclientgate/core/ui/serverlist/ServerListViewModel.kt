@@ -241,7 +241,7 @@ class ServerListViewModel(
         if (favorites.isNotEmpty()) {
             items.add(CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
             favorites.forEach { (cws, _) ->
-                items.add(CountryListItem.CountryRow(cws, isFavorite = true))
+                items.add(CountryListItem.CountryRow(cws, isFavorite = true, isPinnedSection = true))
             }
         }
         countriesWithFavoriteStatus.forEach { (cws, isFavorite) ->

@@ -20,7 +20,19 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
  */
 sealed interface ServerListItem {
     data class SectionHeader(val title: UiText) : ServerListItem
-    data class ServerRow(val server: Server, val isFavorite: Boolean) : ServerListItem
+
+    /**
+     * @param isPinnedSection true only for the row instance rendered inside the pinned
+     * "Favorites" block at the top of the list (immediately after [SectionHeader]). A
+     * favorited server also appears a second time at its normal position in the regular
+     * list below with [isPinnedSection] = false (see [ServerPickerAdapter] doc). Used
+     * purely for visual framing (SUB-06); does not affect click/long-click behavior.
+     */
+    data class ServerRow(
+        val server: Server,
+        val isFavorite: Boolean,
+        val isPinnedSection: Boolean = false
+    ) : ServerListItem
 }
 
 class ServerPickerAdapter(
@@ -70,6 +82,27 @@ class ServerPickerAdapter(
     }
 
     override fun getItemCount(): Int = items.size
+
+    /**
+     * Number of leading items (the [ServerListItem.SectionHeader] plus its pinned
+     * [ServerListItem.ServerRow] entries) that make up the pinned "Favorites" block, or 0
+     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration]
+     * to draw a border/frame around exactly that block (SUB-06).
+     */
+    fun pinnedSectionItemCount(): Int {
+        if (items.isEmpty() || items[0] !is ServerListItem.SectionHeader) return 0
+        var count = 1
+        for (i in 1 until items.size) {
+            val item = items[i]
+            if (item is ServerListItem.ServerRow && item.isPinnedSection) {
+                count++
+            } else {
+                break
+            }
+        }
+        // Return 0 if header has no pinned rows following it (only header alone doesn't count)
+        return if (count > 1) count else 0
+    }
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_header_title)

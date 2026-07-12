@@ -47,6 +47,41 @@ SUB-02 (`ProbeRequestWorkerTest`). Fixed by testing `doWork()` directly on a con
 
 ---
 
+## Checking for a Gradle dependency: grep build files, never `find /`
+
+**Symptom**
+
+To decide whether Material Components (or any other library) is already available before adding
+UI that depends on it, an agent ran a filesystem-wide search for compiled artifacts:
+
+```
+find / -iname "MaterialColors.class" ...; find "$HOME" -iname "material-*.aar" ...
+```
+
+This scans the entire filesystem (including unrelated mounts/caches) and can run for an hour or
+more without finishing, forcing a manual cancel.
+
+**Solution**
+
+Never search the filesystem to answer a "is X already a dependency" question. Grep the Gradle
+build files directly instead:
+
+```
+rg "com.google.android.material" src/*/build.gradle* src/gradle/libs.versions.toml
+```
+
+This answers the question in seconds. If the dependency turns out to be absent, do not add a new
+UI library just for a small visual change — prefer a plain `View`/shape-drawable with existing
+theme attributes, per CLAUDE.md's "don't introduce new UI/DI patterns" guidance.
+
+**First encountered**
+
+SUB-06 (`FavoritesSectionFrameDecoration`). Material Components was already a transitive/declared
+dependency (used elsewhere in `ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was
+unnecessary in hindsight — a build-file grep would have confirmed this immediately.
+
+---
+
 ## `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05
 
 **Symptom**

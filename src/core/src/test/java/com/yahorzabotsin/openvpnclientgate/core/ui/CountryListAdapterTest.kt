@@ -144,6 +144,53 @@ class CountryListAdapterTest {
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
     }
 
+    // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
+
+    @Test
+    fun `pinnedSectionItemCount is zero when favorites section is hidden`() {
+        val items = listOf(
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false)
+        )
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount counts header plus pinned rows only, excluding regular list rows`() {
+        val items = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            CountryListItem.CountryRow(CountryWithServers(Country("United States", "US"), 5), isFavorite = true, isPinnedSection = true),
+            CountryListItem.CountryRow(CountryWithServers(Country("Zimbabwe", "ZW"), 2), isFavorite = true, isPinnedSection = true),
+            // Regular (unheaded) list below: includes the same favorite again at its
+            // alphabetical position, but isPinnedSection = false so it must not extend the frame.
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false),
+            CountryListItem.CountryRow(CountryWithServers(Country("United States", "US"), 5), isFavorite = true),
+            CountryListItem.CountryRow(CountryWithServers(Country("Zimbabwe", "ZW"), 2), isFavorite = true)
+        )
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> })
+
+        // header (1) + 2 pinned favorite rows = 3; the 3 regular-list rows are excluded.
+        assertEquals(3, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount updates to zero after last favorite is removed via updateItems`() {
+        val initialItems = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = true, isPinnedSection = true),
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = true)
+        )
+        val adapter = CountryListAdapter(initialItems, onClick = {}, onLongClick = { _, _, _ -> })
+        assertEquals(2, adapter.pinnedSectionItemCount())
+
+        adapter.updateItems(
+            listOf(CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false))
+        )
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
     @Test
     fun `Finding 1 - updateItems changes items without recreating adapter`() {
         val context = RuntimeEnvironment.getApplication()

@@ -216,9 +216,56 @@ Favorite countries in the pinned section use **the same row component** as the r
 
 **Rationale**: Code reuse + visual consistency.
 
+### Visual Framing (SUB-06)
+
+The pinned "Favorites" section is visually distinguished from the rest of the list by a **frame border** drawn around the header and pinned rows. This framing is implemented as a `RecyclerView.ItemDecoration` (`FavoritesSectionFrameDecoration`) that draws a rounded rectangle border at the section boundaries.
+
+**Implementation approach**:
+
+- **ItemDecoration pattern**: The border is rendered by a custom `ItemDecoration` attached to the RecyclerView, not within individual row layouts. This keeps row components unchanged and allows the frame to span multiple rows.
+- **Shared between mobile and TV**: Both `ServerListActivity` (countries) and `CountryServersActivity` (servers-in-country) use the same `FavoritesSectionFrameDecoration` for both mobile and TV surfaces, since both reuse the same core layouts and adapters.
+- **Theme-aware coloring**: The frame stroke color resolves `?attr/colorSecondary` via `MaterialColors.getColor()`, ensuring correct rendering in both light and night themes without hardcoding colors.
+- **Adapter support method**: The adapter exposes `pinnedSectionItemCount()` to inform the decoration how many consecutive rows belong to the pinned section (header + pinned rows).
+
+**Visual dimensions** (new dimen resources):
+
+```xml
+<!-- Frame stroke width -->
+<dimen name="favorites_section_frame_stroke_width">1.5dp</dimen>
+
+<!-- Corner radius for the frame border -->
+<dimen name="favorites_section_frame_corner_radius">8dp</dimen>
+
+<!-- Horizontal padding/inset of the frame from the recyclerview edges -->
+<dimen name="favorites_section_frame_inset">2dp</dimen>
+```
+
+**Code pattern** (from adapter):
+
+```kotlin
+fun pinnedSectionItemCount(): Int =
+    if (currentState.favoriteCountryCodes.isNotEmpty()) {
+        1 + currentState.favoritedCountries.size  // header + pinned rows
+    } else {
+        0
+    }
+```
+
+Then in the Activity:
+
+```kotlin
+val decoration = FavoritesSectionFrameDecoration(
+    pinnedSectionItemCount = { adapter.pinnedSectionItemCount() },
+    context = this
+)
+recyclerView.addItemDecoration(decoration)
+```
+
+The decoration queries `pinnedSectionItemCount()` to determine the exact range of positions to frame, and applies the border only to that range, leaving the rest of the list (regular countries/servers) unframed.
+
 ### Hidden When Empty
 
-If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the "All Countries" section.
+If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the "All Countries" section. The frame decoration automatically hides as well (when `pinnedSectionItemCount()` returns 0, no range is framed).
 
 **Trigger**: When `FavoritesFilter.filterFavoriteCountries(...)` (or `filterFavoriteServers(...)` on the servers screen) returns an empty list, the pinned section is hidden entirely.
 
@@ -373,6 +420,19 @@ and TV, including availability hide/restore verified via a controlled local mock
 `tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/`). For device setup, `sendevent`-based D-pad long-press
 injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
 focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
+
+## Implementation Checklist for SUB-06 (Visual Framing)
+
+- [x] Create `FavoritesSectionFrameDecoration` class extending `RecyclerView.ItemDecoration`
+- [x] Implement frame drawing logic using `?attr/colorSecondary` for stroke color (theme-aware)
+- [x] Add `pinnedSectionItemCount()` method to `CountryListAdapter` and `ServerPickerAdapter`
+- [x] Attach decoration to RecyclerView in `ServerListActivity` (countries screen)
+- [x] Attach decoration to RecyclerView in `CountryServersActivity` (servers-in-country screen)
+- [x] Add dimen resources: `favorites_section_frame_stroke_width`, `favorites_section_frame_corner_radius`, `favorites_section_frame_inset`
+- [x] Test frame visibility on both mobile and TV (shares same code)
+- [x] Verify frame hides when pinned section is empty
+- [x] Verify frame renders correctly in light and night themes
+- [x] Update `src/docs/favorites-ui-patterns.md` with ItemDecoration pattern and theme-aware coloring approach
 
 ## Logging Considerations
 
