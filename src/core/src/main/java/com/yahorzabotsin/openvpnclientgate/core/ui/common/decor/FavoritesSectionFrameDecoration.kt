@@ -50,49 +50,61 @@ class FavoritesSectionFrameDecoration(
         val count = pinnedItemCount()
         if (count <= 0) return
 
-        var minTop = Float.MAX_VALUE
-        var maxBottom = Float.NEGATIVE_INFINITY
-        var left = Float.MAX_VALUE
-        var right = Float.NEGATIVE_INFINITY
         var minPosition = Int.MAX_VALUE
         var maxPosition = Int.MIN_VALUE
+        var topChild: android.view.View? = null
+        var bottomChild: android.view.View? = null
+        var left = Float.MAX_VALUE
+        var right = Float.NEGATIVE_INFINITY
 
-        // Find children within the pinned range and track min/max positions explicitly
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             val position = parent.getChildAdapterPosition(child)
             if (position < 0 || position >= count) continue
 
-            minPosition = minOf(minPosition, position)
-            maxPosition = maxOf(maxPosition, position)
-
-            // Account for child view translations (animation/scroll)
-            val childTop = child.top + child.translationY
-            val childBottom = child.bottom + child.translationY
-            val childLeft = child.left + child.translationX
-            val childRight = child.right + child.translationX
-
-            minTop = minOf(minTop, childTop)
-            maxBottom = maxOf(maxBottom, childBottom)
-            left = minOf(left, childLeft)
-            right = maxOf(right, childRight)
+            if (position < minPosition) {
+                minPosition = position
+                topChild = child
+            }
+            if (position > maxPosition) {
+                maxPosition = position
+                bottomChild = child
+            }
+            // Exclude the full-width header (position 0) from horizontal bounds so the frame
+            // hugs the narrower row cards instead of stretching edge-to-edge.
+            if (position > 0) {
+                val childLeft = child.left + child.translationX
+                val childRight = child.right + child.translationX
+                left = minOf(left, childLeft)
+                right = maxOf(right, childRight)
+            }
         }
 
-        if (minTop >= maxBottom || left >= right || minPosition == Int.MAX_VALUE) return
+        if (topChild == null || bottomChild == null || left >= right) return
+
+        // Extend top/bottom edges beyond the RecyclerView's own bounds (naturally clipped by
+        // the canvas) whenever the true section boundary is scrolled off-screen, instead of
+        // drawing a false closing edge at whatever child happens to be first/last visible.
+        val t = if (minPosition == 0) {
+            topChild.top + topChild.translationY + inset
+        } else {
+            -parent.height.toFloat()
+        }
+        val b = if (maxPosition == count - 1) {
+            bottomChild.bottom + bottomChild.translationY - inset
+        } else {
+            2f * parent.height
+        }
+        if (t >= b) return
 
         val l = left + inset
-        val t = minTop + inset
         val r = right - inset
-        val b = maxBottom - inset
 
-        // Handle off-screen clipping: only round corners at actual section boundaries
-        // If a boundary is scrolled off-screen, use 0 radius for that corner
         val radiusTopLeft = if (minPosition == 0) cornerRadius else 0f
         val radiusTopRight = if (minPosition == 0) cornerRadius else 0f
         val radiusBottomRight = if (maxPosition == count - 1) cornerRadius else 0f
         val radiusBottomLeft = if (maxPosition == count - 1) cornerRadius else 0f
 
-        // Use Path to support per-corner radii; reuse pre-allocated objects
         frameRect.set(l, t, r, b)
         radii[0] = radiusTopLeft
         radii[1] = radiusTopLeft
@@ -105,7 +117,6 @@ class FavoritesSectionFrameDecoration(
 
         framePath.reset()
         framePath.addRoundRect(frameRect, radii, Path.Direction.CW)
-
         canvas.drawPath(framePath, paint)
     }
 }
