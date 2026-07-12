@@ -242,7 +242,7 @@ On Samsung devices running One UI (and some other OEM skins), the system-wide lo
 adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales pl-PL
 
 # Force-stop the app to reload with the new locale
-adb shell pm force-stop com.yahorzabotsin.openvpnclientgate
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
 
 # Relaunch the app
 adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
@@ -259,7 +259,7 @@ When done testing, clear the per-app locale to restore system locale behavior:
 adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales ""
 
 # Force-stop and relaunch to restore system locale
-adb shell pm force-stop com.yahorzabotsin.openvpnclientgate
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
 adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
 ```
 
@@ -279,4 +279,4 @@ The `cmd locale set-app-locales` command:
 
 ### Manual QA Evidence
 
-See `docs/qa-evidence/favorites-localization-qa-1.md` (CASE-SUB07-003 and 004) for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens.
+See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md` and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (`docs/qa-evidence/` is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
