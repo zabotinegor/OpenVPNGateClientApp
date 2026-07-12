@@ -224,3 +224,59 @@ adb shell am instrument -w -e class com.yahorzabotsin.openvpnclientgate.mobile.M
 # Run via Gradle (handles APK build + install)
 ./gradlew connectedDebugAndroidTestApp
 ```
+
+---
+
+## Per-App Locale Override (Samsung/One UI Workaround — SUB-07)
+
+**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-07-favorites-localization.md`
+
+On Samsung devices running One UI (and some other OEM skins), the system-wide locale settings command (`adb shell settings put system system_locales`) does not reliably propagate to running or restarted applications. The app's `mGlobalConfiguration` locale continues to reflect the previous setting even after force-stop and relaunch.
+
+### Per-App Locale Override Technique
+
+**For Android 13+**, use the `cmd locale` service to apply a per-app locale override directly without relying on system-wide settings:
+
+```bash
+# Set app locale to Polish (example)
+adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales pl-PL
+
+# Force-stop the app to reload with the new locale
+adb shell pm force-stop com.yahorzabotsin.openvpnclientgate
+
+# Relaunch the app
+adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+
+# Verify active locale in UI — you should see Polish strings (CZAS, STATUS, SERWER, MIASTA, URUCHOM POŁĄCZENIE, Ulubione, etc.)
+```
+
+### Clearing the Override
+
+When done testing, clear the per-app locale to restore system locale behavior:
+
+```bash
+# Clear the per-app override (empty locales string)
+adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales ""
+
+# Force-stop and relaunch to restore system locale
+adb shell pm force-stop com.yahorzabotsin.openvpnclientgate
+adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+```
+
+### Why This Works
+
+The `cmd locale set-app-locales` command:
+- Applies an override **per-app** rather than system-wide, bypassing One UI's interference with system settings
+- Takes effect after the app is force-stopped and restarted
+- Persists until explicitly cleared with an empty `--locales` string
+- Is documented in Android 13+ frameworks; it is a stable platform API
+
+### Device-Specific Notes
+
+- **Samsung Galaxy A71 (Android 13)**: Confirmed working with this technique (CASE-SUB07-003 and 004).
+- **Xiaomi Mi 9T Pro (MIUI / Android 11)**: Per-app locale override requires Android 13+; use system-wide `settings put system system_locales` instead (if it works on that device). This project's primary test device is Samsung; MIUI edge cases may require device-specific workarounds.
+- **Stock Android / Pixel**: System-wide `settings put system system_locales` works reliably; per-app override is optional.
+
+### Manual QA Evidence
+
+See `docs/qa-evidence/favorites-localization-qa-1.md` (CASE-SUB07-003 and 004) for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens.

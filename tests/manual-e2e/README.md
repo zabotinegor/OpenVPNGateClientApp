@@ -79,6 +79,17 @@ stories/{story-id}-{kebab-title}/
   - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md)
   - [stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-006-empty-favorites-section-absent.md](stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-006-empty-favorites-section-absent.md)
 
+### SUB-07 - Favorites Localization (ru, pl)
+- Location: [stories/SUB-07-favorites-localization/](stories/SUB-07-favorites-localization/)
+- Suite: [stories/SUB-07-favorites-localization/suites/SUITE-SUB-07-favorites-localization.md](stories/SUB-07-favorites-localization/suites/SUITE-SUB-07-favorites-localization.md)
+- Spec: [stories/SUB-07-favorites-localization/specs/SPEC-SUB-07-favorites-localization.md](stories/SUB-07-favorites-localization/specs/SPEC-SUB-07-favorites-localization.md)
+- Environment: [environment/android-adb-vpn-qa-runbook.md](environment/android-adb-vpn-qa-runbook.md) (per-app locale override technique documented)
+- Cases:
+  - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-001-ru-countries-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-001-ru-countries-locale.md)
+  - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-002-ru-servers-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-002-ru-servers-locale.md)
+  - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md)
+  - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-004-pl-servers-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-004-pl-servers-locale.md)
+
 ### TV-DRAWER-FALSE-CLICK
 - Location: [stories/TV-DRAWER-FALSE-CLICK/](stories/TV-DRAWER-FALSE-CLICK/)
 - Suite: [stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md](stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md)
