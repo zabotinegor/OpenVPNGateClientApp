@@ -51,9 +51,9 @@ class FavoritesSectionFrameDecoration(
         if (count <= 0) return
 
         var minTop = Float.MAX_VALUE
-        var maxBottom = Float.MIN_VALUE
+        var maxBottom = Float.NEGATIVE_INFINITY
         var left = Float.MAX_VALUE
-        var right = Float.MIN_VALUE
+        var right = Float.NEGATIVE_INFINITY
         var minPosition = Int.MAX_VALUE
         var maxPosition = Int.MIN_VALUE
 
