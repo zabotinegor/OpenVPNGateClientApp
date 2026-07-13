@@ -150,7 +150,6 @@ docs/qa-evidence
 /.github/scripts/get-pr-bot-comments.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
-/.github/scripts/manage-session-resume.ps1
 /.github/scripts/map-desktop-accounts.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1

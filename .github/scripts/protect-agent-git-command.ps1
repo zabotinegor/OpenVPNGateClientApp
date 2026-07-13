@@ -97,14 +97,15 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             # and skip all protected-branch checks.
             $isDevPush   = $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
             $isDevDelete = $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
-            # Guard: if the same command mentions any other protected branch name anywhere
-            # (bare token, +token, :token, or refs/heads/ form), the exception does not
-            # apply — e.g. `git push origin dev main` or `git push origin --delete dev main`
-            # pass extra refspecs positionally, so position-anchored patterns are not enough.
-            # False positives only deny the narrow exception (fail-safe: push stays blocked).
-            if (($isDevPush -or $isDevDelete) -and
-                $normalized -match '(?i)(?:^|[\s+:])(?:refs/heads/)?(?:main|master|develop)(?![-\w/.])') {
-                $isDevPush = $false; $isDevDelete = $false
+            # Guard: if command also targets main/master/develop in any push/delete context,
+            # the exception does not apply — e.g. `git push origin --delete dev main`.
+            foreach ($op in @('main', 'master', 'develop')) {
+                if ($normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+?$op(?![-\w/.])" -or
+                    $normalized -match "(?i)(?:^|\s):$op(?![-\w/.])" -or
+                    $normalized -match "(?i)\brefs/heads/$op(?![-\w/.])") {
+                    $isDevPush = $false; $isDevDelete = $false; break
+                }
             }
             if ($isDevPush -or $isDevDelete) {
                 $previousEap2 = $ErrorActionPreference
