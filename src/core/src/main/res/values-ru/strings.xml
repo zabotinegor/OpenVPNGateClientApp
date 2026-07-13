@@ -35,6 +35,8 @@
     <string name="favorites_remove_action">Удалить из избранного</string>
     <string name="favorites_added_toast">Добавлено в избранное</string>
     <string name="favorites_removed_toast">Удалено из избранного</string>
+    <string name="all_countries_section_title">Все страны</string>
+    <string name="all_servers_section_title">Все серверы</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Произошла ошибка</string>

@@ -70,6 +70,7 @@ class CountryListAdapterTest {
     private fun buildHeaderView(context: android.content.Context): FrameLayout {
         val container = FrameLayout(context)
         container.addView(TextView(context).apply { id = R.id.section_header_title })
+        container.addView(ImageView(context).apply { id = R.id.section_header_icon })
         return container
     }
 
@@ -142,6 +143,28 @@ class CountryListAdapterTest {
 
         val titleView = holder.itemView.findViewById<TextView>(R.id.section_header_title)
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
+    }
+
+    // --- SUB-09: star icon shown only on the pinned Favorites header ---
+
+    @Test
+    fun `section header shows star icon only when showFavoriteIcon is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val favoritesHeader = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title), showFavoriteIcon = true)
+        )
+        val adapter = CountryListAdapter(favoritesHeader, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder = CountryListAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
+
+        val allCountriesHeader = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.all_countries_section_title))
+        )
+        val adapter2 = CountryListAdapter(allCountriesHeader, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder2 = CountryListAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter2.onBindViewHolder(holder2, 0)
+        assertEquals(View.GONE, holder2.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
     }
 
     // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---

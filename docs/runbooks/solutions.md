@@ -76,9 +76,10 @@ theme attributes, per CLAUDE.md's "don't introduce new UI/DI patterns" guidance.
 
 **First encountered**
 
-SUB-06 (`FavoritesSectionFrameDecoration`). Material Components was already a transitive/declared
-dependency (used elsewhere in `ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was
-unnecessary in hindsight — a build-file grep would have confirmed this immediately.
+SUB-06 (`FavoritesSectionFrameDecoration`, superseded by SUB-09's `FavoritesSectionCardDecoration`). 
+Material Components was already a transitive/declared dependency (used elsewhere in 
+`ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was unnecessary in hindsight — 
+a build-file grep would have confirmed this immediately.
 
 ---
 
@@ -640,3 +641,9 @@ adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # c
 ```
 Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
 **First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
+
+### Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
+**Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome, without touching `FavoriteActionDialog.kt`'s presentation-gate logic, leak-guard tracking, or the activities' PopupMenu construction code (all of it needed to stay behaviorally untouched per the story's ACs).
+**Problem:** Both `android.widget.PopupMenu(context, anchor)` and `AlertDialog.Builder(activity)` are plain framework/AppCompat constructors — there's no obvious per-instance styling hook without wrapping them in a custom class or passing a themed `ContextThemeWrapper` at every call site.
+**Solution:** Both widgets resolve their appearance from theme attributes read at construction time: `PopupMenu` reads `android:popupMenuStyle` from the `Context`'s theme, and `AlertDialog.Builder` reads `alertDialogTheme`. Point both attributes at new custom styles in the app's `values/themes.xml` (a `Widget.*.PopupMenu` style with `android:popupBackground` set to a custom rounded-corner drawable, and a `ThemeOverlay.*.AlertDialog` with a `shapeAppearanceOverlay`/corner radius and `colorSurface` background) and every existing call site — the app's own `PopupMenu`/`AlertDialog.Builder` calls, and `MainActivityCore.showUpdateDialog` — picks up the new look automatically, with zero changes to the Kotlin call sites. Mirror the styles in `values-night` (or use theme-attribute colors, e.g. `?attr/colorSurface`) for dark-theme parity. Verified via unit tests (`testDebugUnitTestApp`, no code paths changed) plus on-device visual QA (styling can't be asserted by Robolectric alone since it doesn't reliably render the popup window/drawable).
+**First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).

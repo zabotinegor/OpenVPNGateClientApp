@@ -19,7 +19,11 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
  * the pinned favorites section and the regular server list.
  */
 sealed interface ServerListItem {
-    data class SectionHeader(val title: UiText) : ServerListItem
+    /**
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * the "All servers" header shown below the pinned block does not get the star icon.
+     */
+    data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : ServerListItem
 
     /**
      * @param isPinnedSection true only for the row instance rendered inside the pinned
@@ -86,8 +90,10 @@ class ServerPickerAdapter(
     /**
      * Number of leading items (the [ServerListItem.SectionHeader] plus its pinned
      * [ServerListItem.ServerRow] entries) that make up the pinned "Favorites" block, or 0
-     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration]
-     * to draw a border/frame around exactly that block (SUB-06).
+     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
+     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
+     * "All servers" header inserted below the pinned block (SUB-09) is a [ServerListItem.SectionHeader],
+     * not a pinned [ServerListItem.ServerRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
         if (items.isEmpty() || items[0] !is ServerListItem.SectionHeader) return 0
@@ -106,8 +112,10 @@ class ServerPickerAdapter(
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_header_title)
+        private val icon: View? = itemView.findViewById(R.id.section_header_icon)
         fun bind(header: ServerListItem.SectionHeader) {
             title.text = title.context.resolve(header.title)
+            icon?.visibility = if (header.showFavoriteIcon) View.VISIBLE else View.GONE
         }
     }
 

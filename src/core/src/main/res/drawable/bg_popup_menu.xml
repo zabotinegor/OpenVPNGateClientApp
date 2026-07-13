@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SUB-08: app-styled background for the mobile favorite-toggle PopupMenu — colorSurface
+     fill with item_corner_radius corners, replacing the stock platform popup appearance.
+     Wired via Widget.OpenVPNClientGate.PopupMenu's android:popupBackground. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/colorSurface" />
+    <corners android:radius="@dimen/item_corner_radius" />
+</shape>

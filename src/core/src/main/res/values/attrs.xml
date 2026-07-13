@@ -16,4 +16,8 @@
     <attr name="ovpnSpeedometerProgressColor" format="color" />
     <attr name="ovpnSpeedometerTextColor" format="color" />
     <attr name="ovpnFocusableStateListAnimator" format="reference" />
+    <!-- SUB-09: fill color for the pinned Favorites section card (colorSurface-variant tone,
+         distinct from ?attr/colorSurface so the card reads as a raised block behind the
+         colorSurface row cards). -->
+    <attr name="ovpnFavoritesCardBackground" format="color" />
 </resources>

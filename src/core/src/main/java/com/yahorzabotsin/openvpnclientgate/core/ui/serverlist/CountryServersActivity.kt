@@ -18,7 +18,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
@@ -46,10 +46,10 @@ class CountryServersActivity : AppCompatActivity() {
         contentBinding.serversRecyclerView.addItemDecoration(
             MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin))
         )
-        // SUB-06: frame drawn purely from adapter.pinnedSectionItemCount(); returns 0 (no
-        // drawing) whenever the pinned Favorites section is hidden.
+        // SUB-09: filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
+        // (no drawing) whenever the pinned Favorites section is hidden.
         contentBinding.serversRecyclerView.addItemDecoration(
-            FavoritesSectionFrameDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
+            FavoritesSectionCardDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
         )
 
         observeViewModel()

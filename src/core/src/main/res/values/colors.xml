@@ -60,4 +60,9 @@
     <color name="switch_thumb_unchecked">#F1F1F1</color>
     <color name="switch_track_unchecked">#80B0B0B0</color>
 
+    <!-- Section: Favorites section card (SUB-09) -->
+    <!-- Darkened from #EEF2F7 for adequate contrast against app_background (#F7F9FC); manual QA
+         found the original tone visually indistinguishable from the page background in light theme. -->
+    <color name="favorites_card_background">#DBE3EC</color>
+
 </resources>

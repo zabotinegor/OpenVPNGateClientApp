@@ -35,6 +35,8 @@
     <string name="favorites_remove_action">Usuń z ulubionych</string>
     <string name="favorites_added_toast">Dodano do ulubionych</string>
     <string name="favorites_removed_toast">Usunięto z ulubionych</string>
+    <string name="all_countries_section_title">Wszystkie kraje</string>
+    <string name="all_servers_section_title">Wszystkie serwery</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">Wystąpił błąd</string>

@@ -55,4 +55,7 @@
     <color name="switch_thumb_unchecked">#B0B0B0</color>
     <color name="switch_track_unchecked">#4D808080</color>
 
+    <!-- Section: Favorites section card (SUB-09) -->
+    <color name="favorites_card_background">#242424</color>
+
 </resources>

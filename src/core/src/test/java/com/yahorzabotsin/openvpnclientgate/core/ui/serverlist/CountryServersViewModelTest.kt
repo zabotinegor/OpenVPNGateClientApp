@@ -277,16 +277,104 @@ class CountryServersViewModelTest {
 
         val items = vm.state.value.items
         assertTrue(items[0] is ServerListItem.SectionHeader)
+        assertTrue((items[0] as ServerListItem.SectionHeader).showFavoriteIcon)
         val favoriteRow = items[1] as ServerListItem.ServerRow
         assertEquals(20, favoriteRow.server.id)
         assertTrue(favoriteRow.isFavorite)
+        // SUB-09: second "All servers" header marks the start of the full list below.
+        assertTrue(items[2] is ServerListItem.SectionHeader)
+        assertFalse((items[2] as ServerListItem.SectionHeader).showFavoriteIcon)
         // Regular list is additive (mirrors SUB-02 countries screen): it contains ALL
         // servers, with the favorited one still at its normal position, marked favorite.
-        assertEquals(10, (items[2] as ServerListItem.ServerRow).server.id)
-        assertFalse((items[2] as ServerListItem.ServerRow).isFavorite)
-        assertEquals(20, (items[3] as ServerListItem.ServerRow).server.id)
-        assertTrue((items[3] as ServerListItem.ServerRow).isFavorite)
-        assertEquals(4, items.size)
+        assertEquals(10, (items[3] as ServerListItem.ServerRow).server.id)
+        assertFalse((items[3] as ServerListItem.ServerRow).isFavorite)
+        assertEquals(20, (items[4] as ServerListItem.ServerRow).server.id)
+        assertTrue((items[4] as ServerListItem.ServerRow).isFavorite)
+        assertEquals(5, items.size)
+    }
+
+    // --- SUB-09: second "All servers" header above the full list ---
+
+    @Test
+    fun `SUB-09 AC3 - second header labeled All servers appears only when favorites section is visible`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore(setOf(20))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val headers = vm.state.value.items.filterIsInstance<ServerListItem.SectionHeader>()
+        assertEquals(2, headers.size)
+        assertEquals(UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.favorites_section_title), headers[0].title)
+        assertTrue(headers[0].showFavoriteIcon)
+        assertEquals(UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.all_servers_section_title), headers[1].title)
+        assertFalse(headers[1].showFavoriteIcon)
+    }
+
+    @Test
+    fun `SUB-09 AC4 - no second header when there are no favorites`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+    }
+
+    @Test
+    fun `SUB-09 edge case - every server favorited still shows both headers and the full list below`() = runTest {
+        // When 100% of a country's servers are favorited, the pinned block and the "All
+        // servers" list below it end up with identical content (minus ordering) - buildItems
+        // must not special case this away or crash; both sections should render additively.
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 11)
+        val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
+        val favoritesStore = FakeFavoritesServerStore(setOf(10, 11))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        val headers = items.filterIsInstance<ServerListItem.SectionHeader>()
+        assertEquals(2, headers.size)
+        assertEquals(
+            UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.favorites_section_title),
+            headers[0].title
+        )
+        assertEquals(
+            UiText.Res(com.yahorzabotsin.openvpnclientgate.core.R.string.all_servers_section_title),
+            headers[1].title
+        )
+
+        val pinnedRows = items.filterIsInstance<ServerListItem.ServerRow>().filter { it.isPinnedSection }
+        val regularRows = items.filterIsInstance<ServerListItem.ServerRow>().filter { !it.isPinnedSection }
+        assertEquals(2, pinnedRows.size)
+        assertEquals(2, regularRows.size)
+        assertTrue(pinnedRows.all { it.isFavorite })
+        assertTrue(regularRows.all { it.isFavorite })
+        // header(1) + pinned(2) + header(1) + regular(2) = 6
+        assertEquals(6, items.size)
     }
 
     @Test
@@ -477,19 +565,21 @@ class CountryServersViewModelTest {
 
         val items = vm.state.value.items
         // Expected structure:
-        // [0] SectionHeader
+        // [0] SectionHeader (Favorites)
         // [1] ServerRow(serverA, isFavorite=true)   <- pinned shortcut
-        // [2] ServerRow(serverA, isFavorite=true)   <- still at its normal list position
-        // [3] ServerRow(serverB, isFavorite=false)
-        assertEquals(4, items.size)
+        // [2] SectionHeader (All servers, SUB-09)
+        // [3] ServerRow(serverA, isFavorite=true)   <- still at its normal list position
+        // [4] ServerRow(serverB, isFavorite=false)
+        assertEquals(5, items.size)
         assertTrue(items[0] is ServerListItem.SectionHeader)
         val pinnedRow = items[1] as ServerListItem.ServerRow
         assertEquals(10, pinnedRow.server.id)
         assertTrue(pinnedRow.isFavorite)
-        val regularFavoriteRow = items[2] as ServerListItem.ServerRow
+        assertTrue(items[2] is ServerListItem.SectionHeader)
+        val regularFavoriteRow = items[3] as ServerListItem.ServerRow
         assertEquals(10, regularFavoriteRow.server.id)
         assertTrue(regularFavoriteRow.isFavorite)
-        val nonFavoriteRow = items[3] as ServerListItem.ServerRow
+        val nonFavoriteRow = items[4] as ServerListItem.ServerRow
         assertEquals(20, nonFavoriteRow.server.id)
         assertTrue(!nonFavoriteRow.isFavorite)
     }
