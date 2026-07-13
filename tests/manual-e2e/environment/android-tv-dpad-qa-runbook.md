@@ -32,14 +32,28 @@ adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/e
 1.2 s hold reliably triggers `performLongClick` on the focused row. Re-run `getevent -pl` on other
 TV hardware to find the equivalent device/scancode.
 
+Simpler alternative (verified 2026-07-13, MIBOX4/Android 9): a stationary **touch** long-press
+also reliably triggers the same `View.OnLongClickListener` code path shared by touch and D-pad
+long-press (`CountryListAdapter.kt` / `ServerPickerAdapter.kt` set only one listener, not
+separate touch/key handlers), and needs no `sendevent`/scancode lookup:
+
+```
+adb -s <tv> shell input swipe <row_x> <row_y> <row_x> <row_y> 800
+```
+
+Use `800`-`1000` ms hold. This is the faster default when a genuine D-pad hold isn't required by
+the assertion (e.g. verifying dialog styling/label/toggle behavior rather than remote-specific
+input handling).
+
 ## Dialog interaction gotchas (FavoriteActionDialog)
 
 - When the dialog opens, `select_dialog_listview` already has focus; press `KEYCODE_DPAD_CENTER`
   directly to activate the single action item. Pressing DPAD_DOWN first moves focus to the
   Cancel button — CENTER then cancels instead of toggling.
 - The Cancel button label comes from the Android framework and is locale-dependent (`ОТМЕНА` on
-  ru locale); favorites strings themselves render in English ("Add to favorites",
-  "Remove from favorites", "Favorites") because the app has no ru/pl translations for them.
+  ru locale). As of the SUB-07 localization work (2026-07-13 verification, ru device locale) the
+  favorites strings ("Добавить в избранное" / "Удалить из избранного" / "Избранное" / "Все
+  страны" / "Все серверы") are fully localized in ru/pl too — do not assume English fallback.
 - After a favorite toggle the list refreshes and focus jumps to the toolbar back button; D-pad DOWN
   re-enters the list at the first row.
 
