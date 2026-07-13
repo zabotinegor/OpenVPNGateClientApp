@@ -76,8 +76,6 @@
          Presentation gate / resolvePresentation logic is untouched — styling only. -->
     <style name="ThemeOverlay.OpenVPNClientGate.AlertDialog" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
         <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.OpenVPNClientGate.AlertDialog</item>
-        <item name="colorSurface">?attr/colorSurface</item>
-        <item name="colorOnSurface">?attr/colorOnSurface</item>
     </style>
 
     <style name="ShapeAppearanceOverlay.OpenVPNClientGate.AlertDialog" parent="">
