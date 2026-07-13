@@ -455,6 +455,20 @@ private fun toggleFavorite(country: Country) {
 }
 ```
 
+## Localization
+
+**String resource coverage (SUB-07):**
+
+The following 5 favorites-related string keys have been translated to Russian (ru) and Polish (pl):
+
+- `favorites_section_title` — "Избранное" (ru), "Ulubione" (pl)
+- `favorites_add_action` — "Добавить в избранное" (ru), "Dodaj do ulubionych" (pl)
+- `favorites_remove_action` — "Удалить из избранного" (ru), "Usuń z ulubionych" (pl)
+- `favorites_added_toast` — "Добавлено в избранное" (ru), "Dodano do ulubionych" (pl)
+- `favorites_removed_toast` — "Удалено из избранного" (ru), "Usunięto z ulubionych" (pl)
+
+Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/` (`docs/qa-evidence/` is gitignored and not tracked in the repo).
+
 ## Related Documents
 
 - `src/docs/server-sync-flow.md` — How server list syncs trigger re-filtering of favorites
@@ -462,4 +476,5 @@ private fun toggleFavorite(country: Country) {
 - `CLAUDE.md` — Architecture overview and entry points
 - `docs/qa-evidence/favorites-data-layer-gate-1.md` — Data-layer preconditions and residual risks
 - `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
+- `docs/qa-evidence/favorites-localization-qa-1.md` — SUB-07 localization manual QA evidence and per-app locale override technique
 - `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)

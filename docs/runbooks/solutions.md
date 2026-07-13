@@ -628,3 +628,15 @@ See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV Q
 **Problem:** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
 **Solution:** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. When adding a pinned section (or the FocusFirstItem effect) to any new list screen, apply the gate there too and add the matching Robolectric focus test (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
 **First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8).
+
+### `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
+**Context:** Manual QA of locale-dependent UI text (SUB-07 favorites string translations) on a Samsung Galaxy A71 (One UI) over adb.
+**Problem:** Setting the system-wide locale via `adb shell settings put system system_locales <locales>` does not reliably take effect for a running or freshly relaunched app on Samsung/One UI — `mGlobalConfiguration` stays pinned to the prior locale even after force-stop and relaunch, so RU/PL string verification silently keeps showing the wrong locale's strings.
+**Solution:** Use the Android 13+ per-app locale override instead, which One UI honors:
+```
+adb shell cmd locale set-app-locales <package> --user 0 --locales <locale>   # e.g. pl-PL
+# ... test ...
+adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # clear override when done
+```
+Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
+**First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
