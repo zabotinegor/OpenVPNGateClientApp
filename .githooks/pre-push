@@ -20,8 +20,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
         exit 1
       fi
-      archive_exists=$(git branch -r 2>/dev/null | grep -c 'archive/archive-dev-' 2>/dev/null || echo 0)
-      if [ "$archive_exists" -eq 0 ]; then
+      if ! git branch -r 2>/dev/null | grep -q 'archive/archive-dev-'; then
         echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
         exit 1
       fi

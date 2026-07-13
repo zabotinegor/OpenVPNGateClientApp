@@ -132,17 +132,19 @@ def protected_reason(command, branch, cwd="."):
         # grant allow_release_archive_push=True and skip all protected-branch checks.
         is_dev_push = bool(re.search(r"(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])", normalized))
         is_dev_delete = bool(re.search(r"(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])", normalized))
-        # Guard: if the same command also targets main/master/develop in any push/delete
-        # context the exception does not apply — e.g. `git push origin --delete dev main`.
+        # Guard: if the same command mentions any other protected branch name anywhere
+        # (bare token, +token, :token, or refs/heads/ form), the exception does not
+        # apply — e.g. `git push origin dev main` or `git push origin --delete dev main`
+        # pass extra refspecs positionally, so position-anchored patterns are not enough.
+        # False positives only deny the narrow exception (fail-safe: push stays blocked).
         if is_dev_push or is_dev_delete:
-            for op in ("main", "master", "develop"):
-                if (re.search(rf"(?:^|\s)(?:--delete|-d)\s+{op}(?![-\w/.])", normalized, re.IGNORECASE)
-                        or re.search(rf"\b(?:origin|upstream)\s+\+?{op}(?![-\w/.])", normalized, re.IGNORECASE)
-                        or re.search(rf"(?:^|\s):{op}(?![-\w/.])", normalized, re.IGNORECASE)
-                        or re.search(rf"\brefs/heads/{op}(?![-\w/.])", normalized, re.IGNORECASE)):
-                    is_dev_push = False
-                    is_dev_delete = False
-                    break
+            if re.search(
+                r"(?:^|[\s+:])(?:refs/heads/)?(?:main|master|develop)(?![-\w/.])",
+                normalized,
+                re.IGNORECASE,
+            ):
+                is_dev_push = False
+                is_dev_delete = False
         if is_dev_push or is_dev_delete:
             try:
                 remotes = subprocess.run(
