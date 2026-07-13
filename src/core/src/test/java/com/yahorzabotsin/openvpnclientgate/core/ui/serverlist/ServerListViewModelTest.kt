@@ -748,4 +748,40 @@ class ServerListViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun `Gemini review - country code normalization is robust under Turkish locale`() = runTest {
+        // Verifies that country-code normalization (used for favorites matching) uses Locale.ROOT
+        // and is not vulnerable to Turkish locale's dotted-I hazard where "i".uppercase() differs
+        // from "I". This ensures that favorite country codes remain consistently comparable
+        // regardless of JVM default locale.
+        val originalLocale = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale("tr", "TR"))
+            val interactor = FakeInteractor(
+                v2Source = true,
+                countriesV2 = listOf(
+                    CountryV2(code = "IT", name = "Italy", serverCount = 3),
+                    CountryV2(code = "CA", name = "Canada", serverCount = 3)
+                )
+            )
+            val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+            // Store favorite as lowercase (simulating legacy or inconsistent data source)
+            val favoritesStore = FakeFavoritesCountryStore(setOf("it"))
+            val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+            advanceUntilIdle()
+
+            val items = vm.state.value.items
+            // Pinned favorites section should render despite Turkish locale,
+            // thanks to Locale.ROOT normalization in buildItems()
+            assertTrue(items[0] is CountryListItem.SectionHeader)
+            val pinnedFavoriteRows = items.filterIsInstance<CountryListItem.CountryRow>()
+                .filter { it.isFavorite && it.isPinnedSection }
+            assertTrue(pinnedFavoriteRows.isNotEmpty())
+            assertEquals(1, pinnedFavoriteRows.size)
+            assertEquals("Italy", pinnedFavoriteRows[0].countryWithServers.country.name)
+        } finally {
+            java.util.Locale.setDefault(originalLocale)
+        }
+    }
+
 }
