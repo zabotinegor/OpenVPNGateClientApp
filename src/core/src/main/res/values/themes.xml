@@ -65,7 +65,7 @@
          item_corner_radius) and elevation instead of the stock platform popup appearance.
          Wired app-wide via android:popupMenuStyle in the base theme; PopupMenu construction
          and click/leak-guard code are untouched. -->
-    <style name="Widget.OpenVPNClientGate.PopupMenu" parent="@android:style/Widget.Material.PopupMenu">
+    <style name="Widget.OpenVPNClientGate.PopupMenu" parent="Widget.MaterialComponents.PopupMenu">
         <item name="android:popupBackground">@drawable/bg_popup_menu</item>
         <item name="android:popupElevation">8dp</item>
     </style>
