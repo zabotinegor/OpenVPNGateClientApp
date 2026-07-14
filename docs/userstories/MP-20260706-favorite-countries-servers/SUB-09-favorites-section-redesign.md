@@ -11,6 +11,7 @@ Redesign the pinned "Favorites" section on the countries screen (`ServerListActi
 5. Existing row content, tap navigation, and long-press favorite actions (PopupMenu / TV `FavoriteActionDialog`) are unchanged by this story.
 6. Consistent treatment applied to both the countries screen and the servers-in-country screen, and acceptable on TV (Leanback) layouts as well as mobile, since both launchers reuse the same core layouts/adapters.
 7. Verified visually on a mobile device/emulator and a TV device/emulator, in both light and dark theme.
+8. Each individual country/server row in the full list below (the "All countries"/"All servers" section) shows a small star indicator when that specific item is currently favorited, and shows no star when it is not. The star appears immediately when an item is added to favorites and disappears immediately when removed, on both the countries screen and the servers-in-country screen, mobile and TV. (Added after user device testing of the initial SUB-09 delivery — the section-header star alone was not sufficient; users need to see favorite status on a row-by-row basis in the full list too.)
 
 ## Out of scope
 - Any change to favorites data/persistence or availability filtering (SUB-01).
