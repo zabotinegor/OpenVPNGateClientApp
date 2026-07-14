@@ -114,6 +114,18 @@
         <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.OpenVPNClientGate.AlertDialog</item>
         <item name="android:windowBackground">@drawable/bg_alert_dialog</item>
         <item name="android:windowTitleStyle">@style/Widget.OpenVPNClientGate.AlertDialogTitle</item>
+        <!-- colorSurface/colorOnSurface below are NOT dead code, despite not reaching the window
+             background (that indirection is MaterialAlertDialogBuilder-only, per the diagnosis
+             above). All hosts of this dialog (ServerListActivity, CountryServersActivity,
+             MainActivityCore, AboutActivity, UpdateInstallProgressDialog) are AppCompatActivity
+             on a Theme.MaterialComponents base theme, which installs a MaterialComponentsViewInflater
+             view factory; that factory is inherited by the dialog's cloned LayoutInflater, so the
+             dialog's own buttons (e.g. the Cancel action) are auto-upgraded from Button to
+             MaterialButton and CAN read colorSurface/colorOnSurface. Kept intentionally, with
+             values matching ovpnDialogSurfaceBackground/text_color_primary exactly (the same
+             tokens used by the explicit windowBackground/title-color fixes below) so that if this
+             path does apply, the button colors stay consistent with the rest of the dialog rather
+             than reverting to stock Material defaults. -->
         <item name="colorSurface">?attr/ovpnDialogSurfaceBackground</item>
         <item name="colorOnSurface">@color/text_color_primary</item>
         <item name="android:textColorPrimary">@color/text_color_primary</item>

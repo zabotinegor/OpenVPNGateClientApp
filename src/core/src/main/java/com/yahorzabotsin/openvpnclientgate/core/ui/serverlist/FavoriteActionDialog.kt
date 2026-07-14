@@ -1,7 +1,9 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import android.app.Activity
+import android.content.Context
 import android.widget.TextView
+import androidx.annotation.ColorInt
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -92,6 +94,18 @@ internal object FavoriteActionDialog {
      */
     private fun applyThemedTitleColor(activity: Activity, dialog: AlertDialog) {
         dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
-            ?.setTextColor(ContextCompat.getColor(activity, R.color.text_color_primary))
+            ?.setTextColor(resolveThemedTitleColor(activity))
     }
+
+    /**
+     * Testable seam for [applyThemedTitleColor]'s color resolution, split out so the day/night
+     * resolved value can be asserted in a unit test without needing the full themed
+     * AlertDialog to render (blocked in core unit tests by the legacy-Robolectric-resources
+     * constraint documented on `FavoriteActionDialogTest`). This is a direct
+     * `R.color.text_color_primary` resource lookup, not an AppCompat/Material theme-attribute
+     * resolution, so it resolves correctly even under that constraint.
+     */
+    @ColorInt
+    internal fun resolveThemedTitleColor(context: Context): Int =
+        ContextCompat.getColor(context, R.color.text_color_primary)
 }

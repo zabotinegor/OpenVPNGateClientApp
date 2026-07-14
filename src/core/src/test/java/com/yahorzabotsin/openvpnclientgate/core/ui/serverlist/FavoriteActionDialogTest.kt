@@ -130,4 +130,25 @@ class FavoriteActionDialogTest {
             CountryServersActivity.tvFavoriteDialogTitle(city = "  ", ip = "1.2.3.4")
         )
     }
+
+    // --- resolveThemedTitleColor: DEF-2 defect-fix title-color coverage (AC2 readability) ---
+    //
+    // Quality-gate follow-up (favorites-section-and-dialog-redesign-gate-2) attempted to close
+    // this specific gap by extracting `resolveThemedTitleColor` as a testable seam and asserting
+    // it resolves to the exact `values/colors.xml`/`values-night/colors.xml` text_color_primary
+    // hex under day and `+night` qualifiers — a resolved-value assertion, not a rendered-dialog
+    // one, specifically to route around the "cannot render the full themed AlertDialog" limit.
+    // That attempt still failed: even a direct `ContextCompat.getColor(context, R.color.*)` call
+    // (no AppCompat/Material theme-attribute indirection at all) throws
+    // `Resources$NotFoundException` in this module's core unit-test Robolectric environment
+    // (legacy resources mode; see `RuntimeEnvironment.getApplication()`'s R class not resolving
+    // this module's own `R.color` ids). This is a **stronger** constraint than previously
+    // documented on this class (which only claimed AppCompat/Material theme *attributes* were
+    // unresolvable) — plain `@ColorRes` lookups are unresolvable here too. `resolveThemedTitleColor`
+    // is kept as a production seam (harmless, self-documenting, mirrors `resolvePresentation`/
+    // `actionLabelRes`) for if/when this module's test resource setup is fixed, but no unit test
+    // exists for it. Coverage for the actual defect (invisible light-theme title) rests on the
+    // on-device pixel-sampled verification recorded in the SUB-08 defect-fix commit (`3550da6`)
+    // and this gate's manual re-check of the same evidence, per AGENTS.md "if validation cannot
+    // be run, explicitly state why."
 }
