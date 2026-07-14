@@ -139,6 +139,24 @@ private fun showFavoriteActionMenu(country: Country) {
 
 This pattern ensures users always see the action they can take, not the state.
 
+### Themed Styling (SUB-08) and the "looks stock" Defect
+
+`android:popupMenuStyle` in the base theme (`Widget.OpenVPNClientGate.PopupMenu`, backed by
+`drawable/bg_popup_menu.xml`) styles the popup app-wide without touching `PopupMenu`
+construction/leak-guard code in the Activities. First delivery of SUB-08 wired this correctly
+but the popup still visually read as stock on real devices: the background drawable filled with
+`?attr/colorSurface`, which is the **exact same color** the row `MaterialCardView`s behind it
+also use (`app:cardBackgroundColor="?attr/colorSurface"`), so the popup blended into the list
+instead of reading as a raised, distinct surface — technically styled, visually invisible. Fix:
+a dedicated `ovpnPopupMenuBackground`/`ovpnPopupMenuStroke` token pair (concrete values in
+`values/colors.xml` / `values-night/colors.xml`, distinct from both `app_background` and
+`nav_bar_background`/`colorSurface`), a 1dp stroke, bumped `android:popupElevation`, and an
+explicit `TextAppearance.OpenVPNClientGate.PopupMenuItem` wired via
+`android:textAppearanceLargePopupMenu`/`SmallPopupMenu` so the item label reads as app-styled
+text. **Lesson**: when a themed widget still "looks stock", check whether its background token
+resolves to the *same* value as the surface behind it — passing color-attribute review does not
+guarantee visible contrast.
+
 ### Toast Feedback
 
 After toggling, a toast message confirms the action:
@@ -431,6 +449,35 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
   `TvDrawerInteractionGuard` (main screen drawer) is untouched — it never applied to the list
   Activities.
 
+### Themed Styling (SUB-08) and the "looks stock" Defect
+
+First attempt set `colorSurface`/`colorOnSurface`/`android:textColorPrimary` items on
+`ThemeOverlay.OpenVPNClientGate.AlertDialog` (`values/themes.xml`), reasoning by analogy with
+Material's `colorSurface`-driven surfaces elsewhere in the app. On-device screenshots (with pixel
+color sampling via `System.Drawing` — visual inspection alone was not enough to catch this) showed
+it had **no effect**: `FavoriteActionDialog.show()` uses a plain
+`androidx.appcompat.app.AlertDialog.Builder`, not `com.google.android.material.dialog.MaterialAlertDialogBuilder`.
+Inspecting the `material-1.13.0.aar` source directly showed `ThemeOverlay.MaterialComponents.Dialog.Alert`
+resolves, for this construction path, to plain `ThemeOverlay.AppCompat.Dialog.Alert` — the
+`colorSurface` → `android:windowBackground` indirection (elevation-overlay-aware `MaterialShapeDrawable`)
+is wired up in Java code that only runs for `MaterialAlertDialogBuilder`. What looked like a fix in
+dark theme was actually Material's default elevation-overlay tint on the *unmodified* `colorSurface`
+(coincidentally close to our intended color); light theme has no elevation overlay, so the dialog
+rendered as plain white, exposing the failure. The title (`alertTitle`, styled via
+`?android:attr/windowTitleStyle` per `abc_alert_dialog_title_material.xml`) was separately invisible
+in light theme — `android:textColorPrimary` did not reach it either.
+
+**Fix**: set `android:windowBackground` directly to a shape drawable
+(`drawable/bg_alert_dialog.xml`, filled with a dedicated `ovpnDialogSurfaceBackground` token) —
+the same reliable pattern already used for the PopupMenu's `android:popupBackground` — and
+`android:windowTitleStyle` directly to `Widget.OpenVPNClientGate.AlertDialogTitle` with an
+explicit `android:textColor`, instead of relying on Material color-attribute indirection that
+doesn't apply to this dialog construction path. **Lesson**: for a plain AppCompat `AlertDialog`
+(as opposed to `MaterialAlertDialogBuilder`), Material `colorSurface`/`colorOnSurface` theme
+attributes are not guaranteed to affect anything — verify with actual pixel sampling on a
+screenshot, not just "does it look plausible", especially across both light and dark theme since
+one theme's default can coincidentally resemble the intended fix.
+
 ### Presentation gate
 
 `FavoriteActionDialog.resolvePresentation(isTvDevice, canFavorite)` is the single seam that
@@ -489,6 +536,28 @@ focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
 - [x] Translate into Russian and Polish (SUB-07)
 - [x] Test section header appearance and visibility on both mobile and TV
 - [x] Update `src/docs/favorites-ui-patterns.md` with card design, star icon, and header patterns
+
+### Per-Row Star Indicator (SUB-09 AC8, added after initial device testing)
+
+The section-header star alone was not sufficient — users need to see favorite status on a
+row-by-row basis in the full "All countries"/"All servers" list too, not just at the pinned
+section header.
+
+- [x] Add `row_favorite_star` `ImageView` (14dp, `?attr/colorOnSurface` tint, `ic_star`) to
+      `item_country_row.xml` and `item_server_row.xml`, `gone` by default
+- [x] `CountryListAdapter.ViewHolder.bind()` / `ServerPickerAdapter.ViewHolder.bind()` take an
+      `isFavorite` parameter (default `false` for source compatibility with existing direct
+      `bind()` callers) and set `row_favorite_star` visibility accordingly
+- [x] `onBindViewHolder` passes `item.isFavorite` (already carried per-row since SUB-02/SUB-03;
+      no new model field needed) for both `CountryRow`/`ServerRow` instances
+- [x] The star renders on the same row **both** inside the pinned Favorites card
+      (`isPinnedSection = true`) **and** again at the row's normal position in the full list
+      below (`isPinnedSection = false`), since both instances represent the same favorited item
+- [x] Star visibility updates live via the existing `updateItems()` → `notifyDataSetChanged()`
+      path — no additional refresh wiring needed
+- [x] Adapter tests: `CountryListAdapterTest`/`ServerPickerAdapterTest` assert
+      `row_favorite_star` is `VISIBLE`/`GONE` per `isFavorite`, toggles on `updateItems()`, and
+      shows on both the pinned and regular-list instance of the same favorited item
 
 ## Logging Considerations
 

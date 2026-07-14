@@ -75,7 +75,7 @@ class ServerPickerAdapter(
             is ServerListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
             is ServerListItem.ServerRow -> {
                 val rowHolder = holder as ViewHolder
-                rowHolder.bind(item.server)
+                rowHolder.bind(item.server, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.server) }
                 rowHolder.itemView.setOnLongClickListener {
                     onLongClick(rowHolder.itemView, item.server, item.isFavorite)
@@ -129,7 +129,8 @@ class ServerPickerAdapter(
         private val flag: TextView = itemView.findViewById(R.id.server_flag)
         private val pingView: TextView = itemView.findViewById(R.id.server_ping)
         private val signalView: ImageView = itemView.findViewById(R.id.server_signal)
-        fun bind(server: Server) {
+        private val favoriteStar: ImageView? = itemView.findViewById(R.id.row_favorite_star)
+        fun bind(server: Server, isFavorite: Boolean = false) {
             if (isDefaultV2Source) {
                 val city = server.city.trim()
                 val utc = ServerDisplayFormatter.formatUtc(server.utc)
@@ -170,6 +171,9 @@ class ServerPickerAdapter(
                     SignalStrength.WEAK -> R.drawable.signal_weak
                 }
             )
+            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Favorites card and again at its normal position in the full list below.
+            favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
         }
     }
 

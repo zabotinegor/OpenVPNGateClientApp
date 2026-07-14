@@ -65,4 +65,12 @@
          found the original tone visually indistinguishable from the page background in light theme. -->
     <color name="favorites_card_background">#DBE3EC</color>
 
+    <!-- Section: Popup menu / dialog surfaces (SUB-08 defect fix) -->
+    <!-- Distinct from both app_background (#F7F9FC) and nav_bar_background/colorSurface (#FFFFFF,
+         used by row cards) so the mobile favorite-toggle PopupMenu and app AlertDialogs read as
+         raised surfaces instead of blending into the page/list behind them. -->
+    <color name="popup_menu_background">#DBE3EC</color>
+    <color name="popup_menu_stroke">#B9C4D1</color>
+    <color name="dialog_surface_background">#DBE3EC</color>
+
 </resources>

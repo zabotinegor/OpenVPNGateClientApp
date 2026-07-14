@@ -64,6 +64,7 @@ class CountryListAdapterTest {
         container.addView(TextView(context).apply { id = R.id.country_flag })
         container.addView(TextView(context).apply { id = R.id.server_count })
         container.addView(ImageView(context).apply { id = R.id.chevron_icon })
+        container.addView(ImageView(context).apply { id = R.id.row_favorite_star })
         return container
     }
 
@@ -212,6 +213,77 @@ class CountryListAdapterTest {
         )
 
         assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
+    // --- SUB-09 AC8: per-row favorite star indicator in the full country list ---
+
+    @Test
+    fun `row shows favorite star only when isFavorite is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val country = Country(name = "United States", code = "US")
+        val holder = CountryListAdapter.ViewHolder(buildItemView(context))
+
+        holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = true)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = false)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star toggles live as adapter items update`() {
+        val context = RuntimeEnvironment.getApplication()
+        val country = CountryWithServers(Country("Canada", "CA"), 3)
+        val adapter = CountryListAdapter(
+            listOf(CountryListItem.CountryRow(country, isFavorite = false)),
+            onClick = {},
+            onLongClick = { _, _, _ -> }
+        )
+        val holder = CountryListAdapter.ViewHolder(buildItemView(context))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        adapter.updateItems(listOf(CountryListItem.CountryRow(country, isFavorite = true)))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star shows on both the pinned row and its matching row in the full list`() {
+        val context = RuntimeEnvironment.getApplication()
+        val country = CountryWithServers(Country("Zimbabwe", "ZW"), 2)
+        val items = listOf(
+            CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            CountryListItem.CountryRow(country, isFavorite = true, isPinnedSection = true),
+            CountryListItem.CountryRow(country, isFavorite = true)
+        )
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> })
+
+        val pinnedHolder = CountryListAdapter.ViewHolder(buildItemView(context))
+        adapter.onBindViewHolder(pinnedHolder, 1)
+        assertEquals(
+            View.VISIBLE,
+            pinnedHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        val regularHolder = CountryListAdapter.ViewHolder(buildItemView(context))
+        adapter.onBindViewHolder(regularHolder, 2)
+        assertEquals(
+            View.VISIBLE,
+            regularHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
     }
 
     @Test

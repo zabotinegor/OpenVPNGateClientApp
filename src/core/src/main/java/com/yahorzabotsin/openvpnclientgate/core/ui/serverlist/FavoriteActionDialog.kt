@@ -1,8 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import android.app.Activity
+import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclientgate.core.R
 
 /**
@@ -74,5 +76,22 @@ internal object FavoriteActionDialog {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+            .also { dialog -> applyThemedTitleColor(activity, dialog) }
+    }
+
+    /**
+     * SUB-08 defect fix: on-device verification (pixel-sampled screenshots, both themes) showed
+     * `android:windowTitleStyle` in `ThemeOverlay.OpenVPNClientGate.AlertDialog` (values/themes.xml)
+     * does not reliably reach this AlertDialog's title text color on this AppCompat version —
+     * the title rendered invisible (white-on-light) in light theme despite the window background
+     * fix (`android:windowBackground`) working correctly. Setting the color directly on the
+     * inflated title view is a guaranteed, styling-only fix with no effect on presentation
+     * gate/behavior. `alertTitle` is AppCompat's internal id for the AlertDialog title TextView
+     * (`abc_alert_dialog_title_material.xml`); absent only if the platform view id changes,
+     * hence the null-safe lookup.
+     */
+    private fun applyThemedTitleColor(activity: Activity, dialog: AlertDialog) {
+        dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+            ?.setTextColor(ContextCompat.getColor(activity, R.color.text_color_primary))
     }
 }

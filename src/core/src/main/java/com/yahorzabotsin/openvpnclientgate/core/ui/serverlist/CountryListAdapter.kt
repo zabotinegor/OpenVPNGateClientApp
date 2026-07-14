@@ -77,7 +77,7 @@ class CountryListAdapter(
             is CountryListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
             is CountryListItem.CountryRow -> {
                 val rowHolder = holder as ViewHolder
-                rowHolder.bind(item.countryWithServers)
+                rowHolder.bind(item.countryWithServers, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.countryWithServers.country) }
                 rowHolder.itemView.setOnLongClickListener {
                     onLongClick(rowHolder.itemView, item.countryWithServers.country, item.isFavorite)
@@ -126,7 +126,8 @@ class CountryListAdapter(
         private val flagView: TextView = itemView.findViewById(R.id.country_flag)
         private val serverCountView: TextView = itemView.findViewById(R.id.server_count)
         private val chevronIcon: ImageView = itemView.findViewById(R.id.chevron_icon)
-        fun bind(country: CountryWithServers) {
+        private val favoriteStar: ImageView? = itemView.findViewById(R.id.row_favorite_star)
+        fun bind(country: CountryWithServers, isFavorite: Boolean = false) {
             name.text = country.country.name
             val flag = countryFlagEmoji(country.country.code)
             if (!flag.isNullOrEmpty()) {
@@ -142,6 +143,9 @@ class CountryListAdapter(
                 country.serverCount
             )
             chevronIcon.visibility = View.VISIBLE
+            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Favorites card and again at its normal position in the full list below.
+            favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
         }
     }
 
