@@ -1,13 +1,10 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import android.app.Activity
-import android.content.Context
-import android.widget.TextView
-import androidx.annotation.ColorInt
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
-import androidx.core.content.ContextCompat
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 
 /**
  * Favorites toggle affordance shared by [ServerListActivity] and [CountryServersActivity].
@@ -78,34 +75,6 @@ internal object FavoriteActionDialog {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
-            .also { dialog -> applyThemedTitleColor(dialog) }
+            .also { dialog -> DialogUtils.applyThemedTitleColor(dialog) }
     }
-
-    /**
-     * SUB-08 defect fix: on-device verification (pixel-sampled screenshots, both themes) showed
-     * `android:windowTitleStyle` in `ThemeOverlay.OpenVPNClientGate.AlertDialog` (values/themes.xml)
-     * does not reliably reach this AlertDialog's title text color on this AppCompat version —
-     * the title rendered invisible (white-on-light) in light theme despite the window background
-     * fix (`android:windowBackground`) working correctly. Setting the color directly on the
-     * inflated title view is a guaranteed, styling-only fix with no effect on presentation
-     * gate/behavior. `alertTitle` is AppCompat's internal id for the AlertDialog title TextView
-     * (`abc_alert_dialog_title_material.xml`); absent only if the platform view id changes,
-     * hence the null-safe lookup.
-     */
-    private fun applyThemedTitleColor(dialog: AlertDialog) {
-        dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
-            ?.setTextColor(resolveThemedTitleColor(dialog.context))
-    }
-
-    /**
-     * Testable seam for [applyThemedTitleColor]'s color resolution, split out so the day/night
-     * resolved value can be asserted in a unit test without needing the full themed
-     * AlertDialog to render (blocked in core unit tests by the legacy-Robolectric-resources
-     * constraint documented on `FavoriteActionDialogTest`). This is a direct
-     * `R.color.text_color_primary` resource lookup, not an AppCompat/Material theme-attribute
-     * resolution, so it resolves correctly even under that constraint.
-     */
-    @ColorInt
-    internal fun resolveThemedTitleColor(context: Context): Int =
-        ContextCompat.getColor(context, R.color.text_color_primary)
 }

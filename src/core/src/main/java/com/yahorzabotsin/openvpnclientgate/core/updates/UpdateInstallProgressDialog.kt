@@ -8,6 +8,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.setPadding
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 
 class UpdateInstallProgressDialog(
     private val activity: Activity
@@ -36,6 +37,7 @@ class UpdateInstallProgressDialog(
     fun show() {
         if (!activity.isFinishing && !activity.isDestroyed) {
             dialog.show()
+            DialogUtils.applyThemedTitleColor(dialog)
         }
     }
 
