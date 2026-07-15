@@ -467,16 +467,27 @@ rendered as plain white, exposing the failure. The title (`alertTitle`, styled v
 `?android:attr/windowTitleStyle` per `abc_alert_dialog_title_material.xml`) was separately invisible
 in light theme — `android:textColorPrimary` did not reach it either.
 
-**Fix**: set `android:windowBackground` directly to a shape drawable
+**Fix (SUB-08 initial)**: set `android:windowBackground` directly to a shape drawable
 (`drawable/bg_alert_dialog.xml`, filled with a dedicated `ovpnDialogSurfaceBackground` token) —
 the same reliable pattern already used for the PopupMenu's `android:popupBackground` — and
 `android:windowTitleStyle` directly to `Widget.OpenVPNClientGate.AlertDialogTitle` with an
 explicit `android:textColor`, instead of relying on Material color-attribute indirection that
-doesn't apply to this dialog construction path. **Lesson**: for a plain AppCompat `AlertDialog`
-(as opposed to `MaterialAlertDialogBuilder`), Material `colorSurface`/`colorOnSurface` theme
-attributes are not guaranteed to affect anything — verify with actual pixel sampling on a
-screenshot, not just "does it look plausible", especially across both light and dark theme since
-one theme's default can coincidentally resemble the intended fix.
+doesn't apply to this dialog construction path.
+
+**DEF-5 refinement**: The color-only fill was insufficient on real TV screens — with a window
+dim/scrim behind the dialog, the fill-only difference did not read as "themed" to users testing
+on actual hardware. Added a 1dp stroke (`ovpnDialogSurfaceStroke`) to `bg_alert_dialog.xml`,
+mirroring the PopupMenu's proven border pattern (`bg_popup_menu.xml`). The stroke uses the same
+token pair already validated for mobile PopupMenu (light `#B9C4D1` / dark `#3F3F3F`), providing
+visible contrast from both the TV window scrim and the surrounding page background. Verified
+on-device via pixel sampling: dark theme border `#3F3F3F` vs fill `#2E2E2E` vs scrim background,
+light theme border `#B9C4D1` vs fill `#DBE3EC` vs scrim background — both clearly distinct.
+
+**Lesson**: a styled widget being technically wired up does not guarantee it is *visually distinguishable*
+on real hardware. Stock AppCompat `AlertDialog` (non-Material) with a color-only fill may be
+insufficient for visible differentiation at typical TV viewing distances or under specific lighting
+conditions. Always verify styled widgets with actual on-device screenshots and pixel-level color
+sampling, especially across themes and surfaces.
 
 ### Presentation gate
 

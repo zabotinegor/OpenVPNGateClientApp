@@ -624,11 +624,23 @@ adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/e
 ```
 See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
 
-### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen
+### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)
+
 **Context:** Screens with a pinned Favorites section at adapter position 0 (SUB-02/SUB-03 pattern) also emit a `FocusFirstItem` effect that scrolls/focuses the first *data* row (position 1) for TV D-pad UX.
-**Problem:** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
-**Solution:** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. When adding a pinned section (or the FocusFirstItem effect) to any new list screen, apply the gate there too and add the matching Robolectric focus test (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
-**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8).
+
+**Initial problem (DEF-sub03/DEF-sub05):** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
+
+**Initial solution (DEF-sub03/DEF-sub05):** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. Added matching Robolectric focus tests (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
+
+**Refinement (DEF-4 defect-fix):** The initial gate-to-TV solution proved incomplete. On TV, even gated to `isTvDevice==true`, the function was still calling `scrollToPosition(position)` where `position` was the *focus target* (1 when a header exists, 0 when none) — this scrolls item 1 to the top, pushing the header (item 0) out of the RecyclerView bounds. The issue recurred on real TV hardware after the SUB-09 visual redesign (filled card + second section header) made the cut-off header card edges more visually jarring. **Key insight:** scroll target and focus target are two different concerns:
+- **Scroll target** should always be 0 (keep the pinned header/card visible at the top).
+- **Focus target** should be position (1 with header, 0 without, so D-pad focus naturally lands on the first *data* row).
+
+**DEF-4 fix:** Decouple scroll and focus in `TvUtils.applyFocusFirstItem()` — always call `scrollToPosition(0)` first (keeping the header visible), then call `focusWhenReady(position)` independently. Position 0 and 1 are adjacent, so `RecyclerView` has already bound/laid out position 1 by the time focus is requested after scrolling to 0 — no additional bind-wait needed. Tests verify both scroll target (always 0) and focus target (position) independently.
+
+**When to apply the gate:** TV-only concern; touch devices return early from `applyFocusFirstItem` before any scroll is emitted. When adding a pinned section (or the `FocusFirstItem` effect) to any new list screen, ensure the activity calls `applyFocusFirstItem` with the correct `isTvDevice` detection, and add the matching Robolectric focus test to verify both header-present (position=1) and header-absent (position=0) cases.
+
+**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8); refined in SUB-08+SUB-09 defect-fix (`TvUtils.applyFocusFirstItem` decoupling, commits 46351c3/22ca39a).
 
 ### `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
 **Context:** Manual QA of locale-dependent UI text (SUB-07 favorites string translations) on a Samsung Galaxy A71 (One UI) over adb.
