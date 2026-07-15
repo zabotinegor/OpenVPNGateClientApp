@@ -174,6 +174,12 @@ class ServerPickerAdapter(
             // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
             // Favorites card and again at its normal position in the full list below.
             favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
+            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            favoriteStar?.contentDescription = if (isFavorite) {
+                itemView.context.getString(R.string.favorites_add_action)
+            } else {
+                null
+            }
         }
     }
 

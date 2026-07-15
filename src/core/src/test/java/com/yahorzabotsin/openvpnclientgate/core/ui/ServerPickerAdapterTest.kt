@@ -333,4 +333,23 @@ class ServerPickerAdapterTest {
         assertEquals(1, adapter.getItemViewType(1))
         assertEquals(1, adapter.getItemViewType(2))
     }
+
+    @Test
+    fun `favorite star has content description reflecting favorite state for accessibility`() {
+        val context = RuntimeEnvironment.getApplication()
+        val server = buildServer(city = "Seattle", name = "ServerName")
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        val favoriteStar = holder.itemView.findViewById<ImageView>(R.id.row_favorite_star)
+
+        // When favorited, content description should be set
+        holder.bind(server, isFavorite = true)
+        assertEquals(
+            context.getString(R.string.favorites_add_action),
+            favoriteStar?.contentDescription.toString()
+        )
+
+        // When not favorited, content description should be null
+        holder.bind(server, isFavorite = false)
+        assertEquals(null, favoriteStar?.contentDescription)
+    }
 }

@@ -309,4 +309,23 @@ class CountryListAdapterTest {
         assertEquals(1, adapter.getItemViewType(1))  // CountryRow
         assertEquals(1, adapter.getItemViewType(2))  // CountryRow
     }
+
+    @Test
+    fun `favorite star has content description reflecting favorite state for accessibility`() {
+        val context = RuntimeEnvironment.getApplication()
+        val country = Country(name = "United States", code = "US")
+        val holder = CountryListAdapter.ViewHolder(buildItemView(context))
+        val favoriteStar = holder.itemView.findViewById<ImageView>(R.id.row_favorite_star)
+
+        // When favorited, content description should be set
+        holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = true)
+        assertEquals(
+            context.getString(R.string.favorites_add_action),
+            favoriteStar?.contentDescription.toString()
+        )
+
+        // When not favorited, content description should be null
+        holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = false)
+        assertEquals(null, favoriteStar?.contentDescription)
+    }
 }

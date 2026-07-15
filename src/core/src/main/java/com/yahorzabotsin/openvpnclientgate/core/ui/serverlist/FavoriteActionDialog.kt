@@ -78,7 +78,7 @@ internal object FavoriteActionDialog {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
-            .also { dialog -> applyThemedTitleColor(activity, dialog) }
+            .also { dialog -> applyThemedTitleColor(dialog) }
     }
 
     /**
@@ -92,9 +92,9 @@ internal object FavoriteActionDialog {
      * (`abc_alert_dialog_title_material.xml`); absent only if the platform view id changes,
      * hence the null-safe lookup.
      */
-    private fun applyThemedTitleColor(activity: Activity, dialog: AlertDialog) {
+    private fun applyThemedTitleColor(dialog: AlertDialog) {
         dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
-            ?.setTextColor(resolveThemedTitleColor(activity))
+            ?.setTextColor(resolveThemedTitleColor(dialog.context))
     }
 
     /**
