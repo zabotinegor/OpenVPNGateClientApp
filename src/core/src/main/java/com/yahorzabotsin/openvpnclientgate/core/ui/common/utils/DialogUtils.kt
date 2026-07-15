@@ -5,6 +5,7 @@ import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 
 /**
@@ -37,14 +38,22 @@ internal object DialogUtils {
     }
 
     /**
-     * Testable seam for [applyThemedTitleColor]'s color resolution, split out so the day/night
-     * resolved value can be asserted in a unit test without needing the full themed
-     * AlertDialog to render (blocked in core unit tests by the legacy-Robolectric-resources
-     * constraint documented on `FavoriteActionDialogTest`). This is a direct
-     * `R.color.text_color_primary` resource lookup, not an AppCompat/Material theme-attribute
-     * resolution, so it resolves correctly even under that constraint.
+     * Resolve the themed title color using Material's theme-attribute resolution with fallback.
+     *
+     * Uses MaterialColors.getColor() to resolve android.R.attr.textColorPrimary (the actual
+     * theme's primary text color attribute), with a fallback to R.color.text_color_primary
+     * if the attribute cannot be resolved. This ensures the dialog uses the theme's intended
+     * primary text color instead of a hardcoded resource reference.
+     *
+     * Testable seam for [applyThemedTitleColor]'s color resolution, split out so the
+     * day/night resolved value can be asserted in a unit test without needing the full
+     * themed AlertDialog to render.
      */
     @ColorInt
     internal fun resolveThemedTitleColor(context: Context): Int =
-        ContextCompat.getColor(context, R.color.text_color_primary)
+        MaterialColors.getColor(
+            context,
+            android.R.attr.textColorPrimary,
+            ContextCompat.getColor(context, R.color.text_color_primary)
+        )
 }
