@@ -66,5 +66,11 @@
     <color name="popup_menu_background">#2E2E2E</color>
     <color name="popup_menu_stroke">#3F3F3F</color>
     <color name="dialog_surface_background">#2E2E2E</color>
+    <!-- DEF-5-tv-dialog-still-looks-stock defect fix: same value as popup_menu_stroke above.
+         A color-only dialog_surface_background fill (identical tone to popup_menu_background)
+         was not visually distinct enough on a real TV screen; reusing the same stroke tone that
+         already differentiates the PopupMenu gives the AlertDialog the same proven border
+         contrast against app_background (#121212) and colorSurface (#1A1A1A). -->
+    <color name="dialog_surface_stroke">#3F3F3F</color>
 
 </resources>

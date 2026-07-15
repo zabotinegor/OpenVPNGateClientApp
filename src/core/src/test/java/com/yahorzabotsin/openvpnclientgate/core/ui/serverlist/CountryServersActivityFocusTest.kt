@@ -56,7 +56,7 @@ class CountryServersActivityFocusTest {
     }
 
     @Test
-    fun `tv device - FocusFirstItem scrolls to the target row and then requests focus`() {
+    fun `tv device - FocusFirstItem scrolls to position 0 to keep header visible, then focuses the target row`() {
         val calls = mutableListOf<String>()
 
         TvUtils.applyFocusFirstItem(
@@ -66,8 +66,10 @@ class CountryServersActivityFocusTest {
             focusWhenReady = { calls.add("focus:$it") }
         )
 
-        // Scroll must happen before the focus attempt: findViewHolderForAdapterPosition
-        // returns null for positions RecyclerView hasn't bound yet.
-        assertEquals(listOf("scroll:1", "focus:1"), calls)
+        // Regression test for DEF-4-tv-list-misscroll-on-open: scrolling to `position` (1)
+        // top-aligns the first row and pushes the pinned Favorites header (position 0) out
+        // of view on TV. The list must always scroll to 0 first so the header stays fully
+        // visible, while D-pad focus still lands on the target row (1).
+        assertEquals(listOf("scroll:0", "focus:1"), calls)
     }
 }

@@ -25,6 +25,7 @@
         <item name="ovpnPopupMenuBackground">@color/popup_menu_background</item>
         <item name="ovpnPopupMenuStroke">@color/popup_menu_stroke</item>
         <item name="ovpnDialogSurfaceBackground">@color/dialog_surface_background</item>
+        <item name="ovpnDialogSurfaceStroke">@color/dialog_surface_stroke</item>
 
         <!-- Section: SUB-08 themed favorite action affordances (PopupMenu on mobile,
              AlertDialog on TV) — styling only, presentation gate/behavior unchanged. -->

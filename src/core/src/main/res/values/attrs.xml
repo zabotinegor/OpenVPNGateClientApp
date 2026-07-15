@@ -33,4 +33,10 @@
          Concrete, non-self-referencing value (see round-1/round-3 review history for why a
          self-referencing colorSurface item was removed from the AlertDialog theme overlay). -->
     <attr name="ovpnDialogSurfaceBackground" format="color" />
+    <!-- DEF-5-tv-dialog-still-looks-stock defect fix: border color for app AlertDialogs (TV
+         FavoriteActionDialog, MainActivityCore.showUpdateDialog, etc.), mirroring
+         ovpnPopupMenuStroke above. A color-only background fill was judged insufficient on a
+         real TV screen (window dim/scrim behind the dialog); a visible stroke gives the same
+         "distinct raised surface" differentiation the PopupMenu already has. -->
+    <attr name="ovpnDialogSurfaceStroke" format="color" />
 </resources>
