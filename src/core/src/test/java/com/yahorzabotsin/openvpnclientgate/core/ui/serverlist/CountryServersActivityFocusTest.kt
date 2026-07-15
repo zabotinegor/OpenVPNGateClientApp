@@ -72,4 +72,21 @@ class CountryServersActivityFocusTest {
         // visible, while D-pad focus still lands on the target row (1).
         assertEquals(listOf("scroll:0", "focus:1"), calls)
     }
+
+    @Test
+    fun `tv device - no favorites header - FocusFirstItem scrolls and focuses position 0`() {
+        val calls = mutableListOf<String>()
+
+        // When there is no pinned Favorites header, the ViewModel emits FocusFirstItem(0)
+        // and position 0 is already a regular row, so scroll and focus target the same
+        // position - this case must remain unaffected by the DEF-4 fix.
+        TvUtils.applyFocusFirstItem(
+            isTvDevice = true,
+            position = 0,
+            scrollToPosition = { calls.add("scroll:$it") },
+            focusWhenReady = { calls.add("focus:$it") }
+        )
+
+        assertEquals(listOf("scroll:0", "focus:0"), calls)
+    }
 }
