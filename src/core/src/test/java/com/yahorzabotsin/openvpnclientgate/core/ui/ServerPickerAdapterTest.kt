@@ -87,12 +87,14 @@ class ServerPickerAdapterTest {
         container.addView(TextView(context).apply { id = R.id.server_flag })
         container.addView(TextView(context).apply { id = R.id.server_ping })
         container.addView(ImageView(context).apply { id = R.id.server_signal })
+        container.addView(ImageView(context).apply { id = R.id.row_favorite_star })
         return container
     }
 
     private fun buildHeaderView(context: android.content.Context): FrameLayout {
         val container = FrameLayout(context)
         container.addView(TextView(context).apply { id = R.id.section_header_title })
+        container.addView(ImageView(context).apply { id = R.id.section_header_icon })
         return container
     }
 
@@ -168,6 +170,28 @@ class ServerPickerAdapterTest {
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
     }
 
+    // --- SUB-09: star icon shown only on the pinned Favorites header ---
+
+    @Test
+    fun `section header shows star icon only when showFavoriteIcon is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val favoritesHeader = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title), showFavoriteIcon = true)
+        )
+        val adapter = ServerPickerAdapter(favoritesHeader, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder = ServerPickerAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
+
+        val allServersHeader = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.all_servers_section_title))
+        )
+        val adapter2 = ServerPickerAdapter(allServersHeader, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder2 = ServerPickerAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter2.onBindViewHolder(holder2, 0)
+        assertEquals(View.GONE, holder2.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
+    }
+
     // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
 
     @Test
@@ -216,6 +240,78 @@ class ServerPickerAdapterTest {
         assertEquals(0, adapter.pinnedSectionItemCount())
     }
 
+    // --- SUB-09 AC8: per-row favorite star indicator in the full server list ---
+
+    @Test
+    fun `row shows favorite star only when isFavorite is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val server = buildServer(city = "Seattle", name = "ServerName")
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+
+        holder.bind(server, isFavorite = true)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        holder.bind(server, isFavorite = false)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star toggles live as adapter items update`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val adapter = ServerPickerAdapter(
+            listOf(ServerListItem.ServerRow(serverA, isFavorite = false)),
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        adapter.updateItems(listOf(ServerListItem.ServerRow(serverA, isFavorite = true)))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star shows on both the pinned row and its matching row in the full list`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverA, isFavorite = true)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        val pinnedHolder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(pinnedHolder, 1)
+        assertEquals(
+            View.VISIBLE,
+            pinnedHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        val regularHolder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(regularHolder, 2)
+        assertEquals(
+            View.VISIBLE,
+            regularHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
     @Test
     fun `updateItems changes items without recreating adapter`() {
         val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
@@ -236,5 +332,25 @@ class ServerPickerAdapterTest {
         assertEquals(0, adapter.getItemViewType(0))
         assertEquals(1, adapter.getItemViewType(1))
         assertEquals(1, adapter.getItemViewType(2))
+    }
+
+    @Test
+    fun `favorite star has content description reflecting favorite state for accessibility`() {
+        val context = RuntimeEnvironment.getApplication()
+        val server = buildServer(city = "Seattle", name = "ServerName")
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        val favoriteStar = holder.itemView.findViewById<ImageView>(R.id.row_favorite_star)
+
+        // When favorited, content description should be set
+        holder.bind(server, isFavorite = true)
+        assertEquals(
+            context.getString(R.string.favorites_section_title),
+            favoriteStar?.contentDescription.toString()
+        )
+
+        // When not favorited, content description should be null (set to non-null first to test it clears)
+        favoriteStar?.contentDescription = "sentinel_value"
+        holder.bind(server, isFavorite = false)
+        assertEquals(null, favoriteStar?.contentDescription)
     }
 }

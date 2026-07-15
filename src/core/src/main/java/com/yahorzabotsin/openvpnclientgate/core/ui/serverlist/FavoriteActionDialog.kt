@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import com.yahorzabotsin.openvpnclientgate.core.R
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 
 /**
  * Favorites toggle affordance shared by [ServerListActivity] and [CountryServersActivity].
@@ -74,5 +75,6 @@ internal object FavoriteActionDialog {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+            .also { dialog -> DialogUtils.applyThemedTitleColor(dialog) }
     }
 }

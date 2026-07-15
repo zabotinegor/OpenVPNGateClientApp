@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SUB-08 defect fix: app-styled window background for FavoriteActionDialog's TV AlertDialog
+     (and other app AlertDialogs sharing alertDialogTheme, e.g. MainActivityCore.showUpdateDialog).
+     Plain androidx.appcompat.app.AlertDialog.Builder does not derive android:windowBackground
+     from ?attr/colorSurface (that indirection is MaterialAlertDialogBuilder-only — see themes.xml
+     ThemeOverlay.OpenVPNClientGate.AlertDialog doc comment), so the background is set directly
+     here via the same reliable drawable pattern used for the PopupMenu's android:popupBackground:
+     a dedicated ovpnDialogSurfaceBackground fill, distinct from ?attr/colorSurface (used by the
+     row cards and page behind the dialog), with item_corner_radius corners.
+
+     DEF-5-tv-dialog-still-looks-stock defect fix: a color-only fill was reported twice by direct
+     TV device testing as still looking like a stock/default AlertDialog — on a real TV screen,
+     with the window dim/scrim behind the dialog, the fill-only difference didn't read as clearly
+     "themed". Added a visible stroke (ovpnDialogSurfaceStroke), mirroring bg_popup_menu.xml's
+     border treatment (same 1dp width convention) which already proved sufficient for the
+     PopupMenu. Window elevation is not set explicitly here: AppCompat/platform dialog windows
+     already receive a default elevation shadow (windowIsFloating dialogs get platform elevation
+     independent of alertDialogTheme), so adding an explicit windowElevation item would be
+     redundant on top of the fill+stroke fix. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/ovpnDialogSurfaceBackground" />
+    <stroke
+        android:width="1dp"
+        android:color="?attr/ovpnDialogSurfaceStroke" />
+    <corners android:radius="@dimen/item_corner_radius" />
+</shape>

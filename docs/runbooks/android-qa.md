@@ -280,3 +280,33 @@ The `cmd locale set-app-locales` command:
 ### Manual QA Evidence
 
 See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md` and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (`docs/qa-evidence/` is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
+
+---
+
+## Simulating a TV D-pad Long-Press via ADB (MIBOX4 / Android 9, API 28)
+
+**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-08-themed-favorite-action-dialog.md` (retest round)
+
+The favorites long-press dialog on TV (`FavoriteActionDialog`) is triggered by a plain `View.OnLongClickListener` set on each row — there is no custom `OnKeyListener` or manual timing logic. The framework itself promotes a held D-pad center/enter *key* press into `performLongClick()` after `ViewConfiguration.getLongPressTimeout()` (~500ms), exactly like a touch long-press. This means the long-press must genuinely be *held*, not just tapped.
+
+**What does NOT work on this device (MIBOX4, Android 9 / API 28):**
+
+- `adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` — the `--longpress` flag is accepted without error but silently behaves like a normal short click (navigates into the row instead of opening the dialog). This flag appears unreliable/not honored on this old API 28 `input` command build.
+- `adb shell sendevent /dev/input/eventN 1 28 1` (manually holding `KEY_ENTER` down on the physical remote's evdev device, e.g. `/dev/input/event3` "Xiaomi RC") — produced no effect at all (no click, no long-click). The remote's physical evdev node is not the path `adb shell input` uses internally (that command injects directly via `InputManager`, bypassing evdev), so manually driving the physical remote device node doesn't reach the app.
+
+**What works:** inject a synthetic **touchscreen** hold at the row's on-screen coordinates, exactly like the mobile long-press trick, even though this is a Leanback/D-pad-first TV app with no physical touchscreen:
+
+```bash
+# Hold at (x, y) for 800ms — same call used for the mobile PopupMenu long-press
+adb -s <tv-serial> shell input swipe <x> <y> <x> <y> 800
+```
+
+This reaches the same `OnLongClickListener` as a genuine D-pad long-press because RecyclerView item views on this screen are also touch-clickable; Android's `input swipe`/`tap` commands inject `SOURCE_TOUCHSCREEN` events through the input dispatcher regardless of whether the device has real touch hardware, and the dispatcher routes them to whatever view is under the coordinates.
+
+**Practical steps:**
+1. Take a screenshot (`adb exec-out screencap -p > out.png`) to find the target row's coordinates.
+2. `adb shell input swipe X Y X Y 800` on that row.
+3. Screenshot again to confirm the `FavoriteActionDialog` appeared with the app-styled background (not stock).
+4. Tap the resulting dialog's list item / Cancel button coordinates directly (also via `input tap X Y`) — the dialog is drawn at the screen coordinates visible in the screenshot.
+
+**Restoring D-pad focus/state after touch injection:** touch events don't move D-pad focus, so after closing a dialog opened this way, a subsequent `KEYCODE_DPAD_DOWN`/`KEYCODE_DPAD_CENTER` may behave unexpectedly (focus can still be on the last D-pad-focused view, which is usually fine, but double-check with a screenshot before chaining more D-pad key events).

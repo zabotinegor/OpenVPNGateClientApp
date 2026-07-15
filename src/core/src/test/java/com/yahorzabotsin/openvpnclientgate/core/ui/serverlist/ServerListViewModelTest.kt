@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -405,13 +406,90 @@ class ServerListViewModelTest {
 
         val items = vm.state.value.items
         assertTrue(items[0] is CountryListItem.SectionHeader)
+        assertTrue((items[0] as CountryListItem.SectionHeader).showFavoriteIcon)
         val favoriteRow = items[1] as CountryListItem.CountryRow
         assertEquals("United States", favoriteRow.countryWithServers.country.name)
         assertTrue(favoriteRow.isFavorite)
+        // SUB-09: second "All countries" header marks the start of the full list below.
+        assertTrue(items[2] is CountryListItem.SectionHeader)
+        assertFalse((items[2] as CountryListItem.SectionHeader).showFavoriteIcon)
         // regular list still contains both countries afterwards, alphabetically
-        assertEquals("Canada", (items[2] as CountryListItem.CountryRow).countryWithServers.country.name)
-        assertEquals("United States", (items[3] as CountryListItem.CountryRow).countryWithServers.country.name)
-        assertEquals(4, items.size)
+        assertEquals("Canada", (items[3] as CountryListItem.CountryRow).countryWithServers.country.name)
+        assertEquals("United States", (items[4] as CountryListItem.CountryRow).countryWithServers.country.name)
+        assertEquals(5, items.size)
+    }
+
+    // --- SUB-09: second "All countries" header above the full list ---
+
+    @Test
+    fun `SUB-09 AC3 - second header labeled All countries appears only when favorites section is visible`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "CA", name = "Canada", serverCount = 3),
+                CountryV2(code = "US", name = "United States", serverCount = 5)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val favoritesStore = FakeFavoritesCountryStore(setOf("US"))
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+        advanceUntilIdle()
+
+        val headers = vm.state.value.items.filterIsInstance<CountryListItem.SectionHeader>()
+        assertEquals(2, headers.size)
+        assertEquals(UiText.Res(R.string.favorites_section_title), headers[0].title)
+        assertTrue(headers[0].showFavoriteIcon)
+        assertEquals(UiText.Res(R.string.all_countries_section_title), headers[1].title)
+        assertFalse(headers[1].showFavoriteIcon)
+    }
+
+    @Test
+    fun `SUB-09 AC4 - no second header when there are no favorites`() = runTest {
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "CA", name = "Canada", serverCount = 3),
+                CountryV2(code = "US", name = "United States", serverCount = 5)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), FakeFavoritesCountryStore())
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.items.none { it is CountryListItem.SectionHeader })
+    }
+
+    @Test
+    fun `SUB-09 edge case - every country favorited still shows both headers and the full list below`() = runTest {
+        // When 100% of countries are favorited, the pinned block and the "All countries" list
+        // below it end up with identical content (minus ordering) - buildItems must not special
+        // case this away or crash; both sections should render additively as usual.
+        val interactor = FakeInteractor(
+            v2Source = true,
+            countriesV2 = listOf(
+                CountryV2(code = "CA", name = "Canada", serverCount = 3),
+                CountryV2(code = "US", name = "United States", serverCount = 5)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val favoritesStore = FakeFavoritesCountryStore(setOf("CA", "US"))
+        val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        val headers = items.filterIsInstance<CountryListItem.SectionHeader>()
+        assertEquals(2, headers.size)
+        assertEquals(UiText.Res(R.string.favorites_section_title), headers[0].title)
+        assertEquals(UiText.Res(R.string.all_countries_section_title), headers[1].title)
+
+        val pinnedRows = items.filterIsInstance<CountryListItem.CountryRow>().filter { it.isPinnedSection }
+        val regularRows = items.filterIsInstance<CountryListItem.CountryRow>().filter { !it.isPinnedSection }
+        assertEquals(2, pinnedRows.size)
+        assertEquals(2, regularRows.size)
+        assertTrue(pinnedRows.all { it.isFavorite })
+        assertTrue(regularRows.all { it.isFavorite })
+        // header(1) + pinned(2) + header(1) + regular(2) = 6
+        assertEquals(6, items.size)
     }
 
     @Test
@@ -668,6 +746,42 @@ class ServerListViewModelTest {
         assertTrue(effects[0] is ServerListEffect.ShowSnackbar)
         assertTrue(effects.none { it is ServerListEffect.FocusFirstItem })
         job.cancel()
+    }
+
+    @Test
+    fun `Gemini review - country code normalization is robust under Turkish locale`() = runTest {
+        // Verifies that country-code normalization (used for favorites matching) uses Locale.ROOT
+        // and is not vulnerable to Turkish locale's dotted-I hazard where "i".uppercase() differs
+        // from "I". This ensures that favorite country codes remain consistently comparable
+        // regardless of JVM default locale.
+        val originalLocale = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale("tr", "TR"))
+            val interactor = FakeInteractor(
+                v2Source = true,
+                countriesV2 = listOf(
+                    CountryV2(code = "IT", name = "Italy", serverCount = 3),
+                    CountryV2(code = "CA", name = "Canada", serverCount = 3)
+                )
+            )
+            val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+            // Store favorite as lowercase (simulating legacy or inconsistent data source)
+            val favoritesStore = FakeFavoritesCountryStore(setOf("it"))
+            val vm = ServerListViewModel(interactor, connection, FakeLogger(), favoritesStore)
+            advanceUntilIdle()
+
+            val items = vm.state.value.items
+            // Pinned favorites section should render despite Turkish locale,
+            // thanks to Locale.ROOT normalization in buildItems()
+            assertTrue(items[0] is CountryListItem.SectionHeader)
+            val pinnedFavoriteRows = items.filterIsInstance<CountryListItem.CountryRow>()
+                .filter { it.isFavorite && it.isPinnedSection }
+            assertTrue(pinnedFavoriteRows.isNotEmpty())
+            assertEquals(1, pinnedFavoriteRows.size)
+            assertEquals("Italy", pinnedFavoriteRows[0].countryWithServers.country.name)
+        } finally {
+            java.util.Locale.setDefault(originalLocale)
+        }
     }
 
 }

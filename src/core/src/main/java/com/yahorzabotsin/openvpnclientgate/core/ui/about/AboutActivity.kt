@@ -25,6 +25,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.updates.buildUpdateDialogMess
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
 import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 import kotlinx.coroutines.launch
 import java.io.File
 import android.provider.Settings
@@ -245,7 +246,7 @@ class AboutActivity : AppCompatActivity() {
                 startActivity(intent)
             }
         }
-        dialog.show()
+        dialog.show().also { DialogUtils.applyThemedTitleColor(it) }
     }
 
     private fun startUpdateInstall(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {

@@ -46,6 +46,7 @@ import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateAsset
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstallResult
 import com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInstaller
 import com.yahorzabotsin.openvpnclientgate.core.updates.UpdateInstallProgressDialog
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -335,7 +336,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 openUpdateChangelog(update)
             }
         }
-        dialog.show()
+        dialog.show().also { DialogUtils.applyThemedTitleColor(it) }
     }
 
     private fun openUpdateChangelog(update: MainAvailableUpdate) {

@@ -19,7 +19,11 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
  * the pinned favorites section and the regular server list.
  */
 sealed interface ServerListItem {
-    data class SectionHeader(val title: UiText) : ServerListItem
+    /**
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * the "All servers" header shown below the pinned block does not get the star icon.
+     */
+    data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : ServerListItem
 
     /**
      * @param isPinnedSection true only for the row instance rendered inside the pinned
@@ -71,7 +75,7 @@ class ServerPickerAdapter(
             is ServerListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
             is ServerListItem.ServerRow -> {
                 val rowHolder = holder as ViewHolder
-                rowHolder.bind(item.server)
+                rowHolder.bind(item.server, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.server) }
                 rowHolder.itemView.setOnLongClickListener {
                     onLongClick(rowHolder.itemView, item.server, item.isFavorite)
@@ -86,8 +90,10 @@ class ServerPickerAdapter(
     /**
      * Number of leading items (the [ServerListItem.SectionHeader] plus its pinned
      * [ServerListItem.ServerRow] entries) that make up the pinned "Favorites" block, or 0
-     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration]
-     * to draw a border/frame around exactly that block (SUB-06).
+     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
+     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
+     * "All servers" header inserted below the pinned block (SUB-09) is a [ServerListItem.SectionHeader],
+     * not a pinned [ServerListItem.ServerRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
         if (items.isEmpty() || items[0] !is ServerListItem.SectionHeader) return 0
@@ -106,8 +112,10 @@ class ServerPickerAdapter(
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_header_title)
+        private val icon: View? = itemView.findViewById(R.id.section_header_icon)
         fun bind(header: ServerListItem.SectionHeader) {
             title.text = title.context.resolve(header.title)
+            icon?.visibility = if (header.showFavoriteIcon) View.VISIBLE else View.GONE
         }
     }
 
@@ -121,7 +129,8 @@ class ServerPickerAdapter(
         private val flag: TextView = itemView.findViewById(R.id.server_flag)
         private val pingView: TextView = itemView.findViewById(R.id.server_ping)
         private val signalView: ImageView = itemView.findViewById(R.id.server_signal)
-        fun bind(server: Server) {
+        private val favoriteStar: ImageView? = itemView.findViewById(R.id.row_favorite_star)
+        fun bind(server: Server, isFavorite: Boolean = false) {
             if (isDefaultV2Source) {
                 val city = server.city.trim()
                 val utc = ServerDisplayFormatter.formatUtc(server.utc)
@@ -162,6 +171,15 @@ class ServerPickerAdapter(
                     SignalStrength.WEAK -> R.drawable.signal_weak
                 }
             )
+            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Favorites card and again at its normal position in the full list below.
+            favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
+            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            favoriteStar?.contentDescription = if (isFavorite) {
+                itemView.context.getString(R.string.favorites_section_title)
+            } else {
+                null
+            }
         }
     }
 

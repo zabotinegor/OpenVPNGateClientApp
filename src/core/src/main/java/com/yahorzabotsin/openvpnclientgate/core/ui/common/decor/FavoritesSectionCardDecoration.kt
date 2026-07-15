@@ -11,42 +11,47 @@ import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 
 /**
- * Draws a single rounded-rect border/frame around the pinned "Favorites" block (section
- * header + pinned rows) at the top of a country/server RecyclerView list (SUB-06).
+ * Draws a filled, rounded-rect card behind the pinned "Favorites" block (section header +
+ * pinned rows) at the top of a country/server RecyclerView list (SUB-09). Replaces the
+ * SUB-06 stroke-border framing (formerly `FavoritesSectionFrameDecoration`) with a filled
+ * colorSurface-variant tone card (no stroke) and internal padding around the block, matching
+ * the app's other "info card" surfaces.
  *
- * The frame is purely a visual overlay drawn in [onDrawOver]: it never touches item
- * backgrounds, click/long-click listeners, or layout, so existing row content, tap
- * navigation, and long-press favorite actions (PopupMenu / TV [FavoriteActionDialog]) are
- * unaffected. It draws nothing when [pinnedItemCount] returns 0 (section hidden, matching
- * the existing show/hide behavior from SUB-02/SUB-03), and nothing when none of the pinned
- * items are currently laid out (e.g. scrolled out of view).
+ * The card is purely a visual background painted in [onDraw] (drawn *before* item content, so
+ * row/header backgrounds paint on top of it): it never touches item backgrounds, click/
+ * long-click listeners, or layout, so existing row content, tap navigation, and long-press
+ * favorite actions (PopupMenu / TV [FavoriteActionDialog]) are unaffected. It draws nothing
+ * when [pinnedItemCount] returns 0 (section hidden, matching the existing show/hide behavior
+ * from SUB-02/SUB-03), and nothing when none of the pinned items are currently laid out (e.g.
+ * scrolled out of view).
  *
  * @param pinnedItemCount supplies the number of leading adapter positions (0 until this
  * count, exclusive) that belong to the pinned block. Both [com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryListAdapter]
  * and [com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerPickerAdapter] expose
- * `pinnedSectionItemCount()` for this purpose.
+ * `pinnedSectionItemCount()` for this purpose. The second, non-pinned "All countries"/"All
+ * servers" header inserted below the pinned block (SUB-09) is never included in this count,
+ * so the card never extends past the pinned Favorites rows.
  */
-class FavoritesSectionFrameDecoration(
+class FavoritesSectionCardDecoration(
     context: Context,
     private val pinnedItemCount: () -> Int
 ) : RecyclerView.ItemDecoration() {
 
-    private val inset = context.resources.getDimension(R.dimen.favorites_section_frame_inset)
-    private val cornerRadius = context.resources.getDimension(R.dimen.favorites_section_frame_corner_radius)
+    private val padding = context.resources.getDimension(R.dimen.favorites_section_card_padding)
+    private val cornerRadius = context.resources.getDimension(R.dimen.favorites_section_card_corner_radius)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = context.resources.getDimension(R.dimen.favorites_section_frame_stroke_width)
+        style = Paint.Style.FILL
         color = MaterialColors.getColor(
             context,
-            com.google.android.material.R.attr.colorSecondary,
-            ContextCompat.getColor(context, R.color.theme_color_secondary)
+            R.attr.ovpnFavoritesCardBackground,
+            ContextCompat.getColor(context, R.color.favorites_card_background)
         )
     }
-    private val frameRect = RectF()
-    private val framePath = Path()
+    private val cardRect = RectF()
+    private val cardPath = Path()
     private val radii = FloatArray(8)
 
-    override fun onDrawOver(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
+    override fun onDraw(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
         val count = pinnedItemCount()
         if (count <= 0) return
 
@@ -70,7 +75,7 @@ class FavoritesSectionFrameDecoration(
                 maxPosition = position
                 bottomChild = child
             }
-            // Exclude the full-width header (position 0) from horizontal bounds so the frame
+            // Exclude the full-width header (position 0) from horizontal bounds so the card
             // hugs the narrower row cards instead of stretching edge-to-edge.
             if (position > 0) {
                 val childLeft = child.left + child.translationX
@@ -86,26 +91,26 @@ class FavoritesSectionFrameDecoration(
         // the canvas) whenever the true section boundary is scrolled off-screen, instead of
         // drawing a false closing edge at whatever child happens to be first/last visible.
         val t = if (minPosition == 0) {
-            topChild.top + topChild.translationY + inset
+            topChild.top + topChild.translationY - padding
         } else {
             -parent.height.toFloat()
         }
         val b = if (maxPosition == count - 1) {
-            bottomChild.bottom + bottomChild.translationY - inset
+            bottomChild.bottom + bottomChild.translationY + padding
         } else {
             2f * parent.height
         }
         if (t >= b) return
 
-        val l = left + inset
-        val r = right - inset
+        val l = left - padding
+        val r = right + padding
 
         val radiusTopLeft = if (minPosition == 0) cornerRadius else 0f
         val radiusTopRight = if (minPosition == 0) cornerRadius else 0f
         val radiusBottomRight = if (maxPosition == count - 1) cornerRadius else 0f
         val radiusBottomLeft = if (maxPosition == count - 1) cornerRadius else 0f
 
-        frameRect.set(l, t, r, b)
+        cardRect.set(l, t, r, b)
         radii[0] = radiusTopLeft
         radii[1] = radiusTopLeft
         radii[2] = radiusTopRight
@@ -115,8 +120,8 @@ class FavoritesSectionFrameDecoration(
         radii[6] = radiusBottomLeft
         radii[7] = radiusBottomLeft
 
-        framePath.reset()
-        framePath.addRoundRect(frameRect, radii, Path.Direction.CW)
-        canvas.drawPath(framePath, paint)
+        cardPath.reset()
+        cardPath.addRoundRect(cardRect, radii, Path.Direction.CW)
+        canvas.drawPath(cardPath, paint)
     }
 }

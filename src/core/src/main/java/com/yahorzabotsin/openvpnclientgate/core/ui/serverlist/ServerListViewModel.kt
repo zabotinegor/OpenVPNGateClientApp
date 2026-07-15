@@ -239,10 +239,19 @@ class ServerListViewModel(
         val items = mutableListOf<CountryListItem>()
         val favorites = countriesWithFavoriteStatus.filter { it.second }
         if (favorites.isNotEmpty()) {
-            items.add(CountryListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
+            items.add(
+                CountryListItem.SectionHeader(
+                    UiText.Res(R.string.favorites_section_title),
+                    showFavoriteIcon = true
+                )
+            )
             favorites.forEach { (cws, _) ->
                 items.add(CountryListItem.CountryRow(cws, isFavorite = true, isPinnedSection = true))
             }
+            // SUB-09 AC3/AC4: second header above the full list below, only shown alongside
+            // the pinned Favorites block. Labeled "All countries" (not "Other") since
+            // favorited countries still also appear in the list that follows.
+            items.add(CountryListItem.SectionHeader(UiText.Res(R.string.all_countries_section_title)))
         }
         countriesWithFavoriteStatus.forEach { (cws, isFavorite) ->
             items.add(CountryListItem.CountryRow(cws, isFavorite = isFavorite))

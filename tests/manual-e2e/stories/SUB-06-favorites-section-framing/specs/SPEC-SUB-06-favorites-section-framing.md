@@ -8,13 +8,17 @@ story: docs/userstories/MP-20260706-favorite-countries-servers/SUB-06-favorites-
 
 ## Business Context
 
-SUB-06 adds a visual border/frame (`FavoritesSectionFrameDecoration`, a canvas-only
+SUB-06 originally added a visual border/frame (`FavoritesSectionFrameDecoration`, a canvas-only
 `RecyclerView.ItemDecoration`) around the pinned "Favorites" section on the countries screen
-(`ServerListActivity`) and the servers-in-country screen (`CountryServersActivity`). It is a
-purely visual change — no click/long-press/navigation logic was touched. This spec covers manual
-verification on a real phone and a real TV device.
+(`ServerListActivity`) and the servers-in-country screen (`CountryServersActivity`).
 
-Feature reference: [src/docs/favorites-ui-patterns.md](../../../../../src/docs/favorites-ui-patterns.md).
+**Note:** SUB-06 has been superseded by SUB-09, which replaces the thin stroke-border framing with
+a filled card background (`FavoritesSectionCardDecoration`), adds a star icon to the "Favorites"
+header, and adds a second section header ("All countries"/"All servers") above the full list when
+the Favorites section is visible.
+
+This is a purely visual change — no click/long-press/navigation logic was touched. For current
+feature details and implementation, see [src/docs/favorites-ui-patterns.md](../../../../../src/docs/favorites-ui-patterns.md).
 
 ## Acceptance Criteria Mapping
 

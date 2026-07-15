@@ -22,7 +22,11 @@ data class CountryWithServers(
  * the pinned favorites section and the regular alphabetical country list.
  */
 sealed interface CountryListItem {
-    data class SectionHeader(val title: UiText) : CountryListItem
+    /**
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * the "All countries" header shown below the pinned block does not get the star icon.
+     */
+    data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : CountryListItem
 
     /**
      * @param isPinnedSection true only for the row instance rendered inside the pinned
@@ -73,7 +77,7 @@ class CountryListAdapter(
             is CountryListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
             is CountryListItem.CountryRow -> {
                 val rowHolder = holder as ViewHolder
-                rowHolder.bind(item.countryWithServers)
+                rowHolder.bind(item.countryWithServers, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.countryWithServers.country) }
                 rowHolder.itemView.setOnLongClickListener {
                     onLongClick(rowHolder.itemView, item.countryWithServers.country, item.isFavorite)
@@ -88,8 +92,10 @@ class CountryListAdapter(
     /**
      * Number of leading items (the [CountryListItem.SectionHeader] plus its pinned
      * [CountryListItem.CountryRow] entries) that make up the pinned "Favorites" block, or 0
-     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionFrameDecoration]
-     * to draw a border/frame around exactly that block (SUB-06).
+     * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
+     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
+     * "All countries" header inserted below the pinned block (SUB-09) is a [CountryListItem.SectionHeader],
+     * not a pinned [CountryListItem.CountryRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
         if (items.isEmpty() || items[0] !is CountryListItem.SectionHeader) return 0
@@ -108,8 +114,10 @@ class CountryListAdapter(
 
     class HeaderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_header_title)
+        private val icon: View? = itemView.findViewById(R.id.section_header_icon)
         fun bind(header: CountryListItem.SectionHeader) {
             title.text = title.context.resolve(header.title)
+            icon?.visibility = if (header.showFavoriteIcon) View.VISIBLE else View.GONE
         }
     }
 
@@ -118,7 +126,8 @@ class CountryListAdapter(
         private val flagView: TextView = itemView.findViewById(R.id.country_flag)
         private val serverCountView: TextView = itemView.findViewById(R.id.server_count)
         private val chevronIcon: ImageView = itemView.findViewById(R.id.chevron_icon)
-        fun bind(country: CountryWithServers) {
+        private val favoriteStar: ImageView? = itemView.findViewById(R.id.row_favorite_star)
+        fun bind(country: CountryWithServers, isFavorite: Boolean = false) {
             name.text = country.country.name
             val flag = countryFlagEmoji(country.country.code)
             if (!flag.isNullOrEmpty()) {
@@ -134,6 +143,15 @@ class CountryListAdapter(
                 country.serverCount
             )
             chevronIcon.visibility = View.VISIBLE
+            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Favorites card and again at its normal position in the full list below.
+            favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
+            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            favoriteStar?.contentDescription = if (isFavorite) {
+                itemView.context.getString(R.string.favorites_section_title)
+            } else {
+                null
+            }
         }
     }
 

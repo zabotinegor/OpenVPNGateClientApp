@@ -76,9 +76,10 @@ theme attributes, per CLAUDE.md's "don't introduce new UI/DI patterns" guidance.
 
 **First encountered**
 
-SUB-06 (`FavoritesSectionFrameDecoration`). Material Components was already a transitive/declared
-dependency (used elsewhere in `ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was
-unnecessary in hindsight — a build-file grep would have confirmed this immediately.
+SUB-06 (`FavoritesSectionFrameDecoration`, superseded by SUB-09's `FavoritesSectionCardDecoration`). 
+Material Components was already a transitive/declared dependency (used elsewhere in 
+`ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was unnecessary in hindsight — 
+a build-file grep would have confirmed this immediately.
 
 ---
 
@@ -623,11 +624,23 @@ adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/e
 ```
 See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
 
-### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen
+### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)
+
 **Context:** Screens with a pinned Favorites section at adapter position 0 (SUB-02/SUB-03 pattern) also emit a `FocusFirstItem` effect that scrolls/focuses the first *data* row (position 1) for TV D-pad UX.
-**Problem:** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
-**Solution:** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. When adding a pinned section (or the FocusFirstItem effect) to any new list screen, apply the gate there too and add the matching Robolectric focus test (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
-**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8).
+
+**Initial problem (DEF-sub03/DEF-sub05):** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
+
+**Initial solution (DEF-sub03/DEF-sub05):** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. Added matching Robolectric focus tests (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
+
+**Refinement (DEF-4 defect-fix):** The initial gate-to-TV solution proved incomplete. On TV, even gated to `isTvDevice==true`, the function was still calling `scrollToPosition(position)` where `position` was the *focus target* (1 when a header exists, 0 when none) — this scrolls item 1 to the top, pushing the header (item 0) out of the RecyclerView bounds. The issue recurred on real TV hardware after the SUB-09 visual redesign (filled card + second section header) made the cut-off header card edges more visually jarring. **Key insight:** scroll target and focus target are two different concerns:
+- **Scroll target** should always be 0 (keep the pinned header/card visible at the top).
+- **Focus target** should be position (1 with header, 0 without, so D-pad focus naturally lands on the first *data* row).
+
+**DEF-4 fix:** Decouple scroll and focus in `TvUtils.applyFocusFirstItem()` — always call `scrollToPosition(0)` first (keeping the header visible), then call `focusWhenReady(position)` independently. Position 0 and 1 are adjacent, so `RecyclerView` has already bound/laid out position 1 by the time focus is requested after scrolling to 0 — no additional bind-wait needed. Tests verify both scroll target (always 0) and focus target (position) independently.
+
+**When to apply the gate:** TV-only concern; touch devices return early from `applyFocusFirstItem` before any scroll is emitted. When adding a pinned section (or the `FocusFirstItem` effect) to any new list screen, ensure the activity calls `applyFocusFirstItem` with the correct `isTvDevice` detection, and add the matching Robolectric focus test to verify both header-present (position=1) and header-absent (position=0) cases.
+
+**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8); refined in SUB-08+SUB-09 defect-fix (`TvUtils.applyFocusFirstItem` decoupling, commits 46351c3/22ca39a).
 
 ### `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
 **Context:** Manual QA of locale-dependent UI text (SUB-07 favorites string translations) on a Samsung Galaxy A71 (One UI) over adb.
@@ -640,3 +653,22 @@ adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # c
 ```
 Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
 **First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
+
+### Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
+**Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome, without touching `FavoriteActionDialog.kt`'s presentation-gate logic, leak-guard tracking, or the activities' PopupMenu construction code (all of it needed to stay behaviorally untouched per the story's ACs).
+**Problem:** Both `android.widget.PopupMenu(context, anchor)` and `AlertDialog.Builder(activity)` are plain framework/AppCompat constructors — there's no obvious per-instance styling hook without wrapping them in a custom class or passing a themed `ContextThemeWrapper` at every call site.
+**Solution:** Both widgets resolve their appearance from theme attributes read at construction time: `PopupMenu` reads `android:popupMenuStyle` from the `Context`'s theme, and `AlertDialog.Builder` reads `alertDialogTheme`. Point both attributes at new custom styles in the app's `values/themes.xml` (a `Widget.*.PopupMenu` style with `android:popupBackground` set to a custom rounded-corner drawable, and a `ThemeOverlay.*.AlertDialog` with a `shapeAppearanceOverlay`/corner radius and `colorSurface` background) and every existing call site — the app's own `PopupMenu`/`AlertDialog.Builder` calls, and `MainActivityCore.showUpdateDialog` — picks up the new look automatically, with zero changes to the Kotlin call sites. Mirror the styles in `values-night` (or use theme-attribute colors, e.g. `?attr/colorSurface`) for dark-theme parity.
+**First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).
+**Follow-up defect:** a style being technically wired up does not guarantee it is *visually distinguishable*. The first delivery of this fix was marked passed by an automated manual-QA subagent on attribute-chain reasoning alone (no actual screenshot comparison), and later a real device build still looked stock/default to the user — the resolved `colorSurface`/background value was too close to the surrounding page background, and after a later review-driven fix removed a self-referencing color attribute (see the Codex/Gemini review-loop finding below), the dialog lost its only other visible customization (`shapeAppearanceOverlay` alone is not enough contrast at small dialog sizes). **Rule going forward:** any styling/theming acceptance criterion must be verified with an actual on-device screenshot, visually compared against the stock/default widget and any named reference component — see the updated constraint in `.github/skills/e2e-manual-testing/SKILL.md`.
+
+### `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
+**Context:** Independent test-suite verification during the `favorites-section-and-dialog-redesign` code review (commit `3550da6`), unrelated to the favorites/dialog changes under review — the test file is untouched by that commit.
+**Problem:** `./gradlew testDebugUnitTestApp --rerun-tasks` occasionally fails this one test with `java.io.FileNotFoundException` reading a Robolectric temp-dir cache CSV (`ServerRepository.parseServers`), while the rest of the 760-test suite passes. The test exercises concurrent force-refreshes racing to write/read the same on-disk cache file; under full-suite parallel test execution on Windows the file can be deleted/replaced by a sibling coroutine between an existence check and the read.
+**Solution:** Re-running just the failing test in isolation (`--tests "...ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write" --rerun-tasks`) passes, and a second full `--rerun-tasks` run of the whole suite also passed clean (0 failures). Treat a lone failure of this specific test as environment flakiness, not a regression, unless `ServerRepository.kt` or its test was actually touched by the diff under review — always cross-check `git show --stat <commit> -- '*ServerRepository*'` before accepting that explanation.
+**First encountered:** Code review of `favorites-section-and-dialog-redesign` (commit `3550da6`).
+
+### `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
+**Context:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 defect-fix round) attempted to close a coverage gap for `FavoriteActionDialog`'s title-color fix by extracting a testable seam (`resolveThemedTitleColor(context): Int`) that calls `ContextCompat.getColor(context, R.color.text_color_primary)` directly — deliberately avoiding any AppCompat/Material theme-attribute resolution, since `FavoriteActionDialogTest`'s existing class KDoc already documents that *those* can't resolve in this module's Robolectric setup (legacy resources mode).
+**Problem:** Even this plain, non-themed color-resource lookup throws `android.content.res.Resources$NotFoundException` when run from `:core:testDebugUnitTest` (`ShadowLegacyAssetManager.getResName` fails to resolve the `core` module's own `R.color` id). The previously documented constraint ("AppCompat/Material theme resources don't resolve") undersold the actual limitation — it is not specific to theme attributes; direct `@ColorRes`/`@DrawableRes`/etc. lookups against this module's own resources fail too under `RuntimeEnvironment.getApplication()`'s legacy resource shadow, at least without additional Robolectric config (e.g. a manifest/package override) not currently present in this module's test setup.
+**Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.
+**First encountered:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 title-color coverage attempt, gate-2, commit range `3550da6`..`e426147`).

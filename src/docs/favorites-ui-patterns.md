@@ -139,6 +139,24 @@ private fun showFavoriteActionMenu(country: Country) {
 
 This pattern ensures users always see the action they can take, not the state.
 
+### Themed Styling (SUB-08) and the "looks stock" Defect
+
+`android:popupMenuStyle` in the base theme (`Widget.OpenVPNClientGate.PopupMenu`, backed by
+`drawable/bg_popup_menu.xml`) styles the popup app-wide without touching `PopupMenu`
+construction/leak-guard code in the Activities. First delivery of SUB-08 wired this correctly
+but the popup still visually read as stock on real devices: the background drawable filled with
+`?attr/colorSurface`, which is the **exact same color** the row `MaterialCardView`s behind it
+also use (`app:cardBackgroundColor="?attr/colorSurface"`), so the popup blended into the list
+instead of reading as a raised, distinct surface — technically styled, visually invisible. Fix:
+a dedicated `ovpnPopupMenuBackground`/`ovpnPopupMenuStroke` token pair (concrete values in
+`values/colors.xml` / `values-night/colors.xml`, distinct from both `app_background` and
+`nav_bar_background`/`colorSurface`), a 1dp stroke, bumped `android:popupElevation`, and an
+explicit `TextAppearance.OpenVPNClientGate.PopupMenuItem` wired via
+`android:textAppearanceLargePopupMenu`/`SmallPopupMenu` so the item label reads as app-styled
+text. **Lesson**: when a themed widget still "looks stock", check whether its background token
+resolves to the *same* value as the surface behind it — passing color-attribute review does not
+guarantee visible contrast.
+
 ### Toast Feedback
 
 After toggling, a toast message confirms the action:
@@ -216,28 +234,29 @@ Favorite countries in the pinned section use **the same row component** as the r
 
 **Rationale**: Code reuse + visual consistency.
 
-### Visual Framing (SUB-06)
+### Visual Framing and Card Treatment (SUB-06/SUB-09)
 
-The pinned "Favorites" section is visually distinguished from the rest of the list by a **frame border** drawn around the header and pinned rows. This framing is implemented as a `RecyclerView.ItemDecoration` (`FavoritesSectionFrameDecoration`) that draws a rounded rectangle border at the section boundaries.
+The pinned "Favorites" section is visually distinguished from the rest of the list by a **filled card background** drawn around the header and pinned rows. This card treatment is implemented as a `RecyclerView.ItemDecoration` (`FavoritesSectionCardDecoration`) that renders a colored, rounded-rectangle background at the section boundaries.
 
 **Implementation approach**:
 
-- **ItemDecoration pattern**: The border is rendered by a custom `ItemDecoration` attached to the RecyclerView, not within individual row layouts. This keeps row components unchanged and allows the frame to span multiple rows.
-- **Shared between mobile and TV**: Both `ServerListActivity` (countries) and `CountryServersActivity` (servers-in-country) use the same `FavoritesSectionFrameDecoration` for both mobile and TV surfaces, since both reuse the same core layouts and adapters.
-- **Theme-aware coloring**: The frame stroke color resolves `?attr/colorSecondary` via `MaterialColors.getColor()`, ensuring correct rendering in both light and night themes without hardcoding colors.
+- **ItemDecoration pattern**: The card background is rendered by a custom `ItemDecoration` attached to the RecyclerView, not within individual row layouts. This keeps row components unchanged and allows the card to span multiple rows seamlessly.
+- **Shared between mobile and TV**: Both `ServerListActivity` (countries) and `CountryServersActivity` (servers-in-country) use the same `FavoritesSectionCardDecoration` for both mobile and TV surfaces, since both reuse the same core layouts and adapters.
+- **Theme-aware coloring**: The card background color resolves `?attr/colorSurfaceVariant` via theme attributes, ensuring correct rendering in both light and night themes without hardcoding colors.
+- **Internal padding**: The card includes internal padding so pinned rows do not touch the card edges, creating visual separation and breathing room.
 - **Adapter support method**: The adapter exposes `pinnedSectionItemCount()` to inform the decoration how many consecutive rows belong to the pinned section (header + pinned rows).
 
-**Visual dimensions** (new dimen resources):
+**Visual dimensions** (dimen resources):
 
 ```xml
-<!-- Frame stroke width -->
-<dimen name="favorites_section_frame_stroke_width">1.5dp</dimen>
+<!-- Card background corner radius (~12dp target) -->
+<dimen name="favorites_section_card_corner_radius">12dp</dimen>
 
-<!-- Corner radius for the frame border -->
-<dimen name="favorites_section_frame_corner_radius">8dp</dimen>
+<!-- Internal padding of the card (space between card edges and rows) -->
+<dimen name="favorites_section_card_padding">8dp</dimen>
 
-<!-- Horizontal padding/inset of the frame from the recyclerview edges -->
-<dimen name="favorites_section_frame_inset">2dp</dimen>
+<!-- Horizontal inset of the card from the recyclerview edges -->
+<dimen name="favorites_section_card_inset">2dp</dimen>
 ```
 
 **Code pattern** (from adapter):
@@ -254,18 +273,57 @@ fun pinnedSectionItemCount(): Int =
 Then in the Activity:
 
 ```kotlin
-val decoration = FavoritesSectionFrameDecoration(
+val decoration = FavoritesSectionCardDecoration(
     pinnedSectionItemCount = { adapter.pinnedSectionItemCount() },
     context = this
 )
 recyclerView.addItemDecoration(decoration)
 ```
 
-The decoration queries `pinnedSectionItemCount()` to determine the exact range of positions to frame, and applies the border only to that range, leaving the rest of the list (regular countries/servers) unframed.
+The decoration queries `pinnedSectionItemCount()` to determine the exact range of positions to enclose in the card, and renders the background only for that range, leaving the rest of the list (regular countries/servers) without card styling.
+
+### Favorites Section Header with Star Icon (SUB-09)
+
+The "Favorites" section header includes a **small star icon** displayed next to the section title text. This visual indicator reinforces the favorites concept and improves the section's visual identity.
+
+- **Icon placement**: The star appears immediately to the left of the "Favorites" text.
+- **Styling**: The star inherits the section header's text color and size, creating visual cohesion with existing section headers in the list.
+- **Rendering**: Implemented via a drawable resource (e.g., `ic_star.xml` or similar), composited with the header TextView via `setCompoundDrawablesWithIntrinsicBounds()` or equivalent.
+
+### "All Countries" / "All Servers" Section Header (SUB-09)
+
+When the Favorites section is visible (i.e., there is at least one favorited item), a **second section header** appears above the full list, labeled "All countries" (on the countries screen) or "All servers" (on the servers-in-country screen). This header clarifies the section below and maintains consistent visual hierarchy.
+
+- **Header positioning**: Appears immediately below the pinned Favorites card (after the last pinned row).
+- **Visibility**: Only shown when the Favorites section is visible; hidden when there are no favorites, so the list defaults back to the original unlabeled full-list appearance.
+- **String keys**: `all_countries_section_title` and `all_servers_section_title`, translated into every locale SUB-07 covers (English, Russian, Polish).
+- **Styling**: Uses the same text style and appearance as the "Favorites" header, maintaining visual consistency.
+
+**Adapter pattern** (returns sections in order):
+
+```kotlin
+if (favoriteCountryCodes.isNotEmpty()) {
+    // Pinned Favorites card section:
+    // - Item 0: "Favorites" header (background drawn by FavoritesSectionCardDecoration)
+    // - Items 1..(N-1): pinned favorite country rows
+    
+    // All-list section:
+    // - Item N: "All countries" header
+    // - Items N+1..(end): all countries in alphabetical order (including duplicates of pinned items)
+} else {
+    // No Favorites card; just the full list with no header
+    // - Items 0..(end): all countries in alphabetical order
+}
+```
+
+**Localization strings** (SUB-07):
+
+- `all_countries_section_title` — "All countries" (English), "Все страны" (Russian), "Wszystkie kraje" (Polish)
+- `all_servers_section_title` — "All servers" (English), "Все серверы" (Russian), "Wszystkie serwery" (Polish)
 
 ### Hidden When Empty
 
-If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the "All Countries" section. The frame decoration automatically hides as well (when `pinnedSectionItemCount()` returns 0, no range is framed).
+If all favorite countries are removed, or if none are currently available in the synced list, the "Favorites" section header and its rows are not displayed. The list defaults to the original appearance with no header (or just the unlabeled full list). The card decoration automatically hides as well (when `pinnedSectionItemCount()` returns 0, no range is enclosed in the card).
 
 **Trigger**: When `FavoritesFilter.filterFavoriteCountries(...)` (or `filterFavoriteServers(...)` on the servers screen) returns an empty list, the pinned section is hidden entirely.
 
@@ -391,6 +449,46 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
   `TvDrawerInteractionGuard` (main screen drawer) is untouched — it never applied to the list
   Activities.
 
+### Themed Styling (SUB-08) and the "looks stock" Defect
+
+First attempt set `colorSurface`/`colorOnSurface`/`android:textColorPrimary` items on
+`ThemeOverlay.OpenVPNClientGate.AlertDialog` (`values/themes.xml`), reasoning by analogy with
+Material's `colorSurface`-driven surfaces elsewhere in the app. On-device screenshots (with pixel
+color sampling via `System.Drawing` — visual inspection alone was not enough to catch this) showed
+it had **no effect**: `FavoriteActionDialog.show()` uses a plain
+`androidx.appcompat.app.AlertDialog.Builder`, not `com.google.android.material.dialog.MaterialAlertDialogBuilder`.
+Inspecting the `material-1.13.0.aar` source directly showed `ThemeOverlay.MaterialComponents.Dialog.Alert`
+resolves, for this construction path, to plain `ThemeOverlay.AppCompat.Dialog.Alert` — the
+`colorSurface` → `android:windowBackground` indirection (elevation-overlay-aware `MaterialShapeDrawable`)
+is wired up in Java code that only runs for `MaterialAlertDialogBuilder`. What looked like a fix in
+dark theme was actually Material's default elevation-overlay tint on the *unmodified* `colorSurface`
+(coincidentally close to our intended color); light theme has no elevation overlay, so the dialog
+rendered as plain white, exposing the failure. The title (`alertTitle`, styled via
+`?android:attr/windowTitleStyle` per `abc_alert_dialog_title_material.xml`) was separately invisible
+in light theme — `android:textColorPrimary` did not reach it either.
+
+**Fix (SUB-08 initial)**: set `android:windowBackground` directly to a shape drawable
+(`drawable/bg_alert_dialog.xml`, filled with a dedicated `ovpnDialogSurfaceBackground` token) —
+the same reliable pattern already used for the PopupMenu's `android:popupBackground` — and
+`android:windowTitleStyle` directly to `Widget.OpenVPNClientGate.AlertDialogTitle` with an
+explicit `android:textColor`, instead of relying on Material color-attribute indirection that
+doesn't apply to this dialog construction path.
+
+**DEF-5 refinement**: The color-only fill was insufficient on real TV screens — with a window
+dim/scrim behind the dialog, the fill-only difference did not read as "themed" to users testing
+on actual hardware. Added a 1dp stroke (`ovpnDialogSurfaceStroke`) to `bg_alert_dialog.xml`,
+mirroring the PopupMenu's proven border pattern (`bg_popup_menu.xml`). The stroke uses the same
+token pair already validated for mobile PopupMenu (light `#B9C4D1` / dark `#3F3F3F`), providing
+visible contrast from both the TV window scrim and the surrounding page background. Verified
+on-device via pixel sampling: dark theme border `#3F3F3F` vs fill `#2E2E2E` vs scrim background,
+light theme border `#B9C4D1` vs fill `#DBE3EC` vs scrim background — both clearly distinct.
+
+**Lesson**: a styled widget being technically wired up does not guarantee it is *visually distinguishable*
+on real hardware. Stock AppCompat `AlertDialog` (non-Material) with a color-only fill may be
+insufficient for visible differentiation at typical TV viewing distances or under specific lighting
+conditions. Always verify styled widgets with actual on-device screenshots and pixel-level color
+sampling, especially across themes and surfaces.
+
 ### Presentation gate
 
 `FavoriteActionDialog.resolvePresentation(isTvDevice, canFavorite)` is the single seam that
@@ -421,18 +519,56 @@ and TV, including availability hide/restore verified via a controlled local mock
 injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
 focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
 
-## Implementation Checklist for SUB-06 (Visual Framing)
+## Implementation Checklist for SUB-06/SUB-09 (Visual Framing and Card Design)
 
-- [x] Create `FavoritesSectionFrameDecoration` class extending `RecyclerView.ItemDecoration`
-- [x] Implement frame drawing logic using `?attr/colorSecondary` for stroke color (theme-aware)
+**SUB-06 (superseded by SUB-09)**: Visual framing with stroke border.
+**SUB-09 (current)**: Visual framing replaced with filled card background, star icon, and "All ..." header.
+
+### Card Decoration (SUB-09)
+
+- [x] Create `FavoritesSectionCardDecoration` class extending `RecyclerView.ItemDecoration`
+- [x] Implement card background drawing logic using `?attr/colorSurfaceVariant` (theme-aware)
+- [x] Add internal padding to card so rows don't touch edges
 - [x] Add `pinnedSectionItemCount()` method to `CountryListAdapter` and `ServerPickerAdapter`
 - [x] Attach decoration to RecyclerView in `ServerListActivity` (countries screen)
 - [x] Attach decoration to RecyclerView in `CountryServersActivity` (servers-in-country screen)
-- [x] Add dimen resources: `favorites_section_frame_stroke_width`, `favorites_section_frame_corner_radius`, `favorites_section_frame_inset`
-- [x] Test frame visibility on both mobile and TV (shares same code)
-- [x] Verify frame hides when pinned section is empty
-- [x] Verify frame renders correctly in light and night themes
-- [x] Update `src/docs/favorites-ui-patterns.md` with ItemDecoration pattern and theme-aware coloring approach
+- [x] Add dimen resources: `favorites_section_card_corner_radius`, `favorites_section_card_padding`, `favorites_section_card_inset`
+- [x] Test card visibility on both mobile and TV (shares same code)
+- [x] Verify card hides when pinned section is empty
+- [x] Verify card renders correctly in light and night themes
+
+### Star Icon and "All ..." Header (SUB-09)
+
+- [x] Add star icon drawable (ic_star.xml or similar)
+- [x] Display star icon next to "Favorites" header text via `setCompoundDrawablesWithIntrinsicBounds()`
+- [x] Add new list section header for "All countries" / "All servers" above full list
+- [x] Implement adapter logic to insert second header conditionally (only when Favorites visible)
+- [x] Add localized string keys: `all_countries_section_title`, `all_servers_section_title`
+- [x] Translate into Russian and Polish (SUB-07)
+- [x] Test section header appearance and visibility on both mobile and TV
+- [x] Update `src/docs/favorites-ui-patterns.md` with card design, star icon, and header patterns
+
+### Per-Row Star Indicator (SUB-09 AC8, added after initial device testing)
+
+The section-header star alone was not sufficient — users need to see favorite status on a
+row-by-row basis in the full "All countries"/"All servers" list too, not just at the pinned
+section header.
+
+- [x] Add `row_favorite_star` `ImageView` (14dp, `?attr/colorOnSurface` tint, `ic_star`) to
+      `item_country_row.xml` and `item_server_row.xml`, `gone` by default
+- [x] `CountryListAdapter.ViewHolder.bind()` / `ServerPickerAdapter.ViewHolder.bind()` take an
+      `isFavorite` parameter (default `false` for source compatibility with existing direct
+      `bind()` callers) and set `row_favorite_star` visibility accordingly
+- [x] `onBindViewHolder` passes `item.isFavorite` (already carried per-row since SUB-02/SUB-03;
+      no new model field needed) for both `CountryRow`/`ServerRow` instances
+- [x] The star renders on the same row **both** inside the pinned Favorites card
+      (`isPinnedSection = true`) **and** again at the row's normal position in the full list
+      below (`isPinnedSection = false`), since both instances represent the same favorited item
+- [x] Star visibility updates live via the existing `updateItems()` → `notifyDataSetChanged()`
+      path — no additional refresh wiring needed
+- [x] Adapter tests: `CountryListAdapterTest`/`ServerPickerAdapterTest` assert
+      `row_favorite_star` is `VISIBLE`/`GONE` per `isFavorite`, toggles on `updateItems()`, and
+      shows on both the pinned and regular-list instance of the same favorited item
 
 ## Logging Considerations
 
@@ -459,15 +595,20 @@ private fun toggleFavorite(country: Country) {
 
 **String resource coverage (SUB-07):**
 
-The following 5 favorites-related string keys have been translated to Russian (ru) and Polish (pl):
+The following 7 favorites-related string keys have been translated to Russian (ru) and Polish (pl):
 
+**Original SUB-07 strings (5 keys):**
 - `favorites_section_title` — "Избранное" (ru), "Ulubione" (pl)
 - `favorites_add_action` — "Добавить в избранное" (ru), "Dodaj do ulubionych" (pl)
 - `favorites_remove_action` — "Удалить из избранного" (ru), "Usuń z ulubionych" (pl)
 - `favorites_added_toast` — "Добавлено в избранное" (ru), "Dodano do ulubionych" (pl)
 - `favorites_removed_toast` — "Удалено из избранного" (ru), "Usunięto z ulubionych" (pl)
 
-Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/` (`docs/qa-evidence/` is gitignored and not tracked in the repo).
+**New SUB-09 strings (2 additional keys):**
+- `all_countries_section_title` — "All countries" (English), "Все страны" (ru), "Wszystkie kraje" (pl)
+- `all_servers_section_title` — "All servers" (English), "Все серверы" (ru), "Wszystkie serwery" (pl)
+
+Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). SUB-09 visual redesign verified on real devices with localized "All countries"/"All servers" headers appearing correctly in light/dark theme and all three locales. See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/` (`docs/qa-evidence/` is gitignored and not tracked in the repo).
 
 ## Related Documents
 

@@ -165,10 +165,19 @@ class CountryServersViewModel(
 
         val items = mutableListOf<ServerListItem>()
         if (favorites.isNotEmpty()) {
-            items.add(ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
+            items.add(
+                ServerListItem.SectionHeader(
+                    UiText.Res(R.string.favorites_section_title),
+                    showFavoriteIcon = true
+                )
+            )
             favorites.forEach { server ->
                 items.add(ServerListItem.ServerRow(server, isFavorite = true, isPinnedSection = true))
             }
+            // SUB-09 AC3/AC4: second header above the full list below, only shown alongside
+            // the pinned Favorites block. Labeled "All servers" (not "Other") since favorited
+            // servers still also appear in the list that follows.
+            items.add(ServerListItem.SectionHeader(UiText.Res(R.string.all_servers_section_title)))
         }
         servers.forEach { server ->
             items.add(ServerListItem.ServerRow(server, isFavorite = server.id in favoriteServerIds))
