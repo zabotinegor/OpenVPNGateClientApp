@@ -320,11 +320,12 @@ class CountryListAdapterTest {
         // When favorited, content description should be set
         holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = true)
         assertEquals(
-            context.getString(R.string.favorites_add_action),
+            context.getString(R.string.favorites_section_title),
             favoriteStar?.contentDescription.toString()
         )
 
-        // When not favorited, content description should be null
+        // When not favorited, content description should be null (set to non-null first to test it clears)
+        favoriteStar?.contentDescription = "sentinel_value"
         holder.bind(CountryWithServers(country, serverCount = 1), isFavorite = false)
         assertEquals(null, favoriteStar?.contentDescription)
     }

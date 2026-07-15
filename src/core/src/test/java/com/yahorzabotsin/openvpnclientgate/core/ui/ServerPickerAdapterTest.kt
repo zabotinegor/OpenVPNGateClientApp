@@ -344,11 +344,12 @@ class ServerPickerAdapterTest {
         // When favorited, content description should be set
         holder.bind(server, isFavorite = true)
         assertEquals(
-            context.getString(R.string.favorites_add_action),
+            context.getString(R.string.favorites_section_title),
             favoriteStar?.contentDescription.toString()
         )
 
-        // When not favorited, content description should be null
+        // When not favorited, content description should be null (set to non-null first to test it clears)
+        favoriteStar?.contentDescription = "sentinel_value"
         holder.bind(server, isFavorite = false)
         assertEquals(null, favoriteStar?.contentDescription)
     }

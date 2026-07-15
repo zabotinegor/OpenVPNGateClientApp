@@ -148,7 +148,7 @@ class CountryListAdapter(
             favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
             // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
             favoriteStar?.contentDescription = if (isFavorite) {
-                itemView.context.getString(R.string.favorites_add_action)
+                itemView.context.getString(R.string.favorites_section_title)
             } else {
                 null
             }
