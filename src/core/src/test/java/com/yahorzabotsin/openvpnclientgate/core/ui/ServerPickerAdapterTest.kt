@@ -158,6 +158,60 @@ class ServerPickerAdapterTest {
         assertEquals(true, longPressedIsFavorite)
     }
 
+    // --- Review round 1: no long-press affordance for non-favoritable rows (id <= 0) ---
+
+    @Test
+    fun `long press is disabled for non-favoritable rows with non-positive id`() {
+        val context = RuntimeEnvironment.getApplication()
+        val legacyServer = buildServer(city = "Paris", name = "srv-legacy") // default id = 0
+        val items = listOf(ServerListItem.ServerRow(legacyServer, isFavorite = false))
+        var longPressed = false
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> longPressed = true }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        // Give the row a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(holder.itemView)
+        adapter.onBindViewHolder(holder, 0)
+
+        assertEquals(false, holder.itemView.isLongClickable)
+        holder.itemView.performLongClick()
+        assertEquals(false, longPressed)
+    }
+
+    @Test
+    fun `recycled holder loses long-press affordance when rebound to a non-favoritable row`() {
+        val context = RuntimeEnvironment.getApplication()
+        val favoritable = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val legacy = buildServer(city = "Nice", name = "srv-legacy") // default id = 0
+        val items = listOf(
+            ServerListItem.ServerRow(favoritable, isFavorite = false),
+            ServerListItem.ServerRow(legacy, isFavorite = false)
+        )
+        var longPressed = false
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> longPressed = true }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        // Give the row a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(holder.itemView)
+
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(true, holder.itemView.isLongClickable)
+
+        // Simulate RecyclerView recycling the same holder for the legacy row.
+        adapter.onBindViewHolder(holder, 1)
+        assertEquals(false, holder.itemView.isLongClickable)
+        holder.itemView.performLongClick()
+        assertEquals(false, longPressed)
+    }
+
     @Test
     fun `section header binds title text`() {
         val context = RuntimeEnvironment.getApplication()

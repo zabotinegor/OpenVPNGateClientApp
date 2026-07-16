@@ -134,6 +134,57 @@ class CountryListAdapterTest {
         assertEquals(true, longPressedIsFavorite)
     }
 
+    // --- Review round 1: no long-press affordance for non-favoritable rows (blank code) ---
+
+    @Test
+    fun `long press is disabled for non-favoritable rows with blank or missing code`() {
+        val context = RuntimeEnvironment.getApplication()
+        val items = listOf(
+            CountryListItem.CountryRow(CountryWithServers(Country("Atlantis", ""), 2), isFavorite = false),
+            CountryListItem.CountryRow(CountryWithServers(Country("Nowhere"), 1), isFavorite = false)
+        )
+        var longPressed = false
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> longPressed = true })
+
+        val blankCodeHolder = CountryListAdapter.ViewHolder(buildItemView(context))
+        // Give the rows a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(blankCodeHolder.itemView)
+        adapter.onBindViewHolder(blankCodeHolder, 0)
+        assertEquals(false, blankCodeHolder.itemView.isLongClickable)
+        blankCodeHolder.itemView.performLongClick()
+
+        val nullCodeHolder = CountryListAdapter.ViewHolder(buildItemView(context))
+        FrameLayout(context).addView(nullCodeHolder.itemView)
+        adapter.onBindViewHolder(nullCodeHolder, 1)
+        assertEquals(false, nullCodeHolder.itemView.isLongClickable)
+        nullCodeHolder.itemView.performLongClick()
+
+        assertEquals(false, longPressed)
+    }
+
+    @Test
+    fun `recycled holder loses long-press affordance when rebound to a non-favoritable row`() {
+        val context = RuntimeEnvironment.getApplication()
+        val items = listOf(
+            CountryListItem.CountryRow(CountryWithServers(Country("Canada", "CA"), 3), isFavorite = false),
+            CountryListItem.CountryRow(CountryWithServers(Country("Atlantis", ""), 2), isFavorite = false)
+        )
+        var longPressed = false
+        val adapter = CountryListAdapter(items, onClick = {}, onLongClick = { _, _, _ -> longPressed = true })
+        val holder = CountryListAdapter.ViewHolder(buildItemView(context))
+        // Give the row a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(holder.itemView)
+
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(true, holder.itemView.isLongClickable)
+
+        // Simulate RecyclerView recycling the same holder for the blank-code row.
+        adapter.onBindViewHolder(holder, 1)
+        assertEquals(false, holder.itemView.isLongClickable)
+        holder.itemView.performLongClick()
+        assertEquals(false, longPressed)
+    }
+
     @Test
     fun `section header binds title text`() {
         val context = RuntimeEnvironment.getApplication()

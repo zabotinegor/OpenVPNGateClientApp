@@ -77,9 +77,19 @@ class ServerPickerAdapter(
                 val rowHolder = holder as ViewHolder
                 rowHolder.bind(item.server, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.server) }
-                rowHolder.itemView.setOnLongClickListener {
-                    onLongClick(rowHolder.itemView, item.server, item.isFavorite)
-                    true
+                if (item.server.id > 0) {
+                    rowHolder.itemView.setOnLongClickListener {
+                        onLongClick(rowHolder.itemView, item.server, item.isFavorite)
+                        true
+                    }
+                } else {
+                    // Non-favoritable rows (legacy/un-synced servers, id <= 0): no long-press
+                    // affordance at all — FavoriteActionDialog.resolvePresentation would show
+                    // nothing, so avoid the haptic/pressed feedback of a no-op long-press.
+                    // Both resets are needed on recycled holders: setOnLongClickListener(null)
+                    // alone leaves isLongClickable = true.
+                    rowHolder.itemView.setOnLongClickListener(null)
+                    rowHolder.itemView.isLongClickable = false
                 }
             }
         }

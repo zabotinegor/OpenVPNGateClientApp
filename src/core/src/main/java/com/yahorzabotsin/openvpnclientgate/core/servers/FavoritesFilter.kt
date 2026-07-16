@@ -22,7 +22,12 @@ object FavoritesFilter {
     ): List<CountryV2> {
         if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
         val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
-        return countries.filter { countryV2 -> countryV2.code.uppercase(Locale.ROOT) in upperCaseFavorites }
+        return countries.filter { countryV2 ->
+            // Defensive: CountryV2.code is declared non-null, but Gson can leave it null when
+            // the JSON field is missing; blank codes are never favoritable either way.
+            val code: String? = countryV2.code
+            !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+        }
     }
 
     /**

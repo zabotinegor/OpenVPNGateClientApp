@@ -79,9 +79,19 @@ class CountryListAdapter(
                 val rowHolder = holder as ViewHolder
                 rowHolder.bind(item.countryWithServers, item.isFavorite)
                 rowHolder.itemView.setOnClickListener { onClick(item.countryWithServers.country) }
-                rowHolder.itemView.setOnLongClickListener {
-                    onLongClick(rowHolder.itemView, item.countryWithServers.country, item.isFavorite)
-                    true
+                if (!item.countryWithServers.country.code.isNullOrBlank()) {
+                    rowHolder.itemView.setOnLongClickListener {
+                        onLongClick(rowHolder.itemView, item.countryWithServers.country, item.isFavorite)
+                        true
+                    }
+                } else {
+                    // Non-favoritable rows (blank/missing country code): no long-press
+                    // affordance at all — FavoriteActionDialog.resolvePresentation would show
+                    // nothing, so avoid the haptic/pressed feedback of a no-op long-press.
+                    // Both resets are needed on recycled holders: setOnLongClickListener(null)
+                    // alone leaves isLongClickable = true.
+                    rowHolder.itemView.setOnLongClickListener(null)
+                    rowHolder.itemView.isLongClickable = false
                 }
             }
         }

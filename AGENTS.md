@@ -124,6 +124,12 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 ## When Extending Instructions
 - If the repository later needs module-specific guidance, add nested `AGENTS.md` files under `src/core`, `src/mobile`, `src/tv`, or `src/external/OpenVPNEngine` instead of overloading this root file.
 
+## Local-Only Agent Tooling
+
+- Most session/SDLC helper scripts under `.github/scripts/` (for example `init-session.ps1`, `check-rate-limit.ps1`, `checkpoint-session.ps1`, `resume-session.ps1`, `update-sdlc-status.ps1`, `resolve-pr-threads.ps1`) and most `.github/agents/` / `.github/skills/` definitions are **local-only**: they are gitignored and mirrored onto each machine from the CopilotTools repository via the `agent-sync` skill. Only a small allowlist (such as `protect-agent-git-command.*` and `sync-copilot-assets.ps1`) is committed.
+- On a fresh checkout these local-only files are absent. Provision them by running the `agent-sync` skill (or ask the user to run the CopilotTools mirror sync) before following any instruction that invokes them — including the "MANDATORY FIRST STEP — Session Limit Check" section below.
+- If the scripts remain unavailable after attempting provisioning, treat the session-limit bootstrap steps as not applicable, report the missing tooling to the user, and continue only with work that does not depend on them.
+
 <!-- BEGIN COPILOT SYNC -->
 ## MANDATORY FIRST STEP — Session Limit Check
 

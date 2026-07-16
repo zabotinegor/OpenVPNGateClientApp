@@ -1,5 +1,6 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
+import com.google.gson.Gson
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -119,6 +120,36 @@ class FavoritesFilterTest {
 
         assertEquals(2, secondResult.size)
         assertTrue(secondResult.any { it.code == "DE" })
+    }
+
+    // --- Countries: defensive null/blank code guard (review round 1) ---
+
+    @Test
+    fun filterFavoriteCountries_skipsCountryWithNullCodeInjectedByGson() {
+        // CountryV2.code is declared non-null, but Gson leaves it null when the JSON
+        // field is missing; the filter must skip such entries instead of throwing NPE.
+        val nullCodeCountry = Gson().fromJson(
+            """{"name":"NoCode","serverCount":1}""",
+            CountryV2::class.java
+        )
+        val favorites = setOf("US")
+        val current = listOf(nullCodeCountry, country("US"))
+
+        val result = FavoritesFilter.filterFavoriteCountries(favorites, current)
+
+        assertEquals(1, result.size)
+        assertEquals("US", result[0].code)
+    }
+
+    @Test
+    fun filterFavoriteCountries_skipsCountriesWithBlankCode() {
+        val favorites = setOf("US")
+        val current = listOf(country(""), country("   ", name = "Blank"), country("US"))
+
+        val result = FavoritesFilter.filterFavoriteCountries(favorites, current)
+
+        assertEquals(1, result.size)
+        assertEquals("US", result[0].code)
     }
 
     // --- Servers: all-present (AC3) ---
