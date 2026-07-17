@@ -61,9 +61,9 @@ feature details and implementation, see [src/docs/favorites-ui-patterns.md](../.
 
 ## Known Behavior Constraints (do not report as defects)
 
-- Favorites UI strings have no ru/pl translations: header and action labels render in English
-  ("Favorites", "Add to favorites", "Remove from favorites") on the RU-locale devices used here;
-  the TV dialog Cancel button is framework-localized ("ОТМЕНА").
+- Favorites UI strings are localized on the RU-locale devices used here: header and action labels
+  render as "Избранное" / "Добавить в избранное" / "Удалить из избранного"; the TV dialog Cancel
+  button is framework-localized ("ОТМЕНА").
 - SSE fires `servers-changed` frequently while the app is foregrounded; the visible country list
   can legitimately churn mid-test. Observed directly during this run: a favorited country (Russia)
   temporarily dropped out of the loaded country list between two navigations, which correctly

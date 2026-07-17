@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.widget.PopupMenu
 import androidx.test.core.app.ApplicationProvider
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,16 +27,16 @@ class ServerListActivityPopupMenuTest {
         field.isAccessible = true
 
         // Type should be PopupMenu or nullable PopupMenu
-        assert(field.type == PopupMenu::class.java || field.type.name.contains("PopupMenu")) {
-            "activePopupMenu field should exist and be of PopupMenu type"
-        }
+        assertTrue(
+            "activePopupMenu field should exist and be of PopupMenu type",
+            field.type == PopupMenu::class.java || field.type.name.contains("PopupMenu")
+        )
     }
 
     @Test
     fun onDestroyMethodExistsAndIsCallable() {
-        // Verify that onDestroy was implemented to handle cleanup
-        val method = ServerListActivity::class.java.getDeclaredMethod("onDestroy")
-        assert(method != null) { "onDestroy method should exist" }
+        // Verify that onDestroy was implemented to handle cleanup; getDeclaredMethod throws if absent
+        ServerListActivity::class.java.getDeclaredMethod("onDestroy")
     }
 
     @Test
@@ -45,11 +46,11 @@ class ServerListActivityPopupMenuTest {
         for (code in blankCodes) {
             val country = Country(name = "Test", code = code)
             val isBlank = country.code.isNullOrBlank()
-            assert(isBlank) { "Country code '$code' should be detected as blank" }
+            assertTrue("Country code '$code' should be detected as blank", isBlank)
         }
 
         // Valid code should not be blank
         val validCountry = Country(name = "Australia", code = "AU")
-        assert(!validCountry.code.isNullOrBlank()) { "Valid country code should not be blank" }
+        assertTrue("Valid country code should not be blank", !validCountry.code.isNullOrBlank())
     }
 }

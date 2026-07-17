@@ -42,7 +42,8 @@ object FavoritesStore {
         if (countryCode.isBlank()) return
         val normalized = normalizeCountryCode(countryCode)
         synchronized(favoritesLock) {
-            val current = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
+            val rawSet = prefs(ctx).getStringSet(KEY_FAVORITE_COUNTRY_CODES, null)?.toMutableSet() ?: mutableSetOf()
+            val current = normalizeStoredSet(rawSet).toMutableSet()
             if (current.add(normalized)) {
                 saveFavoriteCountryCodes(ctx, current)
             }
@@ -105,11 +106,12 @@ object FavoritesStore {
     fun isFavoriteServer(ctx: Context, serverId: Int): Boolean =
         getFavoriteServerIds(ctx).contains(serverId)
 
-    fun getFavoriteServerIds(ctx: Context): Set<Int> =
+    fun getFavoriteServerIds(ctx: Context): Set<Int> = synchronized(favoritesLock) {
         prefs(ctx).getStringSet(KEY_FAVORITE_SERVER_IDS, emptySet())
             ?.mapNotNull { it.toIntOrNull() }
             ?.toSet()
             ?: emptySet()
+    }
 
     private fun saveFavoriteServerIds(ctx: Context, ids: Set<Int>) {
         prefs(ctx).edit()

@@ -28,8 +28,8 @@ surfaces: [android]
 - A country with >=2 servers (e.g. Vietnam, 3 servers) so both sections are distinguishable.
 - Clean favorites state at start: `shared_prefs/favorites_prefs.xml` has empty `favorite_server_ids`
   (inspect via `adb shell run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml`, debug build only).
-- Favorites strings are English on ru/pl locales (no localized `favorites_*` entries): "Favorites",
-  "Add to favorites", "Remove from favorites".
+- Favorites strings are localized on ru/pl locales (`favorites_*` entries exist): RU "Избранное" /
+  "Добавить в избранное" / "Удалить из избранного"; PL "Ulubione" / "Dodaj do ulubionych" / "Usuń z ulubionych".
 
 ## Risks and Notes
 - `Server.id == 0` rows are not producible on-device with the v2 source (real ids assigned); the id<=0 guard

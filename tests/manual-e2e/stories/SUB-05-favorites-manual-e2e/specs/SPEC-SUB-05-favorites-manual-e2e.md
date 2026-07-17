@@ -70,9 +70,9 @@ Sync trigger reference: [src/docs/server-sync-flow.md](../../../../../src/docs/s
 
 ## Known Behavior Constraints (do not report as defects)
 
-- Favorites UI strings have no ru/pl translations: header and action labels render in English
-  ("Favorites", "Add to favorites", "Remove from favorites") on RU/PL device locales; the TV
-  dialog Cancel button is framework-localized ("ОТМЕНА" on RU).
+- Favorites UI strings are localized on ru/pl device locales: header and action labels render as
+  "Избранное" / "Добавить в избранное" / "Удалить из избранного" (RU) or "Ulubione" / "Dodaj do
+  ulubionych" / "Usuń z ulubionych" (PL); the TV dialog Cancel button is framework-localized ("ОТМЕНА" on RU).
 - A favorited country/server appears BOTH in the pinned Favorites section and at its normal
   position in the regular list below (intentional design, see favorites-ui-patterns.md).
 - On TV, after a favorite toggle the list refreshes and focus jumps to the toolbar back button;

@@ -67,9 +67,9 @@ Inspect without root via run-as (works on debug builds):
 adb -s <your-device-serial> shell "run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml"
 ```
 Use this to verify clean pre-test state (empty `<set>` elements) and post-test cleanup.
-Note: favorites UI strings have no ru/pl translations, so on Russian/Polish device locales the header and
-menu items render in English ("Favorites", "Add to favorites", "Remove from favorites") — match uiautomator
-dumps against the English strings.
+Note: favorites UI strings are localized for ru/pl — on Russian device locales the header and menu items
+render as "Избранное" / "Добавить в избранное" / "Удалить из избранного"; on Polish, "Ulubione" /
+"Dodaj do ulubionych" / "Usuń z ulubionych". Match uiautomator dumps against the localized strings, not English.
 
 ## Useful Log Filters
 

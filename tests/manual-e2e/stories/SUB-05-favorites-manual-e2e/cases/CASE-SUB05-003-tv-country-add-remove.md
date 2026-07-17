@@ -25,8 +25,8 @@ acceptance: AC2 (country half)
   ```
 
   On other TV hardware re-run `getevent -pl` to find the equivalent device/scancode.
-- RU-locale note: favorites strings render in English ("Favorites", "Add to favorites",
-  "Remove from favorites"); the dialog Cancel button is framework-localized ("ОТМЕНА").
+- RU-locale note: favorites strings are localized ("Избранное", "Добавить в избранное",
+  "Удалить из избранного"); the dialog Cancel button is framework-localized ("ОТМЕНА").
 
 ## Steps
 
