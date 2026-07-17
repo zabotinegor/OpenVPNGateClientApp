@@ -6,7 +6,7 @@ Sync CopilotTools assets from the latest zabotinegor/CopilotTools@main commit in
 
 $ARGUMENTS
 
-Load AGENTS.md first. Check session rate limit at start: if `rate_limits.five_hour.used_percentage` >= 90%, checkpoint and stop (see .github/skills/session-limit-tracking/SKILL.md).
+Load AGENTS.md first. Check session rate limit at start: if `rate_limits.five_hour.used_percentage` >= 80%, checkpoint and stop (see .github/skills/session-limit-tracking/SKILL.md).
 
 For baseline rules, then follow .github/skills/agent-sync/SKILL.md as the authoritative workflow.
 
