@@ -60,7 +60,7 @@ class ServerListViewModel(
     private fun toggleFavorite(country: Country) {
         val code = country.code
         if (code.isNullOrBlank()) return
-        val currentlyFavorite = favoritesStore.isFavoriteCountry(code)
+        val currentlyFavorite = code.uppercase(Locale.ROOT) in _state.value.favoriteCountryCodes
         if (currentlyFavorite) {
             favoritesStore.removeFavoriteCountry(code)
         } else {
