@@ -52,51 +52,11 @@ hs_err_pid*.log
 AGENTS.local.md
 README.local.md
 
-# Copilot customization assets synced from CopilotTools (not committed)
-# Exact paths only - no broad patterns; agent-sync files are never hidden
-/.github/AGENTS-REGISTRY.md
-/.github/FRONTMATTER-SCHEMA.md
-/.github/agents/code-review.agent.md
-/.github/agents/developer-workflow.agent.md
-/.github/agents/docs-maintainer.agent.md
-/.github/agents/e2e-manual-tester.agent.md
-/.github/agents/github-create-pr.agent.md
-/.github/agents/github-create-release.agent.md
-/.github/agents/github-pr-merger-release.agent.md
-/.github/agents/github-pr-merger.agent.md
-/.github/agents/github-review-comments.agent.md
-/.github/agents/scope-quality-gate.agent.md
-/.github/agents/update-engine.agent.md
-/.github/agents/user-story-spec.agent.md
-/.github/scripts/validate-agent-skill-definitions.ps1
-/.github/skills/code-review/SKILL.md
-/.github/skills/code-review/references/review-checklist-android.md
-/.github/skills/code-review/references/review-checklist-aspnet.md
-/.github/skills/code-review/references/review-checklist-mssql.md
-/.github/skills/code-review/references/review-checklist-react-ts.md
-/.github/skills/docs-maintenance/SKILL.md
-/.github/skills/docs-maintenance/references/docs-report-template.md
-/.github/skills/docs-maintenance/references/documentation-sync-checklist.md
-/.github/skills/e2e-manual-testing/SKILL.md
-/.github/skills/e2e-manual-testing/references/artifact-contract.md
-/.github/skills/e2e-manual-testing/references/environment-and-auth.md
-/.github/skills/e2e-manual-testing/references/scenario-patterns.md
-/.github/skills/github-create-pr/SKILL.md
-/.github/skills/github-create-pr/references/pr-style.md
-/.github/skills/github-pr-merger/SKILL.md
-/.github/skills/github-pr-merger/references/squash-merge-style.md
-/.github/skills/github-review-comments/SKILL.md
-/.github/skills/github-review-comments/references/review-comment-style.md
-/.github/skills/scope-quality-gate/SKILL.md
-/.github/skills/update-engine/SKILL.md
-/.github/skills/update-engine/references/engine-update-checklist.md
-/.github/skills/user-story-spec/SKILL.md
-/.github/skills/user-story-spec/references/user-story-spec-template.md
 *.lnk
 artifacts
 
+# SDLC flow runtime state and QA evidence (never committed)
 .sdlc
-
 docs/qa-evidence
 
 # BEGIN synced-copilot-assets
@@ -126,8 +86,8 @@ docs/qa-evidence
 /.github/agents/e2e-manual-tester.agent.md
 /.github/agents/github-create-pr.agent.md
 /.github/agents/github-create-release.agent.md
-/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-pr-merger.agent.md
+/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-review-comments.agent.md
 /.github/agents/master-plan.agent.md
 /.github/agents/release-flow-orchestrator.agent.md
@@ -135,9 +95,9 @@ docs/qa-evidence
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/account-context.ps1
+/.github/scripts/checkpoint-session.ps1
 /.github/scripts/check-rate-limit.ps1
 /.github/scripts/check-session-before-tool.ps1
-/.github/scripts/checkpoint-session.ps1
 /.github/scripts/chrome-extension/background.js
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js
@@ -148,21 +108,26 @@ docs/qa-evidence
 /.github/scripts/fetch-claude-usage.js
 /.github/scripts/fetch-usage-api.ps1
 /.github/scripts/get-pr-bot-comments.ps1
+/.github/scripts/get-session-recovery-diagnostics.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
+/.github/scripts/manage-session-resume.ps1
 /.github/scripts/map-desktop-accounts.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/post-round-summary.ps1
 /.github/scripts/rate-limit-server.js
+/.github/scripts/record-scheduler-evidence.ps1
 /.github/scripts/resolve-account.ps1
 /.github/scripts/resolve-pr-threads.ps1
 /.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
+/.github/scripts/session-recovery-state.ps1
 /.github/scripts/session-refresh-watchdog.js
 /.github/scripts/setup-multi-account.ps1
 /.github/scripts/setup-session-tracking.ps1
 /.github/scripts/start-review-round.ps1
+/.github/scripts/test-reset-recovery.ps1
 /.github/scripts/test-sdlc-lease.ps1
 /.github/scripts/test-session-tracking.ps1
 /.github/scripts/update-master-plan-status.ps1

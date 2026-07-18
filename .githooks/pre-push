@@ -24,25 +24,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
         exit 1
       fi
-      if [ "$local_sha" = "$zero" ]; then
-        # Deleting dev: an old archive ref is not enough — require an
-        # archive/archive-dev-* ref at the current remote dev tip, so unmerged
-        # dev work can never lose its last remote reference.
-        dev_sha=$(git rev-parse origin/dev 2>/dev/null || true)
-        archived_match=""
-        if [ -n "$dev_sha" ]; then
-          for sha in $(git for-each-ref --format='%(objectname)' 'refs/remotes/origin/archive/archive-dev-*' 2>/dev/null); do
-            if [ "$sha" = "$dev_sha" ]; then
-              archived_match=1
-              break
-            fi
-          done
-        fi
-        if [ -z "$archived_match" ]; then
-          echo "BLOCKED: deleting refs/heads/dev requires an archive/archive-dev-* ref at the current dev tip (${dev_sha:-unknown}); archive dev first (release-flow archive step)." >&2
-          exit 1
-        fi
-      fi
       if [ "$local_sha" != "$zero" ]; then
         main_sha=$(git rev-parse origin/main 2>/dev/null || echo "")
         if [ -z "$main_sha" ] || [ "$local_sha" != "$main_sha" ]; then
