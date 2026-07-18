@@ -86,7 +86,10 @@ function Get-SectionFromSourceFile {
         throw "Source section file '$SourcePath' does not exist."
     }
 
-    $sourceLines = @(Get-Content -LiteralPath $SourcePath)
+    # Explicit UTF-8: under Windows PowerShell 5.1 the default is ANSI, which
+    # mangles non-ASCII content (em-dashes) in BOM-less UTF-8 markdown and made
+    # the marker-injection verify fail with mojibake in the target file.
+    $sourceLines = @(Get-Content -LiteralPath $SourcePath -Encoding UTF8)
     $beginIdx = $sourceLines.IndexOf($BeginMarker)
     $endIdx = $sourceLines.IndexOf($EndMarker)
     if ($beginIdx -ge 0 -and $endIdx -gt $beginIdx) {
@@ -125,7 +128,7 @@ function Set-FileSectionByMarkers {
         }
     }
 
-    $targetLines = @(Get-Content -LiteralPath $TargetPath)
+    $targetLines = @(Get-Content -LiteralPath $TargetPath -Encoding UTF8)
     $beginIdx = $targetLines.IndexOf($BeginMarker)
     $endIdx = $targetLines.IndexOf($EndMarker)
 
@@ -225,7 +228,7 @@ function Set-ExactGitignoreEntries {
     $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**')
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
-        $existing = @(Get-Content -LiteralPath $gitignorePath)
+        $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
     }
 
     foreach ($blockedPattern in $blockedPatterns) {
@@ -247,6 +250,11 @@ function Set-ExactGitignoreEntries {
     foreach ($line in $existing) {
         if ($line -eq $beginMarker) {
             $insideManagedBlock = $true
+            # Drop the separator blank line(s) a previous sync added before the
+            # block, so re-syncs do not accumulate blank lines mid-file.
+            while ($next.Count -gt 0 -and $next[$next.Count - 1] -eq '') {
+                $next.RemoveAt($next.Count - 1)
+            }
             continue
         }
 
@@ -300,7 +308,7 @@ function Set-TransientCopilotArtifactGitignoreEntries {
 
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
-        $existing = @(Get-Content -LiteralPath $gitignorePath)
+        $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
     }
 
     $next = New-Object System.Collections.Generic.List[string]
@@ -308,6 +316,11 @@ function Set-TransientCopilotArtifactGitignoreEntries {
     foreach ($line in $existing) {
         if ($line -eq $beginMarker) {
             $insideManagedBlock = $true
+            # Drop the separator blank line(s) a previous sync added before the
+            # block, so re-syncs do not accumulate blank lines mid-file.
+            while ($next.Count -gt 0 -and $next[$next.Count - 1] -eq '') {
+                $next.RemoveAt($next.Count - 1)
+            }
             continue
         }
 
@@ -441,7 +454,7 @@ function Merge-JsonSettings {
         return [pscustomobject]@{ changed = $false; action = 'source-missing' }
     }
 
-    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw
+    $sourceRaw = Get-Content -LiteralPath $SourcePath -Raw -Encoding UTF8
     try {
         $sourceObj = $sourceRaw | ConvertFrom-Json
     } catch {
@@ -452,7 +465,7 @@ function Merge-JsonSettings {
 
     $targetObj = [pscustomobject]@{}
     if (Test-Path -LiteralPath $TargetPath) {
-        $targetContent = Get-Content -LiteralPath $TargetPath -Raw
+        $targetContent = Get-Content -LiteralPath $TargetPath -Raw -Encoding UTF8
         if (-not [string]::IsNullOrWhiteSpace($targetContent)) {
             try {
                 $targetObj = $targetContent | ConvertFrom-Json
@@ -747,21 +760,20 @@ try {
     # Untrack any synced files that git is still tracking despite being gitignored.
     # git rm --cached removes from the index only; the file stays on disk.
     # This prevents synced scripts from appearing as modified in git clients (Fork, VS Code).
-    # Gated on git check-ignore so this never untracks a normal synced asset (e.g. under
-    # .github/agents or .github/skills) that isn't actually gitignored.
     if (-not $DryRun) {
         $untrackedCount = 0
         foreach ($relativePath in $sourceFiles.Keys) {
             $isExcluded = (@($ExcludeGitignorePattern | Where-Object { $relativePath -match [regex]::Escape($_) }).Count -gt 0)
             if ($isExcluded) { continue }
             $repoPath = Convert-ToRepoRelativePath -Path $relativePath
-            $tracked = git -C $targetRootResolved ls-files --error-unmatch $repoPath 2>$null
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$tracked)) { continue }
-            git -C $targetRootResolved check-ignore --quiet $repoPath 2>$null | Out-Null
-            $isGitignored = ($LASTEXITCODE -eq 0)
-            if (-not $isGitignored) { continue }
-            git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
-            $untrackedCount++
+            # Plain ls-files (no --error-unmatch): untracked files yield empty
+            # output instead of stderr, which Windows PowerShell 5.1 would turn
+            # into a terminating NativeCommandError under EAP=Stop.
+            $tracked = git -C $targetRootResolved ls-files -- $repoPath
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$tracked)) {
+                git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
+                $untrackedCount++
+            }
         }
         if ($untrackedCount -gt 0) {
             Write-Host "  Untracked $untrackedCount gitignored file(s) from git index"

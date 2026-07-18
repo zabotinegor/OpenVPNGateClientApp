@@ -1,0 +1,45 @@
+package com.yahorzabotsin.openvpnclientgate.core.servers
+
+import java.util.Locale
+
+/**
+ * Pure filtering utilities that intersect persisted favorites ([FavoritesStore]) with a
+ * currently synced list. A favorite that is absent from the current list is simply excluded
+ * from the result — it is never deleted from persistence. Because filtering is a pure function
+ * over the current persisted favorites, a favorite automatically reappears in the result the
+ * next time its country/server is present in the input list, with no separate restore step.
+ */
+object FavoritesFilter {
+
+    /**
+     * Returns the subset of [countries] whose [CountryV2.code] is a persisted favorite.
+     * Favorite codes that have no match in [countries] are omitted from the result but remain
+     * persisted in [FavoritesStore].
+     */
+    fun filterFavoriteCountries(
+        favoriteCountryCodes: Set<String>,
+        countries: List<CountryV2>
+    ): List<CountryV2> {
+        if (favoriteCountryCodes.isEmpty() || countries.isEmpty()) return emptyList()
+        val upperCaseFavorites = favoriteCountryCodes.map { it.uppercase(Locale.ROOT) }.toSet()
+        return countries.filter { countryV2 ->
+            // Defensive: CountryV2.code is declared non-null, but Gson can leave it null when
+            // the JSON field is missing; blank codes are never favoritable either way.
+            val code: String? = countryV2.code
+            !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in upperCaseFavorites
+        }
+    }
+
+    /**
+     * Returns the subset of [servers] whose [Server.id] is a persisted favorite.
+     * Favorite ids that have no match in [servers] are omitted from the result but remain
+     * persisted in [FavoritesStore].
+     */
+    fun filterFavoriteServers(
+        favoriteServerIds: Set<Int>,
+        servers: List<Server>
+    ): List<Server> {
+        if (favoriteServerIds.isEmpty() || servers.isEmpty()) return emptyList()
+        return servers.filter { favoriteServerIds.contains(it.id) }
+    }
+}

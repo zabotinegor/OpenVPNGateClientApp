@@ -9,12 +9,15 @@ data class ServerListUiState(
     val isVpnConnected: Boolean = false,
     val isRefreshEnabled: Boolean = true,
     val showRefreshHint: Boolean = false,
-    val countries: List<CountryWithServers> = emptyList()
+    val countries: List<CountryWithServers> = emptyList(),
+    val favoriteCountryCodes: Set<String> = emptySet(),
+    val items: List<CountryListItem> = emptyList()
 )
 
 sealed interface ServerListAction {
     data class Load(val forceRefresh: Boolean) : ServerListAction
     data class CountrySelected(val country: Country) : ServerListAction
+    data class ToggleFavorite(val country: Country) : ServerListAction
 }
 
 sealed interface ServerListEffect {
@@ -24,5 +27,5 @@ sealed interface ServerListEffect {
     data class FinishWithSelection(val result: ServerSelectionResult) : ServerListEffect
     data object SetResultCanceled : ServerListEffect
     data object FinishCanceled : ServerListEffect
-    data object FocusFirstItem : ServerListEffect
+    data class FocusFirstItem(val adapterPosition: Int) : ServerListEffect
 }

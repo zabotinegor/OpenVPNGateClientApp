@@ -28,6 +28,13 @@
     </plurals>
     <string name="action_refresh">Refresh</string>
     <string name="server_list_refresh_locked_hint">Refresh disabled while VPN is connected.</string>
+    <string name="favorites_section_title">Favorites</string>
+    <string name="favorites_add_action">Add to favorites</string>
+    <string name="favorites_remove_action">Remove from favorites</string>
+    <string name="favorites_added_toast">Added to favorites</string>
+    <string name="favorites_removed_toast">Removed from favorites</string>
+    <string name="all_countries_section_title">All countries</string>
+    <string name="all_servers_section_title">All servers</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">An error occurred</string>

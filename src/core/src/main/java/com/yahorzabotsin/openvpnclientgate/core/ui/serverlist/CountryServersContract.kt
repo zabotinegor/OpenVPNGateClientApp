@@ -8,12 +8,15 @@ data class CountryServersUiState(
     val isLoading: Boolean = false,
     val countryName: String? = null,
     val countryCode: String? = null,
-    val servers: List<Server> = emptyList()
+    val servers: List<Server> = emptyList(),
+    val favoriteServerIds: Set<Int> = emptySet(),
+    val items: List<ServerListItem> = emptyList()
 )
 
 sealed interface CountryServersAction {
     data class Initialize(val countryName: String?, val countryCode: String?) : CountryServersAction
     data class ServerSelected(val server: Server) : CountryServersAction
+    data class ToggleFavorite(val server: Server) : CountryServersAction
 }
 
 sealed interface CountryServersEffect {
@@ -21,5 +24,5 @@ sealed interface CountryServersEffect {
     data class ShowSnackbar(val text: UiText) : CountryServersEffect
     data class FinishWithSelection(val result: ServerSelectionResult) : CountryServersEffect
     data object FinishCanceled : CountryServersEffect
-    data object FocusFirstItem : CountryServersEffect
+    data class FocusFirstItem(val adapterPosition: Int) : CountryServersEffect
 }

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.widget.PopupMenu
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -14,10 +15,13 @@ import com.yahorzabotsin.openvpnclientgate.core.databinding.ContentServerListBin
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.MarginItemDecoration
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.navigation.TemplatePage
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -27,7 +31,9 @@ open class ServerListActivity : AppCompatActivity() {
     private val viewModel: ServerListViewModel by viewModel()
     private lateinit var contentBinding: ContentServerListBinding
     private var adapter: CountryListAdapter? = null
-    private var lastRenderedCountries: List<CountryWithServers> = emptyList()
+    private var lastRenderedItems: List<CountryListItem> = emptyList()
+    private var activePopupMenu: PopupMenu? = null
+    private var activeTvFavoriteDialog: androidx.appcompat.app.AlertDialog? = null
     private val countryServersLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -47,6 +53,14 @@ open class ServerListActivity : AppCompatActivity() {
         observeViewModel()
     }
 
+    override fun onDestroy() {
+        activePopupMenu?.dismiss()
+        activePopupMenu = null
+        activeTvFavoriteDialog?.dismiss()
+        activeTvFavoriteDialog = null
+        super.onDestroy()
+    }
+
     private fun observeViewModel() {
         lifecycleScope.launch {
             repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -59,6 +73,11 @@ open class ServerListActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
         contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
+        // SUB-09: filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
+        // (no drawing) whenever the pinned Favorites section is hidden.
+        contentBinding.serversRecyclerView.addItemDecoration(
+            FavoritesSectionCardDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
+        )
     }
 
     private fun render(state: ServerListUiState) {
@@ -67,12 +86,80 @@ open class ServerListActivity : AppCompatActivity() {
         contentBinding.refreshFab.isEnabled = state.isRefreshEnabled
         contentBinding.refreshHint.isVisible = state.showRefreshHint
 
-        if (adapter == null || state.countries != lastRenderedCountries) {
-            lastRenderedCountries = state.countries
-            adapter = CountryListAdapter(state.countries) { selected ->
-                viewModel.onAction(ServerListAction.CountrySelected(selected))
-            }
+        if (adapter == null) {
+            lastRenderedItems = state.items
+            adapter = CountryListAdapter(
+                items = state.items,
+                onClick = { selected ->
+                    viewModel.onAction(ServerListAction.CountrySelected(selected))
+                },
+                onLongClick = { anchor, country, isFavorite ->
+                    showFavoriteMenu(anchor, country, isFavorite)
+                }
+            )
             contentBinding.serversRecyclerView.adapter = adapter
+        } else if (state.items != lastRenderedItems) {
+            lastRenderedItems = state.items
+            adapter?.updateItems(state.items)
+        }
+    }
+
+    private fun showFavoriteMenu(anchor: android.view.View, country: Country, isFavorite: Boolean) {
+        when (FavoriteActionDialog.resolvePresentation(
+            isTvDevice = TvUtils.isTvDevice(this),
+            // Guard against blank country codes — favoriting silently does nothing, so hide the menu
+            canFavorite = !country.code.isNullOrBlank()
+        )) {
+            FavoriteActionDialog.Presentation.NONE -> return
+            FavoriteActionDialog.Presentation.TV_DIALOG -> {
+                showTvFavoriteDialog(country, isFavorite)
+                return
+            }
+            FavoriteActionDialog.Presentation.POPUP_MENU -> Unit // fall through to PopupMenu below
+        }
+        // Dismiss any previously showing popup to prevent window leaks
+        activePopupMenu?.dismiss()
+
+        val popup = PopupMenu(this, anchor)
+        activePopupMenu = popup
+        popup.setOnDismissListener {
+            if (activePopupMenu == popup) {
+                activePopupMenu = null
+            }
+        }
+        val actionTitle = if (isFavorite) {
+            getString(R.string.favorites_remove_action)
+        } else {
+            getString(R.string.favorites_add_action)
+        }
+        popup.menu.add(actionTitle)
+        popup.setOnMenuItemClickListener {
+            viewModel.onAction(ServerListAction.ToggleFavorite(country))
+            true
+        }
+        popup.show()
+    }
+
+    /**
+     * TV (D-pad) presentation of the favorites toggle: a self-contained, remote-navigable
+     * AlertDialog opened by holding OK/center on a focused row (SUB-04). Short-press
+     * select/connect behavior is untouched — this only runs on long-press.
+     */
+    private fun showTvFavoriteDialog(country: Country, isFavorite: Boolean) {
+        // Dismiss any previously showing dialog to prevent window leaks
+        activeTvFavoriteDialog?.dismiss()
+        val dialog = FavoriteActionDialog.show(
+            activity = this,
+            itemTitle = country.name,
+            isFavorite = isFavorite,
+            onToggle = { viewModel.onAction(ServerListAction.ToggleFavorite(country)) }
+        )
+        // show() returns null when the Activity is finishing/destroyed (BadTokenException guard)
+        activeTvFavoriteDialog = dialog
+        dialog?.setOnDismissListener {
+            if (activeTvFavoriteDialog == dialog) {
+                activeTvFavoriteDialog = null
+            }
         }
     }
 
@@ -97,12 +184,19 @@ open class ServerListActivity : AppCompatActivity() {
                 setResult(Activity.RESULT_CANCELED)
                 finish()
             }
-            ServerListEffect.FocusFirstItem -> focusFirstItem()
+            is ServerListEffect.FocusFirstItem -> focusAdapterPosition(effect.adapterPosition)
         }
     }
 
-    private fun focusFirstItem() {
-        focusAdapterPositionWhenReady(position = 0, attemptsLeft = 10)
+    private fun focusAdapterPosition(position: Int) {
+        // TV-gated scroll+focus; skipped on touch devices
+        // (DEF-sub05-serverlist-header-misscroll-on-open). See TvUtils.applyFocusFirstItem.
+        TvUtils.applyFocusFirstItem(
+            isTvDevice = TvUtils.isTvDevice(this),
+            position = position,
+            scrollToPosition = contentBinding.serversRecyclerView::scrollToPosition,
+            focusWhenReady = { focusAdapterPositionWhenReady(it, attemptsLeft = 10) }
+        )
     }
 
     private fun focusAdapterPositionWhenReady(position: Int, attemptsLeft: Int) {

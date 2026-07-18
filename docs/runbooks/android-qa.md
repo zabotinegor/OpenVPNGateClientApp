@@ -224,3 +224,89 @@ adb shell am instrument -w -e class com.yahorzabotsin.openvpnclientgate.mobile.M
 # Run via Gradle (handles APK build + install)
 ./gradlew connectedDebugAndroidTestApp
 ```
+
+---
+
+## Per-App Locale Override (Samsung/One UI Workaround — SUB-07)
+
+**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-07-favorites-localization.md`
+
+On Samsung devices running One UI (and some other OEM skins), the system-wide locale settings command (`adb shell settings put system system_locales`) does not reliably propagate to running or restarted applications. The app's `mGlobalConfiguration` locale continues to reflect the previous setting even after force-stop and relaunch.
+
+### Per-App Locale Override Technique
+
+**For Android 13+**, use the `cmd locale` service to apply a per-app locale override directly without relying on system-wide settings:
+
+```bash
+# Set app locale to Polish (example)
+adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales pl-PL
+
+# Force-stop the app to reload with the new locale
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
+
+# Relaunch the app
+adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+
+# Verify active locale in UI — you should see Polish strings (CZAS, STATUS, SERWER, MIASTO, URUCHOM POŁĄCZENIE, Ulubione, etc.)
+```
+
+### Clearing the Override
+
+When done testing, clear the per-app locale to restore system locale behavior:
+
+```bash
+# Clear the per-app override (empty locales string)
+adb shell cmd locale set-app-locales com.yahorzabotsin.openvpnclientgate --user 0 --locales ""
+
+# Force-stop and relaunch to restore system locale
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
+adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+```
+
+### Why This Works
+
+The `cmd locale set-app-locales` command:
+- Applies an override **per-app** rather than system-wide, bypassing One UI's interference with system settings
+- Takes effect after the app is force-stopped and restarted
+- Persists until explicitly cleared with an empty `--locales` string
+- Is documented in Android 13+ frameworks; it is a stable platform API
+
+### Device-Specific Notes
+
+- **Samsung Galaxy A71 (Android 13)**: Confirmed working with this technique (CASE-SUB07-003 and 004).
+- **Xiaomi Mi 9T Pro (MIUI / Android 11)**: Per-app locale override requires Android 13+; use system-wide `settings put system system_locales` instead (if it works on that device). This project's primary test device is Samsung; MIUI edge cases may require device-specific workarounds.
+- **Stock Android / Pixel**: System-wide `settings put system system_locales` works reliably; per-app override is optional.
+
+### Manual QA Evidence
+
+See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md` and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (`docs/qa-evidence/` is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
+
+---
+
+## Simulating a TV D-pad Long-Press via ADB (MIBOX4 / Android 9, API 28)
+
+**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-08-themed-favorite-action-dialog.md` (retest round)
+
+The favorites long-press dialog on TV (`FavoriteActionDialog`) is triggered by a plain `View.OnLongClickListener` set on each row — there is no custom `OnKeyListener` or manual timing logic. The framework itself promotes a held D-pad center/enter *key* press into `performLongClick()` after `ViewConfiguration.getLongPressTimeout()` (~500ms), exactly like a touch long-press. This means the long-press must genuinely be *held*, not just tapped.
+
+**What does NOT work on this device (MIBOX4, Android 9 / API 28):**
+
+- `adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` — the `--longpress` flag is accepted without error but silently behaves like a normal short click (navigates into the row instead of opening the dialog). This flag appears unreliable/not honored on this old API 28 `input` command build.
+- `adb shell sendevent /dev/input/eventN 1 28 1` (manually holding `KEY_ENTER` down on the physical remote's evdev device, e.g. `/dev/input/event3` "Xiaomi RC") — produced no effect at all (no click, no long-click). The remote's physical evdev node is not the path `adb shell input` uses internally (that command injects directly via `InputManager`, bypassing evdev), so manually driving the physical remote device node doesn't reach the app.
+
+**What works:** inject a synthetic **touchscreen** hold at the row's on-screen coordinates, exactly like the mobile long-press trick, even though this is a Leanback/D-pad-first TV app with no physical touchscreen:
+
+```bash
+# Hold at (x, y) for 800ms — same call used for the mobile PopupMenu long-press
+adb -s <tv-serial> shell input swipe <x> <y> <x> <y> 800
+```
+
+This reaches the same `OnLongClickListener` as a genuine D-pad long-press because RecyclerView item views on this screen are also touch-clickable; Android's `input swipe`/`tap` commands inject `SOURCE_TOUCHSCREEN` events through the input dispatcher regardless of whether the device has real touch hardware, and the dispatcher routes them to whatever view is under the coordinates.
+
+**Practical steps:**
+1. Take a screenshot (`adb exec-out screencap -p > out.png`) to find the target row's coordinates.
+2. `adb shell input swipe X Y X Y 800` on that row.
+3. Screenshot again to confirm the `FavoriteActionDialog` appeared with the app-styled background (not stock).
+4. Tap the resulting dialog's list item / Cancel button coordinates directly (also via `input tap X Y`) — the dialog is drawn at the screen coordinates visible in the screenshot.
+
+**Restoring D-pad focus/state after touch injection:** touch events don't move D-pad focus, so after closing a dialog opened this way, a subsequent `KEYCODE_DPAD_DOWN`/`KEYCODE_DPAD_CENTER` may behave unexpectedly (focus can still be on the last D-pad-focused view, which is usually fine, but double-check with a screenshot before chaining more D-pad key events).

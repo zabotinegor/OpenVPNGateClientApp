@@ -124,20 +124,32 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 ## When Extending Instructions
 - If the repository later needs module-specific guidance, add nested `AGENTS.md` files under `src/core`, `src/mobile`, `src/tv`, or `src/external/OpenVPNEngine` instead of overloading this root file.
 
+## Local-Only Agent Tooling
+
+- Most session/SDLC helper scripts under `.github/scripts/` (for example `init-session.ps1`, `check-rate-limit.ps1`, `checkpoint-session.ps1`, `resume-session.ps1`, `update-sdlc-status.ps1`, `resolve-pr-threads.ps1`) and most `.github/agents/` / `.github/skills/` definitions are **local-only**: they are gitignored and mirrored onto each machine from the CopilotTools repository via the `agent-sync` skill. Only a small allowlist (such as `protect-agent-git-command.*` and `sync-copilot-assets.ps1`) is committed.
+- On a fresh checkout these local-only files are absent. Provision them by running the `agent-sync` skill (or ask the user to run the CopilotTools mirror sync) before following any instruction that invokes them — including the "MANDATORY FIRST STEP — Session Limit Check" section below.
+- If the scripts remain unavailable after attempting provisioning, treat the session-limit bootstrap steps as not applicable, report the missing tooling to the user, and continue only with work that does not depend on them.
+
 <!-- BEGIN COPILOT SYNC -->
 ## MANDATORY FIRST STEP — Session Limit Check
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `pwsh -File .github/scripts/init-session.ps1` (these are PowerShell scripts; on Unix/bash agents, invoke via `pwsh -File`, not directly as `./script.ps1`, and ensure PowerShell 7+ (`pwsh`) is installed)
+1. Run `pwsh -File .github/scripts/init-session.ps1`
 2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
 3. If status is `warning` (>=80%) or `exhausted` (>=100%):
    a. Finish any current atomic unit.
    b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
-   c. Call the `ScheduleWakeup` tool with `delaySeconds` = seconds until `resetsAtUtc` (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command.
+   c. Schedule in-session auto-resume: if the reset is <=58 min away (3480s), call `ScheduleWakeup` with `delaySeconds` = seconds until `resetsAtUtc` + 120 (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command; otherwise call `CronCreate` with `recurring: false` pinned to `resetsAtUtc` + 2 minutes (local time) with the resume command as the prompt. Keep the app window open — these jobs are session-local (see operational-rules.md, Session Limit Rules item 5).
    d. Stop. Do not proceed with the requested task.
-4. During the session: check rate limit before every long operation and before every call to `update-sdlc-status.ps1`.
+4. During the session: check rate limit before every long operation, before every call to `update-sdlc-status.ps1`, AND periodically during long-running phases — at every substep/iteration/surface boundary and at least every ~10 tool operations or ~5 minutes of continuous work. A start-of-run check alone is not enough: many short tool calls in a row can exhaust the window without any single "long operation".
 5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
+6. On `warning`/`exhausted` mid-run: write the substep checkpoint first (`pwsh -File .github/scripts/update-sdlc-status.ps1 -Substep ...`). Then, if running as a **subagent**, return `GATE: BLOCKED`, `REASON: rate-limit` with completed substeps and remaining scope — never call `ScheduleWakeup`/`CronCreate` from a subagent; the orchestrator checkpoints the session and schedules resume. Standalone sessions follow step 3.
+7. Orchestrators: run `pwsh -File .github/scripts/check-rate-limit.ps1` before every subagent spawn; do not spawn an expensive specialist (manual-qa, implement, code-review, quality-gate, merge, bug-flow) at >=80% — checkpoint and stop instead.
+8. After ANY wakeup, auto-resume, or session restore: re-read `.sdlc/status.json` (steps, substeps, `lastUpdatedUtc`) and re-derive the entry step from the flow's resume table before acting — never resume from wakeup reason text, conversation memory, or `checkpoint.currentStep` alone; another session (possibly another account) may have advanced the flow while this one slept.
+9. **Flow lease (enforced):** every flow carries a 15-minute lease enforced by `update-sdlc-status.ps1`. Capture your `sessionId` once at flow start and pass `-SessionId` on every status write. At flow start/resume/wakeup: `-Lease check -SessionId <yours>`; exit 0 → `-Lease acquire` and proceed; exit 2 → another session is live — do not touch the flow; schedule a fresh wakeup (~15 min) or ask the user. Use `-Lease acquire -TakeOver` only on an explicit user handoff. A status write rejected with exit 2 means the lease was lost — stop immediately, cancel your own scheduled wakeups/cron jobs for the flow, report the handoff in one line. Before asking the user a blocking question, run `-Lease renew -WaitingForUser` — a waiting lease never expires and can only be displaced by an explicit `-TakeOver`; when the answer arrives, re-run `-Lease check` before acting (the next status write clears the mark). A session hitting a waiting lease reports the pending question to the user instead of scheduling retry wakeups. Run `-Lease release` at flow completion and when checkpointing for a long sleep. Subagents never take over; on exit 2 they return `GATE: BLOCKED`, `REASON: lease-conflict`.
+10. **Idle guard (mandatory — closes the checkpoint gap):** Any turn that ends with an SDLC flow mid-step MUST leave either (a) a completed handoff to the next specialist OR (b) an armed `ScheduleWakeup` / `CronCreate` resume. A rate-limit checkpoint without a scheduled resume is an **incomplete checkpoint** — the session sleeps and the flow hangs indefinitely. Before writing the checkpoint, verify the wakeup mechanism actually succeeded: if `ScheduleWakeup` or `CronCreate` fails (e.g. rate limit blocks the scheduling API call itself), retry once, then fall back to returning a copy-ready `(Prompt)` handoff to the user with explicit resume instructions instead of silently checkpointing. Never end a turn with "checkpointed, auto-resume scheduled" if the resume was not confirmed.
+11. **Check-rate-limit caching (mandatory — reduces tool call overhead):** Agents must cache the result of `check-rate-limit.ps1` in memory and skip redundant calls when the cache is fresh. Record the timestamp of each successful check; re-running the script is required only if >=60 seconds have elapsed since the last check OR the agent is entering a new substep/iteration boundary. The mandatory checks (session start, before every `update-sdlc-status.ps1`, and at every substep/iteration boundary) still apply — this rule eliminates redundant mid-boundary calls that add tool-call overhead without new data. The cache is per-agent-in-memory only; subagents start with a cold cache.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
@@ -201,7 +213,7 @@ Summary:
 - **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
 - Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
 - On checkpoint: call `ScheduleWakeup` tool + inform user.
-- On new session: run `.github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
+- On new session: run `pwsh -File .github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
 
 ## Git Rules
@@ -288,7 +300,7 @@ Commit knowledge files to the same branch as the implementation. They travel wit
 
 ## Runtime SDLC Status
 
-Developer Flow Handoff and its downstream SDLC skills coordinate independent chats through `.sdlc/status.json` at the Git repository root resolved by `git rev-parse --show-toplevel`. Developer Flow Handoff and completed downstream agents expose paired handoff buttons: `(Agent)` sends compact evidence directly to the next specialist, while `(Prompt)` returns a copy-ready prompt as exactly one fenced `text` block. This file is runtime-only, must remain gitignored, and stores compact machine-readable gate evidence by flow. Agents must update it through `.github/scripts/update-sdlc-status.ps1`, not by ad hoc JSON edits, and must not store secrets, credentials, private environment values, or long logs in it. Nested `.sdlc/status.json` files below the repo root are runtime drift and must be removed or merged into the root status file. SDLC step order: `story -> branch -> implementation -> review -> qualityGate -> manualQa -> docs -> pr`. Each agent updates only its own step and must pass `-ValidatePriorSteps` to enforce required prior-step statuses before writing.
+Developer Flow Handoff and its downstream SDLC skills coordinate independent chats through `.sdlc/status.json` at the Git repository root resolved by `git rev-parse --show-toplevel`. Developer Flow Handoff and completed downstream agents expose paired handoff buttons: `(Agent)` sends compact evidence directly to the next specialist, while `(Prompt)` returns a copy-ready prompt as exactly one fenced `text` block. This file is runtime-only, must remain gitignored, and stores compact machine-readable gate evidence by flow. Agents must update it through `.github/scripts/update-sdlc-status.ps1`, not by ad hoc JSON edits, and must not store secrets, credentials, private environment values, or long logs in it. Every status write must pass `-SessionId` (flow lease identity, MANDATORY FIRST STEP item 9); exit code 2 means another session owns the flow lease — stop, do not retry. Nested `.sdlc/status.json` files below the repo root are runtime drift and must be removed or merged into the root status file. SDLC step order: `story -> branch -> implementation -> review -> qualityGate -> manualQa -> docs -> pr`. Each agent updates only its own step and must pass `-ValidatePriorSteps` to enforce required prior-step statuses before writing.
 
 Manual QA sign-off rule:
 

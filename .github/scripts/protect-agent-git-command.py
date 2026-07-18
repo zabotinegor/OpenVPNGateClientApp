@@ -96,7 +96,7 @@ def _effective_branch_at(normalized, branch, pos):
     return effective
 
 
-def protected_reason(command, branch):
+def protected_reason(command, branch, cwd="."):
     normalized = re.sub(r"\s+", " ", command.strip())
     if not re.search(r"(^|[;&|]\s*)git\s+", normalized, re.IGNORECASE):
         return ""
@@ -119,19 +119,66 @@ def protected_reason(command, branch):
             return "Force-push is forbidden in client repositories."
         if re.search(r"(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])", normalized, re.IGNORECASE):
             return "Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden."
-        if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
-            return f"Direct push from protected branch '{eff}' is forbidden."
-        push_patterns = (
-            rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"\b(?:origin|upstream)\s+\+{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"(?:^|\s)\+(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
-            rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",
-        )
-        if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
-            return "Direct push, deletion, or recreation of a protected branch is forbidden."
+        # Release-flow archive exception: permit the two dev-branch mutations in the archive
+        # step after a release squash merge (step 5 of release-flow-orchestrator).
+        #   1. git push origin --delete dev   (remove old dev after pushing the archive branch)
+        #   2. git push [-u] origin dev        (push new dev recreated from merged main)
+        # Authorization condition for (1): origin/archive/archive-dev-* exists (archive was pushed).
+        # Authorization condition for (2): same + local dev SHA == origin/main SHA.
+        allow_release_archive_push = False
+        # Use only explicit remote-target patterns — NOT eff == "dev". When the caller
+        # is checked out on dev, eff == "dev" would set is_dev_push=True for ANY push
+        # command (e.g. `git push origin HEAD:main`), letting the archive+SHA check
+        # grant allow_release_archive_push=True and skip all protected-branch checks.
+        is_dev_push = bool(re.search(r"(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])", normalized))
+        is_dev_delete = bool(re.search(r"(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])", normalized))
+        # Guard: if the same command also targets main/master/develop in any push/delete
+        # context the exception does not apply — e.g. `git push origin --delete dev main`.
+        if is_dev_push or is_dev_delete:
+            for op in ("main", "master", "develop"):
+                if (re.search(rf"(?:^|\s)(?:--delete|-d)\s+{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\b(?:origin|upstream)\s+\+?{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"(?:^|\s):{op}(?![-\w/.])", normalized, re.IGNORECASE)
+                        or re.search(rf"\brefs/heads/{op}(?![-\w/.])", normalized, re.IGNORECASE)):
+                    is_dev_push = False
+                    is_dev_delete = False
+                    break
+        if is_dev_push or is_dev_delete:
+            try:
+                remotes = subprocess.run(
+                    ["git", "-C", cwd, "branch", "-r"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout
+                if "archive/archive-dev-" in remotes:
+                    if is_dev_delete:
+                        allow_release_archive_push = True
+                    elif is_dev_push:
+                        dev_sha = subprocess.run(
+                            ["git", "-C", cwd, "rev-parse", "dev"],
+                            capture_output=True, text=True, timeout=5,
+                        ).stdout.strip()
+                        main_sha = subprocess.run(
+                            ["git", "-C", cwd, "rev-parse", "origin/main"],
+                            capture_output=True, text=True, timeout=5,
+                        ).stdout.strip()
+                        if dev_sha and main_sha and dev_sha == main_sha:
+                            allow_release_archive_push = True
+            except Exception:
+                pass
+        if not allow_release_archive_push:
+            if eff in PROTECTED and not re.search(r"\bHEAD:", normalized, re.IGNORECASE):
+                return f"Direct push from protected branch '{eff}' is forbidden."
+            push_patterns = (
+                rf"\b(?:origin|upstream)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"\b(?:origin|upstream)\s+\+{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"(?:^|\s)\+(?:refs/heads/)?{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"\brefs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"(?:^|\s)(?:--delete|-d)\s+{PROTECTED_PATTERN}(?![-\w/.])",
+                rf"(?:^|\s):{PROTECTED_PATTERN}(?![-\w/.])",
+            )
+            if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in push_patterns):
+                return "Direct push, deletion, or recreation of a protected branch is forbidden."
 
     if re.search(
         rf"{GIT_PREFIX_PATTERN}\s+update-ref\b[^\r\n]*refs/heads/{PROTECTED_PATTERN}(?![-\w/.])",
@@ -172,7 +219,8 @@ def main():
     if is_copilottools_source(payload.get("cwd")):
         print("{}")
         return
-    reason = protected_reason(get_command(payload), current_branch(payload.get("cwd")))
+    cwd = payload.get("cwd") or "."
+    reason = protected_reason(get_command(payload), current_branch(cwd), cwd)
     if not reason:
         print("{}")
         return

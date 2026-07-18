@@ -47,6 +47,42 @@ SUB-02 (`ProbeRequestWorkerTest`). Fixed by testing `doWork()` directly on a con
 
 ---
 
+## Checking for a Gradle dependency: grep build files, never `find /`
+
+**Symptom**
+
+To decide whether Material Components (or any other library) is already available before adding
+UI that depends on it, an agent ran a filesystem-wide search for compiled artifacts:
+
+```
+find / -iname "MaterialColors.class" ...; find "$HOME" -iname "material-*.aar" ...
+```
+
+This scans the entire filesystem (including unrelated mounts/caches) and can run for an hour or
+more without finishing, forcing a manual cancel.
+
+**Solution**
+
+Never search the filesystem to answer a "is X already a dependency" question. Grep the Gradle
+build files directly instead:
+
+```
+rg "com.google.android.material" src/*/build.gradle* src/gradle/libs.versions.toml
+```
+
+This answers the question in seconds. If the dependency turns out to be absent, do not add a new
+UI library just for a small visual change — prefer a plain `View`/shape-drawable with existing
+theme attributes, per CLAUDE.md's "don't introduce new UI/DI patterns" guidance.
+
+**First encountered**
+
+SUB-06 (`FavoritesSectionFrameDecoration`, superseded by SUB-09's `FavoritesSectionCardDecoration`). 
+Material Components was already a transitive/declared dependency (used elsewhere in 
+`ConnectionControlsView.kt`/`DnsOptionAdapter.kt`), so the search was unnecessary in hindsight — 
+a build-file grep would have confirmed this immediately.
+
+---
+
 ## `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05
 
 **Symptom**
@@ -458,3 +494,181 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
+
+### Favoriting a legacy Server by id will collide across servers
+
+**Context:** implementing server-favorite UI on top of `FavoritesStore`/`FavoritesFilter` (SUB-02/SUB-03 of MP-20260706-favorite-countries-servers).
+
+**Problem:** `Server.id` (`src/core/.../servers/Server.kt`) defaults to `0` and is only populated with a real value by `ServerV2.toLegacyServer()`. When `UserSettingsStore.load(ctx).serverSource` is `LEGACY`, `VPNGATE`, or `CUSTOM` (not `DEFAULT_V2`), every `Server` in the list keeps `id == 0`. Favoriting one such server marks all of them as favorited under `FavoritesStore`, since favorites are keyed purely by `Server.id`.
+
+**Solution:** `FavoritesStore.addFavoriteServer()` now guards against `serverId <= 0` (added after PR #114 round-4 bot feedback), so `id == 0` can never be persisted as a favorite — this closes the immediate collision. It does not by itself make legacy servers favoritable: before wiring server-favorite UI, either (a) restrict server-favoriting to `DEFAULT_V2` source only, or (b) extend the favorite key to a composite (e.g. `ip` + `configData`, mirroring how `SelectedCountryStore.ensureIndexForConfig` matches servers) so non-V2 sources get distinct, stable identifiers. Still a pre-condition for SUB-02/SUB-03.
+
+**Commands/code:** n/a — design note, not a runtime fix.
+
+### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere — RESOLVED in SUB-02 (superseded prior note)
+
+**Context:** `FavoritesStore` (SUB-01) originally persisted favorite country codes with plain string equality (raw values), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`. SUB-01's review/gate carried this forward as a non-blocking risk, on the assumption that case-insensitive filtering elsewhere was enough.
+
+**Problem (materialized in SUB-02):** `ServerListViewModel.buildItems()` built the pinned favorites section using the same case-insensitive matching as `FavoritesFilter`, but `toggleFavorite()` decided add-vs-remove via `FavoritesStore.isFavoriteCountry()` — still an exact, case-sensitive lookup. If a country code's casing ever drifted between the persisted favorite and a freshly synced code, the toggle handler disagreed with the display filter: duplicate/differently-cased favorite entries, wrong "Add"/"Remove" popup label, wrong toast. Confirmed as a real, reachable defect by SUB-02 code review round 1 (`docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`), not just a theoretical risk.
+
+**Solution:** Normalized casing at the `FavoritesStore` boundary itself (single source of truth) — `addFavoriteCountry`, `removeFavoriteCountry`, `isFavoriteCountry`, and `getFavoriteCountryCodes` now all uppercase country codes via `Locale.ROOT` before storing/comparing/returning. This supersedes the SUB-01 note's assumption that keeping the store case-sensitive was safe — it wasn't, once a second call site (the toggle handler) needed to agree with a case-insensitive display filter. Any future store with a similar "raw persistence + case-insensitive display filter elsewhere" split should normalize at the store boundary from the start rather than relying on every caller to filter consistently.
+
+**First encountered**
+
+SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-countries-servers, flagged as non-blocking during code review and quality gate. Materialized as a blocking defect and fixed in SUB-02 (`ServerListViewModel.kt`, `FavoritesStore.kt`), commit `ae6f393`.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStore.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesFilter.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
+- `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
+- `docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`, `docs/qa-evidence/countries-favorites-ui-mobile-review-2.md`
+
+---
+
+## Server-favorite toggle blocks servers with `id <= 0`: defense-in-depth guard at three layers — SUB-03
+
+**Symptom**
+
+Attempting to favorite a server with `id <= 0` (legacy sources: `LEGACY`, `VPNGATE`, `CUSTOM`) would collide with all other non-V2 servers under the same zero ID. If a user long-pressed a legacy server and tapped "Add to favorites," **all** legacy servers would be marked favorited under `FavoritesStore`, not just the one tapped.
+
+**Root cause**
+
+`Server.id` defaults to `0` and is only populated with a real integer by `ServerV2.toLegacyServer()` hydration. When `UserSettingsStore.load(ctx).serverSource` is not `DEFAULT_V2`, every server in the list retains `id == 0`. Favorites are keyed purely by `Server.id`, so favoriting under `id == 0` is a collision vector. The immediate pre-condition is: avoid persisting `id <= 0` as a favorite key.
+
+**Solution — defense-in-depth**
+
+Three independent guards ensure `id <= 0` never reaches persistent storage:
+
+1. **ViewModel layer** (`CountryServersViewModel.toggleFavorite()`): Early return if `serverId <= 0` before calling `favoritesStore`.
+2. **Activity layer** (`CountryServersActivity.onLongClickServer()`): Hide the `PopupMenu` action entirely when `item.id <= 0`.
+3. **Store layer** (`FavoritesServerStore.addFavoriteServer()`): Guard with `require(serverId > 0)` before persisting, so even an unexpected call site cannot bypass the check.
+
+This multi-layer defense means each layer can be audited independently. A breach in one layer (e.g., ViewModel check removed) is still caught by the next (Activity hides the menu, or Store rejects it). Any new code path that favorits servers must also satisfy the ViewModel and Activity guards before the Store write is reachable.
+
+**First encountered**
+
+SUB-03 (`CountryServersViewModel.kt`, `CountryServersActivity.kt`, `FavoritesServerStore.kt`) — MP-20260706-favorite-countries-servers.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`toggleFavorite`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`onLongClickServer`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesServerStore.kt` (`addFavoriteServer`)
+
+---
+
+## PopupMenu window-leak guard: instance tracking with dismiss-listener null-out — SUB-03
+
+**Symptom**
+
+Showing a new `PopupMenu` while an old one is still anchored (e.g., user taps long-press, cancels the menu by tapping elsewhere, then immediately long-presses again on a different item) causes the old menu's window to persist invisibly, consuming system resources and potentially blocking recomposition or triggering layout warnings in instrumented tests.
+
+**Root cause**
+
+`PopupMenu` holds a reference to a `PopupWindow` that remains attached to the window manager after the menu is hidden/dismissed. Showing a second `PopupMenu` without explicitly dismissing the first leaves both windows active — the second is visible on top, but the first remains allocated in the window manager.
+
+**Solution**
+
+Track the active `PopupMenu` instance in a mutable reference and dismiss it before showing a new one:
+
+```kotlin
+private var activePopupMenu: PopupMenu? = null
+
+private fun showPopupMenu(view: View, item: Item) {
+    // Dismiss any pre-existing popup
+    activePopupMenu?.dismiss()
+    
+    activePopupMenu = PopupMenu(this, view).apply {
+        // Populate menu items...
+        setOnMenuItemClickListener { ... }
+        setOnDismissListener {
+            // Clear reference only if this is still the active popup
+            if (activePopupMenu === this) {
+                activePopupMenu = null
+            }
+        }
+        show()
+    }
+}
+
+override fun onDestroy() {
+    super.onDestroy()
+    activePopupMenu?.dismiss()
+    activePopupMenu = null
+}
+```
+
+Key points:
+- Dismiss before showing: prevents stale window from accumulating.
+- Check reference identity in `setOnDismissListener` before null-out: avoids clobbering a newer popup that fired `setOnDismissListener` after we already created a replacement.
+- Dismiss in `onDestroy`: cleans up on activity destruction.
+
+**First demonstrated**
+
+SUB-03 (`CountryServersActivity.kt`).
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`showPopupMenu`, `onDestroy`)
+- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)
+
+### `adb input keyevent --longpress` delivers a short press on Android TV
+**Context:** Manual QA of D-pad long-press features (SUB-04 FavoriteActionDialog) on MIBOX4 / Android 9 TV over adb.
+**Problem:** Both `input keyevent --longpress KEYCODE_DPAD_CENTER` and `--longpress 23` fire the row's click (short press) instead of `performLongClick` — the injected pair never holds the key across the confirm-key long-press timeout, so the dialog cannot be opened via `input`.
+**Solution:** Inject a genuinely held key with `sendevent` on the remote's input device (found via `getevent -pl`; on MIBOX4 the "Xiaomi RC" is `/dev/input/event2`, KEY_SELECT scancode 353 maps to DPAD_CENTER).
+**Commands/code:**
+```
+adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/event2 0 0 0 && sleep 1.2 && sendevent /dev/input/event2 1 353 0 && sendevent /dev/input/event2 0 0 0"
+```
+See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
+
+### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)
+
+**Context:** Screens with a pinned Favorites section at adapter position 0 (SUB-02/SUB-03 pattern) also emit a `FocusFirstItem` effect that scrolls/focuses the first *data* row (position 1) for TV D-pad UX.
+
+**Initial problem (DEF-sub03/DEF-sub05):** On touch devices the unconditional `scrollToPosition(1)` scrolls the pinned header out of the attached RecyclerView range on cold open when a favorite already exists (header only reappears on manual scroll-up). Recurred twice: DEF-sub03 on `CountryServersActivity`, then the identical unfixed sibling DEF-sub05 on `ServerListActivity` — fixing one screen does not fix the class.
+
+**Initial solution (DEF-sub03/DEF-sub05):** Gate the `FocusFirstItem` handling on `TvUtils.isTvDevice` via a testable `applyFocusFirstItem` seam: touch devices skip scroll+focus entirely; TV keeps scroll-then-focus. Added matching Robolectric focus tests (`ServerListActivityFocusTest`, `CountryServersActivityFocusTest`).
+
+**Refinement (DEF-4 defect-fix):** The initial gate-to-TV solution proved incomplete. On TV, even gated to `isTvDevice==true`, the function was still calling `scrollToPosition(position)` where `position` was the *focus target* (1 when a header exists, 0 when none) — this scrolls item 1 to the top, pushing the header (item 0) out of the RecyclerView bounds. The issue recurred on real TV hardware after the SUB-09 visual redesign (filled card + second section header) made the cut-off header card edges more visually jarring. **Key insight:** scroll target and focus target are two different concerns:
+- **Scroll target** should always be 0 (keep the pinned header/card visible at the top).
+- **Focus target** should be position (1 with header, 0 without, so D-pad focus naturally lands on the first *data* row).
+
+**DEF-4 fix:** Decouple scroll and focus in `TvUtils.applyFocusFirstItem()` — always call `scrollToPosition(0)` first (keeping the header visible), then call `focusWhenReady(position)` independently. Position 0 and 1 are adjacent, so `RecyclerView` has already bound/laid out position 1 by the time focus is requested after scrolling to 0 — no additional bind-wait needed. Tests verify both scroll target (always 0) and focus target (position) independently.
+
+**When to apply the gate:** TV-only concern; touch devices return early from `applyFocusFirstItem` before any scroll is emitted. When adding a pinned section (or the `FocusFirstItem` effect) to any new list screen, ensure the activity calls `applyFocusFirstItem` with the correct `isTvDevice` detection, and add the matching Robolectric focus test to verify both header-present (position=1) and header-absent (position=0) cases.
+
+**First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8); refined in SUB-08+SUB-09 defect-fix (`TvUtils.applyFocusFirstItem` decoupling, commits 46351c3/22ca39a).
+
+### `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
+**Context:** Manual QA of locale-dependent UI text (SUB-07 favorites string translations) on a Samsung Galaxy A71 (One UI) over adb.
+**Problem:** Setting the system-wide locale via `adb shell settings put system system_locales <locales>` does not reliably take effect for a running or freshly relaunched app on Samsung/One UI — `mGlobalConfiguration` stays pinned to the prior locale even after force-stop and relaunch, so RU/PL string verification silently keeps showing the wrong locale's strings.
+**Solution:** Use the Android 13+ per-app locale override instead, which One UI honors:
+```
+adb shell cmd locale set-app-locales <package> --user 0 --locales <locale>   # e.g. pl-PL
+# ... test ...
+adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # clear override when done
+```
+Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
+**First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
+
+### Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
+**Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome, without touching `FavoriteActionDialog.kt`'s presentation-gate logic, leak-guard tracking, or the activities' PopupMenu construction code (all of it needed to stay behaviorally untouched per the story's ACs).
+**Problem:** Both `android.widget.PopupMenu(context, anchor)` and `AlertDialog.Builder(activity)` are plain framework/AppCompat constructors — there's no obvious per-instance styling hook without wrapping them in a custom class or passing a themed `ContextThemeWrapper` at every call site.
+**Solution:** Both widgets resolve their appearance from theme attributes read at construction time: `PopupMenu` reads `android:popupMenuStyle` from the `Context`'s theme, and `AlertDialog.Builder` reads `alertDialogTheme`. Point both attributes at new custom styles in the app's `values/themes.xml` (a `Widget.*.PopupMenu` style with `android:popupBackground` set to a custom rounded-corner drawable, and a `ThemeOverlay.*.AlertDialog` with a `shapeAppearanceOverlay`/corner radius and `colorSurface` background) and every existing call site — the app's own `PopupMenu`/`AlertDialog.Builder` calls, and `MainActivityCore.showUpdateDialog` — picks up the new look automatically, with zero changes to the Kotlin call sites. Mirror the styles in `values-night` (or use theme-attribute colors, e.g. `?attr/colorSurface`) for dark-theme parity.
+**First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).
+**Follow-up defect:** a style being technically wired up does not guarantee it is *visually distinguishable*. The first delivery of this fix was marked passed by an automated manual-QA subagent on attribute-chain reasoning alone (no actual screenshot comparison), and later a real device build still looked stock/default to the user — the resolved `colorSurface`/background value was too close to the surrounding page background, and after a later review-driven fix removed a self-referencing color attribute (see the Codex/Gemini review-loop finding below), the dialog lost its only other visible customization (`shapeAppearanceOverlay` alone is not enough contrast at small dialog sizes). **Rule going forward:** any styling/theming acceptance criterion must be verified with an actual on-device screenshot, visually compared against the stock/default widget and any named reference component — see the updated constraint in `.github/skills/e2e-manual-testing/SKILL.md`.
+
+### `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
+**Context:** Independent test-suite verification during the `favorites-section-and-dialog-redesign` code review (commit `3550da6`), unrelated to the favorites/dialog changes under review — the test file is untouched by that commit.
+**Problem:** `./gradlew testDebugUnitTestApp --rerun-tasks` occasionally fails this one test with `java.io.FileNotFoundException` reading a Robolectric temp-dir cache CSV (`ServerRepository.parseServers`), while the rest of the 760-test suite passes. The test exercises concurrent force-refreshes racing to write/read the same on-disk cache file; under full-suite parallel test execution on Windows the file can be deleted/replaced by a sibling coroutine between an existence check and the read.
+**Solution:** Re-running just the failing test in isolation (`--tests "...ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write" --rerun-tasks`) passes, and a second full `--rerun-tasks` run of the whole suite also passed clean (0 failures). Treat a lone failure of this specific test as environment flakiness, not a regression, unless `ServerRepository.kt` or its test was actually touched by the diff under review — always cross-check `git show --stat <commit> -- '*ServerRepository*'` before accepting that explanation.
+**First encountered:** Code review of `favorites-section-and-dialog-redesign` (commit `3550da6`).
+
+### `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
+**Context:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 defect-fix round) attempted to close a coverage gap for `FavoriteActionDialog`'s title-color fix by extracting a testable seam (`resolveThemedTitleColor(context): Int`) that calls `ContextCompat.getColor(context, R.color.text_color_primary)` directly — deliberately avoiding any AppCompat/Material theme-attribute resolution, since `FavoriteActionDialogTest`'s existing class KDoc already documents that *those* can't resolve in this module's Robolectric setup (legacy resources mode).
+**Problem:** Even this plain, non-themed color-resource lookup throws `android.content.res.Resources$NotFoundException` when run from `:core:testDebugUnitTest` (`ShadowLegacyAssetManager.getResName` fails to resolve the `core` module's own `R.color` id). The previously documented constraint ("AppCompat/Material theme resources don't resolve") undersold the actual limitation — it is not specific to theme attributes; direct `@ColorRes`/`@DrawableRes`/etc. lookups against this module's own resources fail too under `RuntimeEnvironment.getApplication()`'s legacy resource shadow, at least without additional Robolectric config (e.g. a manifest/package override) not currently present in this module's test setup.
+**Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.
+**First encountered:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 title-color coverage attempt, gate-2, commit range `3550da6`..`e426147`).

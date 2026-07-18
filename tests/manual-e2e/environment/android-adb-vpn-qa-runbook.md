@@ -14,6 +14,17 @@ Use instead:
 ```
 adb -s <your-device-serial> shell dumpsys package com.yahorzabotsin.openvpnclientgate | grep -i "package\|version"
 ```
+Alternative that also works: `adb shell pm list packages --user 0` (explicit user 0 avoids the
+default-user resolution that triggers the SecurityException on some multi-user devices).
+
+### Launching the app without a resolvable explicit activity name
+`adb shell am start -n <pkg>/.SplashActivity` can fail with `does not exist` even though the app is
+installed, because the manifest-declared short name resolves differently per launcher/build variant.
+Use the launcher category instead, which always resolves correctly:
+```
+adb -s <your-device-serial> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
+```
+Then confirm with `adb shell dumpsys window | grep mCurrentFocus` to see the actual resolved activity name.
 
 ### Activity resolution
 Use `cmd package resolve-activity` to find the launchable activity:
@@ -48,6 +59,17 @@ adb -s <your-device-serial> shell am force-stop com.yahorzabotsin.openvpnclientg
 ```
 adb -s <your-device-serial> shell pm clear com.yahorzabotsin.openvpnclientgate
 ```
+
+### Favorites state inspection/reset (debug builds only)
+Favorites persist in `shared_prefs/favorites_prefs.xml` (`favorite_server_ids`, `favorite_country_codes`).
+Inspect without root via run-as (works on debug builds):
+```
+adb -s <your-device-serial> shell "run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml"
+```
+Use this to verify clean pre-test state (empty `<set>` elements) and post-test cleanup.
+Note: favorites UI strings are localized for ru/pl — on Russian device locales the header and menu items
+render as "Избранное" / "Добавить в избранное" / "Удалить из избранного"; on Polish, "Ulubione" /
+"Dodaj do ulubionych" / "Usuń z ulubionych". Match uiautomator dumps against the localized strings, not English.
 
 ## Useful Log Filters
 

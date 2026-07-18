@@ -4,4 +4,8 @@
     <dimen name="list_item_min_height">72dp</dimen>
     <dimen name="item_corner_radius">8dp</dimen>
     <dimen name="speedometer_margin">32dp</dimen>
+
+    <!-- Section: Favorites section card (SUB-09, replaces the SUB-06 stroke-border frame) -->
+    <dimen name="favorites_section_card_corner_radius">12dp</dimen>
+    <dimen name="favorites_section_card_padding">8dp</dimen>
 </resources>

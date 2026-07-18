@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerListInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
@@ -24,7 +25,8 @@ import java.util.Locale
 class ServerListViewModel(
     private val interactor: ServerListInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
-    private val logger: ServerListLogger
+    private val logger: ServerListLogger,
+    private val favoritesStore: FavoritesCountryStore
 ) : ViewModel() {
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "ServerListViewModel"
@@ -51,7 +53,26 @@ class ServerListViewModel(
         when (action) {
             is ServerListAction.Load -> loadServers(action.forceRefresh)
             is ServerListAction.CountrySelected -> handleCountrySelection(action.country)
+            is ServerListAction.ToggleFavorite -> toggleFavorite(action.country)
         }
+    }
+
+    private fun toggleFavorite(country: Country) {
+        val code = country.code
+        if (code.isNullOrBlank()) return
+        val currentlyFavorite = code.uppercase(Locale.ROOT) in _state.value.favoriteCountryCodes
+        if (currentlyFavorite) {
+            favoritesStore.removeFavoriteCountry(code)
+        } else {
+            favoritesStore.addFavoriteCountry(code)
+        }
+        val text = if (currentlyFavorite) {
+            UiText.Res(R.string.favorites_removed_toast)
+        } else {
+            UiText.Res(R.string.favorites_added_toast)
+        }
+        _effects.tryEmit(ServerListEffect.ShowToast(text))
+        updateState { it.copy(favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()) }
     }
 
     private fun observeConnectionState() {
@@ -100,8 +121,23 @@ class ServerListViewModel(
                         .sortedBy { it.country.name }
                 }
 
-                updateState { it.copy(countries = countries) }
-                _effects.emit(ServerListEffect.FocusFirstItem)
+                updateState {
+                    it.copy(
+                        countries = countries,
+                        favoriteCountryCodes = favoritesStore.getFavoriteCountryCodes()
+                    )
+                }
+
+                // Compute focus position: skip SectionHeader at position 0 when favorites exist
+                val currentItems = _state.value.items
+                if (currentItems.isNotEmpty()) {
+                    val focusPosition = if (currentItems[0] is CountryListItem.SectionHeader) {
+                        1  // Focus first CountryRow after the header
+                    } else {
+                        0  // Focus first item (should be a CountryRow)
+                    }
+                    _effects.emit(ServerListEffect.FocusFirstItem(focusPosition))
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (shouldSuppressRecoverableV2CountriesError(e)) {
@@ -179,8 +215,48 @@ class ServerListViewModel(
         val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(isVpnConnected)
         return copy(
             isRefreshEnabled = !isLoading && !cacheOnly,
-            showRefreshHint = cacheOnly
+            showRefreshHint = cacheOnly,
+            items = buildItems(countries, favoriteCountryCodes)
         )
+    }
+
+    private fun buildItems(
+        countries: List<CountryWithServers>,
+        favoriteCountryCodes: Set<String>
+    ): List<CountryListItem> {
+        if (countries.isEmpty()) return emptyList()
+
+        // favoriteCountryCodes is already normalized to uppercase by FavoritesStore's
+        // read boundary — no need to re-map it here.
+        // Compute favorite status once per country instead of re-uppercasing the code
+        // for both the favorites-filtering pass and the full-list mapping pass.
+        val countriesWithFavoriteStatus = countries.map { cws ->
+            val code = cws.country.code
+            val isFavorite = !code.isNullOrBlank() && code.uppercase(Locale.ROOT) in favoriteCountryCodes
+            cws to isFavorite
+        }
+
+        val items = mutableListOf<CountryListItem>()
+        val favorites = countriesWithFavoriteStatus.filter { it.second }
+        if (favorites.isNotEmpty()) {
+            items.add(
+                CountryListItem.SectionHeader(
+                    UiText.Res(R.string.favorites_section_title),
+                    showFavoriteIcon = true
+                )
+            )
+            favorites.forEach { (cws, _) ->
+                items.add(CountryListItem.CountryRow(cws, isFavorite = true, isPinnedSection = true))
+            }
+            // SUB-09 AC3/AC4: second header above the full list below, only shown alongside
+            // the pinned Favorites block. Labeled "All countries" (not "Other") since
+            // favorited countries still also appear in the list that follows.
+            items.add(CountryListItem.SectionHeader(UiText.Res(R.string.all_countries_section_title)))
+        }
+        countriesWithFavoriteStatus.forEach { (cws, isFavorite) ->
+            items.add(CountryListItem.CountryRow(cws, isFavorite = isFavorite))
+        }
+        return items
     }
 
     private fun logInfo(message: String) {

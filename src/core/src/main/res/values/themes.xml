@@ -21,6 +21,16 @@
         <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
         <item name="ovpnSpeedometerTextColor">@color/speedometer_text_color</item>
         <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
+        <item name="ovpnFavoritesCardBackground">@color/favorites_card_background</item>
+        <item name="ovpnPopupMenuBackground">@color/popup_menu_background</item>
+        <item name="ovpnPopupMenuStroke">@color/popup_menu_stroke</item>
+        <item name="ovpnDialogSurfaceBackground">@color/dialog_surface_background</item>
+        <item name="ovpnDialogSurfaceStroke">@color/dialog_surface_stroke</item>
+
+        <!-- Section: SUB-08 themed favorite action affordances (PopupMenu on mobile,
+             AlertDialog on TV) — styling only, presentation gate/behavior unchanged. -->
+        <item name="android:popupMenuStyle">@style/Widget.OpenVPNClientGate.PopupMenu</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.OpenVPNClientGate.AlertDialog</item>
     </style>
 
     <style name="Theme.OpenVPNClientGate.Base" parent="Theme.OpenVPNClientGate.Base.Platform" />
@@ -51,6 +61,90 @@
         <item name="android:focusableInTouchMode">true</item>
         <item name="android:clickable">true</item>
         <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
+    </style>
+
+    <!-- Section: SUB-08 themed favorite long-press affordances -->
+    <!-- Mobile PopupMenu (android.widget.PopupMenu, anchored favorite-toggle menu in
+         ServerListActivity/CountryServersActivity): app-styled background (ovpnPopupMenuBackground,
+         item_corner_radius) and elevation instead of the stock platform popup appearance.
+         Wired app-wide via android:popupMenuStyle in the base theme; PopupMenu construction
+         and click/leak-guard code are untouched.
+         Defect fix: the original drawable used ?attr/colorSurface, which is the exact same
+         value as the row cards' app:cardBackgroundColor (?attr/colorSurface), so the popup
+         visually merged into the list behind it despite being "styled". Now uses a dedicated
+         ovpnPopupMenuBackground token plus a border for clear differentiation, and explicit
+         item text styling so the label reads as app-styled rather than stock grey text. -->
+    <style name="Widget.OpenVPNClientGate.PopupMenu" parent="Widget.MaterialComponents.PopupMenu">
+        <item name="android:popupBackground">@drawable/bg_popup_menu</item>
+        <item name="android:popupElevation">12dp</item>
+        <item name="android:textAppearanceLargePopupMenu">@style/TextAppearance.OpenVPNClientGate.PopupMenuItem</item>
+        <item name="android:textAppearanceSmallPopupMenu">@style/TextAppearance.OpenVPNClientGate.PopupMenuItem</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClientGate.PopupMenuItem" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- TV favorite AlertDialog (FavoriteActionDialog) and other app AlertDialogs (e.g.
+         MainActivityCore.showUpdateDialog): rounded corners consistent with item_corner_radius,
+         wired app-wide via alertDialogTheme in the base theme. Presentation gate /
+         resolvePresentation logic is untouched — styling only.
+         Defect fix (round 1): the round-3 review fix correctly removed a self-referencing
+         `colorSurface -> ?attr/colorSurface` item (a real bug), but that left the overlay with
+         only shapeAppearanceOverlay, reading as stock/undifferentiated.
+         Defect fix (round 2, on-device verification): a first attempt set `colorSurface`/
+         `colorOnSurface`/`android:textColorPrimary` items here, but on-device screenshots (with
+         pixel sampling) showed this had NO effect — `FavoriteActionDialog` uses a plain
+         `androidx.appcompat.app.AlertDialog.Builder`, not `MaterialAlertDialogBuilder`, and
+         `ThemeOverlay.MaterialComponents.Dialog.Alert` resolves for that path to plain
+         `ThemeOverlay.AppCompat.Dialog.Alert` (verified against the material-1.13.0 aar source),
+         which does NOT derive `android:windowBackground` from `colorSurface` at all — that
+         indirection only exists for `MaterialAlertDialogBuilder`. What looked like a fix in dark
+         theme was actually Material's default elevation-overlay color on the unmodified
+         colorSurface, not our override; light theme (no elevation overlay) exposed the failure
+         as a plain white dialog. Separately, the dialog title (`alertTitle`, styled via
+         `?android:attr/windowTitleStyle` per `abc_alert_dialog_title_material.xml`) rendered
+         invisible in light theme — `android:textColorPrimary` alone did not reach it. Fixed by
+         setting `android:windowBackground` directly to a shape drawable (the same reliable
+         pattern already used for the PopupMenu's `android:popupBackground`) and
+         `android:windowTitleStyle` directly to a style with an explicit `android:textColor`,
+         instead of relying on Material color-attribute indirection that doesn't apply to this
+         dialog construction path. -->
+    <style name="ThemeOverlay.OpenVPNClientGate.AlertDialog" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.OpenVPNClientGate.AlertDialog</item>
+        <item name="android:windowBackground">@drawable/bg_alert_dialog</item>
+        <item name="android:windowTitleStyle">@style/Widget.OpenVPNClientGate.AlertDialogTitle</item>
+        <!-- colorSurface/colorOnSurface below are NOT dead code, despite not reaching the window
+             background (that indirection is MaterialAlertDialogBuilder-only, per the diagnosis
+             above). All hosts of this dialog (ServerListActivity, CountryServersActivity,
+             MainActivityCore, AboutActivity, UpdateInstallProgressDialog) are AppCompatActivity
+             on a Theme.MaterialComponents base theme, which installs a MaterialComponentsViewInflater
+             view factory; that factory is inherited by the dialog's cloned LayoutInflater, so the
+             dialog's own buttons (e.g. the Cancel action) are auto-upgraded from Button to
+             MaterialButton and CAN read colorSurface/colorOnSurface. Kept intentionally, with
+             values matching ovpnDialogSurfaceBackground/text_color_primary exactly (the same
+             tokens used by the explicit windowBackground/title-color fixes below) so that if this
+             path does apply, the button colors stay consistent with the rest of the dialog rather
+             than reverting to stock Material defaults. -->
+        <item name="colorSurface">?attr/ovpnDialogSurfaceBackground</item>
+        <item name="colorOnSurface">@color/text_color_primary</item>
+        <item name="android:textColorPrimary">@color/text_color_primary</item>
+    </style>
+
+    <style name="Widget.OpenVPNClientGate.AlertDialogTitle" parent="android:Widget">
+        <item name="android:maxLines">1</item>
+        <item name="android:scrollHorizontally">true</item>
+        <item name="android:textAppearance">@style/TextAppearance.OpenVPNClientGate.AlertDialogTitle</item>
+    </style>
+
+    <style name="TextAppearance.OpenVPNClientGate.AlertDialogTitle" parent="TextAppearance.AppCompat.Title">
+        <item name="android:textColor">@color/text_color_primary</item>
+    </style>
+
+    <style name="ShapeAppearanceOverlay.OpenVPNClientGate.AlertDialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/item_corner_radius</item>
     </style>
 
     <!-- Section: Widgets -->

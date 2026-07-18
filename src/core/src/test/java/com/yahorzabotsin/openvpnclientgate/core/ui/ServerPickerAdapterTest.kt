@@ -8,9 +8,12 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListItem
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerPickerAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -84,6 +87,324 @@ class ServerPickerAdapterTest {
         container.addView(TextView(context).apply { id = R.id.server_flag })
         container.addView(TextView(context).apply { id = R.id.server_ping })
         container.addView(ImageView(context).apply { id = R.id.server_signal })
+        container.addView(ImageView(context).apply { id = R.id.row_favorite_star })
         return container
+    }
+
+    private fun buildHeaderView(context: android.content.Context): FrameLayout {
+        val container = FrameLayout(context)
+        container.addView(TextView(context).apply { id = R.id.section_header_title })
+        container.addView(ImageView(context).apply { id = R.id.section_header_icon })
+        return container
+    }
+
+    // --- SUB-03: sealed list items (pinned favorites section + long-press) ---
+
+    @Test
+    fun `renders section header then server rows with correct view types`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val serverB = buildServer(city = "Nice", name = "srv-b").copy(id = 2)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true),
+            ServerListItem.ServerRow(serverB, isFavorite = false)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(3, adapter.itemCount)
+        assertEquals(0, adapter.getItemViewType(0))
+        assertEquals(1, adapter.getItemViewType(1))
+        assertEquals(1, adapter.getItemViewType(2))
+    }
+
+    @Test
+    fun `short tap invokes onClick with the row's server`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(ServerListItem.ServerRow(serverA, isFavorite = false))
+        var clicked: Server? = null
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = { clicked = it }, onLongClick = { _, _, _ -> })
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(holder, 0)
+
+        holder.itemView.performClick()
+
+        assertEquals(serverA, clicked)
+    }
+
+    @Test
+    fun `long press invokes onLongClick with server and current favorite state`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(ServerListItem.ServerRow(serverA, isFavorite = true))
+        var longPressedServer: Server? = null
+        var longPressedIsFavorite: Boolean? = null
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, server, isFavorite ->
+                longPressedServer = server
+                longPressedIsFavorite = isFavorite
+            }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(holder, 0)
+
+        val handled = holder.itemView.performLongClick()
+
+        assertTrue(handled)
+        assertEquals(serverA, longPressedServer)
+        assertEquals(true, longPressedIsFavorite)
+    }
+
+    // --- Review round 1: no long-press affordance for non-favoritable rows (id <= 0) ---
+
+    @Test
+    fun `long press is disabled for non-favoritable rows with non-positive id`() {
+        val context = RuntimeEnvironment.getApplication()
+        val legacyServer = buildServer(city = "Paris", name = "srv-legacy") // default id = 0
+        val items = listOf(ServerListItem.ServerRow(legacyServer, isFavorite = false))
+        var longPressed = false
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> longPressed = true }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        // Give the row a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(holder.itemView)
+        adapter.onBindViewHolder(holder, 0)
+
+        assertEquals(false, holder.itemView.isLongClickable)
+        holder.itemView.performLongClick()
+        assertEquals(false, longPressed)
+    }
+
+    @Test
+    fun `recycled holder loses long-press affordance when rebound to a non-favoritable row`() {
+        val context = RuntimeEnvironment.getApplication()
+        val favoritable = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val legacy = buildServer(city = "Nice", name = "srv-legacy") // default id = 0
+        val items = listOf(
+            ServerListItem.ServerRow(favoritable, isFavorite = false),
+            ServerListItem.ServerRow(legacy, isFavorite = false)
+        )
+        var longPressed = false
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> longPressed = true }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        // Give the row a parent so performLongClick's context-menu fallback is a no-op.
+        FrameLayout(context).addView(holder.itemView)
+
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(true, holder.itemView.isLongClickable)
+
+        // Simulate RecyclerView recycling the same holder for the legacy row.
+        adapter.onBindViewHolder(holder, 1)
+        assertEquals(false, holder.itemView.isLongClickable)
+        holder.itemView.performLongClick()
+        assertEquals(false, longPressed)
+    }
+
+    @Test
+    fun `section header binds title text`() {
+        val context = RuntimeEnvironment.getApplication()
+        val items = listOf(ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)))
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder = ServerPickerAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter.onBindViewHolder(holder, 0)
+
+        val titleView = holder.itemView.findViewById<TextView>(R.id.section_header_title)
+        assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
+    }
+
+    // --- SUB-09: star icon shown only on the pinned Favorites header ---
+
+    @Test
+    fun `section header shows star icon only when showFavoriteIcon is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val favoritesHeader = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title), showFavoriteIcon = true)
+        )
+        val adapter = ServerPickerAdapter(favoritesHeader, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder = ServerPickerAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
+
+        val allServersHeader = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.all_servers_section_title))
+        )
+        val adapter2 = ServerPickerAdapter(allServersHeader, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder2 = ServerPickerAdapter.HeaderViewHolder(buildHeaderView(context))
+        adapter2.onBindViewHolder(holder2, 0)
+        assertEquals(View.GONE, holder2.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
+    }
+
+    // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
+
+    @Test
+    fun `pinnedSectionItemCount is zero when favorites section is hidden`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(ServerListItem.ServerRow(serverA, isFavorite = false))
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount counts header plus pinned rows only, excluding regular list rows`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val serverB = buildServer(city = "Nice", name = "srv-b").copy(id = 2)
+        val serverC = buildServer(city = "Lyon", name = "srv-c").copy(id = 3)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverB, isFavorite = true, isPinnedSection = true),
+            // Regular (unheaded) list below: includes the same favorites again at their
+            // normal position, but isPinnedSection = false so it must not extend the frame.
+            ServerListItem.ServerRow(serverA, isFavorite = true),
+            ServerListItem.ServerRow(serverB, isFavorite = true),
+            ServerListItem.ServerRow(serverC, isFavorite = false)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        // header (1) + 2 pinned favorite rows = 3; the 3 regular-list rows are excluded.
+        assertEquals(3, adapter.pinnedSectionItemCount())
+    }
+
+    @Test
+    fun `pinnedSectionItemCount updates to zero after last favorite is removed via updateItems`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val initialItems = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverA, isFavorite = true)
+        )
+        val adapter = ServerPickerAdapter(initialItems, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        assertEquals(2, adapter.pinnedSectionItemCount())
+
+        adapter.updateItems(listOf(ServerListItem.ServerRow(serverA, isFavorite = false)))
+
+        assertEquals(0, adapter.pinnedSectionItemCount())
+    }
+
+    // --- SUB-09 AC8: per-row favorite star indicator in the full server list ---
+
+    @Test
+    fun `row shows favorite star only when isFavorite is true`() {
+        val context = RuntimeEnvironment.getApplication()
+        val server = buildServer(city = "Seattle", name = "ServerName")
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+
+        holder.bind(server, isFavorite = true)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        holder.bind(server, isFavorite = false)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star toggles live as adapter items update`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val adapter = ServerPickerAdapter(
+            listOf(ServerListItem.ServerRow(serverA, isFavorite = false)),
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> }
+        )
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.GONE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        adapter.updateItems(listOf(ServerListItem.ServerRow(serverA, isFavorite = true)))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(
+            View.VISIBLE,
+            holder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `favorite star shows on both the pinned row and its matching row in the full list`() {
+        val context = RuntimeEnvironment.getApplication()
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverA, isFavorite = true)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        val pinnedHolder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(pinnedHolder, 1)
+        assertEquals(
+            View.VISIBLE,
+            pinnedHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+
+        val regularHolder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        adapter.onBindViewHolder(regularHolder, 2)
+        assertEquals(
+            View.VISIBLE,
+            regularHolder.itemView.findViewById<ImageView>(R.id.row_favorite_star).visibility
+        )
+    }
+
+    @Test
+    fun `updateItems changes items without recreating adapter`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val serverB = buildServer(city = "Nice", name = "srv-b").copy(id = 2)
+        val initialItems = listOf(ServerListItem.ServerRow(serverA, isFavorite = false))
+        val adapter = ServerPickerAdapter(initialItems, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(1, adapter.itemCount)
+
+        val newItems = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true),
+            ServerListItem.ServerRow(serverB, isFavorite = false)
+        )
+        adapter.updateItems(newItems)
+
+        assertEquals(3, adapter.itemCount)
+        assertEquals(0, adapter.getItemViewType(0))
+        assertEquals(1, adapter.getItemViewType(1))
+        assertEquals(1, adapter.getItemViewType(2))
+    }
+
+    @Test
+    fun `favorite star has content description reflecting favorite state for accessibility`() {
+        val context = RuntimeEnvironment.getApplication()
+        val server = buildServer(city = "Seattle", name = "ServerName")
+        val holder = ServerPickerAdapter.ViewHolder(buildItemView(context), isDefaultV2Source = false)
+        val favoriteStar = holder.itemView.findViewById<ImageView>(R.id.row_favorite_star)
+
+        // When favorited, content description should be set
+        holder.bind(server, isFavorite = true)
+        assertEquals(
+            context.getString(R.string.favorites_section_title),
+            favoriteStar?.contentDescription.toString()
+        )
+
+        // When not favorited, content description should be null (set to non-null first to test it clears)
+        favoriteStar?.contentDescription = "sentinel_value"
+        holder.bind(server, isFavorite = false)
+        assertEquals(null, favoriteStar?.contentDescription)
     }
 }
