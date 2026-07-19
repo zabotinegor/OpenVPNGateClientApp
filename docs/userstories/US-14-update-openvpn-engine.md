@@ -8,8 +8,8 @@ current engine fixes (including the 2026-07-12 hardware-key API update) without 
 
 ## Background
 
-- Engine fork: `zabotinegor/OpenVPNGateClientEngine`, local checkout at
-  `D:\Apps\OpenVPNClient\OpenVPNGateClientEngine` (machine-local path; see `AGENTS.local.md` conventions).
+- Engine fork: `zabotinegor/OpenVPNGateClientEngine`, local checkout path recorded in
+  `AGENTS.local.md` (machine-local path; see `AGENTS.local.md` conventions).
 - Fork `master` is 10 commits behind `upstream/master` (latest upstream commit `ede0aa0b`,
   2026-07-12, "Use modern API to query location of hardware key location") and 2 fork-local
   commits ahead of upstream.
