@@ -310,3 +310,27 @@ This reaches the same `OnLongClickListener` as a genuine D-pad long-press becaus
 4. Tap the resulting dialog's list item / Cancel button coordinates directly (also via `input tap X Y`) — the dialog is drawn at the screen coordinates visible in the screenshot.
 
 **Restoring D-pad focus/state after touch injection:** touch events don't move D-pad focus, so after closing a dialog opened this way, a subsequent `KEYCODE_DPAD_DOWN`/`KEYCODE_DPAD_CENTER` may behave unexpectedly (focus can still be on the last D-pad-focused view, which is usually fine, but double-check with a screenshot before chaining more D-pad key events).
+
+---
+
+## `adb install -r` failing silently on a network-connected (Wi-Fi ADB) TV target — Windows/Git Bash
+
+**Story:** US-14 (engine update) TV smoke retest.
+
+On a TV device connected over `adb connect <ip>:5555` (as opposed to USB), `adb install -r <path>` from a Windows Git Bash shell failed with an empty error message (`adb.exe: failed to install ...:` with nothing after the colon), even though the APK built successfully and the same install flow works fine for USB-connected phones.
+
+**What works:** push the APK to the device first, then install from the device-local path:
+
+```bash
+# MSYS_NO_PATHCONV=1 is required — otherwise Git Bash rewrites /data/local/tmp/... and
+# /sdcard/... into Windows-style paths (e.g. "C:/Program Files/Git/data/local/tmp/...")
+# before adb ever sees them, and the install/dump command fails with a Java
+# IllegalArgumentException / "Unable to open file" pointing at the mangled path.
+MSYS_NO_PATHCONV=1 adb -s <tv-ip>:5555 push tv-debug.apk /data/local/tmp/tv-debug.apk
+MSYS_NO_PATHCONV=1 adb -s <tv-ip>:5555 shell pm install -r /data/local/tmp/tv-debug.apk
+MSYS_NO_PATHCONV=1 adb -s <tv-ip>:5555 shell rm /data/local/tmp/tv-debug.apk
+```
+
+The same `MSYS_NO_PATHCONV=1` prefix is needed for any `adb shell` command that takes a device-side absolute path as an argument (e.g. `uiautomator dump /sdcard/window_dump.xml`, `cat /sdcard/window_dump.xml`) when running from Git Bash on Windows — without it, ripgrep-style greps against the dumped file silently return nothing because the dump itself was written to (or read from) the wrong, Windows-mangled path.
+
+**Occasional transient failures:** even with the push+`pm install` path, the very first attempt sometimes returns a bare `Exit code 255` with no stderr at all; a retry of the identical command succeeds. Treat a silent/empty-error install failure as worth one retry before treating it as a real blocker.

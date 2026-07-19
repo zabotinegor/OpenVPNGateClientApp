@@ -672,3 +672,44 @@ Force-stop and relaunch the app after setting the override. See `docs/runbooks/a
 **Problem:** Even this plain, non-themed color-resource lookup throws `android.content.res.Resources$NotFoundException` when run from `:core:testDebugUnitTest` (`ShadowLegacyAssetManager.getResName` fails to resolve the `core` module's own `R.color` id). The previously documented constraint ("AppCompat/Material theme resources don't resolve") undersold the actual limitation — it is not specific to theme attributes; direct `@ColorRes`/`@DrawableRes`/etc. lookups against this module's own resources fail too under `RuntimeEnvironment.getApplication()`'s legacy resource shadow, at least without additional Robolectric config (e.g. a manifest/package override) not currently present in this module's test setup.
 **Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.
 **First encountered:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 title-color coverage attempt, gate-2, commit range `3550da6`..`e426147`).
+
+---
+
+## Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed
+
+**Symptom**
+
+The first `gradlew assembleDebugApp` (or any Gradle task touching `:openVpnEngine`) after bumping the `src/external/OpenVPNEngine` submodule fails at configuration time with:
+
+```
+Failed to find target with hash string 'android-37' in: <sdk-path>
+```
+
+**Root cause**
+
+Upstream `ics-openvpn` moved the engine module's `compileSdk`/`targetSdk` from 36 to 37 (see `main/build.gradle.kts` in the engine submodule) while this client's own modules (`src/core`, `src/mobile`, `src/tv`) intentionally stay pinned at `compileSdk 36` — a per-module compileSdk mismatch that AGP allows. If Android SDK Platform 37 is not yet present in the local/CI SDK install, Gradle configuration fails before any compilation starts, because `:openVpnEngine` itself needs platform 37 to configure.
+
+**Solution**
+
+Re-run the same build. The Android Gradle Plugin auto-installs missing SDK platforms/build-tools referenced by any module's `compileSdk` as part of a retry when the SDK manager has network access and license acceptance is already satisfied — the first invocation triggers the platform 37 download, the second invocation (after it lands) configures successfully. If auto-install is disabled or the environment has no network access to the SDK manager, install it explicitly before building:
+
+```bash
+sdkmanager "platforms;android-37"
+```
+
+Treat "SDK Platform 37 available" as a build prerequisite whenever `src/external/OpenVPNEngine` is bumped to an upstream revision that raises the engine's `compileSdk`/`targetSdk`, even though the client app modules themselves stay on `compileSdk 36`.
+
+**First encountered**
+
+US-14 (`update-openvpn-engine`), engine submodule bump `a83da9ff -> 764b6b70`. First `gradlew assembleDebugApp` run failed with a stale SDK target list; the retry succeeded (`BUILD SUCCESSFUL in 49m 48s`) after the SDK manager installed platform 37 mid-build.
+
+**Known gap (non-blocking, informational)**
+
+The client's central version catalog (`src/gradle/libs.versions.toml`) does not track the engine's own catalog bumps that came in with this same upstream sync (bouncycastle 1.69→1.70, okhttp, kotlin, and others) because the client build resolves `libs.*` from its own catalog, not the engine's. A future story may be warranted to reconcile these and consider aligning client `compileSdk` to 37; no such story exists yet as of this writing.
+
+**References**
+
+- `src/external/OpenVPNEngine/main/build.gradle.kts` (engine `compileSdk`/`targetSdk`)
+- `src/core/build.gradle.kts`, `src/mobile/build.gradle.kts`, `src/tv/build.gradle.kts` (client `compileSdk 36`, unchanged)
+- `docs/userstories/US-14-update-openvpn-engine.md`
+- `.sdlc/evidence/us-14-quality-gate.md` (AS-1/AS-3 disposition)

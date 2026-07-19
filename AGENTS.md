@@ -60,6 +60,8 @@
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
   - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+  - `testDebugUnitTestApp` does not run the engine's own unit tests (`:openVpnEngine` is not a dependency of that aggregate task). Run `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or change engine-side tests. See `docs/runbooks/how-to.md`.
+  - If the merged upstream commits raise the engine module's `compileSdk`/`targetSdk`, the first build on a machine without that SDK Platform installed can fail with `Failed to find target with hash string 'android-NN'`; retry once the SDK manager installs it (or install it explicitly). See `docs/runbooks/solutions.md`.
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
