@@ -452,3 +452,44 @@ SUB-05 Manual QA (`CASE-SUB05-005-mock`, AC3 favorites availability hide/restore
 - `tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md`
 - `docs/runbooks/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
 - `src/docs/server-sync-flow.md` (sync trigger matrix)
+
+---
+
+## How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)
+
+**When needed**
+
+After bumping the `src/external/OpenVPNEngine` submodule, when you need to verify an engine-side unit test (e.g. an upstream test that ships with the merged commits, such as `TestTrafficHistory.kt`) actually compiles and passes against the client's resolved dependencies.
+
+**Why this is non-obvious**
+
+The client's aggregate unit-test task, `testDebugUnitTestApp` (defined in `src/build.gradle.kts`), depends only on `:core`, `:mobile`, and `:tv` — it does **not** depend on `:openVpnEngine`. The client CI workflow (`.github/workflows/build-by-pull-request.yml`) runs `testDebugUnitTestApp`, so it also never exercises engine-side tests. A green `testDebugUnitTestApp` run after an engine bump tells you nothing about whether the engine's own test suite (including any new upstream tests that arrived with the merge) still passes.
+
+**Steps**
+
+1. From `src/`, run the engine module's test task directly by its Gradle path:
+   ```bash
+   ./gradlew :openVpnEngine:testFullDebugUnitTest
+   ```
+2. To target a single test class (faster feedback while investigating one upstream change):
+   ```bash
+   ./gradlew :openVpnEngine:testFullDebugUnitTest --tests de.blinkt.openvpn.core.TestTrafficHistory
+   ```
+3. Read the HTML/XML report under `src/external/OpenVPNEngine/main/build/test-results/` and `build/reports/tests/` the same way as any other module's Gradle test report.
+
+**Notes**
+
+- This is a real, standing coverage gap, not just a one-off workaround: any future engine bump should include this direct run as part of validation, since neither the client aggregate task nor client CI will catch an engine-side test regression.
+- The engine repository's own CI (`src/external/OpenVPNEngine/.github/workflows/build.yaml`) runs `test<target>ReleaseUnitTest` on the fork, but that only applies if Actions are enabled on the fork — it cannot be relied on as the client's safety net.
+- Fixing the gap properly (adding `:openVpnEngine:testFullDebugUnitTest` to the `testDebugUnitTestApp` aggregate, or to client CI) is out of scope for a routine engine sync; treat it as a candidate for a dedicated follow-up story rather than doing it inline during an engine bump.
+
+**First demonstrated**
+
+US-14 (`update-openvpn-engine`) quality gate — direct run of `:openVpnEngine:testFullDebugUnitTest --tests de.blinkt.openvpn.core.TestTrafficHistory` (3/3 passed) substituted for the missing aggregate/CI coverage.
+
+**References**
+
+- `src/build.gradle.kts` (`testDebugUnitTestApp` aggregate task, depends on `:core`/`:mobile`/`:tv` only)
+- `.github/workflows/build-by-pull-request.yml` (client CI test step)
+- `src/external/OpenVPNEngine/main/src/test/java/de/blinkt/openvpn/core/TestTrafficHistory.kt`
+- `.sdlc/evidence/us-14-quality-gate.md` (finding 1)
