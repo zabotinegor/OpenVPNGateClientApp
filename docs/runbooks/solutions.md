@@ -712,4 +712,34 @@ The client's central version catalog (`src/gradle/libs.versions.toml`) does not 
 - `src/external/OpenVPNEngine/main/build.gradle.kts` (engine `compileSdk`/`targetSdk`)
 - `src/core/build.gradle.kts`, `src/mobile/build.gradle.kts`, `src/tv/build.gradle.kts` (client `compileSdk 36`, unchanged)
 - `docs/userstories/US-14-update-openvpn-engine.md`
+
+---
+
+## CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can
+
+**Symptom**
+
+Explicitly adding `"platforms;android-37"` / `"build-tools;37.0.0"` to the `sdkmanager --sdk_root=... install` step in `.github/workflows/build-by-pull-request.yml` (attempting to make the SDK Platform 37 prerequisite above deterministic in CI) makes the "Install Android SDK packages" step fail outright:
+
+```
+Warning: Failed to find package 'platforms;android-37'
+##[error]Process completed with exit code 1.
+```
+
+**Root cause**
+
+The GitHub-hosted runner's bundled `sdkmanager` (cmdline-tools `16.0` as installed by `android-actions/setup-android@v3`) resolves packages against its own repository manifest, which does not yet list `platforms;android-37`/`build-tools;37.0.0` — passing an unresolvable package name to `sdkmanager` is a hard error (exit 1), unlike Gradle/AGP's own SDK auto-download path (`SdkComponentsBuildService`), which resolves against a separate, more current package index and successfully fetches platform 37 mid-build. That's why CI passed *before* this explicit-install attempt (relying on Gradle's implicit auto-download) and failed *after* it (forcing an explicit `sdkmanager` call that can't resolve the package).
+
+**Solution**
+
+Do not explicitly install `platforms;android-37`/`build-tools;37.0.0` via the CI `sdkmanager` step. Leave the workflow's SDK install step at `platforms;android-36` only (matching the client app modules' `compileSdk`) and let Gradle's own AGP auto-download resolve the engine module's `compileSdk 37` requirement during the build, the same implicit behavior documented in the local-build entry above. Revisit only once `platforms;android-37` is confirmed present in the runner image's `sdkmanager` repository listing (check with `sdkmanager --list` on a fresh runner), or if `android-actions/setup-android` bumps its bundled cmdline-tools version.
+
+**First encountered**
+
+US-14 (`update-openvpn-engine`), PR #123 round 2 — commit `387ec39` (added the explicit install, broke CI run `29689716964`); reverted in `f154ee9` back to the implicit-auto-download path.
+
+**References**
+
+- `.github/workflows/build-by-pull-request.yml` ("Install Android SDK packages" step)
+- CI run `29689716964` (job "Build Debug APKs", step "Install Android SDK packages")
 - `.sdlc/evidence/us-14-quality-gate.md` (AS-1/AS-3 disposition)
