@@ -166,6 +166,56 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
     }
 
+    // Regression guard: if the persisted server source changes concurrently with the in-flight
+    // DEFAULT_V2 -> VPNGATE fallback network fetch (e.g. the user flips it in Settings mid-refresh),
+    // the coordinator must not clobber that concurrently-set value when persisting the resolved
+    // fallback source. With only DEFAULT_V2/VPNGATE left in the enum, VPNGATE is the only value the
+    // fallback path could persist, so the switched-to value below coincides with it — the assertion
+    // still exercises the coordinator's post-fetch re-read-and-compare guard (see
+    // ServerSelectionSyncCoordinator lines ~91-96) rather than a stale captured source value.
+    @Test
+    fun sync_default_v2_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = SourceSwitchingApi(
+            context = context,
+            switchedSource = ServerSource.VPNGATE,
+            body = sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1)))
+        )
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            ThrowingCountriesV2SyncCoordinator()
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
+    // Same guard, exercised at an earlier race window than the test above: the source changes
+    // while the DEFAULT_V2 (v2) sync attempt itself is still in flight and failing, before the
+    // VPNGATE fallback network call even starts.
+    @Test
+    fun sync_default_v2_vpngate_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = FixedApi(sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))))
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            SourceSwitchingThenThrowingCountriesV2SyncCoordinator(context, ServerSource.VPNGATE)
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
     // TS-7 (VPN Gate regression): VPN Gate CSV source is unaffected by the DEFAULT_V2 path.
     @Test
     fun sync_vpngate_source_does_not_call_v2_selected_country_sync() = runBlocking {
@@ -400,6 +450,44 @@ class ServerSelectionSyncCoordinatorTest {
         override suspend fun getServers(url: String): ResponseBody {
             return body.toResponseBody("text/plain".toMediaType())
         }
+    }
+
+    private class SourceSwitchingApi(
+        private val context: Context,
+        private val switchedSource: ServerSource,
+        private val body: String
+    ) : VpnServersApi {
+        private var switched = false
+
+        override suspend fun getServers(url: String): ResponseBody {
+            if (!switched) {
+                UserSettingsStore.saveServerSource(context, switchedSource)
+                switched = true
+            }
+            return body.toResponseBody("text/plain".toMediaType())
+        }
+    }
+
+    private class SourceSwitchingThenThrowingCountriesV2SyncCoordinator(
+        private val appContext: Context,
+        private val switchedSource: ServerSource
+    ) : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> {
+            UserSettingsStore.saveServerSource(appContext, switchedSource)
+            throw IOException("v2 down")
+        }
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
 
 }

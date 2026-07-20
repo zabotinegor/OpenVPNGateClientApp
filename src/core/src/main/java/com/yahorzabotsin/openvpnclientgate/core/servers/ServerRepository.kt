@@ -3,7 +3,6 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
@@ -174,26 +173,20 @@ class ServerRepository(
         context: Context,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false,
-        settingsOverride: UserSettings? = null,
-        persistResolvedSource: Boolean = true,
-        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+        settingsOverride: UserSettings? = null
     ): List<Server> =
         getServersWithOutcome(
             context = context,
             forceRefresh = forceRefresh,
             cacheOnly = cacheOnly,
-            settingsOverride = settingsOverride,
-            persistResolvedSource = persistResolvedSource,
-            persistResolvedSourceOnlyIfCurrent = persistResolvedSourceOnlyIfCurrent
+            settingsOverride = settingsOverride
         ).servers
 
     internal suspend fun getServersWithOutcome(
         context: Context,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false,
-        settingsOverride: UserSettings? = null,
-        persistResolvedSource: Boolean = true,
-        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+        settingsOverride: UserSettings? = null
     ): GetServersResult =
         withContext(Dispatchers.IO) {
             val settings = settingsOverride ?: settingsStore.load(context)

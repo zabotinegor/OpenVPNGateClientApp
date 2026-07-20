@@ -142,6 +142,30 @@ class UserSettingsStoreTest {
         assertEquals(ApiConstants.FALLBACK_SERVERS_URL, urls.first())
     }
 
+    // isUsableServerUrl — placeholder host is rejected regardless of source. This guard is still
+    // live for every remaining ServerSource (including VPNGATE via resolveServerUrls), even though
+    // the CUSTOM source that used to exercise it directly has been removed.
+    @Test
+    fun isUsableServerUrl_rejects_placeholder_host() {
+        assertTrue(
+            !UserSettingsStore.isUsableServerUrl("https://placeholder/api/v1/servers/active")
+        )
+    }
+
+    // isUsableServerUrl — non-HTTPS scheme is rejected regardless of source.
+    @Test
+    fun isUsableServerUrl_rejects_non_https_scheme() {
+        assertTrue(
+            !UserSettingsStore.isUsableServerUrl("http://example.com/api/v1/servers/active")
+        )
+    }
+
+    // isUsableServerUrl — a well-formed https URL with a real host is accepted.
+    @Test
+    fun isUsableServerUrl_accepts_valid_https_url() {
+        assertTrue(UserSettingsStore.isUsableServerUrl("https://example.com/api/v1/servers/active"))
+    }
+
     // AC-1: new install (no stored key) defaults to DEFAULT_V2
     @Test
     fun load_new_install_defaults_to_default_v2() {

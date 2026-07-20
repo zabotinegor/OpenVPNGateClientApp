@@ -82,9 +82,7 @@ class DefaultServerSelectionSyncCoordinator(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                     cacheOnly = cacheOnly,
-                    settingsOverride = fallbackSettings,
-                    persistResolvedSource = true,
-                    persistResolvedSourceOnlyIfCurrent = ServerSource.DEFAULT_V2
+                    settingsOverride = fallbackSettings
                 )
                 val servers = fallbackResult.servers
 
