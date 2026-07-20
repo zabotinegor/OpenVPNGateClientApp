@@ -492,3 +492,51 @@ US-14 (`update-openvpn-engine`) quality gate — direct run of `:openVpnEngine:t
 - `.github/workflows/build-by-pull-request.yml` (client CI test step)
 - `src/external/OpenVPNEngine/main/src/test/java/de/blinkt/openvpn/core/TestTrafficHistory.kt`
 - `.sdlc/evidence/us-14-quality-gate.md` (finding 1)
+
+---
+
+## Manually verify a SharedPreferences migration path on a real device
+
+**When to use**
+
+When a code change migrates a stale/removed persisted preference value (e.g., an enum constant
+that no longer exists) to a new default, and you want to confirm the migration on a real device
+rather than trust unit tests alone — particularly for values a user could plausibly still have
+on disk from before the change shipped.
+
+**Steps**
+
+1. Confirm the debug build variant is debuggable (`android:debuggable="true"`, the default for
+   `assembleDebugApp`) — `run-as` only works against a debuggable package.
+2. Seed the stale value directly into the app's SharedPreferences XML file via `adb shell run-as`:
+   ```bash
+   adb shell run-as com.yahorzabotsin.openvpnclientgate.mobile \
+     sed -i 's/server_source">[^<]*</server_source">LEGACY</' \
+     /data/data/com.yahorzabotsin.openvpnclientgate.mobile/shared_prefs/user_settings.xml
+   ```
+   Repeat with each stale value under test (`LEGACY`, `CUSTOM`, the pre-existing legacy `"DEFAULT"`
+   string, or an arbitrary corrupted string) — force-stop and relaunch the app between edits so the
+   preference is re-read from disk rather than served from an in-memory cache.
+3. Launch the app and confirm no crash (`adb logcat | grep FATAL` is a fast negative check), then
+   confirm the migrated value is what Settings/logic actually uses going forward.
+
+**Notes**
+
+- This directly exercises what unit tests can only simulate: the real Android SharedPreferences
+  backing store, real process launch, and the real migration code path in
+  `UserSettingsStore.load()` — it does not replace unit test coverage for the migration logic
+  itself, but it closes the gap between "the function returns the right value in a JVM test" and
+  "an upgrading user's actual on-disk preference file doesn't crash the app."
+- `run-as` requires the target package to be debug-signed/debuggable; this technique does not work
+  against a release build.
+
+**First demonstrated**
+
+US-15 (`remove-legacy-and-custom-server-sources`) manual QA — verified the `LEGACY`/`CUSTOM`/
+`"DEFAULT"` → `DEFAULT_V2` migration on a real device after removing those enum values, confirming
+no crash and correct fallback for users upgrading from a build where a removed source was selected.
+
+**References**
+
+- `src/core/.../settings/UserSettingsStore.kt` (`load()` migration logic)
+- `tests/manual-e2e/stories/US-15-remove-legacy-and-custom-server-sources/cases/` (manual QA case files)

@@ -743,3 +743,68 @@ US-14 (`update-openvpn-engine`), PR #123 round 2 — commit `387ec39` (added the
 - `.github/workflows/build-by-pull-request.yml` ("Install Android SDK packages" step)
 - CI run `29689716964` (job "Build Debug APKs", step "Install Android SDK packages")
 - `.sdlc/evidence/us-14-quality-gate.md` (AS-1/AS-3 disposition)
+
+---
+
+## Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore
+
+**Symptom**
+
+While removing `ServerSource.LEGACY`/`ServerSource.CUSTOM`, every test that used those constants as
+fixtures compiled cleanly after a mechanical substitution (`CUSTOM` → `VPNGATE`, `LEGACY` →
+`DEFAULT_V2`), but 3 tests were deleted outright rather than substituted because their premise
+depended on a property only the removed values had (two distinct non-empty URL lists on one enum
+value, or a third enum value distinct from both remaining ones). The deletions were easy to miss:
+the test suite still passed at 100%, and nothing in the diff *looked* wrong — a shrinking test count
+doesn't fail a build the way a compile error does.
+
+**Root cause**
+
+A concurrency-guard test and a cache-fallback test both needed the mid-operation value to differ
+from both the "before" and "after" values in a 3-way comparison — impossible to construct once the
+enum only has 2 values, since substituting one still-existing value produces a scenario that's
+either a no-op or unreachable. A URL-filter test similarly relied on `CUSTOM`'s ability to hold an
+arbitrary user-entered URL to exercise placeholder-host/non-HTTPS rejection; with `CUSTOM` gone, no
+remaining source produces an arbitrary URL, so the code path being tested (`isUsableServerUrl`)
+still exists and runs for `VPNGATE`, but had zero direct test coverage after the mechanical pass.
+
+**Solution**
+
+Code review (not the initial implementation, and not the automated test run) is what caught this,
+by diffing the pre- and post-removal test file to look for tests removed by name rather than
+substituted in place, and by tracing each affected production code path (the concurrency guard, the
+cache-only fallback, `isUsableServerUrl`) to confirm it was still live and reachable for the
+remaining enum values despite losing its dedicated test. Two of the three gaps were closed by
+re-adding equivalent tests substituting a remaining enum value for the removed one, manufacturing
+the differentiating condition directly (e.g. writing a synthetic stale cache-key entry) rather than
+relying on the enum to provide it. The third (concurrency-guard tests) was restored but the quality
+gate flagged that the restored version is now unfalsifiable — it passes identically whether the
+guard exists or not, since the 2-value enum can no longer construct a scenario that distinguishes
+"guard present" from "guard absent." This residual gap was accepted as a known, documented
+limitation rather than blocking the release, since fixing it would require redesigning the guard's
+test harness independent of `ServerSource`'s cardinality.
+
+**Takeaway**
+
+When removing an enum constant (or any fixture value) from a codebase, treat "test count decreased"
+as a signal requiring the same scrutiny as a compile error, not as a natural side effect of a smaller
+enum. Specifically check whether a deleted test's premise depended on a *property* unique to the
+removed value (a third distinct state, an arbitrary/user-controlled value, a second URL) rather than
+just the value's name — mechanical substitution only works when the remaining values can reproduce
+the same differentiating property.
+
+**First encountered**
+
+US-15 (`remove-legacy-and-custom-server-sources`) code review (iteration 1) and the follow-up
+quality gate — findings on `ServerSelectionSyncCoordinatorTest.kt` (concurrency guard),
+`ServerRepositoryTest.kt` (cache-only stale-key fallback), and `UserSettingsStoreTest.kt`
+(`isUsableServerUrl`).
+
+**References**
+
+- `src/core/.../servers/ServerSelectionSyncCoordinator.kt` (the concurrency guard, ~lines 90-96)
+- `src/core/.../servers/ServerRepository.kt` (`getServersWithOutcome`'s cache-only branch,
+  `readLastCache`)
+- `src/core/.../settings/UserSettingsStore.kt` (`isUsableServerUrl`)
+- commits `c2f1266` (concurrency-guard + `isUsableServerUrl` tests restored),
+  `e427d55` (cache-only stale-key test restored)
