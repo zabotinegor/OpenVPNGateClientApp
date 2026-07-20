@@ -96,10 +96,10 @@ fun addFavoriteServer(ctx: Context, serverId: Int) {
 ```
 
 This is safe because:
-1. The V2 API always returns positive integer server IDs.
-2. Legacy CSV servers from VPN Gate do not have integer IDs and should not be favoritable (not scope for this feature).
+1. The V2 API (DEFAULT_V2) always returns positive integer server IDs.
+2. CSV servers from VPN Gate (VPNGATE source) do not have integer IDs and are intentionally not favoritable.
 
-However, if a future migration allows legacy CSV favorites, this guard will need revision. Document this assumption in any change that relaxes the `serverId > 0` constraint.
+If a future migration allows CSV server favorites, this guard will need revision. Document this assumption in any change that relaxes the `serverId > 0` constraint.
 
 ## Long-Press PopupMenu Pattern
 

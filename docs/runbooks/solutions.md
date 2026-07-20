@@ -495,13 +495,13 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
 
-### Favoriting a legacy Server by id will collide across servers
+### Favoriting a server by id will collide across servers without proper IDs
 
 **Context:** implementing server-favorite UI on top of `FavoritesStore`/`FavoritesFilter` (SUB-02/SUB-03 of MP-20260706-favorite-countries-servers).
 
-**Problem:** `Server.id` (`src/core/.../servers/Server.kt`) defaults to `0` and is only populated with a real value by `ServerV2.toLegacyServer()`. When `UserSettingsStore.load(ctx).serverSource` is `LEGACY`, `VPNGATE`, or `CUSTOM` (not `DEFAULT_V2`), every `Server` in the list keeps `id == 0`. Favoriting one such server marks all of them as favorited under `FavoritesStore`, since favorites are keyed purely by `Server.id`.
+**Problem:** `Server.id` (`src/core/.../servers/Server.kt`) defaults to `0` and is only populated with a real value by `ServerV2.toLegacyServer()`. When a server source does not use the V2 API (originally: `LEGACY`, `VPNGATE`, or `CUSTOM`; now only `VPNGATE` remains after US-15 removed `LEGACY` and `CUSTOM`), every `Server` in the list keeps `id == 0`. Favoriting one such server marks all of them as favorited under `FavoritesStore`, since favorites are keyed purely by `Server.id`.
 
-**Solution:** `FavoritesStore.addFavoriteServer()` now guards against `serverId <= 0` (added after PR #114 round-4 bot feedback), so `id == 0` can never be persisted as a favorite — this closes the immediate collision. It does not by itself make legacy servers favoritable: before wiring server-favorite UI, either (a) restrict server-favoriting to `DEFAULT_V2` source only, or (b) extend the favorite key to a composite (e.g. `ip` + `configData`, mirroring how `SelectedCountryStore.ensureIndexForConfig` matches servers) so non-V2 sources get distinct, stable identifiers. Still a pre-condition for SUB-02/SUB-03.
+**Solution:** `FavoritesStore.addFavoriteServer()` guards against `serverId <= 0` (added after PR #114 round-4 bot feedback), so `id == 0` can never be persisted as a favorite — this closes the immediate collision. For current code: server-favoriting is restricted to `DEFAULT_V2` sources only, so only servers with valid V2 IDs (positive integers) can be favorited. Non-V2 sources like `VPNGATE` cannot be favorited.
 
 **Commands/code:** n/a — design note, not a runtime fix.
 
@@ -531,7 +531,7 @@ SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-coun
 
 **Symptom**
 
-Attempting to favorite a server with `id <= 0` (legacy sources: `LEGACY`, `VPNGATE`, `CUSTOM`) would collide with all other non-V2 servers under the same zero ID. If a user long-pressed a legacy server and tapped "Add to favorites," **all** legacy servers would be marked favorited under `FavoritesStore`, not just the one tapped.
+Attempting to favorite a server with `id <= 0` (non-V2 sources: originally `LEGACY`, `VPNGATE`, `CUSTOM`; now only `VPNGATE` after US-15) would collide with all other non-V2 servers under the same zero ID. If a user long-pressed such a server and tapped "Add to favorites," **all** non-V2 servers would be marked favorited under `FavoritesStore`, not just the one tapped.
 
 **Root cause**
 

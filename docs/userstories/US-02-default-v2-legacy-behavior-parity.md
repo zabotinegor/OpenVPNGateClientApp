@@ -1,5 +1,7 @@
 # US-02 - DEFAULT_V2 Legacy Behavior Parity
 
+> **Note (US-15):** The Legacy CSV server source (`ServerSource.LEGACY`) and the Custom-URL feature have been removed from the app as of US-15. This story documents the parity requirements that were implemented to bring DEFAULT_V2 to feature parity with Legacy behavior during its time as an active server source. The acceptance criteria and test scenarios below are now historical — they remain here to document the design decisions and the migration path that was taken, but the Legacy source is no longer selectable by users. Users are now offered only two server source options: "Client for OpenVPN Gate" (DEFAULT_V2) and "VPN Gate" (VPNGATE).
+
 ## User story
 
 As an Android VPN client user,

@@ -124,9 +124,8 @@ whether that event should trigger a hardprobe.
 
 - The currently selected server IP does not match the last-started IP (user changed
   selection in the UI while connected).
-- The server has no integer ID from the v2 API — this covers legacy CSV sources (`LEGACY`,
-  `VPNGATE`, `CUSTOM`), which use opaque string identifiers and map to `id = 0` in the shared
-  data model.
+- The server has no integer ID from the v2 API — this covers CSV sources like `VPNGATE`,
+  which use opaque string identifiers and map to `id = 0` in the shared data model.
 - The network loss level `LEVEL_NONETWORK` is active — the calling code explicitly sets the ID
   to 0 in this case, because the device has lost internet connectivity (not a server failure).
 
@@ -345,7 +344,7 @@ In your Activity, handle long-press on rows:
 
 ```kotlin
 private fun onLongClickServer(anchorView: View, server: Server, isFavorite: Boolean) {
-    if (server.id <= 0) return  // Legacy servers cannot be favorited
+    if (server.id <= 0) return  // Servers without a v2 ID cannot be favorited
     
     showPopupMenu(anchorView) { action ->
         when (action) {

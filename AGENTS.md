@@ -120,7 +120,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt` for the shared server-list synchronization entrypoint used by splash, main foreground, settings changes, and periodic refresh.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` for periodic sync execution that reuses the shared coordinator.
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for source/custom URL changes that trigger forced server sync.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for server source changes that trigger forced server sync.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 
 ## When Extending Instructions
