@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
+import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.async
@@ -24,7 +25,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.IOException
-import java.net.UnknownHostException
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -78,7 +78,7 @@ class ServerRepositoryTest {
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 
@@ -143,36 +143,14 @@ class ServerRepositoryTest {
         assertEquals("", result[0].configData) // config is lazy
     }
 
+    // VPNGATE resolves to a single URL (ApiConstants.FALLBACK_SERVERS_URL); there is no secondary
+    // URL to retry, so a failure surfaces directly (matches the AC3 removal of the
+    // LEGACY -> VPNGATE secondary-URL downgrade, since LEGACY no longer exists).
     @Test
-    fun falls_back_when_primary_fails_and_switches_source() = runBlocking {
-        val expected = makeServer("srv-fallback")
-        val api = SequenceApi(
-            listOf({ throw IOException("primary down") }, { sampleCsv(listOf(expected)) })
-        )
-
-        val repo = ServerRepository(api, UserSettingsStore)
-        val result = repo.getServers(context, forceRefresh = true)
-
-        assertEquals(2, api.callCount)
-        assertEquals(1, result.size)
-        assertEquals(expected.name, result[0].name)
-        // After fallback, source should persist as VPN Gate
-        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
-        assertEquals("", result[0].configData)
-    }
-
-    @Test
-    fun custom_source_failure_does_not_fallback() = runBlocking {
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://custom.example/api/v1/servers/active"
-            )
-        )
+    fun vpngate_source_failure_does_not_fallback() = runBlocking {
         val api = SequenceApi(
             listOf(
-                { throw IOException("custom down") },
+                { throw IOException("vpngate down") },
                 { sampleCsv(listOf(makeServer("unexpected-fallback"))) }
             )
         )
@@ -180,14 +158,33 @@ class ServerRepositoryTest {
 
         try {
             repo.getServers(context, forceRefresh = true)
-            fail("Expected IOException when custom source fails")
+            fail("Expected IOException when the single VPN Gate URL fails and no cache exists")
         } catch (expected: IOException) {
             // expected
         }
 
         assertEquals(1, api.callCount)
-        assertEquals(listOf("https://custom.example/api/v1/servers/active"), api.calledUrls)
-        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+        assertEquals(listOf(ApiConstants.FALLBACK_SERVERS_URL), api.calledUrls)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
+    // DEFAULT_V2 resolves to zero URLs; ServerRepository falls back to the last-used cache
+    // (regardless of which source produced it) instead of hitting the network.
+    @Test
+    fun uses_last_cache_when_current_settings_resolve_to_no_urls() = runBlocking {
+        val cachedServer = makeServer("cached-by-vpngate")
+        val api = SequenceApi(listOf({ sampleCsv(listOf(cachedServer)) }))
+        val repo = ServerRepository(api, UserSettingsStore)
+        val first = repo.getServers(context, forceRefresh = true)
+        assertEquals("cached-by-vpngate", first.single().name)
+
+        val v2Settings = UserSettingsStore.load(context).copy(serverSource = ServerSource.DEFAULT_V2)
+        val secondApi = SequenceApi(listOf({ throw IOException("should not be called") }))
+        val secondRepo = ServerRepository(secondApi, UserSettingsStore)
+
+        val second = secondRepo.getServers(context, forceRefresh = true, settingsOverride = v2Settings)
+        assertEquals("cached-by-vpngate", second.single().name)
+        assertEquals(0, secondApi.callCount)
     }
 
     @Test
@@ -267,8 +264,8 @@ class ServerRepositoryTest {
         val second = repo.getServers(context, forceRefresh = true)
         // should serve stale cache despite force because network failed
         assertEquals("stale", second.single().name)
-        // primary + secondary attempted on failure
-        assertEquals(3, api.callCount)
+        // VPNGATE resolves to a single URL; only that one attempt happens on failure.
+        assertEquals(2, api.callCount)
     }
 
     @Test
@@ -370,115 +367,34 @@ class ServerRepositoryTest {
     }
 
     @Test
-    fun loadConfigs_uses_last_cache_key_after_fallback_switch() = runBlocking {
-        val srv = makeServer("fallback", lineIndex = 1).copy(configData = "cfg-fallback")
-        val api = SequenceApi(
-            listOf(
-                { throw IOException("primary down") },
-                { sampleCsv(listOf(srv)) }
-            )
-        )
-        val repo = ServerRepository(api, UserSettingsStore)
-
-        val servers = repo.getServers(context, forceRefresh = true)
-        assertEquals("fallback", servers.single().name)
-        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
-
-        val configs = repo.loadConfigs(context, servers)
-        assertEquals("cfg-fallback", configs[1])
-    }
-
-    @Test
-    fun loadConfigs_prefers_last_cache_key_when_primary_file_exists_but_is_stale_snapshot() = runBlocking {
-        val initial = makeServer("initial", lineIndex = 1).copy(configData = "cfg-default")
-        val firstApi = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
-        val firstRepo = ServerRepository(firstApi, UserSettingsStore)
-
-        val firstServers = firstRepo.getServers(context, forceRefresh = true)
-        assertEquals("initial", firstServers.single().name)
-        assertEquals("cfg-default", firstRepo.loadConfigs(context, firstServers)[1])
-
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://custom.example/servers.csv"
-            )
-        )
-
-        val customServer = makeServer("custom", lineIndex = 1).copy(configData = "cfg-custom")
-        val secondApi = SequenceApi(listOf({ sampleCsv(listOf(customServer)) }))
-        val secondRepo = ServerRepository(secondApi, UserSettingsStore)
-
-        val customServers = secondRepo.getServers(context, forceRefresh = true)
-        assertEquals("custom", customServers.single().name)
-
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY)
-        )
-
-        val configs = secondRepo.loadConfigs(context, customServers)
-        assertEquals("cfg-custom", configs[1])
-    }
-
-    @Test
-    fun throws_when_both_primary_and_fallback_fail() = runBlocking {
-        val api = SequenceApi(listOf({ throw IOException("fail") }, { throw IOException("fail2") }))
+    fun throws_when_fetch_fails_and_no_cache_available() = runBlocking {
+        val api = SequenceApi(listOf({ throw IOException("fail") }))
         val repo = ServerRepository(api, UserSettingsStore)
 
         try {
             repo.getServers(context, forceRefresh = true)
-            fail("Expected IOException when both primary and fallback fail")
+            fail("Expected IOException when fetch fails and no cache exists")
         } catch (e: IOException) {
             // expected
         }
 
-        assertEquals(2, api.callCount)
+        // VPNGATE resolves to a single URL; only one attempt is made.
+        assertEquals(1, api.callCount)
     }
 
     @Test
-    fun propagates_error_after_fallback_attempts() = runBlocking {
-        val api = SequenceApi(listOf({ throw IllegalStateException("boom") }, { throw IOException("fallback fail") }))
+    fun propagates_error_when_fetch_fails() = runBlocking {
+        val api = SequenceApi(listOf({ throw IllegalStateException("boom") }))
         val repo = ServerRepository(api, UserSettingsStore)
 
         try {
             repo.getServers(context, forceRefresh = true)
-            fail("Expected failure to propagate after retries")
+            fail("Expected failure to propagate")
         } catch (e: Exception) {
             // expected
         }
 
-        // Both URLs attempted
-        assertEquals(2, api.callCount)
-    }
-
-    @Test
-    fun uses_last_cache_key_when_current_urls_have_no_cache_and_dns_fails() = runBlocking {
-        val initial = makeServer("cached-by-default")
-        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
-        val repo = ServerRepository(api, UserSettingsStore)
-
-        val first = repo.getServers(context, forceRefresh = true)
-        assertEquals("cached-by-default", first.single().name)
         assertEquals(1, api.callCount)
-
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://invalid-host-for-test.example/servers.csv"
-            )
-        )
-
-        val failingApi = SequenceApi(
-            listOf({ throw UnknownHostException("dns failed for custom host") })
-        )
-        val repoWithFailingApi = ServerRepository(failingApi, UserSettingsStore)
-
-        val loaded = repoWithFailingApi.getServers(context, forceRefresh = true)
-        assertEquals("cached-by-default", loaded.single().name)
-        assertEquals(1, failingApi.callCount)
     }
 
     @Test
@@ -506,47 +422,6 @@ class ServerRepositoryTest {
         } finally {
             invalidCacheRoot.delete()
         }
-    }
-
-    @Test
-    fun cache_only_uses_last_cache_key_when_current_key_missing() = runBlocking {
-        val initial = makeServer("cached-by-default")
-        val api = SequenceApi(listOf({ sampleCsv(listOf(initial)) }))
-        val repo = ServerRepository(api, UserSettingsStore)
-
-        val first = repo.getServers(context, forceRefresh = true)
-        assertEquals("cached-by-default", first.single().name)
-        assertEquals(1, api.callCount)
-
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://another-invalid-host.example/servers.csv"
-            )
-        )
-
-        val cacheOnly = repo.getServers(context, cacheOnly = true)
-        assertEquals("cached-by-default", cacheOnly.single().name)
-        assertEquals(1, api.callCount)
-    }
-
-    @Test
-    fun returns_empty_without_network_when_only_placeholder_custom_url_configured() = runBlocking {
-        UserSettingsStore.save(
-            context,
-            UserSettingsStore.load(context).copy(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://placeholder/api/v1/servers/active"
-            )
-        )
-
-        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("unused"))) }))
-        val repo = ServerRepository(api, UserSettingsStore)
-
-        val loaded = repo.getServers(context, forceRefresh = true)
-        assertTrue(loaded.isEmpty())
-        assertEquals(0, api.callCount)
     }
 
     @Test

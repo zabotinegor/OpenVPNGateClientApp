@@ -296,21 +296,10 @@ class ServerRepository(
                 saveLastCacheKey(context, fallbackCache.key)
             }
 
-            if (persistResolvedSource && settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
-                val currentPersistedSource = settingsStore.load(context).serverSource
-                val canPersistResolvedSource =
-                    persistResolvedSourceOnlyIfCurrent == null ||
-                        currentPersistedSource == persistResolvedSourceOnlyIfCurrent
-                if (canPersistResolvedSource) {
-                    settingsStore.saveServerSource(context, ServerSource.VPNGATE)
-                    AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
-                } else {
-                    AppLog.i(
-                        TAG,
-                        "Primary failed but source changed concurrently; skipping persisted VPN Gate fallback. current=$currentPersistedSource"
-                    )
-                }
-            } else if (usedIndex >= 0) {
+            // NOTE: VPNGATE resolves to a single URL (ApiConstants.FALLBACK_SERVERS_URL), so there is
+            // no secondary-URL downgrade to perform here anymore; the DEFAULT_V2 -> VPNGATE fallback
+            // persistence is handled directly by ServerSelectionSyncCoordinator.
+            if (usedIndex >= 0) {
                 AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
 

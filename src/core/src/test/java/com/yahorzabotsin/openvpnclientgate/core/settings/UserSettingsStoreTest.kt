@@ -65,38 +65,34 @@ class UserSettingsStoreTest {
         assertEquals(DnsOption.QUAD9, settings.dnsOption)
     }
 
+    // UT-1.1a — migration: stored legacy "DEFAULT" string -> ServerSource.DEFAULT_V2
     @Test
-    fun resolve_server_urls_filters_placeholder_for_custom_source() {
-        val urls = UserSettingsStore.resolveServerUrls(
-            UserSettings(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://placeholder/api/v1/servers/active"
-            )
-        )
-
-        assertTrue(urls.isEmpty())
-    }
-
-    @Test
-    fun resolve_server_urls_filters_non_https_for_custom_source() {
-        val urls = UserSettingsStore.resolveServerUrls(
-            UserSettings(
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "http://example.com/api/v1/servers/active"
-            )
-        )
-
-        assertTrue(urls.isEmpty())
-    }
-
-    // UT-1.1 — migration: stored "DEFAULT" → ServerSource.LEGACY
-    @Test
-    fun load_legacy_migration() {
+    fun load_legacy_default_string_migration() {
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
             .edit().putString("server_source", "DEFAULT").commit()
 
         val settings = UserSettingsStore.load(context)
-        assertEquals(ServerSource.LEGACY, settings.serverSource)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    // UT-1.1b — migration: stored "LEGACY" (removed enum value) -> ServerSource.DEFAULT_V2
+    @Test
+    fun load_legacy_enum_name_migration() {
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().putString("server_source", "LEGACY").commit()
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
+    }
+
+    // UT-1.1c — migration: stored "CUSTOM" (removed enum value) -> ServerSource.DEFAULT_V2
+    @Test
+    fun load_custom_enum_name_migration() {
+        context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().putString("server_source", "CUSTOM").commit()
+
+        val settings = UserSettingsStore.load(context)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
     // UT-1.2 — stored "DEFAULT_V2" round-trips correctly
@@ -109,14 +105,14 @@ class UserSettingsStoreTest {
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
-    // UT-1.3 — unknown stored key falls back to LEGACY
+    // UT-1.3 — unknown/stale stored key falls back to DEFAULT_V2 (no crash on unresolved enum name)
     @Test
-    fun load_unknown_key_falls_back_to_legacy() {
+    fun load_unknown_key_falls_back_to_default_v2() {
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
             .edit().putString("server_source", "TOTALLY_UNKNOWN").commit()
 
         val settings = UserSettingsStore.load(context)
-        assertEquals(ServerSource.LEGACY, settings.serverSource)
+        assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
     // UT-1.4 — save DEFAULT_V2 then reload returns DEFAULT_V2
@@ -136,14 +132,14 @@ class UserSettingsStoreTest {
         assertTrue(urls.isEmpty())
     }
 
-    // UT-1.6 — LEGACY resolves to derived primary CSV + fallback URL
+    // UT-1.6 — VPNGATE resolves to the single fallback CSV URL
     @Test
-    fun resolve_server_urls_legacy_returns_primary_and_fallback() {
+    fun resolve_server_urls_vpngate_returns_fallback_url() {
         val urls = UserSettingsStore.resolveServerUrls(
-            UserSettings(serverSource = ServerSource.LEGACY)
+            UserSettings(serverSource = ServerSource.VPNGATE)
         )
-        assertEquals(2, urls.size)
-        assertEquals(ApiConstants.primaryLegacyServersUrl(), urls.first())
+        assertEquals(1, urls.size)
+        assertEquals(ApiConstants.FALLBACK_SERVERS_URL, urls.first())
     }
 
     // AC-1: new install (no stored key) defaults to DEFAULT_V2
