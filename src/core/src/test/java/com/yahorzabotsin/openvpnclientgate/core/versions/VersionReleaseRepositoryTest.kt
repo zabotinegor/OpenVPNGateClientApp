@@ -46,8 +46,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.RUSSIAN,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -70,8 +69,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -93,8 +91,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.RUSSIAN,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
         repository.getLatestRelease()
@@ -116,8 +113,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
         repository.getLatestRelease()
@@ -142,8 +138,7 @@ class VersionReleaseRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.CUSTOM,
-                    customServerUrl = "https://api.example.com/api/v1/servers/active"
+                    serverSource = ServerSource.VPNGATE
                 )
             )
 
@@ -170,8 +165,7 @@ class VersionReleaseRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.CUSTOM,
-                    customServerUrl = "https://api.example.com/api/v1/servers/active"
+                    serverSource = ServerSource.VPNGATE
                 )
             )
 
@@ -195,8 +189,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api-1.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
         repository.getLatestRelease()
@@ -205,8 +198,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api-2.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
         repository.getLatestRelease()
@@ -228,8 +220,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.POLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -241,7 +232,7 @@ class VersionReleaseRepositoryTest {
     }
 
     @Test
-    fun `getLatestRelease keeps using the trusted primary host for custom sources`() = runTest {
+    fun `getLatestRelease keeps using the trusted primary host for non-default sources`() = runTest {
         val api = CapturingVersionsApi()
         val repository = DefaultVersionReleaseRepository(context, api)
 
@@ -249,8 +240,7 @@ class VersionReleaseRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/custom/root/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -274,8 +264,7 @@ class VersionReleaseRepositoryTest {
             unknownPackageContext,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://api.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 

@@ -46,7 +46,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.RUSSIAN,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -67,7 +67,7 @@ class UpdateCheckRepositoryTest {
     }
 
     @Test
-    fun `checkForUpdate ignores custom server source`() = runTest {
+    fun `checkForUpdate ignores vpngate server source`() = runTest {
         val api = CapturingUpdateApi()
         val repository = DefaultUpdateCheckRepository(context, api)
 
@@ -75,8 +75,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://attacker.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -96,7 +95,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -106,8 +105,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.CUSTOM,
-                customServerUrl = "https://attacker.example.com/api/v1/servers/active"
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -132,7 +130,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -151,7 +149,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -171,7 +169,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -193,7 +191,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -251,7 +249,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -293,7 +291,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -330,7 +328,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -371,7 +369,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -408,7 +406,7 @@ class UpdateCheckRepositoryTest {
             context,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -429,7 +427,7 @@ class UpdateCheckRepositoryTest {
             missingPackageContext,
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
 
@@ -450,7 +448,7 @@ class UpdateCheckRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.LEGACY
+                    serverSource = ServerSource.VPNGATE
                 )
             )
 
@@ -474,7 +472,7 @@ class UpdateCheckRepositoryTest {
                 context,
                 UserSettings(
                     language = LanguageOption.SYSTEM,
-                    serverSource = ServerSource.LEGACY
+                    serverSource = ServerSource.VPNGATE
                 )
             )
 

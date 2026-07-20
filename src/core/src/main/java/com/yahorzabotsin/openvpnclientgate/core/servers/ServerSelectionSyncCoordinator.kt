@@ -67,7 +67,7 @@ class DefaultServerSelectionSyncCoordinator(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLog.w(tag, "DEFAULT_V2 sync failed; falling back to legacy CSV chain", e)
+                AppLog.w(tag, "DEFAULT_V2 sync failed; falling back directly to VPN Gate", e)
 
                 if (clearCacheBeforeRefresh) {
                     runCatching { serverRepository.clearServerCache(appContext) }
@@ -77,23 +77,21 @@ class DefaultServerSelectionSyncCoordinator(
                         }
                 }
 
-                val fallbackSettings = settings.copy(serverSource = ServerSource.LEGACY)
+                val fallbackSettings = settings.copy(serverSource = ServerSource.VPNGATE)
                 val fallbackResult = serverRepository.getServersWithOutcome(
                     context = appContext,
                     forceRefresh = forceRefresh || clearCacheBeforeRefresh,
                     cacheOnly = cacheOnly,
-                    settingsOverride = fallbackSettings,
-                    persistResolvedSource = true,
-                    persistResolvedSourceOnlyIfCurrent = ServerSource.DEFAULT_V2
+                    settingsOverride = fallbackSettings
                 )
                 val servers = fallbackResult.servers
 
                 val persistedSource = UserSettingsStore.load(appContext).serverSource
                 if (persistedSource == ServerSource.DEFAULT_V2 && fallbackResult.usedIndex == 0) {
-                    // Persist LEGACY only when this fallback invocation successfully fetched the
-                    // primary legacy CSV, not when it returned stale cache or a secondary fallback.
-                    UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
-                    AppLog.w(tag, "DEFAULT_V2 primary failed; switched persisted source to Legacy CSV fallback.")
+                    // Persist VPNGATE only when this fallback invocation successfully fetched the
+                    // VPN Gate CSV, not when it returned stale cache or failed outright.
+                    UserSettingsStore.saveServerSource(appContext, ServerSource.VPNGATE)
+                    AppLog.w(tag, "DEFAULT_V2 primary failed; switched persisted source to VPN Gate fallback.")
                 }
 
                 runCatching { selectedCountrySync.syncAfterRefresh(servers) }

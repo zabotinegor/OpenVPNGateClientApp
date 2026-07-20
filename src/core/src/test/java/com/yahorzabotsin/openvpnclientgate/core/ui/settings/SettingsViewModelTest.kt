@@ -38,7 +38,6 @@ class SettingsViewModelTest {
             language = LanguageOption.RUSSIAN,
             theme = ThemeOption.DARK,
             serverSource = ServerSource.VPNGATE,
-            customServerUrl = "https://custom.example",
             cacheTtlMs = 10 * 60 * 1000L,
             autoSwitchWithinCountry = false,
             statusStallTimeoutSeconds = 7
@@ -54,7 +53,6 @@ class SettingsViewModelTest {
         assertEquals(initial.language, state.language)
         assertEquals(initial.theme, state.theme)
         assertEquals(initial.serverSource, state.serverSource)
-        assertEquals(initial.customServerUrl, state.customServerUrl)
         assertEquals(initial.cacheTtlMs, state.cacheTtlMs)
         assertEquals(initial.autoSwitchWithinCountry, state.autoSwitchWithinCountry)
         assertEquals(initial.statusStallTimeoutSeconds, state.statusStallTimeoutSeconds)
@@ -159,33 +157,8 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `custom url keeps raw input and saves trimmed`() = runTest {
-        val repo = FakeSettingsRepository(
-            UserSettings(serverSource = ServerSource.CUSTOM, customServerUrl = "https://example.com")
-        )
-        val logger = FakeSettingsLogger()
-        val scheduler = FakeServerRefreshScheduler()
-        val syncCoordinator = FakeServerSelectionSyncCoordinator()
-        val vm = SettingsViewModel(repo, logger, scheduler, syncCoordinator, FakeConnectionProvider())
-        advanceUntilIdle()
-
-        vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com "))
-        advanceUntilIdle()
-
-        assertEquals("https://example.com ", vm.state.value.customServerUrl)
-        assertEquals(null, repo.savedCustomServerUrl)
-
-        vm.onAction(SettingsAction.SetCustomServerUrl("https://example.com/a "))
-        advanceUntilIdle()
-
-        assertEquals("https://example.com/a ", vm.state.value.customServerUrl)
-        assertEquals("https://example.com/a", repo.savedCustomServerUrl)
-        assertEquals(1, syncCoordinator.callCount)
-    }
-
-    @Test
     fun `server source change triggers forced sync without pre-clear`() = runTest {
-        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.LEGACY))
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT_V2))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
         val syncCoordinator = FakeServerSelectionSyncCoordinator()
@@ -202,7 +175,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `server source change uses cache only when vpn is connected`() = runTest {
-        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.LEGACY))
+        val repo = FakeSettingsRepository(UserSettings(serverSource = ServerSource.DEFAULT_V2))
         val logger = FakeSettingsLogger()
         val scheduler = FakeServerRefreshScheduler()
         val syncCoordinator = FakeServerSelectionSyncCoordinator()
@@ -256,7 +229,7 @@ class SettingsViewModelTest {
         val repo = FakeSettingsRepository(
             UserSettings(
                 language = LanguageOption.ENGLISH,
-                serverSource = ServerSource.LEGACY
+                serverSource = ServerSource.VPNGATE
             )
         )
         val logger = FakeSettingsLogger()
@@ -292,7 +265,7 @@ class SettingsViewModelTest {
         assertEquals(0, syncCoordinator.relocalizationCallCount)
 
         // Switch source before relocalization runs
-        vm.onAction(SettingsAction.SelectServerSource(ServerSource.LEGACY))
+        vm.onAction(SettingsAction.SelectServerSource(ServerSource.VPNGATE))
         advanceUntilIdle()
 
         // Relocalization should have been cancelled and not executed
@@ -305,7 +278,6 @@ class SettingsViewModelTest {
         var savedLanguage: LanguageOption? = null
         var savedTheme: ThemeOption? = null
         var savedServerSource: ServerSource? = null
-        var savedCustomServerUrl: String? = null
         var savedCacheTtlMs: Long? = null
         var savedAutoSwitchWithinCountry: Boolean? = null
         var savedStatusStallTimeoutSeconds: Int? = null
@@ -325,11 +297,6 @@ class SettingsViewModelTest {
         override fun saveServerSource(source: ServerSource) {
             stored = stored.copy(serverSource = source)
             savedServerSource = source
-        }
-
-        override fun saveCustomServerUrl(url: String) {
-            stored = stored.copy(customServerUrl = url)
-            savedCustomServerUrl = url
         }
 
         override fun saveCacheTtlMs(ttlMs: Long) {
@@ -353,7 +320,6 @@ class SettingsViewModelTest {
         var languageChanges: Pair<LanguageOption, LanguageOption>? = null
         var themeChanges: Pair<ThemeOption, ThemeOption>? = null
         var serverSourceChanges: Pair<ServerSource, ServerSource>? = null
-        var customUrl: String? = null
         var autoSwitch: Boolean? = null
         var statusTimeout: Int? = null
         var cacheTtlMs: Long? = null
@@ -372,10 +338,6 @@ class SettingsViewModelTest {
 
         override fun logServerSourceChanged(old: ServerSource, selected: ServerSource) {
             serverSourceChanges = old to selected
-        }
-
-        override fun logCustomServerUrlChanged(value: String) {
-            customUrl = value
         }
 
         override fun logAutoSwitchChanged(enabled: Boolean) {

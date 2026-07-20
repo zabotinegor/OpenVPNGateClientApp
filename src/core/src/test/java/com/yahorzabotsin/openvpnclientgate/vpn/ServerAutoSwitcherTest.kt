@@ -252,7 +252,7 @@ class ServerAutoSwitcherTest {
             // When total==0, currentServer() is null → failingServerId==0 → probe guard prevents enqueue
             assertTrue("No probe enqueued when failingServerId=0 (empty store)", fakeQueue.enqueuedIds.isEmpty())
         } finally {
-            UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
+            UserSettingsStore.saveServerSource(appContext, ServerSource.VPNGATE)
         }
     }
 

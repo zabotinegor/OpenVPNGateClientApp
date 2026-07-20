@@ -8,7 +8,7 @@ The shared connection details surface uses a split contract:
 - `Server` value: selected server position as `current/total` in the selected country list for all sources.
 - `Address` value: city + UTC for `DEFAULT_V2` when city metadata is available, city only when UTC is missing, and selected server IP for non-`DEFAULT_V2` sources or when city metadata is unavailable.
 
-The `Server` value applies to `DEFAULT_V2`, `LEGACY`, `VPNGATE`, and `CUSTOM`.
+The `Server` value applies to `DEFAULT_V2` and `VPNGATE`.
 The `Address` value is source-aware and only switches to city/UTC formatting for `DEFAULT_V2`.
 
 ## Source of Truth
@@ -32,7 +32,6 @@ The coordinator owns this flow:
 | SSE server-changed push event | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` | `forceRefresh=true`, `cacheOnly=false`, `clearCacheBeforeRefresh=false`. Fires when the backend pushes a `servers-changed` SSE event. Events are routed through a `MutableSharedFlow` with `debounce(500 ms)` so a burst of N rapid events collapses into a single sync call (added in SUB-04). Independent of the `onOpen` sync; both may fire in rapid succession on reconnect followed by an immediate push. |
 | Background UI update (via signal) | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` init + `onStoreVersionChanged()` | Cache-only load after `SelectedCountryVersionSignal.version` bump; no network sync |
 | Server source switch in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=true` |
-| Custom server URL update in settings | `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` | `forceRefresh=true`, `clearCacheBeforeRefresh=false` |
 
 ## Decision Conditions
 - `cacheOnly` uses `ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(...)`.
@@ -50,7 +49,7 @@ The coordinator owns this flow:
 At splash, `ServersV2SyncCoordinator` pre-fetches the country list only. Per-country server lists are fetched lazily when the user selects a country in the main screen.
 
 ### Trusted Fallback Chain
-When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary v2 routes first. If that fetch fails, the coordinator falls back to the legacy CSV route derived from `PRIMARY_SERVERS_URL`, and then to `FALLBACK_SERVERS_URL`. Successful fallback persists the working CSV-backed source (`LEGACY` for primary-domain CSV, `VPNGATE` for the final fallback), reusing the existing persisted-source behavior for CSV flows.
+When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary v2 routes first. If that fetch fails, the coordinator falls back directly to `FALLBACK_SERVERS_URL` (VPN Gate CSV). Successful fallback persists `VPNGATE` as the working source, reusing the existing persisted-source behavior for CSV flows.
 
 ### Components
 - `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
@@ -61,7 +60,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 ### Localization
 - `ServersV2Repository` resolves locale from `UserSettingsStore.resolvePreferredLocale(...)` and sends it as the `locale` query on both `getCountries(...)` and `getServers(...)` v2 API calls.
 - Mapping: `SYSTEM` -> runtime locale language code with `en` fallback when blank, `ENGLISH` -> `en`, `RUSSIAN` -> `ru`, `POLISH` -> `pl`.
-- Locale parameterization applies only to `DEFAULT_V2`. CSV-backed sources (`LEGACY`, `VPNGATE`, `CUSTOM`) keep existing behavior.
+- Locale parameterization applies only to `DEFAULT_V2`. `VPNGATE` (CSV-backed) does not use locale-parameterized queries.
 
 ### Selected-Country Relocalization on Language Change
 - Trigger: language selection change in `SettingsViewModel` under `DEFAULT_V2` starts a forced selected-country synchronization path.
@@ -84,11 +83,11 @@ Page size 50. Pages are fetched in a loop until the raw page count is less than 
 Servers with empty `configData` are dropped silently before caching.
 
 ### Migration
-A stored `"DEFAULT"` value in SharedPrefs is migrated to `LEGACY` on first load. New installs default to `DEFAULT_V2`.
+Stale persisted values from removed sources (`"DEFAULT"`, `"LEGACY"`, `"CUSTOM"`) are silently migrated to `DEFAULT_V2` on load (see `UserSettingsStore.load()` for the authoritative migration logic). New installs default to `DEFAULT_V2`.
 
 ## Source-Independent App Metadata Calls
-- Release notes (`What's New`) always use routes derived from `PRIMARY_SERVERS_URL` and no longer depend on the selected server source or custom CSV URL.
-- Update checks (`Get Update`) always use routes derived from `PRIMARY_SERVERS_URL`. `FALLBACK_SERVERS_URL` and custom server URLs are never trusted as update hosts.
+- Release notes (`What's New`) always use routes derived from `PRIMARY_SERVERS_URL` and do not depend on the selected server source.
+- Update checks (`Get Update`) always use routes derived from `PRIMARY_SERVERS_URL`. `FALLBACK_SERVERS_URL` is never trusted as an update host.
 
 ## Hardprobe Trigger Points
 

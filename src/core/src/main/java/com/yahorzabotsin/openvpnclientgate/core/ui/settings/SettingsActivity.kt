@@ -36,7 +36,6 @@ class SettingsActivity : AppCompatActivity() {
         applyTvFocusBackgrounds()
         setupCollapsibles()
         setupRadioGroups()
-        setupCustomInputWatcher()
         setupCacheInputWatcher()
         setupStatusTimerWatcher()
         observeViewModel()
@@ -59,10 +58,8 @@ class SettingsActivity : AppCompatActivity() {
             binding.themeSystem,
             binding.themeLight,
             binding.themeDark,
-            binding.serverDefault,
             binding.serverDefaultV2,
             binding.serverVpngate,
-            binding.serverCustom,
             binding.autoSwitchOn,
             binding.autoSwitchOff
         )
@@ -151,9 +148,7 @@ class SettingsActivity : AppCompatActivity() {
             if (isUpdatingUi) return@setOnCheckedChangeListener
             val source = when (checkedId) {
                 binding.serverDefaultV2.id -> ServerSource.DEFAULT_V2
-                binding.serverDefault.id -> ServerSource.LEGACY
                 binding.serverVpngate.id -> ServerSource.VPNGATE
-                binding.serverCustom.id -> ServerSource.CUSTOM
                 else -> ServerSource.DEFAULT_V2
             }
             viewModel.onAction(SettingsAction.SelectServerSource(source))
@@ -162,16 +157,6 @@ class SettingsActivity : AppCompatActivity() {
             if (isUpdatingUi) return@setOnCheckedChangeListener
             val enabled = checkedId == binding.autoSwitchOn.id
             viewModel.onAction(SettingsAction.SetAutoSwitchWithinCountry(enabled))
-        }
-    }
-
-    private fun setupCustomInputWatcher() {
-        binding.customServerInput.addTextChangedListener {
-            if (isUpdatingUi) return@addTextChangedListener
-            if (binding.serverCustom.isChecked) {
-                val value = it?.toString() ?: ""
-                viewModel.onAction(SettingsAction.SetCustomServerUrl(value))
-            }
         }
     }
 
@@ -242,22 +227,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.themeSystem.nextFocusUpId = binding.themeHeader.id
         binding.themeDark.nextFocusDownId = binding.serverHeader.id
         binding.serverDefaultV2.nextFocusUpId = binding.serverHeader.id
-        binding.serverDefault.nextFocusUpId = binding.serverHeader.id
+        binding.serverVpngate.nextFocusDownId = binding.autoSwitchHeader.id
         binding.autoSwitchOn.nextFocusUpId = binding.autoSwitchHeader.id
         binding.autoSwitchOff.nextFocusDownId = binding.statusTimerHeader.id
         binding.statusTimerInput.nextFocusUpId = binding.statusTimerHeader.id
         binding.statusTimerInput.nextFocusDownId = binding.cacheHeader.id
         binding.cacheInput.nextFocusUpId = binding.cacheHeader.id
-    }
-
-    private fun updateServerContentFocus(isCustom: Boolean) {
-        val nextHeaderId = binding.autoSwitchHeader.id
-        if (isCustom) {
-            binding.serverCustom.nextFocusDownId = binding.customServerInput.id
-            binding.customServerInput.nextFocusDownId = nextHeaderId
-        } else {
-            binding.serverCustom.nextFocusDownId = nextHeaderId
-        }
     }
 
     private fun render(state: SettingsUiState) {
@@ -277,16 +252,8 @@ class SettingsActivity : AppCompatActivity() {
 
         when (state.serverSource) {
             ServerSource.DEFAULT_V2 -> binding.serverRadioGroup.check(binding.serverDefaultV2.id)
-            ServerSource.LEGACY -> binding.serverRadioGroup.check(binding.serverDefault.id)
             ServerSource.VPNGATE -> binding.serverRadioGroup.check(binding.serverVpngate.id)
-            ServerSource.CUSTOM -> binding.serverRadioGroup.check(binding.serverCustom.id)
         }
-
-        if (binding.customServerInput.text?.toString() != state.customServerUrl) {
-            binding.customServerInput.setText(state.customServerUrl)
-        }
-        binding.customServerInputLayout.visibility =
-            if (state.serverSource == ServerSource.CUSTOM) View.VISIBLE else View.GONE
 
         if (binding.cacheInput.text?.toString() != state.cacheTtlInput) {
             binding.cacheInput.setText(state.cacheTtlInput)
@@ -300,7 +267,6 @@ class SettingsActivity : AppCompatActivity() {
             if (state.autoSwitchWithinCountry) binding.autoSwitchOn.id else binding.autoSwitchOff.id
         )
 
-        updateServerContentFocus(state.serverSource == ServerSource.CUSTOM)
         updateSummaries(state)
         isUpdatingUi = false
 
@@ -320,12 +286,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun updateSummaries(state: SettingsUiState) {
         binding.languageSummary.text = languageLabel(state.language)
         binding.themeSummary.text = themeLabel(state.theme)
-        binding.serverSummary.text = if (state.serverSource == ServerSource.CUSTOM) {
-            val url = state.customServerUrl.trim().takeIf { it.isNotBlank() }
-            url ?: serverLabel(state.serverSource)
-        } else {
-            serverLabel(state.serverSource)
-        }
+        binding.serverSummary.text = serverLabel(state.serverSource)
         binding.autoSwitchSummary.text =
             if (state.autoSwitchWithinCountry) binding.autoSwitchOn.text else binding.autoSwitchOff.text
         binding.statusTimerSummary.text = getString(
@@ -350,9 +311,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun serverLabel(source: ServerSource): String = when (source) {
         ServerSource.DEFAULT_V2 -> binding.serverDefaultV2.text.toString()
-        ServerSource.LEGACY -> binding.serverDefault.text.toString()
         ServerSource.VPNGATE -> binding.serverVpngate.text.toString()
-        ServerSource.CUSTOM -> binding.serverCustom.text.toString()
     }
 
     private fun formatMinutesSummary(ttlMs: Long): String {

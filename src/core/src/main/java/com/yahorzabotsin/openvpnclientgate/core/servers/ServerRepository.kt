@@ -3,7 +3,6 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettings
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.DEFAULT_CACHE_TTL_MS
@@ -174,26 +173,20 @@ class ServerRepository(
         context: Context,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false,
-        settingsOverride: UserSettings? = null,
-        persistResolvedSource: Boolean = true,
-        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+        settingsOverride: UserSettings? = null
     ): List<Server> =
         getServersWithOutcome(
             context = context,
             forceRefresh = forceRefresh,
             cacheOnly = cacheOnly,
-            settingsOverride = settingsOverride,
-            persistResolvedSource = persistResolvedSource,
-            persistResolvedSourceOnlyIfCurrent = persistResolvedSourceOnlyIfCurrent
+            settingsOverride = settingsOverride
         ).servers
 
     internal suspend fun getServersWithOutcome(
         context: Context,
         forceRefresh: Boolean = false,
         cacheOnly: Boolean = false,
-        settingsOverride: UserSettings? = null,
-        persistResolvedSource: Boolean = true,
-        persistResolvedSourceOnlyIfCurrent: ServerSource? = null
+        settingsOverride: UserSettings? = null
     ): GetServersResult =
         withContext(Dispatchers.IO) {
             val settings = settingsOverride ?: settingsStore.load(context)
@@ -296,21 +289,10 @@ class ServerRepository(
                 saveLastCacheKey(context, fallbackCache.key)
             }
 
-            if (persistResolvedSource && settings.serverSource == ServerSource.LEGACY && usedIndex > 0) {
-                val currentPersistedSource = settingsStore.load(context).serverSource
-                val canPersistResolvedSource =
-                    persistResolvedSourceOnlyIfCurrent == null ||
-                        currentPersistedSource == persistResolvedSourceOnlyIfCurrent
-                if (canPersistResolvedSource) {
-                    settingsStore.saveServerSource(context, ServerSource.VPNGATE)
-                    AppLog.w(TAG, "Primary failed; switched persisted source to VPN Gate (fallback).")
-                } else {
-                    AppLog.i(
-                        TAG,
-                        "Primary failed but source changed concurrently; skipping persisted VPN Gate fallback. current=$currentPersistedSource"
-                    )
-                }
-            } else if (usedIndex >= 0) {
+            // NOTE: VPNGATE resolves to a single URL (ApiConstants.FALLBACK_SERVERS_URL), so there is
+            // no secondary-URL downgrade to perform here anymore; the DEFAULT_V2 -> VPNGATE fallback
+            // persistence is handled directly by ServerSelectionSyncCoordinator.
+            if (usedIndex >= 0) {
                 AppLog.i(TAG, "Server fetch succeeded from index=$usedIndex; source remains ${settings.serverSource}.")
             }
 
