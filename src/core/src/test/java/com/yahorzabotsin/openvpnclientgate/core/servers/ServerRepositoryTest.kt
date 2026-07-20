@@ -334,6 +334,39 @@ class ServerRepositoryTest {
         assertEquals(0, api.callCount)
     }
 
+    // Regression test for the cache-only fallback in getServersWithOutcome: when the current
+    // source's cache key has no entry (e.g. right after a migration to a new source/cache-key
+    // scheme, such as the LEGACY/CUSTOM -> DEFAULT_V2 migration in US-15), readLastCache's
+    // "last successfully used cache key" pointer must still be able to serve a stale entry left
+    // behind under a different (e.g. pre-migration) cache key instead of throwing mid-connection.
+    @Test
+    fun cache_only_uses_last_cache_key_when_current_key_missing() = runBlocking {
+        val staleServer = makeServer("stale-pre-migration-cache")
+        // Stand-in for a cache key produced by a source/URL scheme that no longer resolves
+        // (e.g. a pre-migration LEGACY cache key). Deliberately not a real sha256 of any
+        // resolvable URL set, so it cannot collide with the current source's real cache key.
+        val staleKey = "stale-legacy-cache-key-0123456789abcdef0123456789abcdef01234567"
+        val staleFile = java.io.File(context.cacheDir, "servers_$staleKey.csv")
+        staleFile.writeText(sampleCsv(listOf(staleServer)))
+
+        val prefs = context.getSharedPreferences("server_cache", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putLong("ts_$staleKey", System.currentTimeMillis())
+            .putString("last_cache_key", staleKey)
+            .apply()
+
+        // Current source (VPNGATE, set in setUp()) resolves to a real URL and therefore a
+        // *different* cache key that has never been populated - simulating the current
+        // source's cache being empty while VPN is connected (cacheOnly = true).
+        val api = SequenceApi(listOf({ throw IOException("network should not be hit in cache-only mode") }))
+        val repo = ServerRepository(api, UserSettingsStore)
+
+        val result = repo.getServers(context, cacheOnly = true)
+
+        assertEquals("stale-pre-migration-cache", result.single().name)
+        assertEquals(0, api.callCount)
+    }
+
     @Test
     fun loadConfigs_returns_empty_when_cache_missing() = runBlocking {
         val srv = makeServer("one")
