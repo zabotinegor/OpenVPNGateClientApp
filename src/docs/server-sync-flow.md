@@ -91,6 +91,11 @@ Stale persisted values from removed sources (`"DEFAULT"`, `"LEGACY"`, `"CUSTOM"`
 
 ## Hardprobe Trigger Points
 
+**This section is the canonical, authoritative list** — `src/docs/android-qa-adb-cookbook.md` and
+`docs/runbooks/how-to.md` both link here instead of keeping their own copy, after one of those
+copies was found to have drifted stale (undercounting the trigger points). If you add or change a
+trigger point, update it here only.
+
 When a VPN disconnect or inactivity event fires, the following code paths can enqueue a hardprobe request via `ProbeRequestQueue`:
 
 1. **Autoswitch timeout / immediate switch** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled. Added in SUB-04.

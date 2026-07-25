@@ -1,5 +1,23 @@
 # Android QA Runbook
 
+This is a chronological per-story QA log (distinct from `src/docs/android-qa-adb-cookbook.md`,
+which is topic-organized reusable snippets — don't duplicate content into both).
+
+## Index
+
+Read this list first and jump to the one relevant heading — don't read the whole file.
+
+- SUB-01 — TS-8 Deferred Manual QA (ping display, blocked on server-side fields)
+- SUB-02 — WorkManager Probe Request Queue Manual QA
+- MP-20260621 SUB-02 — Android SSE Client for Server-Push Notifications
+- Logcat commands for SUB-01 regression validation
+- SUB-05 — Instrumented test fixes (`MainActivitySmokeTest`, Samsung/MIUI device notes)
+- Per-App Locale Override (Samsung/One UI Workaround — SUB-07)
+- Simulating a TV D-pad Long-Press via ADB (MIBOX4/Android 9, API 28)
+- `adb install -r` failing silently on a network-connected (Wi-Fi ADB) TV target — Windows/Git Bash
+
+---
+
 ## SUB-01 — TS-8 Deferred Manual QA
 
 **Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-01-serverv2-model-id-and-ping.md`

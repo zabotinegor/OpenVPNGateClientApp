@@ -92,7 +92,6 @@ media/     ← app icon/banner assets (submodule)
 
 - [README.md](README.md) — prerequisites, signing, media assets, runtime behavior, release commands
 - [AGENTS.md](AGENTS.md) — full agent/contributor operational rules
-- [src/docs/logging-policy.md](src/docs/logging-policy.md) — logging levels, throttling, privacy rules
-- [src/docs/server-sync-flow.md](src/docs/server-sync-flow.md) — server-list sync triggers, guard conditions, coordinator reuse
+- [src/docs/INDEX.md](src/docs/INDEX.md) — full technical knowledge-base catalog (flow docs, bug postmortems, how-to guides, device QA runbooks); read this first for anything not covered above
 - [tests/manual-e2e/README.md](tests/manual-e2e/README.md) — manual E2E test structure
 - [AGENTS.local.md](AGENTS.local.md) — machine-specific paths (not committed; ask user if absent)

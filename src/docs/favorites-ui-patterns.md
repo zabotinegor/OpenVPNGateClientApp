@@ -1,5 +1,10 @@
 # Favorites UI Patterns and Implementation Guide
 
+> **Note on `docs/qa-evidence/*.md` citations in this file:** that directory is gitignored/untracked
+> (per-task SDLC audit trail, not committed). Citations to it below are historical context for
+> contributors who have it locally, not guaranteed-resolvable links — the load-bearing technical
+> fact is always stated in the surrounding prose, not only in the cited evidence file.
+
 ## Overview
 
 The favorites feature allows users to mark and quickly access their preferred countries and servers. Implementation is split across multiple sub-plans and surfaces:
@@ -619,3 +624,7 @@ Manual testing confirms correct rendering in both locales across countries and s
 - `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
 - `docs/qa-evidence/favorites-localization-qa-1.md` — SUB-07 localization manual QA evidence and per-app locale override technique
 - `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)
+
+---
+
+*Last verified against: SUB-09 visual redesign + per-row star indicator (2026-07-22).*

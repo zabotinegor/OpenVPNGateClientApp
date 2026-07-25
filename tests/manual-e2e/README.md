@@ -9,9 +9,8 @@ This directory is the canonical location for manual end-to-end test documentatio
 - [reference/](reference): validated notes and supporting references organized by topic.
 
 ## Environment Runbooks
-- [environment/android-adb-vpn-qa-runbook.md](environment/android-adb-vpn-qa-runbook.md): Android mobile adb VPN QA runbook.
-- [environment/android-miui-manual-qa-notes.md](environment/android-miui-manual-qa-notes.md): MIUI device quirks for manual QA.
-- [environment/android-tv-dpad-qa-runbook.md](environment/android-tv-dpad-qa-runbook.md): Android TV D-pad QA runbook (Leanback launch, `sendevent` long-press injection, dialog focus gotchas).
+See the "Device / QA Runbooks" category in [../../src/docs/INDEX.md](../../src/docs/INDEX.md) for
+the current list of environment runbook files — kept in one place there instead of duplicated here.
 
 ## Story Organization
 
@@ -45,14 +44,6 @@ stories/{story-id}-{kebab-title}/
 - Cases:
   - [stories/bug-startup-crash-urlencoder-android11/cases/bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch.md](stories/bug-startup-crash-urlencoder-android11/cases/bug-startup-crash-urlencoder-android11-mq-01-android-11-app-launch.md)
   - [stories/bug-startup-crash-urlencoder-android11/cases/bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis.md](stories/bug-startup-crash-urlencoder-android11/cases/bug-startup-crash-urlencoder-android11-mq-03-logcat-analysis.md)
-
-### VPN-PAUSE-RESUME-FLOW
-- Location: [stories/VPN-PAUSE-RESUME-FLOW/](stories/VPN-PAUSE-RESUME-FLOW/)
-- Suite: [stories/VPN-PAUSE-RESUME-FLOW/suites/SUITE.md](stories/VPN-PAUSE-RESUME-FLOW/suites/SUITE.md)
-- Cases:
-  - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-001.md)
-  - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-002.md)
-  - [stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-003.md](stories/VPN-PAUSE-RESUME-FLOW/cases/VPN-PAUSE-003.md)
 
 ### SUB-04 - TV D-pad Favorites Interaction
 - Location: [stories/SUB-04-tv-favorites-interaction/](stories/SUB-04-tv-favorites-interaction/)
@@ -90,8 +81,9 @@ stories/{story-id}-{kebab-title}/
   - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md)
   - [stories/SUB-07-favorites-localization/cases/CASE-SUB07-004-pl-servers-locale.md](stories/SUB-07-favorites-localization/cases/CASE-SUB07-004-pl-servers-locale.md)
 
-### TV-DRAWER-FALSE-CLICK
-- Location: [stories/TV-DRAWER-FALSE-CLICK/](stories/TV-DRAWER-FALSE-CLICK/)
-- Suite: [stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md](stories/TV-DRAWER-FALSE-CLICK/suites/SUITE.md)
-- Case: [stories/TV-DRAWER-FALSE-CLICK/cases/TV-DRAWER-FALSE-CLICK-001.md](stories/TV-DRAWER-FALSE-CLICK/cases/TV-DRAWER-FALSE-CLICK-001.md)
-
+> VPN pause/resume and TV drawer-guard manual QA stories were retired once automated regression
+> coverage existed for both; their durable behavior/spec content now lives in
+> [src/docs/vpn-pause-resume-flow.md](../../src/docs/vpn-pause-resume-flow.md) and
+> [src/docs/tv-drawer-guard-flow.md](../../src/docs/tv-drawer-guard-flow.md). The unrelated
+> `engine-update-smoke-20260611` QA folder (a true orphan, never listed here) was retired the same
+> way, into [src/docs/engine-update-smoke-checklist.md](../../src/docs/engine-update-smoke-checklist.md).

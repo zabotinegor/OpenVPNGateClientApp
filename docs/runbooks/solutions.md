@@ -4,6 +4,103 @@ This runbook collects non-obvious problems and their solutions discovered during
 QA. Add an entry only when the issue is likely to recur and the fix is not obvious from the
 error message alone.
 
+## Index
+
+Read this list first and jump to the one relevant heading — don't read the whole file.
+
+- Server counter resets to position 1 immediately after the user picks a server — 3 independent races in `MainViewModel`/`MainSelectionInteractor`/`MainConnectionInteractor`
+- WorkManager unit tests: `AlarmManager.setExact()` not available in Robolectric 4.10.2
+- Checking for a Gradle dependency: grep build files, never `find /`
+- `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05
+- Adding a new OkHttp3 test artifact: `mockwebserver` not found in version catalog
+- Gradle daemon OOM on machines with ≤ 16 GB RAM: heap reduced from 4096m to 2048m
+- `RemoteServiceException`: `startForegroundService()` did not call `startForeground()` — crash on first VPN connect after APK update
+- SSE long-poll times out: `readTimeout(0)` required on a child OkHttp client
+- `okhttp-sse` must be pinned to the same version as the main `okhttp` dependency
+- SSE reconnect shows stale server data: `onOpen` was a no-op — fixed in SUB-03
+- SSE hot-reconnect loop when degraded server sends events: `reconnectAttempt.set(0)` in `onEvent` bypassed backoff — fixed in SUB-03
+- `ProcessLifecycleOwner` must be registered from the main thread after `startKoin`
+- Favoriting a server by id will collide across servers without proper IDs
+- Country-code comparisons: case-sensitive in `FavoritesStore`, case-insensitive in `FavoritesFilter` and elsewhere — RESOLVED in SUB-02
+- Server-favorite toggle blocks servers with `id <= 0`: defense-in-depth guard at three layers — SUB-03
+- PopupMenu window-leak guard: instance tracking with dismiss-listener null-out — SUB-03
+- `adb input keyevent --longpress` delivers a short press on Android TV
+- Pinned Favorites header scrolled out of view on open — `FocusFirstItem` must be TV-gated on every sectioned list screen
+- `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
+- Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
+- `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
+- `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
+- Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed
+- CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can
+- Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore
+
+---
+
+## Server counter resets to position 1 immediately after the user picks a server
+
+**Status: RESOLVED** — PR #111 (`fix/server-counter-resets-on-connect`)
+**Branch fixed on:** `fix/server-counter-resets-on-connect`
+**Files changed:** `MainViewModel.kt`, `MainSelectionInteractor.kt`, `MainConnectionInteractor.kt`
+
+### Symptoms
+
+- User opens the server list, taps a specific server (e.g. server 3/10).
+- The main screen flashes the correct selection, then immediately reverts to a different server (typically server 1/N or a server that shares an IP with the intended one).
+- The counter shown in the details line (`Server: X/N`) does not reflect the user's choice by the time they tap Connect.
+
+### Root causes (three independent bugs, all must be fixed)
+
+**Bug 1 — startup coroutine race in `MainViewModel.loadInitialSelection()`**
+
+`loadInitialSelection()` runs in a coroutine launched during `MainViewModel` init. If the user selects a server while this coroutine is still in-flight, the coroutine's final `updateSelectedServer(...)` call would overwrite the user's explicit selection because it executed after `pendingUserSelectionOverride` was set to `true` but the check was absent.
+
+Fix: after the coroutine receives the result of `selectionInteractor.loadInitialSelection(...)`, check `_state.value.pendingUserSelectionOverride` before calling `updateSelectedServer(...)`. If the flag is `true`, return early — the user's selection wins.
+
+```kotlin
+val selection = selectionInteractor.loadInitialSelection(cacheOnly = cacheOnly) ?: return@launch
+if (_state.value.pendingUserSelectionOverride) return@launch
+updateSelectedServer(...)
+```
+
+**Bug 2 — OR-logic IP match in `MainSelectionInteractor.hydrateStoredSelectionFromV2()`**
+
+When hydrating a stored `DEFAULT_V2` selection from the refreshed server list, the old code used an OR condition (`configData == stored OR ip == stored`) that collapsed into a single `indexOfFirst` predicate. Because multiple servers in the same country often share the same IP address (e.g. a pool of servers on one relay), this always resolved to the first server sharing that IP regardless of which specific server the user had selected.
+
+Fix: use a priority search — match `configData` first (unique per server config), fall back to IP only when `configData` is blank or yields no match, and default to index 0 as the final fallback.
+
+```kotlin
+val selectedIndex = when {
+    !selectedConfig.isNullOrBlank() ->
+        legacyServers.indexOfFirst { it.configData == selectedConfig }
+            .takeIf { it >= 0 }
+            ?: legacyServers.indexOfFirst { !selectedIp.isNullOrBlank() && it.ip == selectedIp }
+                .takeIf { it >= 0 }
+            ?: 0
+    !selectedIp.isNullOrBlank() ->
+        legacyServers.indexOfFirst { it.ip == selectedIp }.takeIf { it >= 0 } ?: 0
+    else -> 0
+}
+```
+
+**Bug 3 — stale `configData` in `MainConnectionInteractor.prepareStart()` when `preferUserSelection=true`**
+
+When SSE sync (or any background sync) pushed a new server list from the API, the `selectedServer` held in `MainViewModel` state could carry a stale `configData` from before the sync. `prepareStart()` was reading `configData` directly from `selectedServer.config` (ViewModel state). When `preferUserSelection=true`, this stale value would be passed to the VPN engine instead of the fresh config stored in `SelectedCountryStore`.
+
+Fix: when `preferUserSelection=true`, `prepareStart()` reads `configData` from `SelectedCountryStore.currentServer()` at Connect time rather than from the ViewModel's cached `selectedServer.config`.
+
+### Diagnosis checklist for future regressions
+
+1. Add a logcat filter for `MainViewModel` and `MainSelectionInteractor` tags. Confirm whether `updateSelectedServer` fires *after* a user selection event — if it does, Bug 1 is regressed.
+2. In the `DEFAULT_V2` server list for the affected country, check whether multiple servers share the same IP. If yes, and hydration resolves to the wrong one, Bug 2 is regressed.
+3. `pendingUserSelectionOverride` is set in `MainViewModel.onServerSelected()`. If that flag is not being set before `loadInitialSelection()` returns, the race window is wider than expected — investigate coroutine scheduling around `MainViewModel` init.
+4. If the counter is correct pre-Connect but the wrong server is used by the VPN engine, check whether `prepareStart()` is reading from `SelectedCountryStore.currentServer()` when `preferUserSelection=true` (Bug 3). A stale `configData` from ViewModel state would indicate a regression there.
+
+### Related files
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainViewModel.kt` — Bug 1 fix: double-guard in `loadInitialSelection()` and `syncServersForForegroundIfDue()`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainSelectionInteractor.kt` — Bug 2 fix: config-first sequential search in `hydrateStoredSelectionFromV2()`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainConnectionInteractor.kt` — Bug 3 fix: read fresh `configData` from `SelectedCountryStore.currentServer()` in `prepareStart()` when `preferUserSelection=true`
+
 ---
 
 ## WorkManager unit tests: `AlarmManager.setExact()` not available in Robolectric 4.10.2
@@ -495,7 +592,9 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
 
-### Favoriting a server by id will collide across servers without proper IDs
+---
+
+## Favoriting a server by id will collide across servers without proper IDs
 
 **Context:** implementing server-favorite UI on top of `FavoritesStore`/`FavoritesFilter` (SUB-02/SUB-03 of MP-20260706-favorite-countries-servers).
 
@@ -505,7 +604,9 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 **Commands/code:** n/a — design note, not a runtime fix.
 
-### Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere — RESOLVED in SUB-02 (superseded prior note)
+---
+
+## Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere — RESOLVED in SUB-02 (superseded prior note)
 
 **Context:** `FavoritesStore` (SUB-01) originally persisted favorite country codes with plain string equality (raw values), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`. SUB-01's review/gate carried this forward as a non-blocking risk, on the assumption that case-insensitive filtering elsewhere was enough.
 
@@ -614,7 +715,9 @@ SUB-03 (`CountryServersActivity.kt`).
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`showPopupMenu`, `onDestroy`)
 - `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)
 
-### `adb input keyevent --longpress` delivers a short press on Android TV
+---
+
+## `adb input keyevent --longpress` delivers a short press on Android TV
 **Context:** Manual QA of D-pad long-press features (SUB-04 FavoriteActionDialog) on MIBOX4 / Android 9 TV over adb.
 **Problem:** Both `input keyevent --longpress KEYCODE_DPAD_CENTER` and `--longpress 23` fire the row's click (short press) instead of `performLongClick` — the injected pair never holds the key across the confirm-key long-press timeout, so the dialog cannot be opened via `input`.
 **Solution:** Inject a genuinely held key with `sendevent` on the remote's input device (found via `getevent -pl`; on MIBOX4 the "Xiaomi RC" is `/dev/input/event2`, KEY_SELECT scancode 353 maps to DPAD_CENTER).
@@ -624,7 +727,9 @@ adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/e
 ```
 See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
 
-### Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)
+---
+
+## Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)
 
 **Context:** Screens with a pinned Favorites section at adapter position 0 (SUB-02/SUB-03 pattern) also emit a `FocusFirstItem` effect that scrolls/focuses the first *data* row (position 1) for TV D-pad UX.
 
@@ -642,7 +747,9 @@ See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV Q
 
 **First encountered:** SUB-03 (`CountryServersActivity`, commit 8c5928e); recurrence caught by SUB-05 manual E2E (`ServerListActivity`, commit d391eb8); refined in SUB-08+SUB-09 defect-fix (`TvUtils.applyFocusFirstItem` decoupling, commits 46351c3/22ca39a).
 
-### `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
+---
+
+## `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
 **Context:** Manual QA of locale-dependent UI text (SUB-07 favorites string translations) on a Samsung Galaxy A71 (One UI) over adb.
 **Problem:** Setting the system-wide locale via `adb shell settings put system system_locales <locales>` does not reliably take effect for a running or freshly relaunched app on Samsung/One UI — `mGlobalConfiguration` stays pinned to the prior locale even after force-stop and relaunch, so RU/PL string verification silently keeps showing the wrong locale's strings.
 **Solution:** Use the Android 13+ per-app locale override instead, which One UI honors:
@@ -654,20 +761,25 @@ adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # c
 Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
 **First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
 
-### Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
-**Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome, without touching `FavoriteActionDialog.kt`'s presentation-gate logic, leak-guard tracking, or the activities' PopupMenu construction code (all of it needed to stay behaviorally untouched per the story's ACs).
-**Problem:** Both `android.widget.PopupMenu(context, anchor)` and `AlertDialog.Builder(activity)` are plain framework/AppCompat constructors — there's no obvious per-instance styling hook without wrapping them in a custom class or passing a themed `ContextThemeWrapper` at every call site.
-**Solution:** Both widgets resolve their appearance from theme attributes read at construction time: `PopupMenu` reads `android:popupMenuStyle` from the `Context`'s theme, and `AlertDialog.Builder` reads `alertDialogTheme`. Point both attributes at new custom styles in the app's `values/themes.xml` (a `Widget.*.PopupMenu` style with `android:popupBackground` set to a custom rounded-corner drawable, and a `ThemeOverlay.*.AlertDialog` with a `shapeAppearanceOverlay`/corner radius and `colorSurface` background) and every existing call site — the app's own `PopupMenu`/`AlertDialog.Builder` calls, and `MainActivityCore.showUpdateDialog` — picks up the new look automatically, with zero changes to the Kotlin call sites. Mirror the styles in `values-night` (or use theme-attribute colors, e.g. `?attr/colorSurface`) for dark-theme parity.
-**First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).
-**Follow-up defect:** a style being technically wired up does not guarantee it is *visually distinguishable*. The first delivery of this fix was marked passed by an automated manual-QA subagent on attribute-chain reasoning alone (no actual screenshot comparison), and later a real device build still looked stock/default to the user — the resolved `colorSurface`/background value was too close to the surrounding page background, and after a later review-driven fix removed a self-referencing color attribute (see the Codex/Gemini review-loop finding below), the dialog lost its only other visible customization (`shapeAppearanceOverlay` alone is not enough contrast at small dialog sizes). **Rule going forward:** any styling/theming acceptance criterion must be verified with an actual on-device screenshot, visually compared against the stock/default widget and any named reference component — see the updated constraint in `.github/skills/e2e-manual-testing/SKILL.md`.
+---
 
-### `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
+## Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
+**Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome.
+**Summary:** Both widgets resolve appearance from theme attributes read at construction time (`android:popupMenuStyle` / `alertDialogTheme`), not from wrapping/subclassing — so both can be restyled via `values/themes.xml` with zero Kotlin call-site changes. The full narrative (why the first attempt still looked stock, the elevation-overlay confusion, the eventual `android:windowBackground`/stroke fix) is documented once, in detail, in `src/docs/favorites-ui-patterns.md`'s "Themed Styling (SUB-08)" and "TV D-pad Dialog Pattern" sections — read those for the canonical telling instead of this summary.
+**Rule going forward:** any styling/theming acceptance criterion must be verified with an actual on-device screenshot, visually compared against the stock/default widget — a style being technically wired up does not guarantee it is visually distinguishable.
+**First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).
+
+---
+
+## `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
 **Context:** Independent test-suite verification during the `favorites-section-and-dialog-redesign` code review (commit `3550da6`), unrelated to the favorites/dialog changes under review — the test file is untouched by that commit.
 **Problem:** `./gradlew testDebugUnitTestApp --rerun-tasks` occasionally fails this one test with `java.io.FileNotFoundException` reading a Robolectric temp-dir cache CSV (`ServerRepository.parseServers`), while the rest of the 760-test suite passes. The test exercises concurrent force-refreshes racing to write/read the same on-disk cache file; under full-suite parallel test execution on Windows the file can be deleted/replaced by a sibling coroutine between an existence check and the read.
 **Solution:** Re-running just the failing test in isolation (`--tests "...ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write" --rerun-tasks`) passes, and a second full `--rerun-tasks` run of the whole suite also passed clean (0 failures). Treat a lone failure of this specific test as environment flakiness, not a regression, unless `ServerRepository.kt` or its test was actually touched by the diff under review — always cross-check `git show --stat <commit> -- '*ServerRepository*'` before accepting that explanation.
 **First encountered:** Code review of `favorites-section-and-dialog-redesign` (commit `3550da6`).
 
-### `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
+---
+
+## `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
 **Context:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 defect-fix round) attempted to close a coverage gap for `FavoriteActionDialog`'s title-color fix by extracting a testable seam (`resolveThemedTitleColor(context): Int`) that calls `ContextCompat.getColor(context, R.color.text_color_primary)` directly — deliberately avoiding any AppCompat/Material theme-attribute resolution, since `FavoriteActionDialogTest`'s existing class KDoc already documents that *those* can't resolve in this module's Robolectric setup (legacy resources mode).
 **Problem:** Even this plain, non-themed color-resource lookup throws `android.content.res.Resources$NotFoundException` when run from `:core:testDebugUnitTest` (`ShadowLegacyAssetManager.getResName` fails to resolve the `core` module's own `R.color` id). The previously documented constraint ("AppCompat/Material theme resources don't resolve") undersold the actual limitation — it is not specific to theme attributes; direct `@ColorRes`/`@DrawableRes`/etc. lookups against this module's own resources fail too under `RuntimeEnvironment.getApplication()`'s legacy resource shadow, at least without additional Robolectric config (e.g. a manifest/package override) not currently present in this module's test setup.
 **Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.

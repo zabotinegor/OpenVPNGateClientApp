@@ -163,12 +163,12 @@ The project is configured for optimized build performance in `src/gradle.propert
 
 For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
 ## Manual E2E Documentation
-- Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md)
+- Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md) — describes the real per-story structure (`tests/manual-e2e/stories/{id}/{specs,suites,cases}/`)
 - Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
-- Specifications: [tests/manual-e2e/specs](tests/manual-e2e/specs)
-- Suites: [tests/manual-e2e/suites](tests/manual-e2e/suites)
-- Test cases: [tests/manual-e2e/cases](tests/manual-e2e/cases)
 - Run artifacts/evidence: [artifacts/manual-qa](artifacts/manual-qa)
+
+## AI-Agent Knowledge Base
+- Entry point: [src/docs/INDEX.md](src/docs/INDEX.md) — catalog of flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks for AI agents working in this repo.
 
 ## Runtime Behavior (from current code)
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.

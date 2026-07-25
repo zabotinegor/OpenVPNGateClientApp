@@ -3,6 +3,18 @@
 This runbook collects non-obvious techniques and patterns discovered during development. Add an
 entry when a technique is reusable and not obvious from the library documentation alone.
 
+## Index
+
+Read this list first and jump to the one relevant heading — don't read the whole file.
+
+- Use MockWebServer in pure-JVM unit tests (no Robolectric)
+- Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed
+- Verify SSE client connection on device
+- Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern
+- Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)
+- How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)
+- Manually verify a SharedPreferences migration path on a real device
+
 ---
 
 ## Use MockWebServer in pure-JVM unit tests (no Robolectric)
@@ -108,15 +120,10 @@ whether that event should trigger a hardprobe.
 
 **When hardprobes are enqueued**
 
-`ProbeRequestQueue.enqueue(serverId)` is called at five points in the VPN lifecycle:
-
-| Event | Code location | Notes |
-|---|---|---|
-| Auto-switch timed/immediate | `ServerAutoSwitcher.requestSwitchNow()` | Probe for the failing server before `nextServerCircular()` advances the index. |
-| DEFAULT_V2 hydration early-return | `ServerAutoSwitcher.requestSwitchNow()` | Probe enqueued before the function returns for on-demand hydration. Added in US-12. |
-| Engine VPN_STATUS failure | `OpenVpnService.updateState()` | Probe for the failing server on `VPN_STATUS` auto-switch path. |
-| Watchdog recovery | `OpenVpnService.handleConnectedProbeResult()` | Probe for the stalled server when watchdog triggers a reconnect. |
-| User-initiated disconnect | `OpenVpnService.finishStopFlowConfirmed()` | Probe for the server that was active when the user tapped Disconnect. Added in US-12. |
+`ProbeRequestQueue.enqueue(serverId)` is called at five points in the VPN lifecycle — see
+`src/docs/server-sync-flow.md`'s "Hardprobe Trigger Points" section for the canonical, up-to-date
+list of call sites (this file used to keep its own copy of that table; it drifted out of the two
+other places it was also copied into, so it's now a single pointer instead of a third copy).
 
 **Why `serverId == 0` is a no-op**
 
@@ -266,27 +273,29 @@ When building a scrollable list that displays a "pinned favorites" header + rows
 
 **Architecture overview**
 
-Use a **sealed class** to represent different item types:
+This is the real shape used in production (`src/core/.../serverlist/CountryListAdapter.kt`), not a
+generic sketch — use these exact names, not a reinvented `ListItem`/`Item` pair:
 
 ```kotlin
-sealed class ListItem {
-    data class SectionHeader(val label: String) : ListItem()
-    data class Row(val item: Item, val isFavorite: Boolean) : ListItem()
+sealed interface CountryListItem {
+    data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : CountryListItem
+    data class CountryRow(
+        val country: Country,
+        val isFavorite: Boolean,
+        // true only for the row instance rendered inside the pinned "Favorites" block;
+        // the same favorited country also appears again lower down with isPinnedSection = false
+        val isPinnedSection: Boolean = false
+    ) : CountryListItem
 }
 ```
 
-The `isFavorite` boolean is computed fresh on every list build so the `PopupMenu` always shows the correct "Add" or "Remove" label.
+The `isFavorite` boolean is computed fresh on every list build so the long-press menu/dialog always
+shows the correct "Add"/"Remove" label. `isPinnedSection` is what lets the adapter (via
+`pinnedSectionItemCount()`) tell `FavoritesSectionCardDecoration` how many leading items to draw the
+pinned card background around — see `src/docs/favorites-ui-patterns.md`'s "Visual Framing and Card
+Treatment" section for that decoration mechanism, which this entry doesn't otherwise cover.
 
-**Step 1 — Define the sealed ListItem type**
-
-```kotlin
-sealed class ListItem {
-    data class SectionHeader(val label: String) : ListItem()
-    data class Row(val item: Server, val isFavorite: Boolean) : ListItem()
-}
-```
-
-**Step 2 — Build the list with favorites pinned at top (ADDITIVE pattern)**
+**Step 1 — Build the list with favorites pinned at top (ADDITIVE pattern)**
 
 The pinned Favorites section is purely **additive**: favorited items appear in the pinned
 section at the top AND remain at their normal position in the regular list below, marked
@@ -298,47 +307,36 @@ screen (SUB-02, `ServerListViewModel.buildItems()`) and the servers-in-country s
 In your ViewModel's `buildItems()` method:
 
 ```kotlin
-fun buildItems(): List<ListItem> {
-    val favorites = favoritesFilter.filterFavoriteServers(favoriteIds, allServers)
+fun buildItems(): List<CountryListItem> {
+    val favorites = favoritesFilter.filterFavoriteCountries(favoriteCodes, allCountries)
 
-    return mutableListOf<ListItem>().apply {
+    return buildList {
         // Pinned section (hidden if empty) — additive shortcut on top
         if (favorites.isNotEmpty()) {
-            add(ListItem.SectionHeader("Favorites"))
-            favorites.forEach { server ->
-                add(ListItem.Row(server, isFavorite = true))
+            add(CountryListItem.SectionHeader(favoritesTitle, showFavoriteIcon = true))
+            favorites.forEach { country ->
+                add(CountryListItem.CountryRow(country, isFavorite = true, isPinnedSection = true))
             }
         }
         // Regular section: ALL items, favorites included at their normal position.
-        // Mark favorite status via O(1) Set lookup (favoriteIds is a Set), not List.contains.
-        allServers.forEach { server ->
-            add(ListItem.Row(server, isFavorite = server.id in favoriteIds))
+        // Mark favorite status via O(1) Set lookup, not List.contains.
+        allCountries.forEach { country ->
+            add(CountryListItem.CountryRow(country, isFavorite = country.code in favoriteCodes))
         }
     }
 }
 ```
 
-**Step 3 — Two RecyclerView view types**
-
-In your adapter:
+**Step 2 — View types keyed off the sealed interface**
 
 ```kotlin
-const val VIEW_TYPE_SECTION_HEADER = 0
-const val VIEW_TYPE_ROW = 1
-
 override fun getItemViewType(position: Int): Int = when (items[position]) {
-    is ListItem.SectionHeader -> VIEW_TYPE_SECTION_HEADER
-    is ListItem.Row -> VIEW_TYPE_ROW
-}
-
-override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = when (viewType) {
-    VIEW_TYPE_SECTION_HEADER -> SectionHeaderViewHolder(...)
-    VIEW_TYPE_ROW -> RowViewHolder(...)
-    else -> throw IllegalArgumentException("Unknown view type: $viewType")
+    is CountryListItem.SectionHeader -> VIEW_TYPE_HEADER
+    is CountryListItem.CountryRow -> VIEW_TYPE_COUNTRY
 }
 ```
 
-**Step 4 — Long-press with PopupMenu**
+**Step 3 — Long-press with PopupMenu**
 
 In your Activity, handle long-press on rows:
 

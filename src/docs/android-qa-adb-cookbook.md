@@ -90,14 +90,12 @@ adb -s <SERIAL> logcat -d | Select-String "Failed to wire ProbeRequestQueue|NoBe
 | `enqueue` with a non-zero server ID | Probe request dispatched for that server |
 | `NoBeanDefFoundException` / `KoinException` | `ProbeRequestQueue` not wired in Koin DI; check `CoreDi.kt` |
 
-### Probe trigger points (SUB-04)
+### Probe trigger points
 
-Two code paths enqueue a probe:
-
-1. **Autoswitch timeout path** (`ServerAutoSwitcher.requestSwitchNow()`): captures the failing server ID *before* rotating to the next server, guards against `LEVEL_NONETWORK` (sets ID to 0) and ID=0, then calls `probeRequestQueue?.enqueue(failingServerId)`.
-2. **Watchdog recovery path** (`OpenVpnService.handleConnectedProbeResult()`): reads `SelectedCountryStore.currentServer(applicationContext)?.id` for the current server and enqueues a probe after the watchdog reconnects.
-
-Server IDs must be non-zero for a probe to be enqueued. A zero ID is silently skipped.
+See `src/docs/server-sync-flow.md`'s "Hardprobe Trigger Points" section for the canonical, current
+list of code paths that enqueue a probe — this cookbook used to keep its own copy of that list and
+it had drifted stale (undercounting the paths). Server IDs must be non-zero for a probe to be
+enqueued; a zero ID is silently skipped.
 
 ---
 
