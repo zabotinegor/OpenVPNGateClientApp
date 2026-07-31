@@ -40,16 +40,28 @@ attempts and then a clean failure, not an infinite reconnect loop.
 `vpn/ServerAutoSwitcher.kt` detects a *stalled* connection and rotates to another server in the same
 country rather than failing outright.
 
-- **Off by default.** Gated on the `auto_switch_within_country` setting.
+- **On by default.** `autoSwitchWithinCountry` defaults to `true`, and
+  `UserSettingsStore.load()` reads it with `getBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, true)`. A user
+  must turn it off, not on.
 - Stall threshold comes from `status_stall_timeout_seconds` (default 5, minimum 1) — see
   [../reference/settings-keys.md](../reference/settings-keys.md).
-- `requestSwitchNow()` triggers a switch; `nextServerCircular()` picks the next candidate, wrapping
-  around the country's list rather than stopping at the end.
+- `requestSwitchNow()` triggers a switch; `nextServerCircular()` picks the next candidate.
 - It holds a `probeRequestQueue` from the same Koin instance the service uses, set in
   `OpenVpnService.onCreate()` and cleared in `onDestroy()`.
 
-Because selection is circular, a country whose servers are all unreachable will cycle. The bound here
-is the watchdog's attempt cap and the user, not the switcher itself.
+**It stops after one full cycle — it does not loop.** `ServerAutoSwitcher` records
+`cycleStartIndex` on the first switch of a run, and `nextServerCircular(ctx, startIndex)` returns
+`null` as soon as the next index would equal that start. On `null` the switcher logs
+"completed full server cycle", restores the starting index via
+`SelectedCountryStore.setCurrentIndex`, cancels with `resetCycle = true`, clears the reconnect hint,
+sets `ConnectionState.DISCONNECTED` and stops the engine.
+
+So a country whose servers are all unreachable produces exactly one pass over the list and then a
+clean disconnect at the original selection. That is the termination invariant to test against; the
+watchdog's attempt cap is a separate bound on a different path.
+
+One exception: for `DEFAULT_V2` with an empty store, a `null` next server first triggers on-demand
+hydration and re-evaluates, rather than concluding there is no alternative.
 
 ## Stop and teardown
 

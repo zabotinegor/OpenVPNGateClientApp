@@ -10,7 +10,7 @@ User settings persisted through `UserSettingsStore`, plus the one store that liv
 | `theme` | `ThemeOption` | `SYSTEM` | `SYSTEM`, `LIGHT`, `DARK` |
 | `server_source` | `ServerSource` | `DEFAULT_V2` | **two values only** — see below |
 | `cache_ttl_ms` | Long | `1_200_000` (20 min) | clamped to a minimum of `60_000` |
-| `auto_switch_within_country` | Boolean | off | gates `ServerAutoSwitcher` |
+| `auto_switch_within_country` | Boolean | **on** | gates `ServerAutoSwitcher`; defaults to `true`, so a user opts *out* |
 | `status_stall_timeout_seconds` | Int | `5` | minimum `1`; migrated from `auto_switch_timeout_seconds` |
 | `dns_option` | `DnsOption` | `SERVER` | 8 values, see [../features/dns.md](../features/dns.md) |
 
