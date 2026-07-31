@@ -272,7 +272,16 @@ The favorites long-press dialog on TV (`FavoriteActionDialog`) is triggered by a
 **What does NOT work on this device (MIBOX4, Android 9 / API 28):**
 
 - `adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` — the `--longpress` flag is accepted without error but silently behaves like a normal short click (navigates into the row instead of opening the dialog). This flag appears unreliable/not honored on this old API 28 `input` command build.
-- `adb shell sendevent /dev/input/eventN 1 28 1` (manually holding `KEY_ENTER` down on the physical remote's evdev device, e.g. `/dev/input/event3` "Xiaomi RC") — produced no effect at all (no click, no long-click). The remote's physical evdev node is not the path `adb shell input` uses internally (that command injects directly via `InputManager`, bypassing evdev), so manually driving the physical remote device node doesn't reach the app.
+- `adb shell sendevent /dev/input/eventN 1 28 1` (holding `KEY_ENTER`, scancode 28, on `/dev/input/event3`) — produced no effect at all in this run.
+
+  > **Correction.** The original note here concluded that evdev injection "doesn't reach the app"
+  > because `adb shell input` bypasses evdev via `InputManager`. That reasoning is wrong — it would
+  > mean `sendevent` could never work, yet it is the documented working technique in
+  > [device-qa-tv.md](device-qa-tv.md) and
+  > [../guides/troubleshooting.md](../guides/troubleshooting.md), both using **`/dev/input/event2`
+  > with scancode `353` (`KEY_SELECT`)**. This run used a different node *and* a different scancode,
+  > which is the far more likely explanation for the null result. Resolve the node and scancode with
+  > `getevent -pl` rather than assuming either.
 
 **What works:** inject a synthetic **touchscreen** hold at the row's on-screen coordinates, exactly like the mobile long-press trick, even though this is a Leanback/D-pad-first TV app with no physical touchscreen:
 

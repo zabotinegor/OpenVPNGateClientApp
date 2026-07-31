@@ -17,6 +17,18 @@ Splash (`tv.SplashActivity`) transitions to `tv.MainActivity` in ~8 s. Confirm w
 
 ## D-pad long-press: `input keyevent --longpress` DOES NOT WORK
 
+> **Canonical answer for TV long-press.** Use `input swipe <x> <y> <x> <y> 800` — a stationary touch
+> hold. Every recorded run agrees it works, it needs no device-node lookup, and it reaches the same
+> `OnLongClickListener` because the row views set one listener for both touch and key paths.
+>
+> `sendevent` also works, but only against the **right node and scancode**: on MIBOX4 that is
+> `/dev/input/event2` with `353` (`KEY_SELECT`). A run using `/dev/input/event3` with `28`
+> (`KEY_ENTER`) produced nothing, which reads as "sendevent is broken" but is a wrong-node/wrong-code
+> result. Always resolve both with `getevent -pl` first.
+>
+> This reconciles three previously conflicting write-ups. It is inferred from their own commands
+> rather than re-tested — confirm on hardware next time a MIBOX4 is to hand, then delete this note.
+
 On MIBOX4 (Android 9), both `input keyevent --longpress KEYCODE_DPAD_CENTER` and
 `input keyevent --longpress 23` are delivered as a SHORT press (the row click fires, e.g. the
 countries row navigates instead of opening the favorite dialog). The injected event pair does not
