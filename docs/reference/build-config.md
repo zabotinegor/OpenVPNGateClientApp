@@ -6,12 +6,12 @@ SDK levels, build fields, and how backend URLs are resolved. Run all Gradle comm
 
 | Module | compileSdk | minSdk | targetSdk |
 |---|---|---|---|
-| `core` | 36 | 24 | 36 |
-| `mobile` | 36 | 16* | 35 |
-| `tv` | 32 | 16* | 31 |
+| `core` | 36 | 24 | — (library module, not set) |
+| `mobile` | 36 | 24 | 36 |
+| `tv` | 36 | 24 | 36 |
 | **`:openVpnEngine`** (submodule) | **37** | 23 | **37** |
 
-\* launcher modules inherit the effective minimum from `core`.
+All three app modules are aligned at compileSdk/targetSdk 36 and minSdk 24. Only the engine differs.
 
 > **The engine compiles against a higher SDK than the app.** A clean build on a machine without SDK
 > Platform 37 fails with `Failed to find target with hash string 'android-37'`. Install the platform
