@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Context
+import android.os.Handler
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.IOpenVPNServiceInternal
@@ -467,6 +468,176 @@ class OpenVpnServiceWatchdogTest {
         assertTrue(calledHosts.contains(secondHost))
         assertEquals(0, ReflectionHelpers.getField<Int>(watchdogState, "consecutiveFailures"))
         assertFalse(ReflectionHelpers.getField<Boolean>(watchdogState, "degraded"))
+    }
+
+    // --- Recovery budget across watchdog-driven reconnects -------------------------------------
+    //
+    // A recovery attempt reconnects, and trafficPollRunnable zeroes watchdogState on every
+    // connection-state transition. Without the carry-over, the watchdog reset its own budget every
+    // time it spent some of it: recoveryAttempts never exceeded 1, the attempt limit was
+    // unreachable, and a server that connects cleanly but carries no traffic was retried forever.
+
+    @Test
+    fun watchdogDrivenReconnect_preservesRecoveryAttempts() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        var dispatches = 0
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> dispatches += 1 } as (Context, String, String?) -> Unit)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertEquals(1, recoveryAttempts(service))
+        assertEquals(1, dispatches)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+
+        simulateReconnect(service)
+
+        assertEquals(
+            "the attempt count must survive the reconnect the watchdog itself caused",
+            1,
+            recoveryAttempts(service)
+        )
+        assertEquals(
+            "timing fields are deliberately not carried: the new tunnel gets a fresh warmup",
+            0L,
+            ReflectionHelpers.getField<Long>(
+                ReflectionHelpers.getField<Any>(service, "watchdogState"),
+                "lastRecoveryTimestamp"
+            )
+        )
+    }
+
+    @Test
+    fun repeatedUnhealthyReconnects_reachAttemptLimitAndFailSafe() {
+        var now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        var dispatches = 0
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> dispatches += 1 } as (Context, String, String?) -> Unit)
+        )
+        ReflectionHelpers.setField(
+            service,
+            "engineBinder",
+            object : IOpenVPNServiceInternal.Stub() {
+                override fun protect(fd: Int) = false
+                override fun userPause(b: Boolean) {}
+                override fun stopVPN(replaceConnection: Boolean) = true
+                override fun addAllowedExternalApp(packagename: String?) {}
+                override fun isAllowedExternalApp(packagename: String?) = false
+                override fun challengeResponse(repsonse: String?) {}
+            }
+        )
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        // Three unhealthy episodes, each followed by the reconnect that recovery triggers.
+        for (expectedAttempt in 1..3) {
+            setConsecutiveFailures(service, 2)
+            invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+            assertEquals(expectedAttempt, recoveryAttempts(service))
+            assertEquals(expectedAttempt, dispatches)
+            simulateReconnect(service)
+            now += 20_000L
+        }
+
+        // The fourth unhealthy episode must give up rather than dispatch a fourth recovery.
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertEquals("no fourth recovery may be dispatched", 3, dispatches)
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("Watchdog: fail-safe disconnect reason=attempt_limit_reached") })
+    }
+
+    @Test
+    fun transitionOutsideRecovery_stillResetsAttempts() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        ReflectionHelpers.setField(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "recoveryAttempts",
+            2
+        )
+
+        // watchdogRecoveryInFlight is false: this is a user- or network-driven transition.
+        simulateReconnect(service)
+
+        assertEquals(
+            "the counter must not become sticky in general -- only across the watchdog's own reconnects",
+            0,
+            recoveryAttempts(service)
+        )
+    }
+
+    @Test
+    fun healthyTraffic_endsCarryOverSoNextTransitionResets() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> } as (Context, String, String?) -> Unit)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+
+        // Traffic flows again: the recovery chain succeeded.
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 4096L)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+        assertEquals(0, recoveryAttempts(service))
+    }
+
+    /** watchdogState is replaced wholesale on every transition, so always re-read it. */
+    private fun recoveryAttempts(service: OpenVpnService): Int =
+        ReflectionHelpers.getField<Int>(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "recoveryAttempts"
+        )
+
+    private fun setConsecutiveFailures(service: OpenVpnService, value: Int) {
+        ReflectionHelpers.setField(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "consecutiveFailures",
+            value
+        )
+    }
+
+    /** CONNECTED -> CONNECTING -> CONNECTED, with the poller observing each transition. */
+    private fun simulateReconnect(service: OpenVpnService) {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        pollOnce(service)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        pollOnce(service)
+    }
+
+    /**
+     * trafficPollRunnable re-posts itself, so drop the pending callback rather than letting the
+     * looper spin forever.
+     */
+    private fun pollOnce(service: OpenVpnService) {
+        val runnable = ReflectionHelpers.getField<Runnable>(service, "trafficPollRunnable")
+        runnable.run()
+        ReflectionHelpers.getField<Handler>(service, "trafficHandler").removeCallbacks(runnable)
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {

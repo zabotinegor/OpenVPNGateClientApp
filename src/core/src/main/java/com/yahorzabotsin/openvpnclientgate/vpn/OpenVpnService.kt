@@ -191,6 +191,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val title: String?
     )
     private var watchdogState = HealthWatchdogState()
+
+    /**
+     * True from the moment the watchdog dispatches a recovery until traffic actually flows again,
+     * the fail-safe fires, or the user starts a connection themselves.
+     *
+     * Recovery reconnects, so it causes the very connection-state transition that
+     * [resetHealthWatchdog] zeroes. Without this flag [HealthWatchdogState.recoveryAttempts] would
+     * restart at 0 after every attempt, WATCHDOG_MAX_RECOVERY_ATTEMPTS would never be reached, and
+     * a server that connects cleanly but carries no traffic would be retried forever.
+     */
+    private var watchdogRecoveryInFlight = false
     internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
     internal var watchdogProbeDispatcher: CoroutineDispatcher = Dispatchers.IO
     internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
@@ -659,6 +670,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } else {
                     sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                     sessionAttempt = 1
+                    // A user-initiated start is a fresh budget. Only auto-switch reconnects
+                    // (isReconnect) continue an in-flight watchdog recovery chain.
+                    watchdogRecoveryInFlight = false
+                    watchdogState.recoveryAttempts = 0
                 }
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
@@ -1298,12 +1313,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
                 val currentState = ConnectionStateManager.state.value
                 if (currentState != lastPolledState) {
+                    // A watchdog-driven recovery reconnects, so it lands here itself. Carry the
+                    // attempt count across that transition -- otherwise the watchdog resets its own
+                    // budget every time it spends some of it. Timing fields are deliberately NOT
+                    // carried: the new tunnel gets a fresh warmup grace period.
+                    val carriedRecoveryAttempts =
+                        if (watchdogRecoveryInFlight) watchdogState.recoveryAttempts else 0
                     if (currentState == ConnectionState.CONNECTED) {
                         resetHealthWatchdog(nowMs = watchdogNowMs())
                     } else {
                         lastPolledDatapoint = null
                         resetHealthWatchdog()
                     }
+                    watchdogState.recoveryAttempts = carriedRecoveryAttempts
                     lastPolledState = currentState
                 }
 
@@ -1483,6 +1505,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try { probeQueue?.enqueue(watchdogServerId) } catch (e: Exception) { AppLog.w(TAG, "Watchdog: failed to enqueue hardprobe for serverId=$watchdogServerId", e) }
         }
         try {
+            // Set before dispatch: beginChainedSwitch can drive the state change synchronously.
+            watchdogRecoveryInFlight = true
             watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
         } catch (e: Exception) {
             AppLog.w(TAG, "Watchdog: failed to dispatch recovery", e)
@@ -1494,6 +1518,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val hadRecoveryState = watchdogState.degraded || watchdogState.recoveryAttempts > 0 || watchdogState.consecutiveFailures > 0
         watchdogState.consecutiveFailures = 0
         watchdogState.degraded = false
+        // Traffic is flowing again: the recovery chain succeeded, so the budget is genuinely spent
+        // and refilled. This is the only success path that clears the carry-over flag.
+        watchdogRecoveryInFlight = false
         watchdogState.recoveryAttempts = 0
         watchdogState.lastHealthyTimestamp = nowMs
         watchdogState.lastRecoveryTimestamp = 0L
@@ -1593,6 +1620,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun triggerWatchdogFailSafeDisconnect(reason: String) {
         AppLog.e(TAG, "Watchdog: fail-safe disconnect reason=${reason}")
+        // The recovery chain is over either way; do not carry the count into whatever comes next.
+        watchdogRecoveryInFlight = false
+        watchdogState.recoveryAttempts = 0
         startUserStopTeardown("watchdog_fail_safe", forceReset = true)
     }
 
