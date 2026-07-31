@@ -30,33 +30,35 @@ An empty set means every app goes through the tunnel.
 `applyDnsSettings` and the engine start:
 
 ```kotlin
+// safe state first -- the read below can throw
 profile.mAllowedAppsVpn.clear()
 profile.mAllowedAppsVpnAreDisallowed = true
-if (excluded.isNotEmpty()) profile.mAllowedAppsVpn.addAll(excluded)
+try {
+    val excluded = AppFilterStore.loadExcludedPackages(applicationContext)
+    if (excluded.isNotEmpty()) profile.mAllowedAppsVpn.addAll(excluded)
+} catch (t: Throwable) { /* logs a warning */ }
 ```
 
 Two things follow from this and are easy to get wrong:
 
-- **`mAllowedAppsVpnAreDisallowed = true` on every successful pass**, so the engine treats
-  `mAllowedAppsVpn` as a *disallow* list. The field name says "allowed"; the flag inverts it.
+- **`mAllowedAppsVpnAreDisallowed` is always `true`**, so the engine treats `mAllowedAppsVpn` as a
+  *disallow* list. The field name says "allowed"; the flag inverts it.
 - The filter is applied **at connect time only**. Changing the selection while connected does not
   re-apply it — the tunnel must be restarted for a change to take effect.
 
-**What happens if the read fails.** The method is wrapped in a `try/catch` that logs a warning and continues, but note the statement
-order: `loadExcludedPackages()` is the **first** statement in the `try`. If it throws — a corrupted
-or wrong-typed preference makes `getStringSet` raise `ClassCastException` — then neither
-`clear()` nor the `mAllowedAppsVpnAreDisallowed` assignment runs. The catch does not substitute a
-safe default; it only logs.
+**If the read fails, nothing is excluded.** `loadExcludedPackages()` can throw — a corrupted or
+wrong-typed preference makes `getStringSet` raise `ClassCastException` — so the two assignments that
+establish the safe state deliberately run *before* it, outside the `try`. A failed read therefore
+leaves an empty disallow list: everything is routed through the tunnel, which fails toward privacy
+rather than toward leaking traffic outside it.
 
-The outcome today is still "nothing excluded", but **that is not enforced here**. It holds because
-the profile reaching this method is always freshly built by `ConfigParser.convertProfile()`
-(`OpenVpnService.kt:849-856`), `ConfigParser` never touches these two fields, and upstream
-`VpnProfile` initializes `mAllowedAppsVpnAreDisallowed = true` with an empty `mAllowedAppsVpn`.
-
-That makes the privacy-relevant behaviour a property of **engine defaults in the submodule**, not of
-this client's code. If upstream flips that initializer, or if the profile ever arrives from
-`ProfileManager` rather than a fresh parse, the failure mode changes silently and nothing in this
-method would catch it. Treat it as a known gap rather than a guarantee.
+**The statement order is load-bearing; do not "tidy" the read back to the top of the method.** It was
+in that position until this was corrected. Nothing broke at the time, because the profile always
+arrives freshly built from `ConfigParser.convertProfile()` (`OpenVpnService.kt:849-856`),
+`ConfigParser` never touches these two fields, and upstream `VpnProfile.java:158` initializes
+`mAllowedAppsVpnAreDisallowed = true` with an empty `mAllowedAppsVpn`. That made a privacy-relevant
+guarantee depend on engine-submodule defaults and on the profile being fresh — neither of which this
+client controls. `OpenVpnServiceAppFilterTest` now pins the behaviour down here.
 
 ## Persistence
 
@@ -91,4 +93,4 @@ Enumerating other installed apps needs both:
 See [../reference/permissions.md](../reference/permissions.md). If package enumeration ever returns
 only this app on a new Android level, that split is the first place to look.
 
-*Last verified against: `core/filter/*`, `core/ui/filter/*`, `vpn/OpenVpnService.kt:868-878`, `core/di/CoreDi.kt:152` (2026-07-31).*
+*Last verified against: `core/filter/*`, `core/ui/filter/*`, `vpn/OpenVpnService.kt:868-884`, `core/di/CoreDi.kt:152`, `vpn/OpenVpnServiceAppFilterTest.kt` (2026-08-01).*

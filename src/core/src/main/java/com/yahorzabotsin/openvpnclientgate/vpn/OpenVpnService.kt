@@ -866,10 +866,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun applyAppFilter(profile: VpnProfile) {
+        // Establish the safe state (nothing excluded, list interpreted as a disallow list) BEFORE
+        // the fallible read. loadExcludedPackages() can throw -- getStringSet raises
+        // ClassCastException on a corrupted or wrong-typed preference -- and if it did so while
+        // these two assignments came after it, the profile would keep whatever it already carried.
+        // Do not reorder: this method must never leave app-routing directives half-applied.
+        profile.mAllowedAppsVpn.clear()
+        profile.mAllowedAppsVpnAreDisallowed = true
         try {
             val excluded = AppFilterStore.loadExcludedPackages(applicationContext)
-            profile.mAllowedAppsVpn.clear()
-            profile.mAllowedAppsVpnAreDisallowed = true
             if (excluded.isNotEmpty()) {
                 profile.mAllowedAppsVpn.addAll(excluded)
             }
