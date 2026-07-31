@@ -46,9 +46,17 @@ code problem. Current levels are in [../reference/build-config.md](../reference/
 
 ## Where the boundary is
 
-`core/vpn/OpenVpnService.kt` is the **only** file that imports `de.blinkt.openvpn.*` types. If you
-find yourself adding an engine import elsewhere, that is the signal to reconsider. The full
-integration surface, including the two-process/AIDL model, is described in
+Six production files in `core` import `de.blinkt.openvpn.*`, and the useful rule is not a file count:
+
+- **`core/vpn/OpenVpnService.kt` owns the whole service/lifecycle surface** — profiles, config
+  parsing, AIDL, launch, status listeners. Any of those types imported elsewhere is a violation.
+- **`ConnectionStatus` is an accepted seam**, published via `ConnectionStateManager.engineLevel` and
+  consumed by `ConnectionState.kt`, `ServerAutoSwitcher.kt` and the two connection-control UI
+  components, which need finer granularity than the app's own 6-value enum.
+- **`mobile` and `tv` import nothing from the engine.** That boundary is clean and must stay clean.
+
+Judge a new engine import against those categories, not against "only one file may import it".
+The full breakdown, with why each seam exists, plus the two-process/AIDL model, is in
 [../features/vpn-connection.md](../features/vpn-connection.md).
 
 *Last verified against: `.gitmodules`, `src/settings.gradle.kts`, `src/core/build.gradle.kts` (2026-07-31).*

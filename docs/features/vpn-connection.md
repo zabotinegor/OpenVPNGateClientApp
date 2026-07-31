@@ -34,17 +34,37 @@ registration so they do not start twice.
 
 ## The integration surface
 
-**`vpn/OpenVpnService.kt` is the only file that imports `de.blinkt.openvpn.*`.** Keep it that way —
-an engine import anywhere else is the signal that the boundary is leaking.
+The boundary is **not** "one file imports the engine". Six production files in `core` do. What
+actually holds is narrower and more useful:
 
-Types consumed: `VpnProfile`, `ConfigParser` (+`ConfigParseError`), `ConnectionStatus`,
-`IOpenVPNServiceInternal`, `ProfileManager`, `VPNLaunchHelper`, `VpnStatus`, `IServiceStatus`,
-`IStatusCallbacks`, `TrafficHistory`, `StatusSnapshot`. The controller implements
-`VpnStatus.StateListener`, `LogListener` and `ByteCountListener`.
+**1. The service and lifecycle surface is confined to `vpn/OpenVpnService.kt`.** Everything that
+starts, configures, binds to or tears down the engine lives there and nowhere else: `VpnProfile`,
+`ConfigParser` (+`ConfigParseError`), `IOpenVPNServiceInternal`, `ProfileManager`,
+`VPNLaunchHelper`, `VpnStatus`, `IServiceStatus`, `IStatusCallbacks`, `TrafficHistory`,
+`StatusSnapshot`. The controller implements `VpnStatus.StateListener`, `LogListener` and
+`ByteCountListener`. An import of any of these outside that file **is** a boundary violation.
 
-Two small exceptions outside that file: `CoreApp` calls
-`GlobalPreferences.setInstance(false, false, false)`, and `ConnectionState.kt` imports
-`ConnectionStatus` for the level mapping below.
+**2. `ConnectionStatus` is deliberately exposed as a value type**, published by
+`ConnectionStateManager.engineLevel: StateFlow<ConnectionStatus?>`. It is imported by:
+
+| File | Why |
+|---|---|
+| `vpn/ConnectionState.kt` | maps engine level onto the 6-value app enum (below) |
+| `vpn/ServerAutoSwitcher.kt` | per-level stall thresholds — `thresholdFor(level)` |
+| `core/ui/common/components/ConnectionControlsRuntime.kt` | re-publishes `engineLevel` to the UI |
+| `core/ui/common/components/ConnectionControlsPresenter.kt` | distinguishes `LEVEL_CONNECTING_NO_SERVER_REPLY_YET` from `LEVEL_CONNECTING_SERVER_REPLIED` for the countdown, and detects teardown |
+
+This exists because the 6-value `ConnectionState` is **deliberately coarser** than the engine's
+levels, and the progress UI and the stall detector both need the finer granularity. Treat it as an
+accepted seam, not as drift — but note the cost: an upstream rename of a `ConnectionStatus` member
+breaks presenter code, not just the service.
+
+**3. One initialisation call.** `CoreApp` calls `GlobalPreferences.setInstance(false, false, false)`
+at startup.
+
+**The boundary that holds cleanly is the module one: `mobile` and `tv` contain zero engine
+imports.** A `de.blinkt.openvpn` import appearing in a launcher module is unambiguously wrong. Inside
+`core`, judge a new import against the three categories above rather than against a file count.
 
 Engine repository, branch and update procedure: [../conventions/engine-submodule.md](../conventions/engine-submodule.md).
 

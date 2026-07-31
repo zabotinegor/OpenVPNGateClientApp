@@ -83,7 +83,8 @@ Resolution order in build scripts:
 3. `servers.local.json`
 
 ### Local file override (not committed)
-Create `servers.local.json` in either repository root or `src/`:
+Create `servers.local.json` in either repository root or `src/`. If both exist **`src/` wins** and
+the root copy is ignored — see [docs/reference/build-config.md](docs/reference/build-config.md).
 
 ```json
 {

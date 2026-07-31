@@ -27,7 +27,14 @@ JVM target 11.
 
 1. Gradle property (`-PPRIMARY_SERVERS_URL=...`)
 2. environment variable
-3. `servers.local.json` (repo root, then `src/`)
+3. `servers.local.json` — **`src/servers.local.json` first, repo root second**
+
+> **The `src/` copy wins.** `src/settings.gradle.kts` makes `src/` the Gradle root, so
+> `loadLocalServersConfig()` probes `rootProject.file("servers.local.json")` — that is
+> `src/servers.local.json` — before `rootProject.rootDir.parentFile`, the repository root. It takes
+> the **first file that exists** and never merges the two. If both are present, edits to the
+> repo-root copy have no effect and the build keeps using the endpoints in `src/`, silently. Delete
+> the `src/` copy rather than trying to override it.
 
 Both must be **HTTPS**, and a host of `placeholder` is rejected. The resolved values are emitted as
 `BuildConfig` fields; routes are derived from the primary base at runtime by `PrimaryDomainRoutes`,
