@@ -1,0 +1,82 @@
+# Per-app filter (split tunneling)
+
+Lets the user exclude specific installed apps from the VPN tunnel. Excluded apps use the normal
+network connection while the VPN is up.
+
+## Index
+
+- [Model](#model)
+- [How it reaches the tunnel](#how-it-reaches-the-tunnel)
+- [Persistence](#persistence)
+- [Listing installed apps](#listing-installed-apps)
+- [UI](#ui)
+- [Permissions](#permissions)
+
+---
+
+## Model
+
+```kotlin
+data class AppFilterEntry(val packageName: String, val label: String, val isSystemApp: Boolean)
+enum class AppCategory { USER, SYSTEM }
+```
+
+The stored state is a **set of excluded package names** — the filter is a denylist, not an allowlist.
+An empty set means every app goes through the tunnel.
+
+## How it reaches the tunnel
+
+`OpenVpnService.applyAppFilter(profile)` runs when the VPN profile is built, immediately before
+`applyDnsSettings` and the engine start:
+
+```kotlin
+profile.mAllowedAppsVpn.clear()
+profile.mAllowedAppsVpnAreDisallowed = true
+if (excluded.isNotEmpty()) profile.mAllowedAppsVpn.addAll(excluded)
+```
+
+Two things follow from this and are easy to get wrong:
+
+- **`mAllowedAppsVpnAreDisallowed = true` is set unconditionally**, so the engine always treats
+  `mAllowedAppsVpn` as a *disallow* list. The field name says "allowed"; the flag inverts it.
+- The filter is applied **at connect time only**. Changing the selection while connected does not
+  re-apply it — the tunnel must be restarted for a change to take effect.
+
+The whole method is wrapped in a `try/catch` that logs a warning and continues. A failure to read the
+stored set means **no apps are excluded**, i.e. it fails toward routing everything through the VPN
+rather than toward leaking traffic outside it.
+
+## Persistence
+
+`AppFilterStore`, a `SharedPreferences` file separate from the main settings:
+
+| | |
+|---|---|
+| Prefs file | `app_filter` |
+| Key | `excluded_packages` (string set) |
+
+`saveExcludedPackages` sanitizes the incoming set before writing. `updateExcludedPackages` applies a
+mutation lambda to the current set and persists the result.
+
+## Listing installed apps
+
+`AppFilterRepository` / `DefaultAppFilterRepository` (registered in `CoreDi`) enumerate installed
+packages and classify each as `USER` or `SYSTEM` via `AppFilterEntry.isSystemApp`, which is what the
+two-tab UI is built on.
+
+## UI
+
+`ui/filter/FilterActivity` with `FilterViewModel`, `FilterContract`, `FilterListAdapter`,
+`FilterPageFragment` (one per `AppCategory`), and `FilterLogger`.
+
+## Permissions
+
+Enumerating other installed apps needs both:
+
+- `QUERY_ALL_PACKAGES` — declared in the **engine** manifest, not the app's
+- a `<queries>` LAUNCHER intent block — in the core manifest
+
+See [../reference/permissions.md](../reference/permissions.md). If package enumeration ever returns
+only this app on a new Android level, that split is the first place to look.
+
+*Last verified against: `core/filter/*`, `core/ui/filter/*`, `vpn/OpenVpnService.kt:868-878`, `core/di/CoreDi.kt:152` (2026-07-31).*
