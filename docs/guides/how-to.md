@@ -5,15 +5,15 @@ entry when a technique is reusable and not obvious from the library documentatio
 
 ## Index
 
-Read this list first and jump to the one relevant heading — don't read the whole file.
+Read this list first and jump to the one relevant heading — do not read the whole file.
 
-- Use MockWebServer in pure-JVM unit tests (no Robolectric)
-- Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed
-- Verify SSE client connection on device
-- Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern
-- Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)
-- How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)
-- Manually verify a SharedPreferences migration path on a real device
+- [Use MockWebServer in pure-JVM unit tests (no Robolectric)](#use-mockwebserver-in-pure-jvm-unit-tests-no-robolectric)
+- [Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed](#hardprobe-enqueue-during-vpn-lifecycle--when-it-fires-and-when-it-is-suppressed)
+- [Verify SSE client connection on device](#verify-sse-client-connection-on-device)
+- [Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern](#pinned-favorites-section-with-sealed-listitem-types--sectioned-recyclerview-pattern)
+- [Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)](#serve-a-local-mock-backend-to-drive-availability-driven-qa-list-churn-favorites-hiderestore)
+- [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
+- [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
 
 ---
 
@@ -152,8 +152,8 @@ per server per event cluster.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`requestSwitchNow`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/ProbeRequestQueue.kt`
 - `src/docs/server-sync-flow.md` (Hardprobe Trigger Points section)
-- `docs/userstories/US-12-hardprobe-on-every-vpn-disconnect.md`
-- `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-04-vpn-inactivity-hardprobe-trigger.md`
+- the ClickUp story
+- the ClickUp story
 
 ---
 
@@ -261,7 +261,7 @@ Only `onClosed` / `onFailure` with a stable-connection elapsed time ≥ 10 s res
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
 - `src/docs/server-sync-flow.md` (SSE Server-Push Sync section)
 - `docs/runbooks/android-qa.md` (MP-20260621 SUB-02 section)
-- `docs/userstories/MP-20260621-server-push-sse/SUB-02-android-sse-client.md`
+- the ClickUp story
 
 ---
 
@@ -446,7 +446,7 @@ SUB-05 Manual QA (`CASE-SUB05-005-mock`, AC3 favorites availability hide/restore
 
 **References**
 
-- `tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/cases/CASE-SUB05-005-availability-hide-restore.md`
+- the ClickUp QA suite
 - `docs/runbooks/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
 - `src/docs/server-sync-flow.md` (sync trigger matrix)
 
@@ -537,4 +537,4 @@ no crash and correct fallback for users upgrading from a build where a removed s
 **References**
 
 - `src/core/.../settings/UserSettingsStore.kt` (`load()` migration logic)
-- `tests/manual-e2e/stories/US-15-remove-legacy-and-custom-server-sources/cases/` (manual QA case files)
+- the ClickUp QA suite (manual QA case files)

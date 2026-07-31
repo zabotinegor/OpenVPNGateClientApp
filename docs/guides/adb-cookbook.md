@@ -99,7 +99,7 @@ enqueued; a zero ID is silently skipped.
 
 ---
 
-## SSE Client Verification (SUB-05)
+## SSE client verification
 
 `SseServerEventsClient` logs under the tag `OpenVPNGateApp:SseServerEventsClient`.
 

@@ -8,13 +8,19 @@ mobile and TV surfaces (both drive the same underlying state).
 
 ## State Model
 
-| State | Visible controls | Notes |
-| --- | --- | --- |
-| Disconnected | Start connection | `pause_connection_button` is absent entirely. |
-| Connected | Pause + Stop | `start_connection_button` doubles as the Stop action in all active states (text changes, same view id). |
-| Pausing | Stop only | Transient: `pause_connection_button` is hidden immediately on tap, before `Paused` is reached — status text/logs show a pausing indicator. Can be short enough on fast devices/TV that broad polling misses the frame (see QA note below). |
-| Paused | Resume + Stop | `pause_connection_button` shows Resume; `start_connection_button` remains the Stop action. |
-| Resuming | Stop only | Transient: `pause_connection_button` (Resume) is hidden until connected; `start_connection_button` shows the same connecting-progress sequence as a fresh `disconnected → connected` connect (TCP/connect/auth/config stages). |
+**This table describes UI phases, not the state enum.** The underlying machine is
+`ConnectionState` with six values — `DISCONNECTED, CONNECTING, CONNECTED, PAUSING, PAUSED,
+DISCONNECTING` — documented in [vpn-connection.md](vpn-connection.md). There is no `RESUMING` state;
+"Resuming" below is a UI phase that maps onto `CONNECTING`.
+
+| UI phase | `ConnectionState` | Visible controls | Notes |
+| --- | --- | --- | --- |
+| Disconnected | `DISCONNECTED` | Start connection | `pause_connection_button` is absent entirely. |
+| Connected | `CONNECTED` | Pause + Stop | `start_connection_button` doubles as the Stop action in all active states (text changes, same view id). |
+| Pausing | `PAUSING` | Stop only | Transient: `pause_connection_button` is hidden immediately on tap, before `Paused` is reached — status text/logs show a pausing indicator. Can be short enough on fast devices/TV that broad polling misses the frame (see QA note below). |
+| Paused | `PAUSED` | Resume + Stop | `pause_connection_button` shows Resume; `start_connection_button` remains the Stop action. |
+| Resuming | **`CONNECTING`** | Stop only | Transient: `pause_connection_button` (Resume) is hidden until connected; `start_connection_button` shows the same connecting-progress sequence as a fresh `disconnected → connected` connect (TCP/connect/auth/config stages). `resumeTransitionInFlight` suppresses a stale `PAUSED` arriving mid-resume. |
+| Stopping | `DISCONNECTING` | Stop only | Transient, entered from any active phase on Stop. Held sticky while the engine reports a teardown detail (`NOPROCESS`, `EXITING`, `DISCONNECTED`) so the UI does not flicker back through an intermediate phase. |
 
 Control ids are stable across all active states — only the label/action on `start_connection_button`
 and the visibility of `pause_connection_button` change.

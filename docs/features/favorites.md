@@ -1,9 +1,23 @@
 # Favorites UI Patterns and Implementation Guide
 
-> **Note on `docs/qa-evidence/*.md` citations in this file:** that directory is gitignored/untracked
-> (per-task SDLC audit trail, not committed). Citations to it below are historical context for
-> contributors who have it locally, not guaranteed-resolvable links — the load-bearing technical
-> fact is always stated in the surrounding prose, not only in the cited evidence file.
+Data layer, case-normalization boundary, and the mobile and TV interaction patterns for favouriting
+countries and servers. QA evidence for this area lives in ClickUp.
+
+## Index
+
+Read this list first and jump to the one relevant heading — do not read the whole file.
+
+- [Overview](#overview)
+- [Case Normalization Boundary](#case-normalization-boundary)
+- [Long-Press PopupMenu Pattern](#long-press-popupmenu-pattern)
+- [Pinned Favorites Section](#pinned-favorites-section)
+- [Testing Strategy](#testing-strategy)
+- [TV D-pad Dialog Pattern (SUB-04)](#tv-d-pad-dialog-pattern-sub-04)
+- [Logging Considerations](#logging-considerations)
+- [Localization](#localization)
+- [Related Documents](#related-documents)
+
+---
 
 ## Overview
 
@@ -90,7 +104,7 @@ When testing servers or TV interaction, rely on the store's casing handling. Do 
 
 ### Precondition: Legacy Server.id Collision
 
-**See:** `docs/qa-evidence/favorites-data-layer-gate-1.md` — "Legacy Server.id=0 collision (major)"
+**See:** ClickUp QA evidence — "Legacy Server.id=0 collision (major)"
 
 The `FavoritesStore` treats `serverId <= 0` as invalid and silently drops them:
 
@@ -108,7 +122,7 @@ If a future migration allows CSV server favorites, this guard will need revision
 
 ## Long-Press PopupMenu Pattern
 
-### Overview
+### PopupMenu overview
 
 When a user long-presses a country or server row on mobile, a `PopupMenu` appears with an action to add or remove the item from favorites.
 
@@ -144,7 +158,7 @@ private fun showFavoriteActionMenu(country: Country) {
 
 This pattern ensures users always see the action they can take, not the state.
 
-### Themed Styling (SUB-08) and the "looks stock" Defect
+### Themed styling — mobile PopupMenu
 
 `android:popupMenuStyle` in the base theme (`Widget.OpenVPNClientGate.PopupMenu`, backed by
 `drawable/bg_popup_menu.xml`) styles the popup app-wide without touching `PopupMenu`
@@ -393,7 +407,7 @@ Store tests verify:
 
 ### Manual E2E Test Cases
 
-**Reference:** `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md`
+**Reference:** ClickUp QA evidence
 
 Test on a real device:
 
@@ -412,27 +426,6 @@ adb -s <your-device-serial> install -r mobile/build/outputs/apk/debug/mobile-deb
 adb -s <your-device-serial> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
 adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml | grep "Favorites"
 ```
-
-## Implementation Checklist for SUB-03 and SUB-04
-
-### For SUB-03 (Servers-in-country screen)
-
-- [ ] Add `FavoritesServerStore` interface (parallel to `FavoritesCountryStore`, wrapping `FavoritesStore.addFavoriteServer/etc`)
-- [ ] Wire `FavoritesServerStore` in `CoreDi.kt`
-- [ ] Update `CountryServersViewModel` to call `favoritesStore.add/removeFavoriteServer()`
-- [ ] Add long-press menu handler in `CountryServersActivity`
-- [ ] Replicate pinned "Favorites servers" section at top of servers list
-- [ ] Add unit tests following the `ServerListViewModelTest` pattern
-- [ ] Add manual E2E test cases parallel to SUB-02 evidence
-- [ ] Update `src/docs/favorites-ui-patterns.md` with SUB-03-specific notes if needed
-
-### For SUB-04 (TV D-pad)
-
-- [x] Adapt long-press pattern to D-pad navigation (hold OK/center on a focused row)
-- [x] Use a remote-navigable dialog (not a `PopupMenu`) on TV — see "TV D-pad Dialog Pattern"
-- [x] Test on an Android TV device (SUB-04 Manual QA on MIBOX4/Android 9 passed all 5 cases; consolidated coverage completed in SUB-05 Manual E2E — SUITE-SUB-05 executed and passed on a real phone + TV)
-- [x] Reuse pinned-section logic and filtering from SUB-02/SUB-03 (unchanged; rows already focusable)
-- [x] Update `src/docs/favorites-ui-patterns.md` with TV-specific guidance
 
 ## TV D-pad Dialog Pattern (SUB-04)
 
@@ -454,7 +447,7 @@ adb -s <your-device-serial> shell uiautomator dump /sdcard/ui.xml && cat /sdcard
   `TvDrawerInteractionGuard` (main screen drawer) is untouched — it never applied to the list
   Activities.
 
-### Themed Styling (SUB-08) and the "looks stock" Defect
+### Themed styling — TV dialog
 
 First attempt set `colorSurface`/`colorOnSurface`/`android:textColorPrimary` items on
 `ThemeOverlay.OpenVPNClientGate.AlertDialog` (`values/themes.xml`), reasoning by analogy with
@@ -520,60 +513,9 @@ tests (legacy Robolectric resources mode); on-device verification is done manual
 Manual QA passed all 5 cases (SUITE-SUB-04) on a MIBOX4 Android 9 TV; consolidated phone+TV
 coverage was completed in SUB-05 Manual E2E (SUITE-SUB-05 executed and passed on a real phone
 and TV, including availability hide/restore verified via a controlled local mock backend — see
-`tests/manual-e2e/stories/SUB-05-favorites-manual-e2e/`). For device setup, `sendevent`-based D-pad long-press
+the ClickUp QA suite). For device setup, `sendevent`-based D-pad long-press
 injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
 focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
-
-## Implementation Checklist for SUB-06/SUB-09 (Visual Framing and Card Design)
-
-**SUB-06 (superseded by SUB-09)**: Visual framing with stroke border.
-**SUB-09 (current)**: Visual framing replaced with filled card background, star icon, and "All ..." header.
-
-### Card Decoration (SUB-09)
-
-- [x] Create `FavoritesSectionCardDecoration` class extending `RecyclerView.ItemDecoration`
-- [x] Implement card background drawing logic using `?attr/colorSurfaceVariant` (theme-aware)
-- [x] Add internal padding to card so rows don't touch edges
-- [x] Add `pinnedSectionItemCount()` method to `CountryListAdapter` and `ServerPickerAdapter`
-- [x] Attach decoration to RecyclerView in `ServerListActivity` (countries screen)
-- [x] Attach decoration to RecyclerView in `CountryServersActivity` (servers-in-country screen)
-- [x] Add dimen resources: `favorites_section_card_corner_radius`, `favorites_section_card_padding`, `favorites_section_card_inset`
-- [x] Test card visibility on both mobile and TV (shares same code)
-- [x] Verify card hides when pinned section is empty
-- [x] Verify card renders correctly in light and night themes
-
-### Star Icon and "All ..." Header (SUB-09)
-
-- [x] Add star icon drawable (ic_star.xml or similar)
-- [x] Display star icon next to "Favorites" header text via `setCompoundDrawablesWithIntrinsicBounds()`
-- [x] Add new list section header for "All countries" / "All servers" above full list
-- [x] Implement adapter logic to insert second header conditionally (only when Favorites visible)
-- [x] Add localized string keys: `all_countries_section_title`, `all_servers_section_title`
-- [x] Translate into Russian and Polish (SUB-07)
-- [x] Test section header appearance and visibility on both mobile and TV
-- [x] Update `src/docs/favorites-ui-patterns.md` with card design, star icon, and header patterns
-
-### Per-Row Star Indicator (SUB-09 AC8, added after initial device testing)
-
-The section-header star alone was not sufficient — users need to see favorite status on a
-row-by-row basis in the full "All countries"/"All servers" list too, not just at the pinned
-section header.
-
-- [x] Add `row_favorite_star` `ImageView` (14dp, `?attr/colorOnSurface` tint, `ic_star`) to
-      `item_country_row.xml` and `item_server_row.xml`, `gone` by default
-- [x] `CountryListAdapter.ViewHolder.bind()` / `ServerPickerAdapter.ViewHolder.bind()` take an
-      `isFavorite` parameter (default `false` for source compatibility with existing direct
-      `bind()` callers) and set `row_favorite_star` visibility accordingly
-- [x] `onBindViewHolder` passes `item.isFavorite` (already carried per-row since SUB-02/SUB-03;
-      no new model field needed) for both `CountryRow`/`ServerRow` instances
-- [x] The star renders on the same row **both** inside the pinned Favorites card
-      (`isPinnedSection = true`) **and** again at the row's normal position in the full list
-      below (`isPinnedSection = false`), since both instances represent the same favorited item
-- [x] Star visibility updates live via the existing `updateItems()` → `notifyDataSetChanged()`
-      path — no additional refresh wiring needed
-- [x] Adapter tests: `CountryListAdapterTest`/`ServerPickerAdapterTest` assert
-      `row_favorite_star` is `VISIBLE`/`GONE` per `isFavorite`, toggles on `updateItems()`, and
-      shows on both the pinned and regular-list instance of the same favorited item
 
 ## Logging Considerations
 
@@ -613,16 +555,16 @@ The following 7 favorites-related string keys have been translated to Russian (r
 - `all_countries_section_title` — "All countries" (English), "Все страны" (ru), "Wszystkie kraje" (pl)
 - `all_servers_section_title` — "All servers" (English), "Все серверы" (ru), "Wszystkie serwery" (pl)
 
-Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). SUB-09 visual redesign verified on real devices with localized "All countries"/"All servers" headers appearing correctly in light/dark theme and all three locales. See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/` (`docs/qa-evidence/` is gitignored and not tracked in the repo).
+Manual testing confirms correct rendering in both locales across countries and servers surfaces (CASE-SUB07-001 through 004, all PASS). SUB-09 visual redesign verified on real devices with localized "All countries"/"All servers" headers appearing correctly in light/dark theme and all three locales. See the ClickUp QA suite (ClickUp QA evidence is gitignored and not tracked in the repo).
 
 ## Related Documents
 
 - `src/docs/server-sync-flow.md` — How server list syncs trigger re-filtering of favorites
 - `src/docs/logging-policy.md` — Privacy and logging guidelines
 - `CLAUDE.md` — Architecture overview and entry points
-- `docs/qa-evidence/favorites-data-layer-gate-1.md` — Data-layer preconditions and residual risks
-- `docs/qa-evidence/countries-favorites-ui-mobile-manualqa-1.md` — SUB-02 manual QA evidence and workarounds
-- `docs/qa-evidence/favorites-localization-qa-1.md` — SUB-07 localization manual QA evidence and per-app locale override technique
+- ClickUp QA evidence — Data-layer preconditions and residual risks
+- ClickUp QA evidence — SUB-02 manual QA evidence and workarounds
+- ClickUp QA evidence — SUB-07 localization manual QA evidence and per-app locale override technique
 - `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)
 
 ---

@@ -1,6 +1,25 @@
 # Server List Synchronization Flow
 
 ## Scope
+
+## Index
+
+Read this list first and jump to the one relevant heading — do not read the whole file.
+
+- [Scope](#scope)
+- [Main Details Display Contract](#main-details-display-contract)
+- [Source of Truth](#source-of-truth)
+- [Trigger Matrix](#trigger-matrix)
+- [Decision Conditions](#decision-conditions)
+- [Connect-time configData Freshness](#connect-time-configdata-freshness)
+- [V2 Server Source (DEFAULT_V2)](#v2-server-source-default_v2)
+- [Source-Independent App Metadata Calls](#source-independent-app-metadata-calls)
+- [Hardprobe Trigger Points](#hardprobe-trigger-points)
+- [Foreground Service Lifecycle Guard in `syncEngineState()`](#foreground-service-lifecycle-guard-in-syncenginestate)
+- [SSE Server-Push Sync (SUB-02)](#sse-server-push-sync-sub-02)
+
+---
+
 This document describes how server-list synchronization is orchestrated around the shared main UI (speedometer and connection controls) for both mobile and TV launchers.
 
 ## Main Details Display Contract
@@ -18,7 +37,7 @@ Use `ServerSelectionSyncCoordinator` as the single synchronization entrypoint:
 The coordinator owns this flow:
 1. Optional cache reset (`clearCacheBeforeRefresh=true`)
 2. Source-aware fetch via `ServersV2SyncCoordinator` for `DEFAULT_V2` or `ServerRepository.getServers(...)` for CSV-backed sources
-3. When `DEFAULT_V2` primary fetch fails, fallback to legacy CSV on the same primary domain, then `FALLBACK_SERVERS_URL`
+3. When `DEFAULT_V2` primary fetch fails, fall back **directly** to `FALLBACK_SERVERS_URL` (VPN Gate CSV) — there is no intermediate legacy-CSV step
 4. Post-refresh selected-country alignment via `SelectedCountryServerSync.syncAfterRefresh(...)` for CSV-backed data
 
 ## Trigger Matrix
@@ -55,7 +74,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
 - `SplashServerPreloadInteractor` routes to the v2 path or the legacy path based on `UserSettingsStore.serverSource`.
 - `CountryServersInteractor` calls `ServersV2Repository.getServersForCountry()` to drive lazy per-country loads.
-- `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> primary legacy CSV -> VPN Gate CSV` fallback handoff for shared sync triggers.
+- `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> VPN Gate CSV` fallback handoff for shared sync triggers. There is no legacy-CSV hop: `ApiConstants.primaryLegacyServersUrl()` exists but has zero callers.
 
 ### Localization
 - `ServersV2Repository` resolves locale from `UserSettingsStore.resolvePreferredLocale(...)` and sends it as the `locale` query on both `getCountries(...)` and `getServers(...)` v2 API calls.
@@ -110,7 +129,7 @@ When a VPN disconnect or inactivity event fires, the following code paths can en
 
 In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `LEVEL_NONETWORK` device-loss events and legacy CSV servers that have no integer ID from the v2 API). `ProbeRequestQueue` uses WorkManager `KEEP` deduplication, so rapid re-enqueue for the same server ID does not double-fire. It is wired by Koin in `OpenVpnService.onCreate()` and cleared in `onDestroy()`; `ServerAutoSwitcher.probeRequestQueue` is set from the same Koin instance at that time.
 
-See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
+See [adb-cookbook.md](../guides/adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
 
 ## Foreground Service Lifecycle Guard in `syncEngineState()`
 

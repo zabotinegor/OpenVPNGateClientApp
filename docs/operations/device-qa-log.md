@@ -3,24 +3,26 @@
 This is a chronological per-story QA log (distinct from `src/docs/android-qa-adb-cookbook.md`,
 which is topic-organized reusable snippets — don't duplicate content into both).
 
+
+
 ## Index
 
-Read this list first and jump to the one relevant heading — don't read the whole file.
+Read this list first and jump to the one relevant heading — do not read the whole file.
 
-- SUB-01 — TS-8 Deferred Manual QA (ping display, blocked on server-side fields)
-- SUB-02 — WorkManager Probe Request Queue Manual QA
-- MP-20260621 SUB-02 — Android SSE Client for Server-Push Notifications
-- Logcat commands for SUB-01 regression validation
-- SUB-05 — Instrumented test fixes (`MainActivitySmokeTest`, Samsung/MIUI device notes)
-- Per-App Locale Override (Samsung/One UI Workaround — SUB-07)
-- Simulating a TV D-pad Long-Press via ADB (MIBOX4/Android 9, API 28)
-- `adb install -r` failing silently on a network-connected (Wi-Fi ADB) TV target — Windows/Git Bash
+- [SUB-01 — TS-8 Deferred Manual QA](#sub-01--ts-8-deferred-manual-qa)
+- [SUB-02 — WorkManager Probe Request Queue Manual QA](#sub-02--workmanager-probe-request-queue-manual-qa)
+- [MP-20260621 SUB-02 — Android SSE Client for Server-Push Notifications](#mp-20260621-sub-02--android-sse-client-for-server-push-notifications)
+- [Logcat commands for SUB-01 regression validation](#logcat-commands-for-sub-01-regression-validation)
+- [SUB-05 — Instrumented test fixes](#sub-05--instrumented-test-fixes)
+- [Per-App Locale Override (Samsung/One UI Workaround — SUB-07)](#per-app-locale-override-samsungone-ui-workaround--sub-07)
+- [Simulating a TV D-pad Long-Press via ADB (MIBOX4 / Android 9, API 28)](#simulating-a-tv-d-pad-long-press-via-adb-mibox4--android-9-api-28)
+- [`adb install -r` failing silently on a network-connected (Wi-Fi ADB) TV target — Windows/Git Bash](#adb-install--r-failing-silently-on-a-network-connected-wi-fi-adb-tv-target--windowsgit-bash)
 
 ---
 
 ## SUB-01 — TS-8 Deferred Manual QA
 
-**Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-01-serverv2-model-id-and-ping.md`
+**Story:** the ClickUp story
 
 TS-8 is the end-to-end ping display verification. It is blocked on the server team shipping `id` and
 `ping` fields in the `DEFAULT_V2` API response (`VpnServerV2ListItemDto`). Until then:
@@ -45,7 +47,7 @@ TS-8 is the end-to-end ping display verification. It is blocked on the server te
 
 ## SUB-02 — WorkManager Probe Request Queue Manual QA
 
-**Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-02-workmanager-probe-request-queue.md`
+**Story:** the ClickUp story
 **Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
 
 ### ADB commands used for verification
@@ -118,57 +120,17 @@ See `docs/runbooks/solutions.md` for full details.
 
 ## MP-20260621 SUB-02 — Android SSE Client for Server-Push Notifications
 
-**Story:** `docs/userstories/MP-20260621-server-push-sse/SUB-02-android-sse-client.md`
+**Story:** the ClickUp story
 **Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
 **Backend endpoint:** `https://openvpngateclient.azurewebsites.net/api/v1/servers/events`
 
-### Logcat tags
+### Verification commands and log signals
 
-| Tag | What it covers |
-|---|---|
-| `OpenVPNGateApp:SseServerEventsClient` | SSE connection open/close/failure, backoff retries, servers-changed events |
-| `OpenVPNGateApp:CoreApp` | SSE lifecycle observer registration on app start |
-
-### ADB commands for SSE QA verification
-
-```bash
-# Stream SSE-related logcat (connection lifecycle + event receipt)
-adb -s <your-device-serial> logcat -v time -s "OpenVPNGateApp:SseServerEventsClient"
-
-# Also show CoreApp registration line at startup
-adb -s <your-device-serial> logcat -v time -e "SseServerEventsClient|CoreApp"
-
-# Confirm SSE connection opened (look for HTTP 200 and "SSE connection opened" log line)
-adb -s <your-device-serial> logcat -d | grep -E "SSE connection (opened|closed|failure)"
-
-# Verify a servers-changed event triggered a sync (look for "servers-changed event received; triggering server re-fetch")
-adb -s <your-device-serial> logcat -d | grep "servers-changed"
-
-# Monitor the downstream sync that fires on SSE event
-adb -s <your-device-serial> logcat | grep -E "(ServersV2Repository|ServersV2SyncCoordinator|fetchAllPages)"
-
-# Verify SSE client starts on foreground and stops on background
-adb -s <your-device-serial> logcat -d | grep -E "SSE client (starting|stopping)"
-
-# Check for SSE backoff retries (exponential delay log lines)
-adb -s <your-device-serial> logcat -d | grep "SSE reconnect in"
-
-# Check for any fatal errors during SSE lifecycle registration
-adb -s <your-device-serial> logcat -d | grep -E "(FATAL EXCEPTION|Failed to register SSE)"
-```
-
-### Manual QA steps for SSE
-
-1. Install debug APK: `adb -s <your-device-serial> install -r app-debug.apk`
-2. Start logcat in a separate terminal: `adb -s <your-device-serial> logcat -v time -e "SseServerEventsClient|CoreApp"`
-3. Launch app: `adb -s <your-device-serial> shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity`
-4. Verify logcat shows "SSE lifecycle observer registered" (CoreApp) then "SSE client starting" and "SSE connection opened (HTTP 200)" (SseServerEventsClient)
-5. Background the app (press Home)
-6. Verify logcat shows "SSE client stopping" and "SSE connection closed"
-7. Foreground the app again; verify "SSE client starting" and "SSE connection opened" repeat
-8. When the backend pushes a `servers-changed` event, verify "servers-changed event received; triggering server re-fetch" appears, followed by `ServersV2SyncCoordinator` fetch logs
-
----
+Moved to keep one canonical copy. The SSE log-signal table and ADB verification one-liners are in
+[../guides/adb-cookbook.md](../guides/adb-cookbook.md) — "SSE client verification"; the full
+on-device procedure is in [../guides/how-to.md](../guides/how-to.md) — "Verify SSE client connection
+on device". The behaviour itself is described in
+[../features/server-sync.md](../features/server-sync.md).
 
 ## Logcat commands for SUB-01 regression validation
 
@@ -184,7 +146,7 @@ adb logcat | grep -E "(ServersV2Repository|SelectedCountryStore|ServersV2SyncCoo
 
 ## SUB-05 — Instrumented test fixes
 
-**Story:** `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-05-fix-broken-instrumented-tests.md`
+**Story:** the ClickUp story
 
 ### What was fixed
 
@@ -247,7 +209,7 @@ adb shell am instrument -w -e class com.yahorzabotsin.openvpnclientgate.mobile.M
 
 ## Per-App Locale Override (Samsung/One UI Workaround — SUB-07)
 
-**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-07-favorites-localization.md`
+**Story:** the ClickUp story
 
 On Samsung devices running One UI (and some other OEM skins), the system-wide locale settings command (`adb shell settings put system system_locales`) does not reliably propagate to running or restarted applications. The app's `mGlobalConfiguration` locale continues to reflect the previous setting even after force-stop and relaunch.
 
@@ -297,13 +259,13 @@ The `cmd locale set-app-locales` command:
 
 ### Manual QA Evidence
 
-See `tests/manual-e2e/stories/SUB-07-favorites-localization/cases/CASE-SUB07-003-pl-countries-locale.md` and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (`docs/qa-evidence/` is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
+See the ClickUp QA suite and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (ClickUp QA evidence is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
 
 ---
 
 ## Simulating a TV D-pad Long-Press via ADB (MIBOX4 / Android 9, API 28)
 
-**Story:** `docs/userstories/MP-20260706-favorite-countries-servers/SUB-08-themed-favorite-action-dialog.md` (retest round)
+**Story:** the ClickUp story (retest round)
 
 The favorites long-press dialog on TV (`FavoriteActionDialog`) is triggered by a plain `View.OnLongClickListener` set on each row — there is no custom `OnKeyListener` or manual timing logic. The framework itself promotes a held D-pad center/enter *key* press into `performLongClick()` after `ViewConfiguration.getLongPressTimeout()` (~500ms), exactly like a touch long-press. This means the long-press must genuinely be *held*, not just tapped.
 

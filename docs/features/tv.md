@@ -72,3 +72,34 @@ parameters.
 ---
 
 *Last verified against: `TvDrawerInteractionGuard.kt` + its unit/instrumented tests (2026-07-25).*
+
+---
+
+## Android TV surface beyond the drawer guard
+
+The TV launcher is a genuinely different surface, not a resized phone build.
+
+| | mobile | tv |
+|---|---|---|
+| Required feature | — | `android.software.leanback` |
+| Touchscreen | required | **not** required |
+| Launcher category | `LAUNCHER` | `LEANBACK_LAUNCHER` |
+| Orientation | unrestricted | `landscape`, both activities |
+| `allowBackup` | `true` | `false` |
+| Banner drawable | — | present |
+| `MainActivity` size | ~6 lines | ~212 lines (drawer + D-pad focus handling) |
+
+Both launchers share one `applicationId`, which is intentional — splitting it has VPN-permission and
+signing consequences.
+
+**Launching on TV via ADB is different.** The `LAUNCHER` category does not resolve; use
+`LEANBACK_LAUNCHER`. Commands are in [../guides/adb-cookbook.md](../guides/adb-cookbook.md).
+
+**Focus, not touch.** `ui/common/utils/TvUtils` gates TV-specific behaviour, including focusing the
+first item so the remote has somewhere to land. A list that works by tap on phone can be unreachable
+on TV if nothing takes initial focus.
+
+Instrumented tests target the Leanback variant through `connectedDebugAndroidTestTv`; device-specific
+gotchas are in [../operations/device-qa-tv.md](../operations/device-qa-tv.md).
+
+*Last verified against: `tv/MainActivity.kt`, `ui/common/utils/TvUtils.kt`, `src/tv` manifest and `build.gradle.kts` (2026-07-31).*

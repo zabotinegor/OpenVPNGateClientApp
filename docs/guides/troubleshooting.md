@@ -4,35 +4,36 @@ This runbook collects non-obvious problems and their solutions discovered during
 QA. Add an entry only when the issue is likely to recur and the fix is not obvious from the
 error message alone.
 
+
 ## Index
 
-Read this list first and jump to the one relevant heading — don't read the whole file.
+Read this list first and jump to the one relevant heading — do not read the whole file.
 
-- Server counter resets to position 1 immediately after the user picks a server — 3 independent races in `MainViewModel`/`MainSelectionInteractor`/`MainConnectionInteractor`
-- WorkManager unit tests: `AlarmManager.setExact()` not available in Robolectric 4.10.2
-- Checking for a Gradle dependency: grep build files, never `find /`
-- `MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05
-- Adding a new OkHttp3 test artifact: `mockwebserver` not found in version catalog
-- Gradle daemon OOM on machines with ≤ 16 GB RAM: heap reduced from 4096m to 2048m
-- `RemoteServiceException`: `startForegroundService()` did not call `startForeground()` — crash on first VPN connect after APK update
-- SSE long-poll times out: `readTimeout(0)` required on a child OkHttp client
-- `okhttp-sse` must be pinned to the same version as the main `okhttp` dependency
-- SSE reconnect shows stale server data: `onOpen` was a no-op — fixed in SUB-03
-- SSE hot-reconnect loop when degraded server sends events: `reconnectAttempt.set(0)` in `onEvent` bypassed backoff — fixed in SUB-03
-- `ProcessLifecycleOwner` must be registered from the main thread after `startKoin`
-- Favoriting a server by id will collide across servers without proper IDs
-- Country-code comparisons: case-sensitive in `FavoritesStore`, case-insensitive in `FavoritesFilter` and elsewhere — RESOLVED in SUB-02
-- Server-favorite toggle blocks servers with `id <= 0`: defense-in-depth guard at three layers — SUB-03
-- PopupMenu window-leak guard: instance tracking with dismiss-listener null-out — SUB-03
-- `adb input keyevent --longpress` delivers a short press on Android TV
-- Pinned Favorites header scrolled out of view on open — `FocusFirstItem` must be TV-gated on every sectioned list screen
-- `adb shell settings put system system_locales` does not propagate on Samsung/One UI devices
-- Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
-- `ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows
-- `core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes
-- Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed
-- CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can
-- Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore
+- [Server counter resets to position 1 immediately after the user picks a server](#server-counter-resets-to-position-1-immediately-after-the-user-picks-a-server)
+- [WorkManager unit tests: `AlarmManager.setExact()` not available in Robolectric 4.10.2](#workmanager-unit-tests-alarmmanagersetexact-not-available-in-robolectric-4102)
+- [Checking for a Gradle dependency: grep build files, never `find /`](#checking-for-a-gradle-dependency-grep-build-files-never-find-)
+- [`MainActivitySmokeTest` failures: `NoActivityResumedException` on real device — RESOLVED in SUB-05](#mainactivitysmoketest-failures-noactivityresumedexception-on-real-device--resolved-in-sub-05)
+- [Adding a new OkHttp3 test artifact: `mockwebserver` not found in version catalog](#adding-a-new-okhttp3-test-artifact-mockwebserver-not-found-in-version-catalog)
+- [Gradle daemon OOM on machines with ≤ 16 GB RAM: heap reduced from 4096m to 2048m](#gradle-daemon-oom-on-machines-with--16-gb-ram-heap-reduced-from-4096m-to-2048m)
+- [`RemoteServiceException`: `startForegroundService()` did not call `startForeground()` — crash on first VPN connect after APK update](#remoteserviceexception-startforegroundservice-did-not-call-startforeground--crash-on-first-vpn-connect-after-apk-update)
+- [SSE long-poll times out: `readTimeout(0)` required on a child OkHttp client](#sse-long-poll-times-out-readtimeout0-required-on-a-child-okhttp-client)
+- [`okhttp-sse` must be pinned to the same version as the main `okhttp` dependency](#okhttp-sse-must-be-pinned-to-the-same-version-as-the-main-okhttp-dependency)
+- [SSE reconnect shows stale server data: `onOpen` was a no-op — fixed in SUB-03](#sse-reconnect-shows-stale-server-data-onopen-was-a-no-op--fixed-in-sub-03)
+- [SSE hot-reconnect loop when degraded server sends events: `reconnectAttempt.set(0)` in `onEvent` bypassed backoff — fixed in SUB-03](#sse-hot-reconnect-loop-when-degraded-server-sends-events-reconnectattemptset0-in-onevent-bypassed-backoff--fixed-in-sub-03)
+- [`ProcessLifecycleOwner` must be registered from the main thread after `startKoin`](#processlifecycleowner-must-be-registered-from-the-main-thread-after-startkoin)
+- [Favoriting a server by id will collide across servers without proper IDs](#favoriting-a-server-by-id-will-collide-across-servers-without-proper-ids)
+- [Country-code comparisons: case-sensitive in FavoritesStore, case-insensitive in FavoritesFilter and elsewhere — RESOLVED in SUB-02 (superseded prior note)](#country-code-comparisons-case-sensitive-in-favoritesstore-case-insensitive-in-favoritesfilter-and-elsewhere--resolved-in-sub-02-superseded-prior-note)
+- [Server-favorite toggle blocks servers with `id <= 0`: defense-in-depth guard at three layers — SUB-03](#server-favorite-toggle-blocks-servers-with-id--0-defense-in-depth-guard-at-three-layers--sub-03)
+- [PopupMenu window-leak guard: instance tracking with dismiss-listener null-out — SUB-03](#popupmenu-window-leak-guard-instance-tracking-with-dismiss-listener-null-out--sub-03)
+- [`adb input keyevent --longpress` delivers a short press on Android TV](#adb-input-keyevent---longpress-delivers-a-short-press-on-android-tv)
+- [Pinned Favorites header scrolled out of view on open — FocusFirstItem must be TV-gated on every sectioned list screen (initial fix: DEF-sub03/DEF-sub05; refinement: DEF-4)](#pinned-favorites-header-scrolled-out-of-view-on-open--focusfirstitem-must-be-tv-gated-on-every-sectioned-list-screen-initial-fix-def-sub03def-sub05-refinement-def-4)
+- [`adb shell settings put system system_locales` does not propagate on Samsung/One UI devices](#adb-shell-settings-put-system-system_locales-does-not-propagate-on-samsungone-ui-devices)
+- [Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff](#restyling-stock-popupmenualertdialog-via-theme-attributes-only--no-codebehavior-diff)
+- [`ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows](#serverrepositorytestparallel_force_refresh_same_key_does_not_fail_cache_write-is-flaky-under-a-full-suite-run-on-windows)
+- [`core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes](#core-module-robolectric-tests-cant-resolve-even-plain-colorres-lookups-not-just-appcompatmaterial-theme-attributes)
+- [Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed](#engine-update-build-fails-with-failed-to-find-target-with-hash-string-android-37--sdk-platform-37-not-yet-installed)
+- [CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can](#cis-bundled-sdkmanager-cannot-resolve-platformsandroid-37-even-though-gradle-can)
+- [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
 
 ---
 
@@ -232,7 +233,7 @@ be killed manually.
 
 - `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivitySmokeTest.kt`
 - `src/mobile/src/androidTest/java/com/yahorzabotsin/openvpnclientgate/mobile/MainActivityUiTest.kt`
-- `docs/userstories/MP-20260614-vpn-hardprobe-inactive/SUB-05-fix-broken-instrumented-tests.md`
+- the ClickUp story
 
 ---
 
@@ -386,7 +387,7 @@ The subsequent `ACTION_START` delivery in `onStartCommand()` retries with the de
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
-- `docs/userstories/BUG-foreground-service-crash-after-update.md`
+- the ClickUp story
 
 ---
 
@@ -501,7 +502,7 @@ reconnect, independent of whether a push event follows.
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onOpen`)
-- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+- the ClickUp story
 
 ---
 
@@ -536,7 +537,7 @@ retains its backoff counter regardless of how many events it delivered.
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt` (`onEvent`, `maybeResetBackoff`)
-- `docs/userstories/MP-20260623-sse-reliability-fixes/SUB-03-client-reconnect-correctness.md`
+- the ClickUp story
 
 ---
 
@@ -610,7 +611,7 @@ SUB-02 (`CoreApp.registerSseLifecycleObserver()`) — MP-20260621 SSE client sto
 
 **Context:** `FavoritesStore` (SUB-01) originally persisted favorite country codes with plain string equality (raw values), while `FavoritesFilter.filterFavoriteCountries()` and `CountryServersInteractor.getServersForCountryV2()` (`src/core/.../servers/CountryServersInteractor.kt:64`) both match country codes with `equals(ignoreCase = true)`. SUB-01's review/gate carried this forward as a non-blocking risk, on the assumption that case-insensitive filtering elsewhere was enough.
 
-**Problem (materialized in SUB-02):** `ServerListViewModel.buildItems()` built the pinned favorites section using the same case-insensitive matching as `FavoritesFilter`, but `toggleFavorite()` decided add-vs-remove via `FavoritesStore.isFavoriteCountry()` — still an exact, case-sensitive lookup. If a country code's casing ever drifted between the persisted favorite and a freshly synced code, the toggle handler disagreed with the display filter: duplicate/differently-cased favorite entries, wrong "Add"/"Remove" popup label, wrong toast. Confirmed as a real, reachable defect by SUB-02 code review round 1 (`docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`), not just a theoretical risk.
+**Problem (materialized in SUB-02):** `ServerListViewModel.buildItems()` built the pinned favorites section using the same case-insensitive matching as `FavoritesFilter`, but `toggleFavorite()` decided add-vs-remove via `FavoritesStore.isFavoriteCountry()` — still an exact, case-sensitive lookup. If a country code's casing ever drifted between the persisted favorite and a freshly synced code, the toggle handler disagreed with the display filter: duplicate/differently-cased favorite entries, wrong "Add"/"Remove" popup label, wrong toast. Confirmed as a real, reachable defect by SUB-02 code review round 1 (ClickUp QA evidence), not just a theoretical risk.
 
 **Solution:** Normalized casing at the `FavoritesStore` boundary itself (single source of truth) — `addFavoriteCountry`, `removeFavoriteCountry`, `isFavoriteCountry`, and `getFavoriteCountryCodes` now all uppercase country codes via `Locale.ROOT` before storing/comparing/returning. This supersedes the SUB-01 note's assumption that keeping the store case-sensitive was safe — it wasn't, once a second call site (the toggle handler) needed to agree with a case-insensitive display filter. Any future store with a similar "raw persistence + case-insensitive display filter elsewhere" split should normalize at the store boundary from the start rather than relying on every caller to filter consistently.
 
@@ -623,8 +624,8 @@ SUB-01 (`FavoritesStore.kt`, `FavoritesFilter.kt`) — MP-20260706-favorite-coun
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesStore.kt`
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesFilter.kt`
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/CountryServersInteractor.kt:64`
-- `docs/qa-evidence/favorites-data-layer-review-1.md`, `docs/qa-evidence/favorites-data-layer-gate-1.md`
-- `docs/qa-evidence/countries-favorites-ui-mobile-review-1.md`, `docs/qa-evidence/countries-favorites-ui-mobile-review-2.md`
+- ClickUp QA evidence, ClickUp QA evidence
+- ClickUp QA evidence, ClickUp QA evidence
 
 ---
 
@@ -823,7 +824,7 @@ The client's central version catalog (`src/gradle/libs.versions.toml`) does not 
 
 - `src/external/OpenVPNEngine/main/build.gradle.kts` (engine `compileSdk`/`targetSdk`)
 - `src/core/build.gradle.kts`, `src/mobile/build.gradle.kts`, `src/tv/build.gradle.kts` (client `compileSdk 36`, unchanged)
-- `docs/userstories/US-14-update-openvpn-engine.md`
+- the ClickUp story
 
 ---
 
