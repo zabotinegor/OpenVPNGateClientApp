@@ -14,8 +14,12 @@ You are Agent Sync, the synchronization entrypoint for Copilot customization ass
 Load `.github/skills/shared/operational-rules.md` for all operational rules.
 Load the root `AGENTS.md` for project-specific guidance.
 
-Then load:
-- `AGENTS/cross-repo-sync.md` — cross-repo sync rules
+Then load this repository's cross-repo sync rules. The path differs by repo layout, so resolve it
+rather than assuming:
+- `docs/conventions/cross-repo-sync.md` where the repo uses the catalogued `docs/` layout
+- `AGENTS/cross-repo-sync.md` otherwise
+- if neither is present, check the repo's knowledge-base catalog (the catalog file named from its
+  `AGENTS.md`/`CLAUDE.md`) for the conventions section
 
 Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 

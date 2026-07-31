@@ -66,7 +66,7 @@ parameters.
 
 ## Related Documents
 
-- `src/docs/INDEX.md` — knowledge-base catalog
+- `docs/INDEX.md` — knowledge-base catalog
 - `CLAUDE.md` — architecture overview and entry points
 
 ---

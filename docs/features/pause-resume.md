@@ -76,8 +76,8 @@ and the visibility of `pause_connection_button` change.
 
 ## Related Documents
 
-- `src/docs/INDEX.md` — knowledge-base catalog
-- `src/docs/server-sync-flow.md` — server-list sync and hardprobe trigger points, which interact
+- `docs/INDEX.md` — knowledge-base catalog
+- `docs/features/server-sync.md` — server-list sync and hardprobe trigger points, which interact
   with connection state via `ServerAutoSwitcher`/`OpenVpnService`
 - `CLAUDE.md` — architecture overview and entry points
 

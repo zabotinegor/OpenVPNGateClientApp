@@ -50,16 +50,16 @@ under test each time; don't treat any prior run's specific evidence as still val
 - If the engine bump raises the engine module's `compileSdk`/`targetSdk`, the first build on a
   machine without that SDK Platform installed can fail with
   `Failed to find target with hash string 'android-NN'` — this is a build prerequisite, not a smoke
-  failure; see `docs/runbooks/solutions.md` for the retry/explicit-install guidance.
+  failure; see `docs/guides/troubleshooting.md` for the retry/explicit-install guidance.
 - `testDebugUnitTestApp` does not exercise the engine module's own unit tests — run
   `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or
-  change engine-side tests (see `docs/runbooks/how-to.md`).
+  change engine-side tests (see `docs/guides/how-to.md`).
 
 ## Related Documents
 
-- `src/docs/INDEX.md` — knowledge-base catalog
+- `docs/INDEX.md` — knowledge-base catalog
 - `AGENTS.md` — "OpenVPN Engine Update Workflow" section (the workflow this checklist supports)
-- `docs/runbooks/solutions.md`, `docs/runbooks/how-to.md` — engine-bump-specific gotchas
+- `docs/guides/troubleshooting.md`, `docs/guides/how-to.md` — engine-bump-specific gotchas
 
 ---
 

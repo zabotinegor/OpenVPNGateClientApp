@@ -110,8 +110,8 @@ Stale persisted values from removed sources (`"DEFAULT"`, `"LEGACY"`, `"CUSTOM"`
 
 ## Hardprobe Trigger Points
 
-**This section is the canonical, authoritative list** — `src/docs/android-qa-adb-cookbook.md` and
-`docs/runbooks/how-to.md` both link here instead of keeping their own copy, after one of those
+**This section is the canonical, authoritative list** — `docs/guides/adb-cookbook.md` and
+`docs/guides/how-to.md` both link here instead of keeping their own copy, after one of those
 copies was found to have drifted stale (undercounting the trigger points). If you add or change a
 trigger point, update it here only.
 

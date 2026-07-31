@@ -121,7 +121,7 @@ whether that event should trigger a hardprobe.
 **When hardprobes are enqueued**
 
 `ProbeRequestQueue.enqueue(serverId)` is called at five points in the VPN lifecycle — see
-`src/docs/server-sync-flow.md`'s "Hardprobe Trigger Points" section for the canonical, up-to-date
+`docs/features/server-sync.md`'s "Hardprobe Trigger Points" section for the canonical, up-to-date
 list of call sites (this file used to keep its own copy of that table; it drifted out of the two
 other places it was also copied into, so it's now a single pointer instead of a third copy).
 
@@ -151,7 +151,7 @@ per server per event cluster.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` (`finishStopFlowConfirmed`, `handleConnectedProbeResult`, `updateState`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`requestSwitchNow`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/ProbeRequestQueue.kt`
-- `src/docs/server-sync-flow.md` (Hardprobe Trigger Points section)
+- `docs/features/server-sync.md` (Hardprobe Trigger Points section)
 - the ClickUp story
 - the ClickUp story
 
@@ -259,8 +259,8 @@ Only `onClosed` / `onFailure` with a stable-connection elapsed time ≥ 10 s res
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
-- `src/docs/server-sync-flow.md` (SSE Server-Push Sync section)
-- `docs/runbooks/android-qa.md` (MP-20260621 SUB-02 section)
+- `docs/features/server-sync.md` (SSE Server-Push Sync section)
+- `docs/operations/device-qa-log.md` (MP-20260621 SUB-02 section)
 - the ClickUp story
 
 ---
@@ -292,7 +292,7 @@ sealed interface CountryListItem {
 The `isFavorite` boolean is computed fresh on every list build so the long-press menu/dialog always
 shows the correct "Add"/"Remove" label. `isPinnedSection` is what lets the adapter (via
 `pinnedSectionItemCount()`) tell `FavoritesSectionCardDecoration` how many leading items to draw the
-pinned card background around — see `src/docs/favorites-ui-patterns.md`'s "Visual Framing and Card
+pinned card background around — see `docs/features/favorites.md`'s "Visual Framing and Card
 Treatment" section for that decoration mechanism, which this entry doesn't otherwise cover.
 
 **Step 1 — Build the list with favorites pinned at top (ADDITIVE pattern)**
@@ -384,7 +384,7 @@ SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706
 
 **Testing the TV long-press with adb**
 
-`adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` delivers a **short** press on at least some TV hardware (Xiaomi/MIBOX4), not a held key — it will not trigger the dialog. Use a held `sendevent` injection instead; see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` and `docs/runbooks/solutions.md` for the working sequence.
+`adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` delivers a **short** press on at least some TV hardware (Xiaomi/MIBOX4), not a held key — it will not trigger the dialog. Use a held `sendevent` injection instead; see `docs/operations/device-qa-tv.md` and `docs/guides/troubleshooting.md` for the working sequence.
 
 **References**
 
@@ -393,8 +393,8 @@ SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`buildItems`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler, TV dialog handler)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`
-- `src/docs/favorites-ui-patterns.md`
-- `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`
+- `docs/features/favorites.md`
+- `docs/operations/device-qa-tv.md`
 
 ---
 
@@ -447,8 +447,8 @@ SUB-05 Manual QA (`CASE-SUB05-005-mock`, AC3 favorites availability hide/restore
 **References**
 
 - the ClickUp QA suite
-- `docs/runbooks/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
-- `src/docs/server-sync-flow.md` (sync trigger matrix)
+- `docs/guides/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
+- `docs/features/server-sync.md` (sync trigger matrix)
 
 ---
 

@@ -1,6 +1,6 @@
 # Android QA Runbook
 
-This is a chronological per-story QA log (distinct from `src/docs/android-qa-adb-cookbook.md`,
+This is a chronological per-story QA log (distinct from `docs/guides/adb-cookbook.md`,
 which is topic-organized reusable snippets — don't duplicate content into both).
 
 
@@ -112,7 +112,7 @@ the `dev` branch with no SUB-02 changes applied, confirming it was not a regress
 This issue was fixed in SUB-05. The actual root cause was `FLAG_ACTIVITY_NEW_TASK |
 FLAG_ACTIVITY_CLEAR_TASK` flags on the `ActivityScenario` launch intents conflicting with
 Espresso's lifecycle management. All 21 tests now pass on Samsung Galaxy A71 SM-A715F Android 13.
-See `docs/runbooks/solutions.md` for full details.
+See `docs/guides/troubleshooting.md` for full details.
 
 ---
 

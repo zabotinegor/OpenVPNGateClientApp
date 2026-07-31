@@ -92,7 +92,7 @@ adb -s <SERIAL> logcat -d | Select-String "Failed to wire ProbeRequestQueue|NoBe
 
 ### Probe trigger points
 
-See `src/docs/server-sync-flow.md`'s "Hardprobe Trigger Points" section for the canonical, current
+See `docs/features/server-sync.md`'s "Hardprobe Trigger Points" section for the canonical, current
 list of code paths that enqueue a probe — this cookbook used to keep its own copy of that list and
 it had drifted stale (undercounting the paths). Server IDs must be non-zero for a probe to be
 enqueued; a zero ID is silently skipped.

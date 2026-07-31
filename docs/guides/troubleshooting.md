@@ -726,7 +726,7 @@ SUB-03 (`CountryServersActivity.kt`).
 ```
 adb -s <tv> shell "sendevent /dev/input/event2 1 353 1 && sendevent /dev/input/event2 0 0 0 && sleep 1.2 && sendevent /dev/input/event2 1 353 0 && sendevent /dev/input/event2 0 0 0"
 ```
-See tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
+See docs/operations/device-qa-tv.md for the full TV QA runbook (Leanback launch, dialog focus gotchas).
 
 ---
 
@@ -759,14 +759,14 @@ adb shell cmd locale set-app-locales <package> --user 0 --locales <locale>   # e
 # ... test ...
 adb shell cmd locale set-app-locales <package> --user 0 --locales ""         # clear override when done
 ```
-Force-stop and relaunch the app after setting the override. See `docs/runbooks/android-qa.md` for the full walkthrough.
+Force-stop and relaunch the app after setting the override. See `docs/operations/device-qa-log.md` for the full walkthrough.
 **First encountered:** SUB-07 (`favorites-localization` manual QA, Samsung Galaxy A71 `<your-device-serial>`).
 
 ---
 
 ## Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff
 **Context:** SUB-08 needed the mobile long-press favorite `PopupMenu` and the TV `FavoriteActionDialog`'s `AlertDialog` to match the app's visual design instead of stock widget chrome.
-**Summary:** Both widgets resolve appearance from theme attributes read at construction time (`android:popupMenuStyle` / `alertDialogTheme`), not from wrapping/subclassing — so both can be restyled via `values/themes.xml` with zero Kotlin call-site changes. The full narrative (why the first attempt still looked stock, the elevation-overlay confusion, the eventual `android:windowBackground`/stroke fix) is documented once, in detail, in `src/docs/favorites-ui-patterns.md`'s "Themed Styling (SUB-08)" and "TV D-pad Dialog Pattern" sections — read those for the canonical telling instead of this summary.
+**Summary:** Both widgets resolve appearance from theme attributes read at construction time (`android:popupMenuStyle` / `alertDialogTheme`), not from wrapping/subclassing — so both can be restyled via `values/themes.xml` with zero Kotlin call-site changes. The full narrative (why the first attempt still looked stock, the elevation-overlay confusion, the eventual `android:windowBackground`/stroke fix) is documented once, in detail, in `docs/features/favorites.md`'s "Themed Styling (SUB-08)" and "TV D-pad Dialog Pattern" sections — read those for the canonical telling instead of this summary.
 **Rule going forward:** any styling/theming acceptance criterion must be verified with an actual on-device screenshot, visually compared against the stock/default widget — a style being technically wired up does not guarantee it is visually distinguishable.
 **First encountered:** SUB-08 (`favorites-section-and-dialog-redesign`).
 

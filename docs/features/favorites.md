@@ -515,11 +515,11 @@ coverage was completed in SUB-05 Manual E2E (SUITE-SUB-05 executed and passed on
 and TV, including availability hide/restore verified via a controlled local mock backend — see
 the ClickUp QA suite). For device setup, `sendevent`-based D-pad long-press
 injection (`input keyevent --longpress` delivers a short press on this hardware), and dialog
-focus gotchas, see `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md`.
+focus gotchas, see `docs/operations/device-qa-tv.md`.
 
 ## Logging Considerations
 
-**Reference:** `src/docs/logging-policy.md`
+**Reference:** `docs/features/logging.md`
 
 When logging favorites state changes:
 
@@ -559,13 +559,13 @@ Manual testing confirms correct rendering in both locales across countries and s
 
 ## Related Documents
 
-- `src/docs/server-sync-flow.md` — How server list syncs trigger re-filtering of favorites
-- `src/docs/logging-policy.md` — Privacy and logging guidelines
+- `docs/features/server-sync.md` — How server list syncs trigger re-filtering of favorites
+- `docs/features/logging.md` — Privacy and logging guidelines
 - `CLAUDE.md` — Architecture overview and entry points
 - ClickUp QA evidence — Data-layer preconditions and residual risks
 - ClickUp QA evidence — SUB-02 manual QA evidence and workarounds
 - ClickUp QA evidence — SUB-07 localization manual QA evidence and per-app locale override technique
-- `tests/manual-e2e/environment/android-tv-dpad-qa-runbook.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)
+- `docs/operations/device-qa-tv.md` — Android TV D-pad QA runbook (Leanback launch, long-press injection, dialog focus)
 
 ---
 
