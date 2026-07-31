@@ -205,10 +205,12 @@ cases and suites are managed in ClickUp, not in this repository.
 
 ## AI Agent Documentation
 - [AGENTS.md](AGENTS.md): repository-level operational rules for coding agents.
-- [AGENTS.local.md](AGENTS.local.md): local-only backend and environment overrides (do not commit).
-- [README.local.md](README.local.md): local documentation overlay for machine-specific notes.
-- [.github/AGENTS-REGISTRY.md](.github/AGENTS-REGISTRY.md): source-of-truth mapping between agents and skills.
-- [.github/FRONTMATTER-SCHEMA.md](.github/FRONTMATTER-SCHEMA.md): frontmatter contract for .agent.md and SKILL.md files.
+- [docs/INDEX.md](docs/INDEX.md): the knowledge-base catalog — start here for anything behavioural.
+- `AGENTS.local.md`, `README.local.md`: optional local-only overrides for machine-specific paths and
+  environment notes. Both are gitignored, so they are absent on a fresh clone by design.
+- `.github/agents/` and `.github/skills/`: agent and skill definitions, mirrored in from CopilotTools
+  by `agent-sync`. The registry and frontmatter schema that govern them live in CopilotTools and are
+  not synced into this repository.
 
 ## Legal and Privacy
 Canonical documents:

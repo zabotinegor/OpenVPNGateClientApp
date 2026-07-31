@@ -714,7 +714,7 @@ SUB-03 (`CountryServersActivity.kt`).
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (`showPopupMenu`, `onDestroy`)
-- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (identical pattern, SUB-02)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListActivity.kt` (identical pattern, SUB-02)
 
 ---
 

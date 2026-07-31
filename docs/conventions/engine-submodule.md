@@ -48,7 +48,7 @@ code problem. Current levels are in [../reference/build-config.md](../reference/
 
 Six production files in `core` import `de.blinkt.openvpn.*`, and the useful rule is not a file count:
 
-- **`core/vpn/OpenVpnService.kt` owns the whole service/lifecycle surface** — profiles, config
+- **`vpn/OpenVpnService.kt` owns the whole service/lifecycle surface** — profiles, config
   parsing, AIDL, launch, status listeners. Any of those types imported elsewhere is a violation.
 - **`ConnectionStatus` is an accepted seam**, published via `ConnectionStateManager.engineLevel` and
   consumed by `ConnectionState.kt`, `ServerAutoSwitcher.kt` and the two connection-control UI

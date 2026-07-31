@@ -380,7 +380,8 @@ Guard the dialog against window leaks the same way the PopupMenu path already is
 
 **First demonstrated**
 
-SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`). TV D-pad long-press dialog variant added in SUB-04 (`FavoriteActionDialog.kt`, `ServerListActivity.kt`, `CountryServersActivity.kt`).
+SUB-02 (`ServerListActivity.kt`, `ServerListViewModel.kt` — named `CountriesList*` at the time, since
+renamed) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`). TV D-pad long-press dialog variant added in SUB-04 (`FavoriteActionDialog.kt`, `ServerListActivity.kt`, `CountryServersActivity.kt`).
 
 **Testing the TV long-press with adb**
 
@@ -388,8 +389,8 @@ SUB-02 (`CountriesListActivity.kt`, `CountriesListViewModel.kt`) — MP-20260706
 
 **References**
 
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/countries_list/CountriesListViewModel.kt` (`buildItems`)
-- `src/mobile/src/main/java/com/yahorzabotsin/openvpnclientgate/mobile/countries_list/CountriesListActivity.kt` (PopupMenu adapter)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListViewModel.kt` (`buildItems`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListActivity.kt` (PopupMenu adapter)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`buildItems`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler, TV dialog handler)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`

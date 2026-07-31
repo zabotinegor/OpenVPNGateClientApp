@@ -23,7 +23,7 @@ comes from the `APP_RELEASE_TYPE` build field — see [build-config.md](build-co
 | Endpoint | Status |
 |---|---|
 | `GET /api/v1/servers/active` (legacy CSV on the primary host) | **Dead code.** `ApiConstants.primaryLegacyServersUrl()` is defined and has **zero callers**. `resolveServerUrls` returns `[FALLBACK_SERVERS_URL]` for `VPNGATE` and `[]` for `DEFAULT_V2`. Any doc describing a three-step fallback through this route is wrong |
-| `/api/v1/legal/*` | Not used. Legal documents are two hardcoded website URLs opened in a browser — opened in a browser from the About screen |
+| `/api/v1/legal/*` | Not used. Legal documents are two hardcoded website URLs (`AboutMeta.PRIVACY_POLICY`, `AboutMeta.TERMS_OF_USE`) opened in a browser from the About screen |
 | `/api/v1/general-info` | Not used. No reference anywhere in `src/` |
 
 ## URL derivation
