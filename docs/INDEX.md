@@ -16,7 +16,7 @@ Current behaviour, not change history.
 | Doc | Covers |
 |---|---|
 | [features/vpn-connection.md](features/vpn-connection.md) | Engine integration, the two-process/AIDL boundary, the six connection states and their transitions |
-| [features/connection-recovery.md](features/connection-recovery.md) | Connected-state watchdog, auto-switch within country, stop/teardown retry — all bounded |
+| [features/connection-recovery.md](features/connection-recovery.md) | Connected-state watchdog, auto-switch within country, stop/teardown retry — and which of them are actually bounded |
 | [features/pause-resume.md](features/pause-resume.md) | Pause/Resume/Stop UI phases and the invariants that must hold |
 | [features/server-sync.md](features/server-sync.md) | Server-list sync triggers, fallback chain, lazy loading, hardprobe trigger points (canonical), SSE push |
 | [features/favorites.md](features/favorites.md) | Favorites data layer, case-normalization boundary, mobile and TV interaction patterns, visual framing |

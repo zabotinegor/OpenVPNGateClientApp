@@ -24,7 +24,7 @@ flowing. A tunnel can be "up" and carrying nothing.
 | `WATCHDOG_MIN_TRAFFIC_DELTA_BYTES` | 256 | below this between polls counts as no traffic |
 | `WATCHDOG_FAILURE_THRESHOLD` | 3 | consecutive failed polls before acting |
 | `WATCHDOG_RECOVERY_COOLDOWN_MS` | 15 000 | minimum gap between recovery attempts |
-| `WATCHDOG_MAX_RECOVERY_ATTEMPTS` | 3 | **bounded** — after this it gives up rather than looping |
+| `WATCHDOG_MAX_RECOVERY_ATTEMPTS` | 3 | cap **per uninterrupted `CONNECTED` episode** — see below |
 | `WATCHDOG_DEFAULT_OPENVPN_PORT` | 1194 | assumed port when probing |
 | `WATCHDOG_FALLBACK_HTTPS_PORT` | 443 | second probe port, for networks that only permit 443 |
 
@@ -32,8 +32,38 @@ flowing. A tunnel can be "up" and carrying nothing.
 tunnel legitimately carries no traffic for a moment; without it every connect would trip the
 threshold.
 
-The attempt cap is the important property: a permanently dead server produces at most three recovery
-attempts and then a clean failure, not an infinite reconnect loop.
+**The attempt cap does not bound a session.** `recoveryAttempts` lives in `watchdogState`, and `trafficPollRunnable` replaces that whole object on
+**any** connection-state transition:
+
+```kotlin
+if (currentState != lastPolledState) {
+    if (currentState == ConnectionState.CONNECTED) resetHealthWatchdog(nowMs = watchdogNowMs())
+    else { lastPolledDatapoint = null; resetHealthWatchdog() }
+    lastPolledState = currentState
+}
+```
+
+A recovery attempt calls `watchdogRecoveryStarter`, which reconnects — so the state leaves
+`CONNECTED`, the counter is zeroed on the next poll, and it is zeroed again on the way back in. The
+counter therefore measures attempts **within one uninterrupted `CONNECTED` episode**, not within a
+session.
+
+Two consequences, both easy to get wrong:
+
+- **A flapping tunnel is not bounded at three.** A server that reconnects successfully but never
+  carries traffic produces one recovery per episode, indefinitely. Nothing accumulates across
+  episodes. When QA looks for "reconnect storms", this is the mechanism that permits them.
+- **`WATCHDOG_MAX_RECOVERY_ATTEMPTS` is hard to reach on the common path.** Each attempt triggers the
+  state change that resets the counter, so `recoveryAttempts >= 3` — and therefore
+  `triggerWatchdogFailSafeDisconnect("attempt_limit_reached")` — realistically only fires when
+  recovery is dispatched *without* the connection state changing.
+
+The genuinely bounded thing here is the **failure threshold**: three consecutive bad polls
+(`WATCHDOG_FAILURE_THRESHOLD`) before any recovery is dispatched at all, plus a 15-second cooldown
+between attempts. Those hold per episode and are what keeps a single bad episode from thrashing.
+
+Whether the counter *should* survive watchdog-driven reconnects is an open product question, not a
+settled one — it is recorded here as observed behaviour rather than as intended design.
 
 ## Auto-switch within country
 
@@ -91,8 +121,10 @@ See [vpn-connection.md](vpn-connection.md).
   attempts against the same server.
 - A user-initiated stop takes precedence: the stop flow is what persists across process death, and a
   pending stop is reconciled on next start.
-- Every path is bounded — 3 recovery attempts, 3 stop dispatch attempts. Nothing here retries
-  indefinitely, which is deliberate: an unbounded reconnect on a metered mobile connection is worse
-  than a clear failure.
+- **The stop path is bounded outright** (3 dispatch attempts, then `STOP_FAILED`). The auto-switcher
+  is bounded by one full pass over the country's servers. The watchdog is bounded only *per
+  `CONNECTED` episode* — its counter resets on every state transition, so a reconnecting-but-unhealthy
+  tunnel is not capped at three across a session. Do not cite the watchdog as evidence that nothing
+  here retries indefinitely; it is the one path that can.
 
 *Last verified against: `vpn/OpenVpnService.kt` watchdog and stop constants, `vpn/ServerAutoSwitcher.kt`, `vpn/ConnectionState.kt` (2026-07-31).*

@@ -192,7 +192,7 @@ cases and suites are managed in ClickUp, not in this repository.
 - DNS provider selection is applied on next VPN connection.
 - Auto-switch within selected country with stall timeout settings.
 - Connected-state health watchdog evaluates traffic delta and trusted endpoint probe while connected.
-- Sustained unhealthy connected state triggers bounded auto-recovery with cooldown/debounce; success resets watchdog counters and reconnecting hints.
+- Sustained unhealthy connected state triggers auto-recovery with a failure threshold and cooldown; success resets watchdog counters and reconnecting hints. The per-attempt cap applies within one connected episode, not across a session — see [docs/features/connection-recovery.md](docs/features/connection-recovery.md).
 - Recovery retry exhaustion transitions to a deterministic fail-safe disconnect state instead of indefinite false-connected presentation.
 - A fresh start action clears stale pending-stop intent so previous stop teardown state cannot suppress a new user start.
 - Shared package/application ID across mobile and tv modules.
