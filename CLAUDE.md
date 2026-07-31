@@ -64,19 +64,19 @@ media/     ← app icon/banner assets (submodule)
 | [src/core/…/servers/refresh/ServerRefreshWorker.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt) | Background periodic refresh |
 | [src/core/…/vpn/OpenVpnService.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt) | VPN lifecycle integration |
 | [src/core/…/vpn/ServerAutoSwitcher.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt) | Auto-switch logic and hardprobe trigger (inactivity → probe enqueue) |
-| [src/core/…/servers/sse/SseServerEventsClient.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt) | SSE client — foreground-only long-poll; triggers server sync on connection open (`onOpen`) and on `servers-changed` push events; rotates through multiple candidate URLs (primary → fallback) after `urlFailureThreshold` consecutive failures |
+| [src/core/…/servers/sse/SseServerEventsClient.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt) | SSE client — foreground-only long-poll; triggers server sync on connection open (`onOpen`) and on `servers-changed` push events; rotates through its candidate URL list after `urlFailureThreshold` consecutive failures — in production only the primary is configured, so there is nothing to rotate to |
 | [src/core/…/servers/FavoritesCountryStore.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesCountryStore.kt) | Favorites data layer facade for countries; normalizes country codes to uppercase at store boundary |
 | [src/core/…/servers/FavoritesServerStore.kt](src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/FavoritesServerStore.kt) | Favorites data layer facade for servers; guards against invalid server IDs (≤0) |
 
 ## Conventions
 
-- **Logging**: Timber only. Follow [src/docs/logging-policy.md](src/docs/logging-policy.md); never use `android.util.Log` in app code.
+- **Logging**: Timber only. Follow [docs/features/logging.md](docs/features/logging.md); never use `android.util.Log` in app code.
 - **DI**: Koin. Wire through `CoreDi.kt`.
 - **UI**: ViewBinding + Android native. Don't introduce new UI or DI patterns.
-- **Endpoints**: Never hardcode production URLs in source. Use build properties → env → `servers.local.json`.
+- **Endpoints**: Never hardcode production **API** URLs in source. Use build properties → env → `servers.local.json`. The two public website links in `AboutMeta.kt` (privacy policy, terms) are a deliberate exception — they are user-facing destinations, not endpoints the client negotiates with. See [docs/reference/api-endpoints.md](docs/reference/api-endpoints.md).
 - **`app_name`**: Injected via Gradle `resValue`; don't duplicate in string resources.
 - **Branch naming**: `feature/<name>`, `bugfix/<issue>`, `hotfix/<issue>`.
-- **Favorites UI**: Long-press on countries/servers reflects current state ("Add to favorites" vs "Remove from favorites") — anchored `PopupMenu` on mobile touch (SUB-02/SUB-03), remote-navigable `AlertDialog` on TV D-pad long-press of OK/center (SUB-04, via `FavoriteActionDialog.resolvePresentation`). Pinned "Favorites" section at top, hidden when empty. See [src/docs/favorites-ui-patterns.md](src/docs/favorites-ui-patterns.md).
+- **Favorites UI**: Long-press on countries/servers reflects current state ("Add to favorites" vs "Remove from favorites") — anchored `PopupMenu` on mobile touch (SUB-02/SUB-03), remote-navigable `AlertDialog` on TV D-pad long-press of OK/center (SUB-04, via `FavoriteActionDialog.resolvePresentation`). Pinned "Favorites" section at top, hidden when empty. See [docs/features/favorites.md](docs/features/favorites.md).
 
 ## Critical Pitfalls
 
@@ -84,7 +84,7 @@ media/     ← app icon/banner assets (submodule)
 - **Missing media assets** — `src/copy_drawables.gradle.kts` copies launcher icons from the `media` submodule before `preBuild`; build fails if files are absent.
 - **Release hardening** — `isMinifyEnabled=true` and `isShrinkResources=true` in `mobile` and `tv` release variants are intentional; do not remove.
 - **Engine submodule** — `src/external/OpenVPNEngine` is an upstream integration boundary. Avoid incidental edits there unless the task explicitly requires engine changes.
-- **VPN permissions** — `src/core/src/main/AndroidManifest.xml` declares the VPN foreground service. Edit service, permission, or exported settings there with care.
+- **VPN permissions** — split across manifests: `src/core/src/main/AndroidManifest.xml` declares the *controller* foreground service, while `BIND_VPN_SERVICE` and the real `VpnService` live in the **engine** manifest. See [docs/reference/permissions.md](docs/reference/permissions.md) before editing service, permission or exported settings.
 - **jniLibs packaging** — Preserve each module's current `jniLibs.useLegacyPackaging` setting.
 - **Shared application ID** — `mobile` and `tv` share the same package base intentionally (VPN permission/signing). Do not split without understanding the implications.
 
@@ -92,6 +92,6 @@ media/     ← app icon/banner assets (submodule)
 
 - [README.md](README.md) — prerequisites, signing, media assets, runtime behavior, release commands
 - [AGENTS.md](AGENTS.md) — full agent/contributor operational rules
-- [src/docs/INDEX.md](src/docs/INDEX.md) — full technical knowledge-base catalog (flow docs, bug postmortems, how-to guides, device QA runbooks); read this first for anything not covered above
-- [tests/manual-e2e/README.md](tests/manual-e2e/README.md) — manual E2E test structure
+- [docs/INDEX.md](docs/INDEX.md) — full technical knowledge-base catalog (flow docs, bug postmortems, how-to guides, device QA runbooks); read this first for anything not covered above
+- Manual QA techniques and device notes are catalogued in [docs/INDEX.md](docs/INDEX.md); per-story QA artifacts live in ClickUp
 - [AGENTS.local.md](AGENTS.local.md) — machine-specific paths (not committed; ask user if absent)

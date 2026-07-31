@@ -19,7 +19,7 @@ The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two lau
 - `media` - private media submodule used for app icon/banner assets.
 
 ## Tech Stack
-- Kotlin, Android SDK 24+ (target/compile 36)
+- Kotlin, Android SDK 24+ (app modules target/compile 36; the engine submodule needs SDK 37 — see [docs/reference/build-config.md](docs/reference/build-config.md))
 - ViewBinding
 - Retrofit + OkHttp (network)
 - Koin (DI)
@@ -28,7 +28,7 @@ The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two lau
 
 ## Prerequisites
 - JDK 11
-- Android SDK/Build Tools compatible with compile SDK 36
+- Android SDK/Build Tools for compile SDK 36, **plus SDK Platform 37** for the engine submodule
 - Git submodules initialized
 
 ```bash
@@ -41,18 +41,20 @@ The `core` module requires the following endpoints at build time:
 - `FALLBACK_SERVERS_URL` — full VPN Gate CSV fallback URL, for example `https://www.vpngate.net/api/iphone/`
 
 Runtime routes are derived in code from `PRIMARY_SERVERS_URL`:
-- Legacy CSV: `{PRIMARY_SERVERS_URL}/api/v1/servers/active`
 - V2 countries: `{PRIMARY_SERVERS_URL}/api/v2/servers/countries/active`
 - V2 servers: `{PRIMARY_SERVERS_URL}/api/v2/servers`
 - Release notes and update checks stay on the trusted primary backend host regardless of the selected server source
 
-### Fallback Behavior (DEFAULT_V2)
-When the app loads servers via the `DEFAULT_V2` source and the primary v2 route fails, the following fallback chain applies automatically:
-1. Primary v2 API (`{PRIMARY_SERVERS_URL}/api/v2/...`)
-2. Legacy CSV on primary domain (`{PRIMARY_SERVERS_URL}/api/v1/servers/active`)
-3. VPN Gate fallback CSV (`FALLBACK_SERVERS_URL`)
+The full route list, including which endpoints exist but are never called, is in
+[docs/reference/api-endpoints.md](docs/reference/api-endpoints.md).
 
-If a lower-priority fallback succeeds, the working source is persisted. This chain applies to all shared sync entry points (splash, main foreground, settings source-switch, periodic background refresh). `CUSTOM` source failures do not fall back.
+### Fallback Behavior (DEFAULT_V2)
+When the app loads servers via `DEFAULT_V2` and the primary v2 route fails, it falls back **directly**
+to the VPN Gate CSV (`FALLBACK_SERVERS_URL`). There are two steps, not three — there is no
+intermediate legacy-CSV hop on the primary domain.
+
+If the fallback succeeds, `VPNGATE` is persisted as the working source. This applies to all shared
+sync entry points (splash, main foreground, settings source-switch, periodic background refresh).
 
 ### Localization Behavior (DEFAULT_V2)
 `DEFAULT_V2` requests include an explicit `locale` query for both v2 countries and per-country v2 server lists.
@@ -63,7 +65,7 @@ Locale mapping uses app language settings:
 - `RUSSIAN` -> `ru`
 - `POLISH` -> `pl`
 
-This localization behavior is scoped to `DEFAULT_V2` only. `LEGACY`, `VPNGATE`, and `CUSTOM` request behavior is unchanged.
+This localization behavior is scoped to `DEFAULT_V2` only; `VPNGATE` request behavior is unchanged.
 
 ### Selected-Country Relocalization (DEFAULT_V2)
 When app language changes and the selected source is `DEFAULT_V2`, the app relocalizes an already selected country/server in the same session without requiring manual reselection.
@@ -73,7 +75,7 @@ Relocalization behavior:
 - Persisted selected-country display name is rewritten to the active locale after server list alignment.
 - Current server identity and index are preserved when still present; if the server disappears, deterministic safe fallback is applied.
 
-This relocalization path is not executed for `LEGACY`, `VPNGATE`, or `CUSTOM` sources.
+This relocalization path is not executed for the `VPNGATE` source.
 
 Resolution order in build scripts:
 1. Gradle property (`-P...`)
@@ -161,14 +163,18 @@ The project is configured for optimized build performance in `src/gradle.propert
 - `org.gradle.caching=true` — Enable local build cache
 - `org.gradle.configureondemand=true` — Configure only required modules
 
-For more details on the performance baseline and validation evidence, refer to the [US-05 documentation](docs/userstories/US-05-gradle-build-optimization.md) and the [evidence index](tests/manual-e2e/stories/us-05-gradle-build-performance-optimization/suites/us-05-evidence-index.md).
-## Manual E2E Documentation
-- Entry point: [tests/manual-e2e/README.md](tests/manual-e2e/README.md) — describes the real per-story structure (`tests/manual-e2e/stories/{id}/{specs,suites,cases}/`)
-- Automation helpers: [tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md)
-- Run artifacts/evidence: [artifacts/manual-qa](artifacts/manual-qa)
+The performance baseline and its validation evidence are recorded in ClickUp; the git-side story and QA folders were removed in the 2026-07-30 migration.
 
-## AI-Agent Knowledge Base
-- Entry point: [src/docs/INDEX.md](src/docs/INDEX.md) — catalog of flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks for AI agents working in this repo.
+## Documentation
+
+**[docs/INDEX.md](docs/INDEX.md) is the catalog for all technical documentation** in this repository
+— feature behaviour, reference tables, how-to guides, troubleshooting, device QA notes and the
+conventions contributors follow. It lists each document with a one-line description, so you can open
+only the one you need.
+
+Manual QA automation scripts live with the scripts themselves:
+[tests/manual-e2e/automation/README.md](tests/manual-e2e/automation/README.md). Per-story QA specs,
+cases and suites are managed in ClickUp, not in this repository.
 
 ## Runtime Behavior (from current code)
 - App starts with a shared splash flow: one GIF loop and parallel server preload. Main screen opens when both stages are complete.
@@ -177,13 +183,11 @@ For more details on the performance baseline and validation evidence, refer to t
 - Main details display contract is split by field and source:
   - `Server` field shows selected position as `current/total` within the selected country list (for example `6/7`) for all sources.
   - `Address` field shows city + UTC for `DEFAULT_V2` when city metadata is available, city only when UTC is missing, and the selected server IP for non-`DEFAULT_V2` sources or when city metadata is unavailable.
-- Server source modes in settings:
-  - `LEGACY`: primary then fallback URL
+- Server source modes in settings — there are **two**:
   - `DEFAULT_V2`: v2 API (default for fresh installs)
   - `VPNGATE`: fallback URL only
-  - `CUSTOM`: user-provided URL
-- Server list cache with configurable TTL (`cacheTtlMs`, default 20 minutes).
-- If VPN is connected, server refresh is locked to cache.
+  - Persisted `LEGACY`, `DEFAULT` and `CUSTOM` values from older builds are migrated to `DEFAULT_V2` on load.
+- Server list cache with configurable TTL (`cacheTtlMs`, default 20 minutes, minimum 1 minute).
 - DNS provider selection is applied on next VPN connection.
 - Auto-switch within selected country with stall timeout settings.
 - Connected-state health watchdog evaluates traffic delta and trusted endpoint probe while connected.
