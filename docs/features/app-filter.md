@@ -37,14 +37,26 @@ if (excluded.isNotEmpty()) profile.mAllowedAppsVpn.addAll(excluded)
 
 Two things follow from this and are easy to get wrong:
 
-- **`mAllowedAppsVpnAreDisallowed = true` is set unconditionally**, so the engine always treats
+- **`mAllowedAppsVpnAreDisallowed = true` on every successful pass**, so the engine treats
   `mAllowedAppsVpn` as a *disallow* list. The field name says "allowed"; the flag inverts it.
 - The filter is applied **at connect time only**. Changing the selection while connected does not
   re-apply it — the tunnel must be restarted for a change to take effect.
 
-The whole method is wrapped in a `try/catch` that logs a warning and continues. A failure to read the
-stored set means **no apps are excluded**, i.e. it fails toward routing everything through the VPN
-rather than toward leaking traffic outside it.
+**What happens if the read fails.** The method is wrapped in a `try/catch` that logs a warning and continues, but note the statement
+order: `loadExcludedPackages()` is the **first** statement in the `try`. If it throws — a corrupted
+or wrong-typed preference makes `getStringSet` raise `ClassCastException` — then neither
+`clear()` nor the `mAllowedAppsVpnAreDisallowed` assignment runs. The catch does not substitute a
+safe default; it only logs.
+
+The outcome today is still "nothing excluded", but **that is not enforced here**. It holds because
+the profile reaching this method is always freshly built by `ConfigParser.convertProfile()`
+(`OpenVpnService.kt:849-856`), `ConfigParser` never touches these two fields, and upstream
+`VpnProfile` initializes `mAllowedAppsVpnAreDisallowed = true` with an empty `mAllowedAppsVpn`.
+
+That makes the privacy-relevant behaviour a property of **engine defaults in the submodule**, not of
+this client's code. If upstream flips that initializer, or if the profile ever arrives from
+`ProfileManager` rather than a fresh parse, the failure mode changes silently and nothing in this
+method would catch it. Treat it as a known gap rather than a guarantee.
 
 ## Persistence
 

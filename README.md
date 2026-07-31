@@ -71,7 +71,7 @@ This localization behavior is scoped to `DEFAULT_V2` only; `VPNGATE` request beh
 When app language changes and the selected source is `DEFAULT_V2`, the app relocalizes an already selected country/server in the same session without requiring manual reselection.
 
 Relocalization behavior:
-- Country resolution is code-first (stable country code), avoiding stale matching by localized country name.
+- Country **resolution** is code-first: the stable code is stored per server, and the persisted country display name is rewritten on language change rather than matched against. See [docs/features/server-selection.md](docs/features/server-selection.md).
 - Persisted selected-country display name is rewritten to the active locale after server list alignment.
 - Current server identity and index are preserved when still present; if the server disappears, deterministic safe fallback is applied.
 

@@ -18,9 +18,26 @@ server list changes underneath it.
 `servers/SelectedCountryStore` holds the selected country and the server chosen within it, along with
 the display name shown on the main screen.
 
-The country is persisted by **stable country code**, not by localized name. That is what makes a
-language change survivable — matching on a display name would break the moment the same country came
-back in a different language.
+**The `selected_country` key holds the localized display name, not a code.** The stable identity
+lives one level down: each entry in `selected_country_servers` carries `code` (from
+`Server.country.code`), and that is what survives a language change.
+
+This distinction matters because the two are easy to conflate:
+
+| Stored as | Where | Survives relocalization |
+|---|---|---|
+| localized country name | `selected_country` | no — it is **rewritten** when the language changes |
+| `countryCode` | each stored server in `selected_country_servers` | yes — this is the recovery key |
+
+So a language change is survivable not because the name is stable, but because the code is recoverable
+and the name is then explicitly rewritten. `ServersV2SyncCoordinator` reads the code from
+`SelectedCountryStore.currentServer()?.countryCode` (falling back to the first stored server), resolves
+the country's new localized name, and calls `updateSelectedCountryNameIfCurrent`, which re-checks the
+expected name under `selectionRenameLock` before writing and skips the rename if the selection moved
+underneath it.
+
+Do not remove the code-based lookup or the rename step on the assumption that `selected_country` is
+already a stable identifier. It is not.
 
 ## Version signal
 
