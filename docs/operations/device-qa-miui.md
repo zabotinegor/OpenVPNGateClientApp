@@ -47,19 +47,27 @@ Use this sequence when the tester expects visible UI actions on the phone screen
 - If `pm list packages` shows `com.yahorzabotsin.openvpnclientgate` but the launcher still fails to start, run `adb shell pm install-existing --user 0 com.yahorzabotsin.openvpnclientgate` and retry the `/.mobile.SplashActivity` launch.
 - For UI evidence, wait until `dumpsys activity activities` shows `mResumedActivity` pointing at `com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity`; splash-only screenshots are not sufficient for list-label assertions.
 
-## Source-switch regression pattern (DEFAULT_V2 / LEGACY / VPNGATE)
+## Source-switch regression pattern (DEFAULT_V2 / VPNGATE)
 Use this deterministic flow for source-specific fetch validation without UI flakiness in settings navigation:
 
-1. Write `user_settings.xml` via `run-as tee`:
-   - `"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>...<string name='server_source'>LEGACY</string>..." | adb shell run-as com.yahorzabotsin.openvpnclientgate tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/user_settings.xml`
+> **Only two sources exist.** `ServerSource` is `{ VPNGATE, DEFAULT_V2 }`. `UserSettingsStore.load()`
+> silently migrates persisted `"DEFAULT"`, `"LEGACY"` and `"CUSTOM"` to `DEFAULT_V2`, so writing
+> `LEGACY` here does **not** exercise a legacy fetch — it yields `DEFAULT_V2`, and waiting for a
+> `Source=LEGACY` marker produces a false failure. See
+> [../reference/settings-keys.md](../reference/settings-keys.md).
+
+1. Write `user_settings.xml` via `run-as tee`, using `DEFAULT_V2` or `VPNGATE`:
+   - `"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>...<string name='server_source'>VPNGATE</string>..." | adb shell run-as com.yahorzabotsin.openvpnclientgate tee /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/user_settings.xml`
 2. Clear source caches before launch:
    - `adb shell run-as com.yahorzabotsin.openvpnclientgate rm -f /data/data/com.yahorzabotsin.openvpnclientgate/cache/v2_*.json /data/data/com.yahorzabotsin.openvpnclientgate/cache/servers_*.csv /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/servers_v2_cache.xml /data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/server_cache.xml`
 3. Clear logcat, force-stop app, and relaunch splash.
 4. Wait ~15-20 seconds, then collect screenshot, UI XML, and filtered logcat markers.
 5. Validate by logs:
    - `DEFAULT_V2`: `ServersV2Repository: getCountries: fetching from network`
-   - `LEGACY`: `ServerRepository: Cache miss/stale. Fetching servers. Source=LEGACY`
    - `VPNGATE`: `ServerRepository: Cache miss/stale. Fetching servers. Source=VPNGATE`
+
+   To validate the **migration** instead, write `LEGACY` and assert it comes back as `DEFAULT_V2`:
+   that is the only correct use of the retired names in this procedure.
 
 ## Known UI blockers and workarounds
 - `MainActivity` is not exported; direct launch via `adb shell am start -W .../.mobile.MainActivity` returns `SecurityException`.

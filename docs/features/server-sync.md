@@ -217,8 +217,14 @@ advances `currentUrlIndex` to the next candidate and resets `failuresOnCurrentUr
 `reconnectAttempt` is intentionally **not** reset on URL rotation: exponential backoff must keep
 accumulating across switches so that a complete outage (all URLs failing) eventually reaches
 `MAX_BACKOFF_MS` (5 min) instead of spinning at the initial delay. The rotation is circular:
-after the last URL the index wraps back to the primary. On a successful `onOpen` the failure
-counter for the active URL is reset to zero.
+after the last URL the index wraps back to the primary.
+
+**`onOpen` does not reset `failuresOnCurrentUrl`.** It records `openedAt` and triggers a sync,
+nothing more. The counter is cleared only by `maybeResetBackoff()`, called from `onClosed`/`onFailure`
+and only once the connection has stayed up for `stableConnectionResetDelayMs`. A URL that accepts the
+socket and then drops immediately therefore keeps accumulating failures and still rotates away —
+which is the point. `SseServerEventsClient.kt:188` carries a comment saying so; a doc claiming a
+reset on open is describing the hot-reconnect loop that guard exists to prevent.
 
 > **Edge case — `urlFailureThreshold=1`**: Setting the threshold to 1 causes the client to switch
 > URLs on every single failure. The reconnect loop still applies exponential backoff per attempt,
