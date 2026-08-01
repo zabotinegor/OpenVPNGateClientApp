@@ -93,8 +93,8 @@ a piece of knowledge, check this catalog first.
 
 ## Out of scope for this catalog
 
-- `.github/**` and `.claude/commands/**` — synced from CopilotTools; their index is
-  `.github/AGENTS-REGISTRY.md` (local-only, gitignored).
+- `.github/**` and `.claude/commands/**` — synced from CopilotTools. The registry that indexes them
+  lives in CopilotTools and is **not** synced here, so there is no local copy to consult.
 - `.sdlc/**` — SDLC runtime state, not durable documentation.
 - `tests/manual-e2e/automation/` — PowerShell QA driver scripts and their README; they live with the
   scripts they describe.
@@ -105,11 +105,11 @@ a piece of knowledge, check this catalog first.
 
 None outstanding. Every subsystem in the module map has a behaviour doc above.
 
-One open **correctness** question, which needs a device rather than an edit: the TV D-pad long-press
-technique is described inconsistently across `guides/troubleshooting.md`,
-`operations/device-qa-tv.md` and `operations/device-qa-log.md` — two say `sendevent` works on
-MIBOX4/Android 9, one says it had no effect. Settle it on hardware, then make one the canonical answer
-and reduce the others to pointers.
+The TV D-pad long-press conflict that used to be listed here is resolved:
+[operations/device-qa-tv.md](operations/device-qa-tv.md) is the canonical account, and the other two
+write-ups are pointers to it. It carries its own note that the reconciliation is inferred from the
+recorded commands rather than re-tested — that caveat lives there, at the point of use, rather than
+being copied here.
 
 ## Maintaining this catalog
 

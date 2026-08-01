@@ -855,7 +855,8 @@ US-14 (`update-openvpn-engine`), PR #123 round 2 — commit `387ec39` (added the
 
 - `.github/workflows/build-by-pull-request.yml` ("Install Android SDK packages" step)
 - CI run `29689716964` (job "Build Debug APKs", step "Install Android SDK packages")
-- `.sdlc/evidence/us-14-quality-gate.md` (AS-1/AS-3 disposition)
+- The AS-1/AS-3 disposition came from the US-14 quality gate, whose evidence lived under `.sdlc/` —
+  gitignored runtime state, so it is not retrievable from a checkout. The conclusion is stated above.
 
 ---
 

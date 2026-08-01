@@ -490,7 +490,8 @@ US-14 (`update-openvpn-engine`) quality gate — direct run of `:openVpnEngine:t
 - `src/build.gradle.kts` (`testDebugUnitTestApp` aggregate task, depends on `:core`/`:mobile`/`:tv` only)
 - `.github/workflows/build-by-pull-request.yml` (client CI test step)
 - `src/external/OpenVPNEngine/main/src/test/java/de/blinkt/openvpn/core/TestTrafficHistory.kt`
-- `.sdlc/evidence/us-14-quality-gate.md` (finding 1)
+- Originally raised as finding 1 of the US-14 quality gate. That evidence lived under `.sdlc/`,
+  which is gitignored runtime state — the finding is reproduced in full above rather than linked.
 
 ---
 

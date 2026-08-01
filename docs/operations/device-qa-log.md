@@ -30,7 +30,7 @@ TS-8 is the end-to-end ping display verification. It is blocked on the server te
 - The server list will display `0 мс` for all V2 servers (expected behavior — same as before SUB-01)
 - The `ServerV2.id` field will default to `0` for all servers
 
-### When the server team ships `id` and `ping` (tracked in server repo `US-12-server-list-expose-id.md`)
+### When the server team ships `id` and `ping` (tracked in the server repo's ClickUp suite)
 
 1. Connect device: `adb devices` — ensure a real device is listed
 2. Clear app data (optional, to avoid cache): `adb shell pm clear com.yahorzabotsin.openvpnclientgate`
@@ -259,7 +259,14 @@ The `cmd locale set-app-locales` command:
 
 ### Manual QA Evidence
 
-See the ClickUp QA suite and `CASE-SUB07-004-pl-servers-locale.md` for a complete walkthrough of this technique in action across a Russian→Polish locale switch with localization verification on both countries and servers screens. (ClickUp QA evidence is gitignored and not tracked in the repo — the manual-e2e case files are the durable record.)
+The full walkthrough — a Russian→Polish switch with localization verified on both the countries and
+servers screens — is in the **ClickUp QA suite** (cases SUB07-003 and SUB07-004). It is not in this
+repository: the per-story manual-E2E case files that used to hold it were retired when run records
+moved to ClickUp.
+
+**So this entry is the durable record of the *technique*.** Everything needed to reproduce it is
+above; ClickUp holds the evidence that it was executed on a particular build. Do not add a pointer
+back to a case file here — that is what broke last time.
 
 ---
 
