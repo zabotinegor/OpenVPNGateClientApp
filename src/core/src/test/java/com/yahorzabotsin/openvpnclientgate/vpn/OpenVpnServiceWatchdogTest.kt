@@ -38,6 +38,10 @@ class OpenVpnServiceWatchdogTest {
     @Before
     fun setUp() {
         ShadowLog.clear()
+        // autoSwitchDisabled_failsSafeInsteadOfConsumingBudget writes this pref, and the default
+        // watchdogRecoveryStarter reads it. Reset so no test depends on execution order.
+        appContext.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().clear().commit()
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
@@ -183,6 +187,7 @@ class OpenVpnServiceWatchdogTest {
             ({ _: Context, config: String, _: String? ->
                 recoveryDispatches += 1
                 recoveryConfig = config
+                true
             } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
