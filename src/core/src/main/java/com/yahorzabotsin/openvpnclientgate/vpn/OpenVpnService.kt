@@ -208,17 +208,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         performReachabilityProbe(host, port, timeoutMs)
     }
     /**
-     * Dispatches a recovery. Returns false when no recovery mechanism is available, so the caller
-     * can fail safe instead of consuming budget on an attempt that never happened:
-     * [ServerAutoSwitcher.beginChainedSwitch] returns silently when auto-switch is disabled.
+     * Dispatches a recovery. Returns false when nothing was actually dispatched, so the caller can
+     * fail safe instead of consuming budget on an attempt that never happened.
+     * [ServerAutoSwitcher.beginChainedSwitch] reports false for every such case: auto-switch off,
+     * a rejected stop command, or an exception while requesting the stop.
      */
     internal var watchdogRecoveryStarter: (Context, String, String?) -> Boolean = { ctx, config, title ->
-        if (!ServerAutoSwitcher.isChainedSwitchAvailable(ctx)) {
-            false
-        } else {
-            ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
-            true
-        }
+        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
     }
     private var watchdogProbeJob: Job? = null
     
@@ -1526,11 +1522,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val dispatched =
                 watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
             if (!dispatched) {
-                // Auto-switch is off, so a chained switch is a no-op. Do not burn the budget on
-                // attempts that never happen -- that ends in a fail-safe disconnect three cycles
-                // later with logs claiming recoveries that did not occur. Fail safe now, for the
-                // same reason a missing recovery target does: there is no mechanism to recover with.
-                AppLog.e(TAG, "Watchdog: recovery unavailable (auto-switch disabled); entering fail-safe disconnect")
+                // Nothing was dispatched -- auto-switch is off, or the stop command was rejected.
+                // Do not burn the budget on attempts that never happen: that ends in a fail-safe
+                // disconnect three cycles later with logs claiming recoveries that did not occur.
+                // Fail safe now, for the same reason a missing recovery target does: there is no
+                // mechanism to recover with.
+                AppLog.e(TAG, "Watchdog: recovery not dispatched; entering fail-safe disconnect")
                 triggerWatchdogFailSafeDisconnect("recovery_unavailable")
                 return
             }

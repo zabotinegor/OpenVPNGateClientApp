@@ -70,20 +70,34 @@ then `triggerWatchdogFailSafeDisconnect("attempt_limit_reached")`. A server that
 carries no traffic now terminates instead of being retried forever — the reconnect-storm case, which
 matters most on a metered mobile connection.
 
-**When there is nothing to recover with, it fails safe at once.** The watchdog recovers only through
-`ServerAutoSwitcher`, and `beginChainedSwitch` returns silently when `autoSwitchWithinCountry` is
-off. `watchdogRecoveryStarter` therefore returns a `Boolean`, and a `false` triggers
+**When nothing is actually dispatched, it fails safe at once.** The watchdog recovers only through
+`ServerAutoSwitcher.beginChainedSwitch`, which **returns whether a switch was really begun**. It
+returns `false` on three separate paths, and all of them used to look like success from outside:
+
+| Path | What happens inside |
+|---|---|
+| `autoSwitchWithinCountry` is off | logs and returns without touching the tunnel |
+| `VpnManager.stopVpn` rejects the stop | `cancel(resetCycle = true)`, clears the reconnect hint |
+| requesting the stop throws | same cleanup, via the catch |
+
+`watchdogRecoveryStarter` passes that value straight through, and a `false` triggers
 `recovery_unavailable` immediately — the same treatment a missing recovery target already gets.
-Without this the watchdog would spend three cycles "attempting" recoveries that never happened and
-log them as real, then disconnect anyway. Turning auto-switch off means *do not move me to another
-server*; it does not mean *leave me on a dead tunnel showing a VPN icon*.
+Otherwise the watchdog would spend three cycles "attempting" recoveries that never happened, log them
+as real, and disconnect anyway.
+
+Note the shape of that fix: the outcome is reported by **the function that knows it**, rather than
+guessed at by an availability check beforehand. An earlier version asked
+`isChainedSwitchAvailable(ctx)` before dispatching, which covered only the first row of that table.
+
+Turning auto-switch off means *do not move me to another server*; it does not mean *leave me on a
+dead tunnel showing a VPN icon*.
 
 Two things worth knowing before changing any of this:
 
 - **The counter is not sticky in general.** A transition that the watchdog did not cause still resets
   it. `transitionOutsideRecovery_stillResetsAttempts` guards that distinction.
 - **`ServerAutoSwitcher` still clears its own `cycleStartIndex` on `LEVEL_CONNECTED`**
-  (`ServerAutoSwitcher.kt:123`), so the switcher's one-full-pass bound is per connect, not per
+  (`ServerAutoSwitcher.kt:124`), so the switcher's one-full-pass bound is per connect, not per
   session. That hole is now closed *behind* the watchdog rather than in the switcher: the fail-safe
   disconnect ends the chain before the switcher's reset matters. If the watchdog cap is ever removed,
   this reopens.
@@ -91,7 +105,9 @@ Two things worth knowing before changing any of this:
 Coverage: `OpenVpnServiceWatchdogTest` — `watchdogDrivenReconnect_preservesRecoveryAttempts`,
 `repeatedUnhealthyReconnects_reachAttemptLimitAndFailSafe`,
 `transitionOutsideRecovery_stillResetsAttempts`, `healthyTraffic_endsCarryOverSoNextTransitionResets`,
-`probeOnlySuccess_clearsFailureStreakButKeepsRecoveryBudget`, `autoSwitchDisabled_failsSafeInsteadOfConsumingBudget`.
+`probeOnlySuccess_clearsFailureStreakButKeepsRecoveryBudget`, `autoSwitchDisabled_failsSafeInsteadOfConsumingBudget`;
+plus `ServerAutoSwitcherTest.beginChainedSwitch_returnsFalseWhenAutoSwitchDisabled` and
+`beginChainedSwitch_returnsFalseWhenStopDispatchRejected` for the reporting contract itself.
 
 ## Auto-switch within country
 

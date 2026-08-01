@@ -617,12 +617,9 @@ class OpenVpnServiceWatchdogTest {
     fun autoSwitchDisabled_failsSafeInsteadOfConsumingBudget() {
         val now = 70_000L
         // Deliberately uses the real default watchdogRecoveryStarter so that
-        // ServerAutoSwitcher.isChainedSwitchAvailable is actually exercised. A stubbed starter
-        // would prove nothing about the wiring this test exists to cover.
-        UserSettingsStore.save(
-            appContext,
-            UserSettingsStore.load(appContext).copy(autoSwitchWithinCountry = false)
-        )
+        // ServerAutoSwitcher.beginChainedSwitch's own false return is actually exercised. A stubbed
+        // starter would prove nothing about the wiring this test exists to cover.
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, false)
         val service = buildConnectedService(nowMs = now)
         ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
         SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
