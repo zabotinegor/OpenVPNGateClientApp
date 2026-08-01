@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 import android.content.Context
 import android.os.Handler
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import org.junit.After
@@ -57,7 +58,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -80,7 +81,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 1)
@@ -182,7 +183,7 @@ class OpenVpnServiceWatchdogTest {
             ({ _: Context, config: String, _: String? ->
                 recoveryDispatches += 1
                 recoveryConfig = config
-            } as (Context, String, String?) -> Unit)
+            } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -209,7 +210,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -488,7 +489,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> dispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
 
         setConsecutiveFailures(service, 2)
@@ -526,7 +527,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> dispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         ReflectionHelpers.setField(
             service,
@@ -593,7 +594,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
         )
 
         setConsecutiveFailures(service, 2)
@@ -605,6 +606,95 @@ class OpenVpnServiceWatchdogTest {
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
         assertEquals(0, recoveryAttempts(service))
+    }
+
+    @Test
+    fun autoSwitchDisabled_failsSafeInsteadOfConsumingBudget() {
+        val now = 70_000L
+        // Deliberately uses the real default watchdogRecoveryStarter so that
+        // ServerAutoSwitcher.isChainedSwitchAvailable is actually exercised. A stubbed starter
+        // would prove nothing about the wiring this test exists to cover.
+        UserSettingsStore.save(
+            appContext,
+            UserSettingsStore.load(appContext).copy(autoSwitchWithinCountry = false)
+        )
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "engineBinder",
+            object : IOpenVPNServiceInternal.Stub() {
+                override fun protect(fd: Int) = false
+                override fun userPause(b: Boolean) {}
+                override fun stopVPN(replaceConnection: Boolean) = true
+                override fun addAllowedExternalApp(packagename: String?) {}
+                override fun isAllowedExternalApp(packagename: String?) = false
+                override fun challengeResponse(repsonse: String?) {}
+            }
+        )
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(
+            "a switch that cannot happen must not be reported as a recovery attempt",
+            logs.any { it.contains("Watchdog: fail-safe disconnect reason=recovery_unavailable") }
+        )
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+        assertEquals(
+            "the fail-safe path must not leave budget spent on a no-op dispatch",
+            0,
+            recoveryAttempts(service)
+        )
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+    }
+
+    @Test
+    fun probeOnlySuccess_clearsFailureStreakButKeepsRecoveryBudget() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+        assertEquals(1, recoveryAttempts(service))
+
+        // The peer answers a TCP probe, but the tunnel still carries nothing.
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "handleConnectedProbeResult",
+            ClassParameter.from(Boolean::class.javaPrimitiveType!!, true),
+            ClassParameter.from(Long::class.javaPrimitiveType!!, 0L)
+        )
+
+        assertEquals(
+            "reachability is not traffic: a probe-only success must not refill the recovery budget",
+            1,
+            recoveryAttempts(service)
+        )
+        assertTrue(
+            "the recovery chain is still open until real traffic is seen",
+            ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight")
+        )
+        assertEquals(
+            "the failure streak should still be cleared -- the peer did answer",
+            0,
+            ReflectionHelpers.getField<Int>(
+                ReflectionHelpers.getField<Any>(service, "watchdogState"),
+                "consecutiveFailures"
+            )
+        )
     }
 
     /** watchdogState is replaced wholesale on every transition, so always re-read it. */

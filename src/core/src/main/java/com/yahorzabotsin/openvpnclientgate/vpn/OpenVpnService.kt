@@ -207,8 +207,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
         performReachabilityProbe(host, port, timeoutMs)
     }
-    internal var watchdogRecoveryStarter: (Context, String, String?) -> Unit = { ctx, config, title ->
-        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+    /**
+     * Dispatches a recovery. Returns false when no recovery mechanism is available, so the caller
+     * can fail safe instead of consuming budget on an attempt that never happened:
+     * [ServerAutoSwitcher.beginChainedSwitch] returns silently when auto-switch is disabled.
+     */
+    internal var watchdogRecoveryStarter: (Context, String, String?) -> Boolean = { ctx, config, title ->
+        if (!ServerAutoSwitcher.isChainedSwitchAvailable(ctx)) {
+            false
+        } else {
+            ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+            true
+        }
     }
     private var watchdogProbeJob: Job? = null
     
@@ -1414,7 +1424,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         if (sampleAdvanced && trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES) {
-            markWatchdogHealthy(now, "traffic", trafficDeltaBytes)
+            markWatchdogHealthy(now, "traffic", trafficDeltaBytes, trafficVerified = true)
             return
         }
 
@@ -1465,7 +1475,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun handleConnectedProbeResult(probeSucceeded: Boolean, trafficDeltaBytes: Long) {
         val now = watchdogNowMs()
         if (probeSucceeded) {
-            markWatchdogHealthy(now, "probe", trafficDeltaBytes)
+            // Reachable, but no traffic evidence: clears the failure streak, keeps the budget.
+            markWatchdogHealthy(
+                now,
+                "probe",
+                trafficDeltaBytes,
+                trafficVerified = trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES
+            )
             return
         }
 
@@ -1507,21 +1523,44 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         try {
             // Set before dispatch: beginChainedSwitch can drive the state change synchronously.
             watchdogRecoveryInFlight = true
-            watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+            val dispatched =
+                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+            if (!dispatched) {
+                // Auto-switch is off, so a chained switch is a no-op. Do not burn the budget on
+                // attempts that never happen -- that ends in a fail-safe disconnect three cycles
+                // later with logs claiming recoveries that did not occur. Fail safe now, for the
+                // same reason a missing recovery target does: there is no mechanism to recover with.
+                AppLog.e(TAG, "Watchdog: recovery unavailable (auto-switch disabled); entering fail-safe disconnect")
+                triggerWatchdogFailSafeDisconnect("recovery_unavailable")
+                return
+            }
         } catch (e: Exception) {
             AppLog.w(TAG, "Watchdog: failed to dispatch recovery", e)
             triggerWatchdogFailSafeDisconnect("recovery_dispatch_failed")
         }
     }
 
-    private fun markWatchdogHealthy(nowMs: Long, source: String, trafficDeltaBytes: Long) {
+    /**
+     * @param trafficVerified true only when real traffic was observed. A successful TCP probe means
+     *   the peer is reachable, which clears the failure streak -- but it is NOT evidence that the
+     *   tunnel carries data, so it must not refill the recovery budget. Otherwise a tunnel that
+     *   answers probes while passing nothing would reset the bound on every cycle and recover
+     *   forever, which is the exact case the budget exists to stop.
+     */
+    private fun markWatchdogHealthy(
+        nowMs: Long,
+        source: String,
+        trafficDeltaBytes: Long,
+        trafficVerified: Boolean
+    ) {
         val hadRecoveryState = watchdogState.degraded || watchdogState.recoveryAttempts > 0 || watchdogState.consecutiveFailures > 0
         watchdogState.consecutiveFailures = 0
         watchdogState.degraded = false
-        // Traffic is flowing again: the recovery chain succeeded, so the budget is genuinely spent
-        // and refilled. This is the only success path that clears the carry-over flag.
-        watchdogRecoveryInFlight = false
-        watchdogState.recoveryAttempts = 0
+        if (trafficVerified) {
+            // The recovery chain genuinely succeeded: the budget is spent and refilled.
+            watchdogRecoveryInFlight = false
+            watchdogState.recoveryAttempts = 0
+        }
         watchdogState.lastHealthyTimestamp = nowMs
         watchdogState.lastRecoveryTimestamp = 0L
         AppLog.iThrottled(

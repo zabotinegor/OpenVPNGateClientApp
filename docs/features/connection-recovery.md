@@ -50,11 +50,18 @@ watchdogState.recoveryAttempts = carriedRecoveryAttempts
 **Only the count is carried.** Timing fields are not, so each reconnected tunnel gets a fresh warmup
 grace period and a clear cooldown — the budget persists, the per-attempt patience does not.
 
+**A successful probe is not a successful recovery.** `markWatchdogHealthy` has two callers meaning
+different things: real traffic (`evaluateConnectedHealth`) and a TCP probe that merely proves the peer
+answers (`handleConnectedProbeResult`). Both clear the failure streak; only the traffic-verified one
+refills the budget, via the `trafficVerified` parameter. A server that answers probes while passing no
+data is precisely what the bound exists to stop, so letting reachability reset it would have made the
+bound decorative.
+
 The flag is cleared in exactly three places:
 
 | Cleared when | Why |
 |---|---|
-| `markWatchdogHealthy` | traffic is flowing again — the chain succeeded, budget refills |
+| `markWatchdogHealthy` with **verified traffic** | the chain succeeded, budget refills |
 | `triggerWatchdogFailSafeDisconnect` | the chain is over; do not carry into whatever follows |
 | a **user-initiated** start (`!isReconnect`) | the user's own connect is a fresh budget; auto-switch reconnects continue the chain |
 
@@ -62,6 +69,14 @@ So the effective contract is: **at most three watchdog recoveries until traffic 
 then `triggerWatchdogFailSafeDisconnect("attempt_limit_reached")`. A server that connects cleanly but
 carries no traffic now terminates instead of being retried forever — the reconnect-storm case, which
 matters most on a metered mobile connection.
+
+**When there is nothing to recover with, it fails safe at once.** The watchdog recovers only through
+`ServerAutoSwitcher`, and `beginChainedSwitch` returns silently when `autoSwitchWithinCountry` is
+off. `watchdogRecoveryStarter` therefore returns a `Boolean`, and a `false` triggers
+`recovery_unavailable` immediately — the same treatment a missing recovery target already gets.
+Without this the watchdog would spend three cycles "attempting" recoveries that never happened and
+log them as real, then disconnect anyway. Turning auto-switch off means *do not move me to another
+server*; it does not mean *leave me on a dead tunnel showing a VPN icon*.
 
 Two things worth knowing before changing any of this:
 
@@ -75,7 +90,8 @@ Two things worth knowing before changing any of this:
 
 Coverage: `OpenVpnServiceWatchdogTest` — `watchdogDrivenReconnect_preservesRecoveryAttempts`,
 `repeatedUnhealthyReconnects_reachAttemptLimitAndFailSafe`,
-`transitionOutsideRecovery_stillResetsAttempts`, `healthyTraffic_endsCarryOverSoNextTransitionResets`.
+`transitionOutsideRecovery_stillResetsAttempts`, `healthyTraffic_endsCarryOverSoNextTransitionResets`,
+`probeOnlySuccess_clearsFailureStreakButKeepsRecoveryBudget`, `autoSwitchDisabled_failsSafeInsteadOfConsumingBudget`.
 
 ## Auto-switch within country
 
@@ -129,8 +145,10 @@ See [vpn-connection.md](vpn-connection.md).
 ## How the three interact
 
 - The watchdog runs **only** in `CONNECTED`, after warmup.
-- A watchdog failure may trigger auto-switch if the setting is on; otherwise it drives recovery
-  attempts against the same server.
+- A watchdog failure recovers **through the auto-switcher**. There is no same-server recovery path:
+  if `autoSwitchWithinCountry` is off, `beginChainedSwitch` returns without acting, so the watchdog
+  has no mechanism at all and fails safe immediately (`recovery_unavailable`) rather than counting
+  attempts that never happened.
 - A user-initiated stop takes precedence: the stop flow is what persists across process death, and a
   pending stop is reconciled on next start.
 - **Every path is bounded, but by a different thing each time.** The stop path: 3 dispatch attempts,

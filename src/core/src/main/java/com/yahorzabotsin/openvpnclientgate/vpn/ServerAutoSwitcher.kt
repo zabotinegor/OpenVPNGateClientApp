@@ -57,6 +57,12 @@ object ServerAutoSwitcher {
     private fun isEnabled(ctx: Context): Boolean =
         try { UserSettingsStore.load(ctx).autoSwitchWithinCountry } catch (_: Exception) { true }
 
+    /**
+     * Whether a chained switch would actually do anything. [beginChainedSwitch] returns silently
+     * when auto-switch is off, so callers that need to know a dispatch took effect must ask first.
+     */
+    fun isChainedSwitchAvailable(ctx: Context): Boolean = isEnabled(ctx)
+
     private fun applyTimeoutFromSettings(ctx: Context) {
         val seconds = try { UserSettingsStore.load(ctx).statusStallTimeoutSeconds } catch (_: Exception) { null }
         if (seconds != null) {
