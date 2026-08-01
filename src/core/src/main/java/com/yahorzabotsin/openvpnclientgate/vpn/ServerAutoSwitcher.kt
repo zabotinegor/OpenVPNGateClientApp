@@ -57,6 +57,7 @@ object ServerAutoSwitcher {
     private fun isEnabled(ctx: Context): Boolean =
         try { UserSettingsStore.load(ctx).autoSwitchWithinCountry } catch (_: Exception) { true }
 
+
     private fun applyTimeoutFromSettings(ctx: Context) {
         val seconds = try { UserSettingsStore.load(ctx).statusStallTimeoutSeconds } catch (_: Exception) { null }
         if (seconds != null) {
@@ -125,10 +126,15 @@ object ServerAutoSwitcher {
         }
     }
 
-    fun beginChainedSwitch(appContext: Context, config: String, title: String?) {
+    /**
+     * @return true only if a switch was actually begun. False means nothing was dispatched --
+     *   auto-switch is off, or the stop command was rejected -- and the caller must not treat it as
+     *   a recovery in progress. Callers that merely want best-effort behaviour may ignore it.
+     */
+    fun beginChainedSwitch(appContext: Context, config: String, title: String?): Boolean {
         if (!isEnabled(appContext)) {
             AppLog.d(TAG, "Auto-switch disabled; skipping chained switch")
-            return
+            return false
         }
         applyTimeoutFromSettings(appContext)
         if (cycleStartIndex == null) {
@@ -140,17 +146,19 @@ object ServerAutoSwitcher {
         pendingTitle = title
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)
-        try {
+        return try {
             val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
             if (!dispatched) {
                 AppLog.w(TAG, "Controller stop dispatch rejected for chained switch; aborting auto-switch")
                 cancel(resetCycle = true)
                 try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after dispatch rejection", e) }
             }
+            dispatched
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to request engine stop for chained switch", e)
             cancel(resetCycle = true)
             try { ConnectionStateManager.setReconnectingHint(false) } catch (ex: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after stop exception", ex) }
+            false
         }
     }
 
