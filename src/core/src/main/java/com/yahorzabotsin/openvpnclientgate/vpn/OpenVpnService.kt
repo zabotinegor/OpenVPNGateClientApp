@@ -155,8 +155,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var statusBinder: IServiceStatus? = null
     private var boundToStatus = false
     private var statusRebindDelayMs = 500L
-    private var lastStatusSnapshotMs: Long = 0L
-    private var lastLiveStatusMs: Long = 0L
+    // Written on the AIDL binder thread (updateStateString) and read on the main looper
+    // (applyStatusSnapshot, via onServiceConnected / trafficPollRunnable). Same cross-thread
+    // visibility requirement as aidlLastInBytes/aidlLastOutBytes above: without @Volatile the
+    // main thread can observe a stale cached value, e.g. computing livePushStale=false when the
+    // live push channel has actually died, silently defeating the stale-push auto-switch fix.
+    @Volatile private var lastStatusSnapshotMs: Long = 0L
+    @Volatile private var lastLiveStatusMs: Long = 0L
     private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
@@ -539,7 +544,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun isAidlFresh(): Boolean {
-        val now = System.currentTimeMillis()
+        val now = watchdogNowMs()
         return boundToStatus && lastLiveStatusMs > 0L && (now - lastLiveStatusMs) <= aidlFreshWindowMs
     }
 
@@ -1667,7 +1672,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
         val level = snapshot.level ?: return
-        val now = System.currentTimeMillis()
+        val now = watchdogNowMs()
         val ts = snapshot.timestampMs
         if (ts > 0L && level in staleSnapshotTimeoutLevels) {
             val ageMs = now - ts
@@ -1687,7 +1692,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
-        val livePushStale = now - lastLiveStatusMs > aidlFreshWindowMs
+        // Equivalent to `now - lastLiveStatusMs > aidlFreshWindowMs`: isAidlFresh() also folds in
+        // boundToStatus, which is always true here since applyStatusSnapshot is only reached via
+        // trySyncStatusSnapshot/onServiceConnected, both of which require statusBinder != null,
+        // itself only ever set alongside boundToStatus = true.
+        val livePushStale = !isAidlFresh()
         syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
         onOneShotInitialStateSynced("AIDL snapshot")
         if (level == ConnectionStatus.LEVEL_CONNECTED) {

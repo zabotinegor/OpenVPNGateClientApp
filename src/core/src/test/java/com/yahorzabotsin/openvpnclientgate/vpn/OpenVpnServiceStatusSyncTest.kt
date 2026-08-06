@@ -166,9 +166,16 @@ class OpenVpnServiceStatusSyncTest {
         // within aidlFreshWindowMs), the poll fallback must keep passing
         // allowAutoSwitch=false, exactly as before this fix, to avoid duplicate/competing
         // switch triggers alongside the live AIDL push path.
+        //
+        // Code review F4: applyStatusSnapshot() recomputes "now" internally, so capturing
+        // System.currentTimeMillis() in the test and asserting on a value derived from a
+        // later real-clock read was flake-prone (a >3s pause between setup and the internal
+        // recomputation would flip the result). watchdogNowMs is overridden with a fixed
+        // value so this test no longer depends on wall-clock timing at all.
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
-        val now = System.currentTimeMillis()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
 
         ReflectionHelpers.setField(service, "boundToStatus", true)
         ReflectionHelpers.setField(service, "lastLiveStatusMs", now)
@@ -192,6 +199,154 @@ class OpenVpnServiceStatusSyncTest {
 
             assertNull(
                 "ServerAutoSwitcher timer must stay inactive when the live push channel is fresh",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_treatsExactlyAtFreshWindowThresholdAsFresh() {
+        // Code review F4 boundary case: isAidlFresh() uses "<=" (now - lastLiveStatusMs) <=
+        // aidlFreshWindowMs), so a live push exactly aidlFreshWindowMs old is still "fresh" and
+        // must keep the poll fallback's allowAutoSwitch=false, same as the fresh-path test
+        // above. Uses the injectable watchdogNowMs clock for a deterministic boundary value
+        // instead of relying on wall-clock timing.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        val aidlFreshWindowMs = ReflectionHelpers.getField<Long>(service, "aidlFreshWindowMs")
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - aidlFreshWindowMs)
+        ServerAutoSwitcher.resetForTest()
+
+        val snapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, snapshot)
+            )
+
+            assertNull(
+                "A live push exactly aidlFreshWindowMs old must still count as fresh " +
+                    "(isAidlFresh() uses <=), keeping auto-switch suppressed",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_treatsNeverPushedLiveStatusAsStale() {
+        // Code review F4: covers the lastLiveStatusMs == 0L (never received a live AIDL push
+        // callback) branch. isAidlFresh() requires lastLiveStatusMs > 0L, so this must be
+        // treated as stale and wake the auto-switcher, same as an old-but-nonzero timestamp.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", 0L)
+        ServerAutoSwitcher.resetForTest()
+
+        val snapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, snapshot)
+            )
+
+            assertNotNull(
+                "A live push channel that has never reported (lastLiveStatusMs=0L) must be " +
+                    "treated as stale, waking the auto-switcher",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_stalePushAllowsImmediateSwitchOnAuthFailed() {
+        // Code review F2 (non-blocking): allowAutoSwitch=true from the stale-push path applies
+        // to ALL levels reaching syncEngineState, not just the CONNECTING family — e.g. for
+        // LEVEL_AUTH_FAILED (and LEVEL_NONETWORK) the poll path can now trigger an immediate
+        // switch too, when a switch timer is already active. This is consistent with how the
+        // live push path already treats these levels (see
+        // ServerAutoSwitcherTest.authFailedStartsChainedSwitchImmediately) and is an
+        // intentional, tested consequence of the fix — not scope creep (noted on ClickUp task
+        // 86cb21563).
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = System.currentTimeMillis()
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs (3_000L).
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 10_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        // Prime the auto-switch timeout timer via the stale-push snapshot path first, exactly
+        // as applyStatusSnapshot_wakesAutoSwitcherWhenLivePushChannelIsStale verifies above.
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the AUTH_FAILED snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            val authFailedSnapshot = StatusSnapshot(
+                "AUTH_FAILED",
+                null,
+                0,
+                ConnectionStatus.LEVEL_AUTH_FAILED,
+                now,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, authFailedSnapshot)
+            )
+
+            assertNull(
+                "ServerAutoSwitcher must be invoked for LEVEL_AUTH_FAILED reached via the " +
+                    "stale-push snapshot path and trigger an immediate switch, canceling the " +
+                    "active timeout timer",
                 ServerAutoSwitcher.remainingSeconds.value
             )
         } finally {
@@ -537,6 +692,32 @@ class OpenVpnServiceStatusSyncTest {
         assertTrue(
             "lastAidlByteUpdateTs must be @Volatile for cross-thread visibility",
             java.lang.reflect.Modifier.isVolatile(lastAidlByteUpdateTsField.modifiers)
+        )
+    }
+
+    @Test
+    fun livePushStatusFieldsAreVolatile() {
+        // Regression for BUG-autoswitch-stale-push-stall code review F1: lastLiveStatusMs is
+        // written only from updateStateString (a real binder-thread-pool thread, since
+        // OpenVPNStatusService runs in a separate :openvpn process) and read from
+        // applyStatusSnapshot() on the main looper (onServiceConnected / trafficPollRunnable).
+        // Without @Volatile there is no happens-before guarantee, so the main thread could
+        // observe a stale cached value and compute livePushStale=false when the live push
+        // channel has actually died, silently defeating the stale-push auto-switch fix
+        // intermittently. lastStatusSnapshotMs has the same binder-write/main-thread-read
+        // pattern (trafficPollRunnable's poll-gating logic also depends on it staying
+        // accurate). This locks in the fix alongside the existing aidlLastInBytes/
+        // stopRequestId @Volatile fields.
+        val lastStatusSnapshotMsField = OpenVpnService::class.java.getDeclaredField("lastStatusSnapshotMs")
+        val lastLiveStatusMsField = OpenVpnService::class.java.getDeclaredField("lastLiveStatusMs")
+
+        assertTrue(
+            "lastStatusSnapshotMs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(lastStatusSnapshotMsField.modifiers)
+        )
+        assertTrue(
+            "lastLiveStatusMs must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(lastLiveStatusMsField.modifiers)
         )
     }
 
