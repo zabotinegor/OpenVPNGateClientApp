@@ -137,7 +137,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 Before reading any other file or taking any action, every agent must:
 
 1. Run `pwsh -File .github/scripts/init-session.ps1` — creates/refreshes `.sdlc/session.json` with `resetsAtUtc` (when the current usage window resets). There is no usage-percentage tracking or polling: no continuous CDP/Chrome fetch, no background watchdog, no per-tool-call check. `resetsAtUtc` only gets a rare live refresh (inside `init-session.ps1` itself) when there is no valid cached window boundary.
-2. **Top-level unfinished work must arm recovery before normal tools, unconditionally — not gated on any usage level:** register the canonical resume command with `manage-session-resume.ps1 -Action SetIntent`, obey its directive, create one one-shot `CronCreate` for `resetsAtUtc + 2 minutes`, verify the job with `CronList`, and record it with `-Action Confirm`. Do not continue merely because the transcript says `Used ScheduleWakeup`; provider listing plus `Confirm` is required. Subagents remain schedule-free — the orchestrator owns this. Checkpoint unfinished work via `.sdlc/status.json` substeps as you go — that checkpoint trail, plus the always-armed cron, is what makes work resumable, not a percentage trip-wire.
+2. **Top-level unfinished work must arm recovery before normal tools, unconditionally — not gated on any usage level:** register the canonical resume command with `manage-session-resume.ps1 -Action SetIntent`, obey its directive, create one one-shot `CronCreate` for `resetsAtUtc + 2 minutes`, verify the job with `CronList`, and record it with `-Action Confirm`. Do not continue merely because the transcript says `Used ScheduleWakeup`; provider listing plus `Confirm` is required. Subagents remain schedule-free — the orchestrator owns this. Checkpoint unfinished work via `.sdlc/status.json` substeps as you go — that checkpoint trail, plus the always-armed cron, is what makes work resumable, not a percentage trip-wire. For SDLC orchestrators, **flow start means invocation, not branch creation**: a `FlowId` is a branch name and does not exist yet during intake, reproduction, BA, or story approval, so arm a `-Type task -ResumeAgent <flow-slash-command>` intent as the first action after `init-session.ps1` and let the later `-Type flow -FlowId <branch>` call promote it — the manager retires the placeholder and re-attaches its cron as `staleJobId`, so the directive comes back as `replace` and the usual CronDelete → CronCreate → Confirm completes the handover.
 3. **Flow lease (enforced):** every flow carries a 15-minute lease enforced by `update-sdlc-status.ps1`. Capture your `sessionId` once at flow start and pass `-SessionId` on every status write. At flow start/resume/wakeup: `-Lease check -SessionId <yours>`; exit 0 → `-Lease acquire` and proceed; exit 2 → another session is live — do not touch the flow; schedule a fresh wakeup (~15 min) or ask the user. Use `-Lease acquire -TakeOver` only on an explicit user handoff. A status write rejected with exit 2 means the lease was lost — stop immediately, cancel your own scheduled wakeups/cron jobs for the flow, report the handoff in one line. Before asking the user a blocking question, run `-Lease renew -WaitingForUser` — a waiting lease never expires and can only be displaced by an explicit `-TakeOver`; when the answer arrives, re-run `-Lease check` before acting (the next status write clears the mark). A session hitting a waiting lease reports the pending question to the user instead of scheduling retry wakeups. Run `-Lease release` at flow completion and when checkpointing for a long sleep. Subagents never take over; on exit 2 they return `GATE: BLOCKED`, `REASON: lease-conflict`.
 4. **Recovery and user-wait guard:** unfinished top-level work keeps one verified reset cron, waiting on the user or not. Before `AskUserQuestion`, mark the lease `WaitingForUser` and suspend (this only records the pending question — it does not touch the cron). Waiting for user input is normal, never `blocked`, and does not exempt the flow from needing a current, confirmed cron: if the window rolls over during the wait, a rearm is required exactly as it would be for active work. On reply, clear waiting state and re-read SDLC state; rearm only if the directive shows the cron went stale during the wait. The PreToolUse gate denies ordinary work while a registered intent lacks a confirmed current-window cron, and the Stop hook refuses to end the turn on one, so an unarmed flow is stopped rather than losing its recovery silently. If the gate reports the due time has already passed, the window boundary is stale: run `init-session.ps1` (exempt from the gate for exactly that reason) rather than arming another cron against the same dead reset. If scheduling fails, retry once then record the manual fallback without claiming automatic recovery.
 5. After ANY wakeup, auto-resume, or session restore: re-read `.sdlc/status.json` (steps, substeps, `lastUpdatedUtc`) and re-derive the entry step from the flow's resume table before acting — never resume from wakeup reason text, conversation memory, or `checkpoint.currentStep` alone; another session (possibly another account) may have advanced the flow while this one slept.
@@ -145,6 +145,8 @@ Before reading any other file or taking any action, every agent must:
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
 **One exemption: `agent-sync`.** It skips this entire section — no `init-session.ps1`, no usage or reset-time lookup, no recovery cron, no `.sdlc/status.json` checkpoint, no lease, no `check-tracking-preflight.ps1`. Agent Sync installs the session-tracking stack; it does not run on it, and gating a short idempotent file copy behind Chrome launches and account questions cost more than the interruption it was protecting against. An interrupted sync is recovered by re-running it. No other agent has this exemption.
+
+This exemption is **mechanically enforced**, not just documented: `check-session-before-tool.ps1` allows a subagent spawn whose prompt opens with `/agent-sync`, plus the sync/setup toolchain commands themselves, so a sync still runs when an unrelated flow on the same branch has unarmed or stale recovery. Agent Sync therefore never needs to arm a cron, acquire a lease, resolve another flow's recovery state, or switch branches to get itself unblocked — if a sync appears blocked by flow machinery, that is a bug in the gate, not a state the agent should try to satisfy. Outward-facing git (`push`, `commit`, `merge`) stays gated for it exactly as for everyone else, which is consistent with Agent Sync never committing.
 
 ## Core Principles
 
@@ -239,22 +241,23 @@ Every agent must document any discovery that would save time in a future session
 - Secrets, tokens, passwords, or credentials — never write actual values.
 - Personal preferences or style opinions.
 
-**Where to write — pick by content type, not by habit:**
+**Where to write:**
 
-| Content type | File | Notes |
-|---|---|---|
-| Durable feature/architecture behavior (how a flow works, state models, invariants that must hold) | a new or existing `src/docs/*.md` file | These are "flow docs" — see `src/docs/favorites-ui-patterns.md`/`server-sync-flow.md` for the expected shape. |
-| A specific bug: symptom → root cause → fix | `docs/runbooks/solutions.md` | Append as a new `##` heading. |
-| A reusable technique or step-by-step guide not tied to one bug | `docs/runbooks/how-to.md` | Append as a new `##` heading. |
-| Device/environment-specific QA gotcha (ADB quirks, OEM-specific behavior) | `tests/manual-e2e/environment/*.md` or `docs/runbooks/android-qa.md` | `android-qa.md` is a chronological per-story log — use it for a QA finding tied to a specific story/date. |
-| Reusable, cross-story command/technique snippet organized by topic (not tied to one bug/story) | `src/docs/android-qa-adb-cookbook.md` | This is a first-class destination, not just something to avoid duplicating into — use it when the knowledge is a general technique (e.g. "how to check probe trigger logs") rather than a dated per-story finding. |
-| Env var names, service dependencies, startup order | `docs/runbooks/environment-setup.md` | Create if it doesn't exist yet. |
-| API endpoint/auth/test-data notes | `docs/runbooks/api-testing.md` | Create if it doesn't exist yet. |
+First check whether this repository declares its own knowledge-base catalog — a line in its
+`AGENTS.md` or `CLAUDE.md` pointing at a catalog file, for example `docs/INDEX.md` or
+`src/docs/INDEX.md`. **If one is declared, it wins.** Read it, write the new doc where its
+conventions say, and update its catalog row in the same change. Also update the target file's own
+`## Index` block if it has one. Do not fall back to the table below in that case — a repo with a
+catalog may have no `docs/runbooks/` directory at all.
 
-Never create a new directory that duplicates the shape of an existing one to hold a single stray
-entry (e.g. do not create `src/docs/runbooks/` alongside root `docs/runbooks/`) — this has happened
-before and produced an orphaned, unreferenced duplicate. If unsure which file owns a piece of
-knowledge, check `src/docs/INDEX.md` first.
+Otherwise, when no catalog is declared, knowledge lives under `docs/runbooks/`:
+
+| File | Content |
+|---|---|
+| `docs/runbooks/environment-setup.md` | Start commands, env var names, service dependencies, startup order |
+| `docs/runbooks/api-testing.md` | Endpoint list, auth patterns, test data setup |
+| `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
+| `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
 
 Add a platform-specific runbook only where that platform actually exists in the target repository —
 for example `docs/runbooks/android-qa.md` (ADB commands, build variant, device prep, install
@@ -262,9 +265,11 @@ procedure) in a repo with an Android surface. Do not create platform runbooks a 
 
 Create files that do not exist. Append to existing files — never overwrite useful prior content.
 
-**Keep the catalog and in-file indexes current — this is not optional:**
-- Adding a new `src/docs/*.md` file: add one row to the relevant table in `src/docs/INDEX.md` in the same change, with a "Last verified against: <date/commit or story>" footer in the new file itself — this is the only signal a future reader has that a flow doc might now be stale.
-- Adding a new entry to `docs/runbooks/solutions.md`, `docs/runbooks/how-to.md`, or `docs/runbooks/android-qa.md`: also add one line to that file's own `## Index` section (near the top) — these files are long, and the index is what makes them lazy-loadable instead of requiring a full read.
+Each entry is a **top-level `##` heading preceded by a `---` separator**. Do not use `###` for an
+entry: a heading one level deeper than the file's top-level entries silently nests under the
+previous entry instead of becoming its own, so the entry becomes unreachable when an agent scans
+the file's headings — and it still looks correct in any index block, which is what makes this
+easy to miss. Reserve `###` for genuine sub-steps inside one entry.
 
 **Format for `solutions.md` entries:**
 ```markdown
@@ -287,11 +292,6 @@ Create files that do not exist. Append to existing files — never overwrite use
 1. ...
 **Notes:** <gotchas or platform-specific details>
 ```
-
-Use `##` (not `###`) and the leading `---` separator — a `###` entry with no `---`/`##` before it
-silently nests under whatever heading precedes it instead of becoming its own standalone entry.
-This exact mistake happened before in `solutions.md`; matching the file's real dominant convention
-prevents repeating it.
 
 Commit knowledge files to the same branch as the implementation. They travel with the PR and get merged alongside the feature or fix.
 

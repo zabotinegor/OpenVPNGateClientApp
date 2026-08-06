@@ -28,6 +28,7 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 
 ## Blocking gates
 
+- **Agent Sync never participates in flow machinery and is never blocked by it.** No `init-session.ps1`, no reset-recovery cron, no `.sdlc/status.json` checkpoint, no flow lease check or acquire — see the exemption in [../shared/agents-core-rules.md](../shared/agents-core-rules.md). It is the installer for that stack, so it must run whenever invoked, including when the stack is broken. An unfinished flow, a held lease, or an unarmed/stale recovery cron on the current branch is **not** a reason to stop, switch branches, ask the user how to proceed, or arm anything: those belong to whichever session owns that flow. The exemption is enforced by `check-session-before-tool.ps1`, so if a sync command is denied on those grounds, report it as a gate bug rather than trying to satisfy the demand.
 - Resolve and report the latest source commit SHA from the configured CopilotTools Git repository before editing, using foreground git/terminal when available or authenticated GitHub connector/API tools when terminal execution is unavailable.
 - Stop before editing only if no available tool can identify the source revision or source file contents.
 - Verify the target branch/worktree state before changing files.
