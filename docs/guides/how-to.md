@@ -609,11 +609,13 @@ future diagnostic target.
 
 **First demonstrated**
 
-Bug 86cb21563 (`bug-autoswitch-stale-push-stall`) — used to prove `ServerAutoSwitcher.onEngineLevel`
-was never invoked during a multi-minute field incident window, by the total absence of its
-`"Suppressed N repeated logs for key=switch-wait-*"` summary line, which was the key insight that
-identified the hardcoded `allowAutoSwitch=false` in `OpenVpnService.applyStatusSnapshot()` as the
-root cause.
+Bug 86cb21563 (`bug-autoswitch-stale-push-stall`) — the total absence of
+`ServerAutoSwitcher`'s `"Suppressed N repeated logs for key=switch-wait-*"` summary line across a
+multi-minute field incident window was, on its own, inconclusive (see "The technique" above, and
+step 3). Combined with the step-4 cross-check confirming the surrounding window was long and
+active enough that a real invocation would have left some trace, it supported the conclusion that
+`onEngineLevel` never ran — the key insight that identified the hardcoded `allowAutoSwitch=false`
+in `OpenVpnService.applyStatusSnapshot()` as the root cause.
 
 **References**
 

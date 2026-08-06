@@ -964,9 +964,9 @@ cycle (code review round 1) additionally made `lastLiveStatusMs`/`lastStatusSnap
 `@Volatile` for correct cross-thread visibility between the binder-thread writer and the
 main-thread reader.
 
-**Key diagnostic technique: use the throttled "Suppressed N logs" summary to prove `onEngineLevel` was never invoked**
+**Key diagnostic technique: use the throttled "Suppressed N logs" summary as evidence for whether `onEngineLevel` ran**
 
-The investigation's turning point was proving a *negative* — that `ServerAutoSwitcher.onEngineLevel`
+The investigation's turning point was building the case that `ServerAutoSwitcher.onEngineLevel`
 was never called during the incident window — from a **release-build** logcat, where the direct
 evidence is normally invisible. `ServerAutoSwitcher`'s own per-call logging uses
 `AppLog.dThrottled(...)` (`DEBUG` priority), and `AppReleaseTree.log()`
@@ -987,20 +987,25 @@ summary** at `Log.INFO` priority regardless of the throttled call's own priority
 log(priority = Log.INFO, tag = tag, message = "Suppressed $suppressed repeated logs for key=$key", ...)
 ```
 
-`Log.INFO` passes the `AppReleaseTree` filter unconditionally. So in a release logcat, grepping for
-`"Suppressed"` under the `ServerAutoSwitcher` tag gives a reliable proxy: if `onEngineLevel` (and
-therefore the throttled "Switch wait" log) had fired even once during the incident window, a
-`Suppressed N repeated logs for key=switch-wait-...` line would eventually appear once the 30 s
-throttle window closed and a later call flushed the counter. Its total absence across the entire
-multi-minute incident window is what proved the auto-switch timer never started at all — not that
-it started and was merely under-logged.
+`Log.INFO` passes the `AppReleaseTree` filter unconditionally, but the summary line only appears
+after at least one suppressed call is followed by a later call that flushes the counter — a timer
+that reaches its threshold and fires on its very first attempt can legitimately produce neither,
+even when `onEngineLevel` ran correctly. So in a release logcat, grepping for `"Suppressed"` under
+the `ServerAutoSwitcher` tag gives useful but not by itself conclusive evidence: if `onEngineLevel`
+(and therefore the throttled "Switch wait" log) had fired repeatedly with more than 30 s between
+throttle-window closes during the incident window, a `Suppressed N repeated logs for
+key=switch-wait-...` line would appear. Its total absence across the entire multi-minute incident
+window did not by itself prove the auto-switch timer never started; combined with the poll-path
+cross-check below — confirming the window was long and active enough that a real, repeated
+invocation would have left some trace — it supported the conclusion that the timer never started
+at all, rather than having started and being merely under-logged.
 
 **Commands used**
 
 ```bash
 grep -c "ServerAutoSwitcher" logcat_20260804_145212.txt              # sanity: tag exists at all
-grep "ServerAutoSwitcher" logcat_20260804_145212.txt | grep -i "suppressed"   # the actual proof
-grep "OpenVpnService" logcat_20260804_145212.txt | grep -i "AIDL\|snapshot"   # poll path still logging (UI stayed accurate)
+grep "ServerAutoSwitcher" logcat_20260804_145212.txt | grep -i "suppressed"   # absence here is inconclusive alone
+grep "OpenVpnService" logcat_20260804_145212.txt | grep -i "AIDL\|snapshot"   # cross-check: poll path still logging (UI stayed accurate)
 ```
 
 This technique generalizes to any throttled log (`AppLog.dThrottled`/`AppLog.iThrottled`) whose
