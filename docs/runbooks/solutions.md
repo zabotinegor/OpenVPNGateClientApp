@@ -808,3 +808,105 @@ quality gate — findings on `ServerSelectionSyncCoordinatorTest.kt` (concurrenc
 - `src/core/.../settings/UserSettingsStore.kt` (`isUsableServerUrl`)
 - commits `c2f1266` (concurrency-guard + `isUsableServerUrl` tests restored),
   `e427d55` (cache-only stale-key test restored)
+
+---
+
+## Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563
+
+**Symptom**
+
+Field report: app stuck showing "Connecting..." indefinitely with no automatic server switch.
+Confirmed from a user-supplied logcat capture (`logcat_20260804_145212.txt`): the VPN connected
+normally for ~8 minutes, then the engine reported `LEVEL_CONNECTING_NO_SERVER_REPLY_YET`
+(`CONNECTRETRY`/`TCP_CONNECT` alternating) — a stall that, everywhere else in the same log,
+triggers a switch within 5-8 s. This one time it never did; the app sat on
+`LEVEL_CONNECTING_NO_SERVER_REPLY_YET` for 5+ minutes until the capture ended, zero switch
+activity.
+
+**When it occurs**
+
+The engine's live AIDL push callback (`updateStateString`, binder thread) stalls — stops being
+invoked — while the app is in a CONNECTING-family state. The app's own periodic snapshot-poll
+fallback (`OpenVpnService.applyStatusSnapshot()`) kept the UI accurate throughout, which is why
+the bug was easy to miss on a quick glance: nothing looked frozen except the missing switch.
+
+**Root cause**
+
+`OpenVpnService.applyStatusSnapshot()` hardcoded `syncEngineState(level, snapshot.state,
+allowAutoSwitch = false)`. This poll path is meant to be a fallback that keeps
+`ConnectionStateManager` in sync when the live push channel goes quiet, but the hardcoded `false`
+meant it could never wake `ServerAutoSwitcher` — only the live push path could start the
+auto-switch timeout timer. When the live push channel stalled, the poll fallback covered the UI
+but not the auto-switch responsibility, so the timer never started and the app hung forever.
+
+**Fix applied**
+
+Compute the flag instead of hardcoding it: `allowAutoSwitch = !isAidlFresh()`, reusing the
+freshness predicate already shared by three other consumers in the same file (see
+`src/docs/server-sync-flow.md`, "Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback"). When
+the live push channel is fresh, behavior is unchanged (`allowAutoSwitch=false`, no duplicate
+triggers). When it has gone stale, the poll path takes over driving auto-switch. Follow-up fix
+cycle (code review round 1) additionally made `lastLiveStatusMs`/`lastStatusSnapshotMs`
+`@Volatile` for correct cross-thread visibility between the binder-thread writer and the
+main-thread reader.
+
+**Key diagnostic technique: use the throttled "Suppressed N logs" summary to prove `onEngineLevel` was never invoked**
+
+The investigation's turning point was proving a *negative* — that `ServerAutoSwitcher.onEngineLevel`
+was never called during the incident window — from a **release-build** logcat, where the direct
+evidence is normally invisible. `ServerAutoSwitcher`'s own per-call logging uses
+`AppLog.dThrottled(...)` (`DEBUG` priority), and `AppReleaseTree.log()`
+(`src/core/.../logging/AppLogTrees.kt`) drops `DEBUG`/`VERBOSE` from release logcat entirely:
+
+```kotlin
+if (priority == Log.DEBUG || priority == Log.VERBOSE) return
+```
+
+So the individual "Switch wait: Ns" debug lines are simply absent from a release capture — a naive
+`grep ServerAutoSwitcher` shows nothing and looks exactly like "the switcher was never touched" and
+"the switcher was touched but not logged," which are indistinguishable from the raw absence alone.
+
+The resolving insight: `AppLog.logThrottled()` always emits its periodic **suppressed-count
+summary** at `Log.INFO` priority regardless of the throttled call's own priority:
+
+```kotlin
+log(priority = Log.INFO, tag = tag, message = "Suppressed $suppressed repeated logs for key=$key", ...)
+```
+
+`Log.INFO` passes the `AppReleaseTree` filter unconditionally. So in a release logcat, grepping for
+`"Suppressed"` under the `ServerAutoSwitcher` tag gives a reliable proxy: if `onEngineLevel` (and
+therefore the throttled "Switch wait" log) had fired even once during the incident window, a
+`Suppressed N repeated logs for key=switch-wait-...` line would eventually appear once the 30 s
+throttle window closed and a later call flushed the counter. Its total absence across the entire
+multi-minute incident window is what proved the auto-switch timer never started at all — not that
+it started and was merely under-logged.
+
+**Commands used**
+
+```bash
+grep -c "ServerAutoSwitcher" logcat_20260804_145212.txt              # sanity: tag exists at all
+grep "ServerAutoSwitcher" logcat_20260804_145212.txt | grep -i "suppressed"   # the actual proof
+grep "OpenVpnService" logcat_20260804_145212.txt | grep -i "AIDL\|snapshot"   # poll path still logging (UI stayed accurate)
+```
+
+This technique generalizes to any throttled log (`AppLog.dThrottled`/`AppLog.iThrottled`) whose
+underlying priority is filtered out of release builds: the throttle-summary line is always `INFO`
+and survives `AppReleaseTree`, so it can stand in for the filtered-out per-call log when you need
+to answer "did this code path ever run" from a release-build capture. See the companion entry in
+`docs/runbooks/how-to.md` ("Diagnose whether a throttled DEBUG log path ever fired, from a
+release-build logcat").
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
+  (`applyStatusSnapshot`, `isAidlFresh`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt`
+  (`onEngineLevel`, throttled "Switch wait" log)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLog.kt`
+  (`logThrottled`, suppressed-count summary)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLogTrees.kt`
+  (`AppReleaseTree.log`, DEBUG/VERBOSE filter)
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceStatusSyncTest.kt`
+- `src/docs/server-sync-flow.md` ("Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback")
+- ClickUp [86cb21563](https://app.clickup.com/t/86cb21563); commits `f909d31`, `07bcaae`
+- `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md`

@@ -102,3 +102,25 @@ sharing the same IP, which exercises the IP-vs-config disambiguation logic.
 ### SSE fires `servers-changed` on connection open and repeatedly during session
 The SSE client fires `servers-changed` events causing the store to be refreshed every few seconds.
 During any delay between server selection and Connect tap, the store will be updated multiple times.
+
+### Bringing a backgrounded app instance back to foreground (not a fresh launch)
+`adb shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.MainActivity` fails with
+`SecurityException: ... not exported from uid <app>` — `MainActivity` is intentionally not exported.
+To simulate the user tapping the home-screen icon again (resumes the existing task instead of
+recreating it) use the same launcher-category monkey trick as app launch:
+```
+adb -s <your-device-serial> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1
+```
+Used this way (after `adb shell input keyevent KEYCODE_HOME` to background the app) to validate
+that the VPN connection UI stays accurate when foregrounding mid-`CONNECTING` state — no crash, no
+stale UI (bug-autoswitch-stale-push-stall manual QA, 2026-08-06, Samsung Galaxy A71 SM-A715F).
+
+### Airplane-mode toggle for forcing a connection drop — allow settle time before reconnect
+`adb shell cmd connectivity airplane-mode enable` / `disable` is the reliable way to force a
+mid-connection network drop for `ServerAutoSwitcher` regression testing. However, immediately after
+`disable`, the engine's own connectivity check can still observe `LEVEL_NONETWORK` for a few seconds
+while Wi-Fi re-associates, even though `adb shell ping -c1 8.8.8.8` from the device shell already
+succeeds. A Connect tap during that narrow window correctly triggers the (expected, pre-existing)
+immediate-switch/no-alternative-disconnect path — it is not a bug in the app, just a transient OS-level
+network readiness gap. If a connect attempt right after re-enabling network unexpectedly disconnects
+via `LEVEL_NONETWORK`, wait a few more seconds and retry before treating it as a regression.

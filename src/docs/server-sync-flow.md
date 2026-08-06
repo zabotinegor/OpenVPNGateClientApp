@@ -107,6 +107,74 @@ In all paths, a server ID of 0 silently suppresses probe enqueue (covers both `L
 
 See [android-qa-adb-cookbook.md](android-qa-adb-cookbook.md) for logcat filters and device commands useful when verifying these trigger points.
 
+## Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback
+
+`OpenVpnService` receives engine connection status from two independent sources that both
+ultimately call `syncEngineState(level, state, allowAutoSwitch)`, which forwards to
+`ConnectionStateManager.updateFromEngine(...)` and — only when `allowAutoSwitch=true` —
+`ServerAutoSwitcher.onEngineLevel(...)`:
+
+1. **Live AIDL push** — `updateStateString(...)`, invoked on the engine's binder thread whenever
+   the engine itself pushes a state change. This is the primary, low-latency source and always
+   passes `allowAutoSwitch=true`.
+2. **Snapshot-poll fallback** — `applyStatusSnapshot(snapshot)`, invoked on the main thread from
+   three call sites: `trafficPollRunnable` (gated — only fires when
+   `now - lastStatusSnapshotMs > 5_000L`), `onServiceConnected` (ungated, on bind), and
+   `ACTION_SYNC_STATUS` (ungated, e.g. on app foreground). This path exists to keep
+   `ConnectionStateManager` (and therefore the UI) in sync even when the live push channel goes
+   quiet.
+
+### Freshness predicate: `isAidlFresh()`
+
+`isAidlFresh()` is the single shared predicate for "has the live push channel reported recently":
+
+```kotlin
+private fun isAidlFresh(): Boolean {
+    val now = watchdogNowMs()
+    return boundToStatus && lastLiveStatusMs > 0L && (now - lastLiveStatusMs) <= aidlFreshWindowMs
+}
+```
+
+It governs four consumers: `getLatestObservedEngineState()`, `shouldUseVpnStatus()`
+(`= !isAidlFresh()`), `shouldSupplementAidlWithVpnStatus()`, and — as of the fix below —
+`applyStatusSnapshot()`. `lastLiveStatusMs` (updated on every live push callback) and
+`lastStatusSnapshotMs` (updated on every snapshot, live or polled) are both `@Volatile`, since one
+is written on the binder thread and read on the main thread.
+
+### Fix: snapshot-poll path must drive auto-switch when push is stale (bug 86cb21563, 2026-08-06)
+
+`applyStatusSnapshot()` previously hardcoded `allowAutoSwitch=false`, on the assumption that the
+live push path was always the authoritative auto-switch driver. In practice, when the engine's
+live AIDL push callback stalls (observed in the field — see
+`docs/runbooks/solutions.md`), the poll fallback kept the UI accurate but never woke
+`ServerAutoSwitcher`, so its timeout timer never started and the app hung on "Connecting..."
+indefinitely with no automatic server switch.
+
+The fix computes the flag instead of hardcoding it:
+
+```kotlin
+val livePushStale = !isAidlFresh()
+syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
+```
+
+- **Push healthy** (`isAidlFresh()==true`): `allowAutoSwitch=false`, identical to prior behavior —
+  the live push path remains the sole auto-switch driver, no duplicate triggers.
+- **Push stale** (`isAidlFresh()==false`): `allowAutoSwitch=true` — the poll fallback takes over
+  driving `ServerAutoSwitcher` until the live push channel recovers.
+
+**No duplicate/competing-switch risk under normal operation.** The poll gate in
+`trafficPollRunnable` (`> 5_000L` since the last snapshot) is strictly wider than
+`aidlFreshWindowMs` (`3_000L`), so a poll-driven `applyStatusSnapshot` call structurally implies
+the push channel is already stale — the two paths cannot both be "active drivers" for the same
+gated poll tick. `ServerAutoSwitcher.onEngineLevel`'s own timer is additionally idempotent per
+level (`if (!timerActive) start() else if (timerLevel != level) restart()`), so even the two
+ungated call sites (`onServiceConnected`, `ACTION_SYNC_STATUS`) cannot duplicate or restart an
+already-running timer for the same level.
+
+Regression coverage: `OpenVpnServiceStatusSyncTest.kt` (`applyStatusSnapshot_*` tests — stale-wake,
+fresh-suppress, exactly-at-threshold boundary, never-pushed boundary, and the widened
+`LEVEL_AUTH_FAILED` immediate-switch case) and `ServerAutoSwitcherTest.kt`.
+
 ## Foreground Service Lifecycle Guard in `syncEngineState()`
 
 `OpenVpnService.syncEngineState()` is called on every engine-level callback and decides whether
