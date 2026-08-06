@@ -1687,7 +1687,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
-        syncEngineState(level, snapshot.state, allowAutoSwitch = false)
+        val livePushStale = now - lastLiveStatusMs > aidlFreshWindowMs
+        syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
         onOneShotInitialStateSynced("AIDL snapshot")
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {

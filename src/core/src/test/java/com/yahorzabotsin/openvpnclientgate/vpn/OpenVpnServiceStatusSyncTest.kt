@@ -10,6 +10,7 @@ import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -116,6 +117,86 @@ class OpenVpnServiceStatusSyncTest {
 
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("Forcing status rebind") })
+    }
+
+    @Test
+    fun applyStatusSnapshot_wakesAutoSwitcherWhenLivePushChannelIsStale() {
+        // Regression for BUG-autoswitch-stale-push-stall (AC1): when the live AIDL push
+        // callback (updateStateString) stalls beyond aidlFreshWindowMs, this snapshot-poll
+        // fallback must still drive ServerAutoSwitcher so its timeout timer starts. Before
+        // the fix, allowAutoSwitch was hardcoded to false here, so a stalled push channel
+        // left the app stuck on "Connecting..." forever with no switch timer running.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = System.currentTimeMillis()
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs (3_000L).
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 10_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val snapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, snapshot)
+            )
+
+            assertNotNull(
+                "ServerAutoSwitcher timeout timer must start when the live push channel is stale",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_keepsAutoSwitchSuppressedWhenLivePushChannelIsFresh() {
+        // Regression risk area 1 / AC2: with a fresh live push channel (lastLiveStatusMs
+        // within aidlFreshWindowMs), the poll fallback must keep passing
+        // allowAutoSwitch=false, exactly as before this fix, to avoid duplicate/competing
+        // switch triggers alongside the live AIDL push path.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = System.currentTimeMillis()
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now)
+        ServerAutoSwitcher.resetForTest()
+
+        val snapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, snapshot)
+            )
+
+            assertNull(
+                "ServerAutoSwitcher timer must stay inactive when the live push channel is fresh",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
     }
 
     @Test
