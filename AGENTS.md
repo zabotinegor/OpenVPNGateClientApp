@@ -36,7 +36,7 @@
 ## Conventions
 - Branch naming follows `feature/<feature_name>` for feature branches, `bugfix/<issue>` for bug fixes, and `hotfix/<issue>` for urgent hotfixes. Use lowercase with hyphens for multi-word features.
 - Keep new domain and UI logic in `src/core` unless the change is genuinely mobile-only or tv-only.
-- Use Timber for logging. Follow `src/docs/logging-policy.md`; do not introduce `android.util.Log` for app code.
+- Use Timber for logging. Follow `docs/features/logging.md`; do not introduce `android.util.Log` for app code.
 - Do not log secrets, raw credentials, or full sensitive URLs.
 - Build-time server endpoints come from Gradle properties, environment variables, or `servers.local.json`, in that order. Do not hardcode production endpoints in source files.
 - If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation using the local path from `AGENTS.local.md` and keep client/server formats aligned.
@@ -60,8 +60,9 @@
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
   - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
-  - `testDebugUnitTestApp` does not run the engine's own unit tests (`:openVpnEngine` is not a dependency of that aggregate task). Run `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or change engine-side tests. See `docs/runbooks/how-to.md`.
-  - If the merged upstream commits raise the engine module's `compileSdk`/`targetSdk`, the first build on a machine without that SDK Platform installed can fail with `Failed to find target with hash string 'android-NN'`; retry once the SDK manager installs it (or install it explicitly). See `docs/runbooks/solutions.md`.
+  - `testDebugUnitTestApp` does not run the engine's own unit tests (`:openVpnEngine` is not a dependency of that aggregate task). Run `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or change engine-side tests. See `docs/guides/how-to.md`.
+  - If the merged upstream commits raise the engine module's `compileSdk`/`targetSdk`, the first build on a machine without that SDK Platform installed can fail with `Failed to find target with hash string 'android-NN'`; retry once the SDK manager installs it (or install it explicitly). See `docs/guides/troubleshooting.md`.
+  - Run the full regression checklist in `docs/guides/engine-update.md` (cold launch, server-list load, VPN connect/watchdog/disconnect, notification-tap regression, full-session stability) before trusting the merge.
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
@@ -81,7 +82,7 @@
 - Keep local overlays aligned with global docs while preserving local-only constraints:
   - README.local.md
   - AGENTS.local.md
-- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md. These are local-only, gitignored, and mirrored via the `agent-sync` skill — if absent (fresh checkout without agent-sync run), treat as not-yet-provisioned and ask the user to run `agent-sync` rather than assuming the workflow doesn't apply or silently skipping it (same pattern as `AGENTS.local.md`).
 - Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
 ## Long-Running Operation Rules
@@ -104,9 +105,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
-- `src/docs` for technical implementation notes used by contributors and AI agents.
-- `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
-- `src/docs/server-sync-flow.md` for server-list synchronization triggers, guard conditions, and coordinator reuse guidance.
+- `docs/INDEX.md` for the full technical knowledge-base catalog — flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks. This is the one entry point; read the relevant catalog row rather than re-deriving or re-documenting something the catalog already covers.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
@@ -240,23 +239,22 @@ Every agent must document any discovery that would save time in a future session
 - Secrets, tokens, passwords, or credentials — never write actual values.
 - Personal preferences or style opinions.
 
-**Where to write:**
+**Where to write — pick by content type, not by habit:**
 
-First check whether this repository declares its own knowledge-base catalog — a line in its
-`AGENTS.md` or `CLAUDE.md` pointing at a catalog file, for example `docs/INDEX.md` or
-`src/docs/INDEX.md`. **If one is declared, it wins.** Read it, write the new doc where its
-conventions say, and update its catalog row in the same change. Also update the target file's own
-`## Index` block if it has one. Do not fall back to the table below in that case — a repo with a
-catalog may have no `docs/runbooks/` directory at all.
+| Content type | File | Notes |
+|---|---|---|
+| Durable feature/architecture behavior (how a flow works, state models, invariants that must hold) | a new or existing `src/docs/*.md` file | These are "flow docs" — see `src/docs/favorites-ui-patterns.md`/`server-sync-flow.md` for the expected shape. |
+| A specific bug: symptom → root cause → fix | `docs/runbooks/solutions.md` | Append as a new `##` heading. |
+| A reusable technique or step-by-step guide not tied to one bug | `docs/runbooks/how-to.md` | Append as a new `##` heading. |
+| Device/environment-specific QA gotcha (ADB quirks, OEM-specific behavior) | `tests/manual-e2e/environment/*.md` or `docs/runbooks/android-qa.md` | `android-qa.md` is a chronological per-story log — use it for a QA finding tied to a specific story/date. |
+| Reusable, cross-story command/technique snippet organized by topic (not tied to one bug/story) | `src/docs/android-qa-adb-cookbook.md` | This is a first-class destination, not just something to avoid duplicating into — use it when the knowledge is a general technique (e.g. "how to check probe trigger logs") rather than a dated per-story finding. |
+| Env var names, service dependencies, startup order | `docs/runbooks/environment-setup.md` | Create if it doesn't exist yet. |
+| API endpoint/auth/test-data notes | `docs/runbooks/api-testing.md` | Create if it doesn't exist yet. |
 
-Otherwise, when no catalog is declared, knowledge lives under `docs/runbooks/`:
-
-| File | Content |
-|---|---|
-| `docs/runbooks/environment-setup.md` | Start commands, env var names, service dependencies, startup order |
-| `docs/runbooks/api-testing.md` | Endpoint list, auth patterns, test data setup |
-| `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
-| `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
+Never create a new directory that duplicates the shape of an existing one to hold a single stray
+entry (e.g. do not create `src/docs/runbooks/` alongside root `docs/runbooks/`) — this has happened
+before and produced an orphaned, unreferenced duplicate. If unsure which file owns a piece of
+knowledge, check `src/docs/INDEX.md` first.
 
 Add a platform-specific runbook only where that platform actually exists in the target repository —
 for example `docs/runbooks/android-qa.md` (ADB commands, build variant, device prep, install
@@ -264,11 +262,9 @@ procedure) in a repo with an Android surface. Do not create platform runbooks a 
 
 Create files that do not exist. Append to existing files — never overwrite useful prior content.
 
-Each entry is a **top-level `##` heading preceded by a `---` separator**. Do not use `###` for an
-entry: a heading one level deeper than the file's top-level entries silently nests under the
-previous entry instead of becoming its own, so the entry becomes unreachable when an agent scans
-the file's headings — and it still looks correct in any index block, which is what makes this
-easy to miss. Reserve `###` for genuine sub-steps inside one entry.
+**Keep the catalog and in-file indexes current — this is not optional:**
+- Adding a new `src/docs/*.md` file: add one row to the relevant table in `src/docs/INDEX.md` in the same change, with a "Last verified against: <date/commit or story>" footer in the new file itself — this is the only signal a future reader has that a flow doc might now be stale.
+- Adding a new entry to `docs/runbooks/solutions.md`, `docs/runbooks/how-to.md`, or `docs/runbooks/android-qa.md`: also add one line to that file's own `## Index` section (near the top) — these files are long, and the index is what makes them lazy-loadable instead of requiring a full read.
 
 **Format for `solutions.md` entries:**
 ```markdown
@@ -291,6 +287,11 @@ easy to miss. Reserve `###` for genuine sub-steps inside one entry.
 1. ...
 **Notes:** <gotchas or platform-specific details>
 ```
+
+Use `##` (not `###`) and the leading `---` separator — a `###` entry with no `---`/`##` before it
+silently nests under whatever heading precedes it instead of becoming its own standalone entry.
+This exact mistake happened before in `solutions.md`; matching the file's real dominant convention
+prevents repeating it.
 
 Commit knowledge files to the same branch as the implementation. They travel with the PR and get merged alongside the feature or fix.
 

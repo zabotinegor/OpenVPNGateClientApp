@@ -11,6 +11,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -63,6 +64,36 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.setProbeRequestQueueForTest(null)
         ServerAutoSwitcher.v2HydrationCallback = null
         ServerAutoSwitcher.resetForTest()
+    }
+
+    // beginChainedSwitch reports whether a switch was actually begun. The watchdog relies on this
+    // to avoid consuming a recovery attempt on a dispatch that never happened, so every path that
+    // aborts internally must return false rather than looking like success.
+
+    @Test
+    fun beginChainedSwitch_returnsFalseWhenAutoSwitchDisabled() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, false)
+
+        assertFalse(
+            "a skipped switch is not a begun switch",
+            ServerAutoSwitcher.beginChainedSwitch(appContext, "client\n", "RU")
+        )
+    }
+
+    @Test
+    fun beginChainedSwitch_returnsFalseWhenStopDispatchRejected() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        // VpnManager.startControllerService catches IllegalStateException from startService and
+        // returns false -- the background-start restriction case.
+        val rejectingContext = object : android.content.ContextWrapper(appContext) {
+            override fun startService(service: android.content.Intent?): android.content.ComponentName? =
+                throw IllegalStateException("background start not allowed")
+        }
+
+        assertFalse(
+            "a rejected stop dispatch aborts the switch, so it must not report success",
+            ServerAutoSwitcher.beginChainedSwitch(rejectingContext, "client\n", "RU")
+        )
     }
 
     @Test
