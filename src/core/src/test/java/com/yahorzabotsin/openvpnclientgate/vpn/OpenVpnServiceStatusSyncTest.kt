@@ -774,6 +774,11 @@ class OpenVpnServiceStatusSyncTest {
             }
             thread.start()
             thread.join(5_000)
+            // Copilot review (round 3): a bare join(5_000) can silently time out without failing
+            // the test if the background thread hasn't finished, letting the assertions below run
+            // against a possibly-still-executing thread (nondeterministic false positives). Fail
+            // fast instead if the thread is still alive.
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
 
             assertNull(
                 "ServerAutoSwitcher must not be touched synchronously from a non-main-looper " +
@@ -789,6 +794,94 @@ class OpenVpnServiceStatusSyncTest {
                 ServerAutoSwitcher.remainingSeconds.value
             )
         } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun updateStateString_authFailedOnFreshConnectionFromBinderThreadStillSwitchesImmediately() {
+        // Regression for round-3 bot review (Codex, P1): round 2 fixed a cross-thread
+        // ServerAutoSwitcher timer race (see the sibling test above) by deferring
+        // dispatchAutoSwitcherOnEngineLevel()'s ServerAutoSwitcher.onEngineLevel() call to the main
+        // looper via statusHandler whenever updateStateString() runs on a non-main thread (the real
+        // AIDL binder-thread-pool thread). But syncEngineState() still calls
+        // ConnectionStateManager.updateFromEngine(level, detail) synchronously and immediately
+        // afterward, on the calling (binder) thread -- and for LEVEL_AUTH_FAILED/LEVEL_NONETWORK
+        // that flips ConnectionState.CONNECTING -> DISCONNECTED. ServerAutoSwitcher.onEngineLevel()'s
+        // shouldSwitchImmediately fast path only requests an immediate switch when
+        // timerActive || state==CONNECTING. On a FIRST connection attempt (no auto-switch timer
+        // running yet) this depends entirely on state still being CONNECTING at the moment the
+        // decision is made. Before the round-2 fix, onEngineLevel() ran synchronously BEFORE
+        // updateFromEngine() and correctly observed CONNECTING; after the round-2 fix, when
+        // dispatched from a binder thread, onEngineLevel() runs LATER (deferred), by which time
+        // updateFromEngine() has already flipped state to DISCONNECTED -- so the deferred call
+        // silently skipped the immediate switch it must perform. Fixed by capturing
+        // ConnectionStateManager.state synchronously in dispatchAutoSwitcherOnEngineLevel() -- before
+        // updateFromEngine() can mutate it -- and threading it through as onEngineLevel's new
+        // wasConnectingAtDispatch parameter.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        val servers = listOf(
+            com.yahorzabotsin.openvpnclientgate.core.servers.Server(
+                1, "n1", "c1",
+                com.yahorzabotsin.openvpnclientgate.core.servers.Country("RU"), 0,
+                com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength.STRONG, "ip",
+                0, 0, 0, 0, 0, 0, "", "", "", "conf1"
+            ),
+            com.yahorzabotsin.openvpnclientgate.core.servers.Server(
+                2, "n2", "c2",
+                com.yahorzabotsin.openvpnclientgate.core.servers.Country("RU"), 0,
+                com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength.STRONG, "ip",
+                0, 0, 0, 0, 0, 0, "", "", "", "conf2"
+            )
+        )
+        com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore.resetIndex(appContext)
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val startCalls = mutableListOf<String>()
+        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.stopper = { _ -> }
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            val thread = Thread {
+                callbacks.updateStateString(
+                    "AUTH_FAILED",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_AUTH_FAILED,
+                    null
+                )
+            }
+            thread.start()
+            thread.join(5_000)
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            // Simulate the engine reporting teardown complete, which is what actually fires the
+            // chained start once ServerAutoSwitcher has requested an immediate switch.
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, "AIDL")
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertEquals(
+                "AUTH_FAILED on a fresh connection attempt (state=CONNECTING, no auto-switch " +
+                    "timer active yet) delivered from a real binder thread must still trigger " +
+                    "ServerAutoSwitcher's immediate switch, exactly as it did before the round-2 " +
+                    "main-looper dispatch fix introduced this regression",
+                listOf("conf2"),
+                startCalls
+            )
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
             ServerAutoSwitcher.resetForTest()
         }
     }

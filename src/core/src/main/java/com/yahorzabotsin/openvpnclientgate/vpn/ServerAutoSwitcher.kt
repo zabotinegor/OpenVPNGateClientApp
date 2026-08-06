@@ -66,7 +66,12 @@ object ServerAutoSwitcher {
         }
     }
 
-    fun onEngineLevel(appContext: Context, level: ConnectionStatus, source: String) {
+    fun onEngineLevel(
+        appContext: Context,
+        level: ConnectionStatus,
+        source: String,
+        wasConnectingAtDispatch: Boolean? = null
+    ) {
         logEngineLevel(level, source)
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
@@ -94,7 +99,17 @@ object ServerAutoSwitcher {
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
         if (shouldSwitchImmediately && !waitingStopForRetry) {
-            val isConnecting = try {
+            // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
+            // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
+            // posting from a binder thread to the main looper), and by the time this deferred
+            // block runs, ConnectionStateManager.state may already have been mutated away from
+            // CONNECTING by ConnectionStateManager.updateFromEngine(), which the caller invokes
+            // synchronously right after dispatching this callback. Re-reading state at that later
+            // point would silently defeat the immediate-switch fast path on a fresh connection
+            // attempt (no timer running yet). Callers that already run synchronously and in-order
+            // (e.g. the VPN_STATUS/updateState main-thread path, or tests) omit the parameter and
+            // fall back to reading current state, which is safe for them.
+            val isConnecting = wasConnectingAtDispatch ?: try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
             } catch (_: Exception) {
                 false

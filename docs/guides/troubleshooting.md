@@ -1023,4 +1023,6 @@ release-build logcat").
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceStatusSyncTest.kt`
 - `docs/features/server-sync.md` ("Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback")
 - ClickUp [86cb21563](https://app.clickup.com/t/86cb21563); commits `f909d31`, `07bcaae`
-- `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md`
+- `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md` -- **not committed** (path is
+  gitignored, local-only quality-gate evidence); see ClickUp task
+  [86cb21563](https://app.clickup.com/t/86cb21563) for the actual evidence

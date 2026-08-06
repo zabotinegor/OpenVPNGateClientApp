@@ -1878,9 +1878,26 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // relies on. The fast path preserves the previously synchronous behavior for the
     // applyStatusSnapshot main-thread caller.
     private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
+        // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now
+        // -- before returning to syncEngineState(), which calls ConnectionStateManager
+        // .updateFromEngine(level, detail) immediately afterward on the CALLING thread (the AIDL
+        // binder thread when allowAutoSwitch=true). When this dispatch has to be deferred to the
+        // main looper below (non-main caller), updateFromEngine() runs synchronously first and
+        // can already flip CONNECTING -> DISCONNECTED for terminal levels (LEVEL_AUTH_FAILED /
+        // LEVEL_NONETWORK) before the deferred onEngineLevel() call actually executes. If
+        // onEngineLevel() re-read ConnectionStateManager.state at that later point, it would see
+        // DISCONNECTED and (with no auto-switch timer running yet on a fresh connection attempt)
+        // silently skip the immediate switch it must perform. Passing the pre-mutation snapshot
+        // through preserves the original ordering guarantee regardless of when the deferred
+        // block actually runs. See PR #126 review thread (P1 regression from the round-2 fix).
+        val wasConnectingAtDispatch = try {
+            ConnectionStateManager.state.value == ConnectionState.CONNECTING
+        } catch (_: Exception) {
+            false
+        }
         val invoke = Runnable {
             try {
-                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
+                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
