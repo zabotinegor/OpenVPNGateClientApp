@@ -957,7 +957,7 @@ but not the auto-switch responsibility, so the timer never started and the app h
 
 Compute the flag instead of hardcoding it: `allowAutoSwitch = !isAidlFresh()`, reusing the
 freshness predicate already shared by three other consumers in the same file (see
-`src/docs/server-sync-flow.md`, "Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback"). When
+`docs/features/server-sync.md`, "Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback"). When
 the live push channel is fresh, behavior is unchanged (`allowAutoSwitch=false`, no duplicate
 triggers). When it has gone stale, the poll path takes over driving auto-switch. Follow-up fix
 cycle (code review round 1) additionally made `lastLiveStatusMs`/`lastStatusSnapshotMs`
@@ -1007,7 +1007,7 @@ This technique generalizes to any throttled log (`AppLog.dThrottled`/`AppLog.iTh
 underlying priority is filtered out of release builds: the throttle-summary line is always `INFO`
 and survives `AppReleaseTree`, so it can stand in for the filtered-out per-call log when you need
 to answer "did this code path ever run" from a release-build capture. See the companion entry in
-`docs/runbooks/how-to.md` ("Diagnose whether a throttled DEBUG log path ever fired, from a
+`docs/guides/how-to.md` ("Diagnose whether a throttled DEBUG log path ever fired, from a
 release-build logcat").
 
 **References**
@@ -1021,6 +1021,6 @@ release-build logcat").
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLogTrees.kt`
   (`AppReleaseTree.log`, DEBUG/VERBOSE filter)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceStatusSyncTest.kt`
-- `src/docs/server-sync-flow.md` ("Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback")
+- `docs/features/server-sync.md` ("Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback")
 - ClickUp [86cb21563](https://app.clickup.com/t/86cb21563); commits `f909d31`, `07bcaae`
 - `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md`

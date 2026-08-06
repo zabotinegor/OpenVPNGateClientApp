@@ -170,7 +170,7 @@ is written on the binder thread and read on the main thread.
 `applyStatusSnapshot()` previously hardcoded `allowAutoSwitch=false`, on the assumption that the
 live push path was always the authoritative auto-switch driver. In practice, when the engine's
 live AIDL push callback stalls (observed in the field — see
-`docs/runbooks/solutions.md`), the poll fallback kept the UI accurate but never woke
+`docs/guides/troubleshooting.md`), the poll fallback kept the UI accurate but never woke
 `ServerAutoSwitcher`, so its timeout timer never started and the app hung on "Connecting..."
 indefinitely with no automatic server switch.
 

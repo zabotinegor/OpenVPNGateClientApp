@@ -722,6 +722,107 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun statusBindingFieldsAreVolatile() {
+        // Round-2 bot review (Copilot): statusBinder/boundToStatus are written from
+        // statusDeathRecipient's binderDied() callback (a binder-pool thread invoked when the
+        // status service dies) and read on the main looper (trafficPollRunnable, isAidlFresh()
+        // via applyStatusSnapshot). Same cross-thread visibility pattern as
+        // lastStatusSnapshotMs/lastLiveStatusMs above: without @Volatile the main thread could
+        // observe a stale cached boundToStatus=true/statusBinder!=null after a binder death,
+        // masking a dead status channel.
+        val statusBinderField = OpenVpnService::class.java.getDeclaredField("statusBinder")
+        val boundToStatusField = OpenVpnService::class.java.getDeclaredField("boundToStatus")
+
+        assertTrue(
+            "statusBinder must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(statusBinderField.modifiers)
+        )
+        assertTrue(
+            "boundToStatus must be @Volatile for cross-thread visibility",
+            java.lang.reflect.Modifier.isVolatile(boundToStatusField.modifiers)
+        )
+    }
+
+    @Test
+    fun updateStateString_dispatchesAutoSwitchOnEngineLevelThroughMainLooperFromBinderThread() {
+        // Regression for the round-2 bot review (Codex): syncEngineState() is reachable both
+        // from the AIDL binder-thread callback (updateStateString) and from the main thread
+        // (applyStatusSnapshot's snapshot-poll fallback). Before the stale-push auto-switch fix,
+        // applyStatusSnapshot() always passed allowAutoSwitch=false, so this call site was
+        // binder-thread-only; this fix makes both paths reachable, and ServerAutoSwitcher's
+        // internal timer state (runnable/timerActive/seconds) is guarded only by non-atomic
+        // check-then-act logic that assumes a single (main-looper) caller. The fix routes the
+        // ServerAutoSwitcher.onEngineLevel() dispatch through the existing main-looper
+        // statusHandler whenever the caller is not already on the main thread. This test proves
+        // the dispatch is deferred -- not executed synchronously -- when invoked from a real
+        // background thread (simulating the AIDL binder-pool thread), and only takes effect once
+        // the main looper is idled.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            val thread = Thread {
+                callbacks.updateStateString(
+                    "TCP_CONNECT",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    null
+                )
+            }
+            thread.start()
+            thread.join(5_000)
+
+            assertNull(
+                "ServerAutoSwitcher must not be touched synchronously from a non-main-looper " +
+                    "thread; the dispatch must be deferred to the main looper queue",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNotNull(
+                "ServerAutoSwitcher timer must start once the deferred call runs on the main " +
+                    "looper",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun updateStateString_writesLiveStatusTimestampsThroughInjectedClock() {
+        // Round-2 bot review (Copilot): isAidlFresh()/applyStatusSnapshot() read time via the
+        // injectable watchdogNowMs(), but lastLiveStatusMs/lastStatusSnapshotMs were still
+        // written with raw System.currentTimeMillis() in updateStateString(). That is a no-op in
+        // production (watchdogNowMs defaults to System.currentTimeMillis), but it is a real
+        // test-determinism/consistency gap: a test overriding watchdogNowMs() would get
+        // freshness/poll-gating math that does not match the injected clock. This locks in that
+        // both timestamps are now sourced from watchdogNowMs() instead of the real clock.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val fixedNow = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ fixedNow } as () -> Long))
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        callbacks.updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+
+        assertEquals(
+            "lastStatusSnapshotMs must be sourced from the injected watchdogNowMs clock",
+            fixedNow,
+            ReflectionHelpers.getField<Long>(service, "lastStatusSnapshotMs")
+        )
+        assertEquals(
+            "lastLiveStatusMs must be sourced from the injected watchdogNowMs clock",
+            fixedNow,
+            ReflectionHelpers.getField<Long>(service, "lastLiveStatusMs")
+        )
+    }
+
+    @Test
     fun userInitiatedStartIsClearedOnFailedConnectWhenAutoSwitchDisabled() {
         // Regression: when auto-switch is disabled and a user-initiated start fails to
         // LEVEL_NOTCONNECTED, the auto-switch block in updateState() is skipped entirely, so

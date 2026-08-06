@@ -152,8 +152,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
-    private var statusBinder: IServiceStatus? = null
-    private var boundToStatus = false
+    // Written on the AIDL binder thread (statusDeathRecipient's binderDied callback, invoked on
+    // a binder-pool thread when the status service dies) and read on the main looper
+    // (trafficPollRunnable, isAidlFresh() via applyStatusSnapshot). Same cross-thread visibility
+    // requirement as lastStatusSnapshotMs/lastLiveStatusMs below: without @Volatile the main
+    // thread could observe a stale cached boundToStatus/statusBinder value after a binder death,
+    // masking a dead status channel.
+    @Volatile private var statusBinder: IServiceStatus? = null
+    @Volatile private var boundToStatus = false
     private var statusRebindDelayMs = 500L
     // Written on the AIDL binder thread (updateStateString) and read on the main looper
     // (applyStatusSnapshot, via onServiceConnected / trafficPollRunnable). Same cross-thread
@@ -1202,7 +1208,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             intent: Intent?
         ) {
             if (level == null) return
-            lastStatusSnapshotMs = System.currentTimeMillis()
+            lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             staleSnapshotCount = 0
             updateStatusSource(StatusSource.AIDL, "AIDL update")
@@ -1763,10 +1769,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
-        // Equivalent to `now - lastLiveStatusMs > aidlFreshWindowMs`: isAidlFresh() also folds in
-        // boundToStatus, which is always true here since applyStatusSnapshot is only reached via
-        // trySyncStatusSnapshot/onServiceConnected, both of which require statusBinder != null,
-        // itself only ever set alongside boundToStatus = true.
+        // isAidlFresh() checks three things: boundToStatus is true, lastLiveStatusMs > 0 (a live
+        // push has actually arrived at least once), and that push happened within
+        // aidlFreshWindowMs. This is NOT strictly equivalent to `now - lastLiveStatusMs >
+        // aidlFreshWindowMs` alone: boundToStatus can be false here (e.g. the status binder just
+        // died on another thread, racing with this snapshot read) and lastLiveStatusMs can still
+        // be 0 if no live push has ever landed, both of which make isAidlFresh() false, i.e.
+        // livePushStale true, for reasons other than staleness of an existing timestamp.
         val livePushStale = !isAidlFresh()
         syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
         onOneShotInitialStateSynced("AIDL snapshot")
@@ -1850,14 +1859,37 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
+            dispatchAutoSwitcherOnEngineLevel(level)
+        }
+        ConnectionStateManager.updateFromEngine(level, detail)
+        handleEngineLevelForStop(level, "AIDL")
+    }
+
+    // syncEngineState() is reachable both from the AIDL binder-thread callback
+    // (updateStateString) and from the main thread (applyStatusSnapshot, via
+    // trySyncStatusSnapshot's onServiceConnected/trafficPollRunnable poll path). Before the
+    // stale-push auto-switch fix, applyStatusSnapshot() always passed allowAutoSwitch=false, so
+    // this call site was reachable from the binder thread only. Now both paths can reach it, and
+    // ServerAutoSwitcher's internal timer state (runnable/timerActive/seconds/timerLevel) is
+    // guarded only by non-atomic check-then-act sequences that assume a single (main-looper)
+    // caller. Route every invocation through the existing main-looper statusHandler when not
+    // already on the main thread, so binder-thread and main-thread callers are serialized onto
+    // the same queue -- exactly what ServerAutoSwitcher's own internal timer Runnable already
+    // relies on. The fast path preserves the previously synchronous behavior for the
+    // applyStatusSnapshot main-thread caller.
+    private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
+        val invoke = Runnable {
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
         }
-        ConnectionStateManager.updateFromEngine(level, detail)
-        handleEngineLevelForStop(level, "AIDL")
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            invoke.run()
+        } else {
+            statusHandler.post(invoke)
+        }
     }
 
     private fun shouldIgnoreLevelAfterUserStop(level: ConnectionStatus): Boolean {

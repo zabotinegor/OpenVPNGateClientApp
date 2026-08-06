@@ -574,8 +574,11 @@ log(priority = Log.INFO, tag = tag, message = "Suppressed $suppressed repeated l
 call site fired at least once and then fired again after its 30 s throttle window (the default
 `windowMs`) closed, a `Suppressed N repeated logs for key=<key>` line at `INFO` appears in the
 release logcat for that tag — even though every individual `DEBUG` line is invisible. Its
-**absence** across the whole window under investigation is reliable evidence the call site never
-fired at all (not just that it was under-logged).
+**absence** across the window under investigation is **inconclusive**, not proof the call site
+never fired: `logThrottled()` only emits the summary after at least one suppressed call is
+followed by a later call that flushes it, so a timer that reaches its threshold and fires
+immediately (the normal successful case) can legitimately produce no suppressed call and no
+flush at all, even though the code ran correctly.
 
 **Steps**
 
@@ -586,8 +589,12 @@ fired at all (not just that it was under-logged).
    grep "<Tag>" logcat.txt | grep -i "suppressed"
    ```
 3. Presence of a matching line proves the call site fired at least twice with more than 30 s
-   between window closes. Absence across a window long enough to have crossed at least one
-   30 s boundary is strong evidence the call site never fired in that window.
+   between window closes. Absence is **inconclusive**, not proof of non-execution: if the timer
+   reaches its threshold and fires on its very first attempt (the normal successful case), there
+   may be no suppressed call and no later flush to emit the summary at all, even though the code
+   ran correctly. Absence only becomes meaningful evidence when combined with other signals (step
+   4) that confirm the surrounding window was long enough and active enough that a real
+   invocation would have produced some observable trace.
 4. Cross-check with a nearby `INFO`/`WARN`/`ERROR` log from a *different* component that you know
    should correlate (e.g. a poll-path log that keeps firing regardless) to confirm you're reading
    the right window and the release tree isn't dropping everything for an unrelated reason (Timber
@@ -613,5 +620,5 @@ root cause.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLog.kt` (`logThrottled`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLogTrees.kt` (`AppReleaseTree.log`)
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
-- `src/docs/logging-policy.md` ("Anti-spam" section)
+- `docs/features/logging.md` ("Anti-spam" section)
 - `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")
