@@ -302,6 +302,23 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '/.sdlc/operations/',
         '/.sdlc/operations/**',
         '**/.sdlc/operations/**',
+        '/.claude/launch.json',
+        '/.sdlc/logs/',
+        '/.sdlc/logs/**',
+        '**/.sdlc/logs/**',
+        '/.sdlc.lock',
+        '**/.sdlc.lock',
+        # ClickUp runtime state. The token especially: it is a workspace-wide
+        # personal credential, and a repo that ignores status.json but not this
+        # commits it on the first 'git add .sdlc'.
+        '/.sdlc/clickup-config.json',
+        '**/.sdlc/clickup-config.json',
+        '/.sdlc/clickup-config.template.json',
+        '**/.sdlc/clickup-config.template.json',
+        '/.sdlc/clickup-token',
+        '**/.sdlc/clickup-token',
+        '/.sdlc/clickup-migration-map.json',
+        '**/.sdlc/clickup-migration-map.json',
         '/.claude/settings.local.json',
         '**/.claude/settings.local.json'
     )
@@ -572,11 +589,12 @@ if (-not $DryRun) {
         throw 'Target must be a Git worktree before applying synchronized agent assets.'
     }
     if ([string]::IsNullOrWhiteSpace($targetBranch)) {
-        throw 'Target must have a checked-out non-protected branch before applying synchronized agent assets.'
+        throw 'Target must have a checked-out branch before applying synchronized agent assets.'
     }
-    if ($targetBranch.ToLowerInvariant() -in @('main', 'dev', 'master', 'develop')) {
-        throw "Target branch '$targetBranch' is protected. Create or switch to a non-protected branch before applying synchronized agent assets."
-    }
+    # No branch-protection gate here on purpose: sync only writes gitignored
+    # working-tree files and never commits, stages, or pushes (see agent-sync
+    # SKILL.md), so it must apply on whatever branch is currently checked out
+    # -- including main/dev -- rather than forcing a branch switch or creation.
 }
 
 $normalizedMergeJsonPaths = @(
@@ -784,6 +802,16 @@ try {
     if ($normalizedScope -icontains '.githooks') {
         $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
     }
+
+    # No session-tracking preflight here. Agent Sync is the one workflow exempt
+    # from the session-limit stack: it delivers those scripts, it does not
+    # depend on them, and running the preflight made a short, idempotent,
+    # freely repeatable file sync launch Chrome, probe claude.ai identity, and
+    # block on account questions that have nothing to do with copying files.
+    # `check-tracking-preflight.ps1` is still shipped and is run on demand
+    # (see .github/skills/session-limit-tracking/SKILL.md) by the agents that
+    # actually rely on it.
+
     $forbiddenArtifacts = Get-ForbiddenCopilotArtifacts -Root $targetRootResolved
     $nestedSdlcStatusFiles = Get-NestedSdlcStatusFiles -Root $targetRootResolved
 
