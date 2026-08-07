@@ -854,6 +854,159 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_staleConnectedSnapshotDoesNotCancelActiveSwitchTimer() {
+        // Regression for round-12 bot review (Codex P2, comment 3734663954): LEVEL_CONNECTED
+        // was the fourth level (after LEVEL_AUTH_FAILED, LEVEL_NONETWORK, LEVEL_NOTCONNECTED in
+        // rounds 8-11) missing from staleSnapshotTimeoutLevels. An OLD/STALE cached CONNECTED
+        // snapshot -- one predating the CURRENT connection attempt -- skipped the predates/age
+        // check entirely and flowed straight through to
+        // syncEngineState(..., allowAutoSwitch = !isAidlFresh()). Since a stalled live push
+        // channel is exactly what makes isAidlFresh() false, the stale reading got trusted
+        // enough to reach ServerAutoSwitcher.onEngineLevel, whose else branch (any level outside
+        // its timeoutLevels set, LEVEL_CONNECTED included) treats it as "the current attempt
+        // just succeeded" and cancels the active switch timer via cancel(resetCycle=...),
+        // silently abandoning a currently-fresh, unrelated CONNECTING attempt that may actually
+        // still be stuck. Fixed by adding LEVEL_CONNECTED to staleSnapshotTimeoutLevels so it
+        // goes through the same predates-current-attempt check already used for
+        // LEVEL_AUTH_FAILED/LEVEL_NONETWORK/LEVEL_NOTCONNECTED. Against the pre-fix code this
+        // test fails: the stale CONNECTED snapshot reaches syncEngineState and cancels the
+        // active timer below.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs/liveStatusGraceMs -- exactly
+        // the condition (isAidlFresh()=false) that makes the stale cached level get trusted.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The current connection attempt started 2s ago -- AFTER the stale snapshot below was
+        // captured (now - 15_000L), so the snapshot predates this attempt.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 2_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        // Prime the auto-switch timeout timer via a FRESH CONNECTING snapshot first, simulating
+        // a currently-fresh, in-progress, unrelated connection attempt.
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the stale CONNECTED " +
+                "snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // OLD/STALE cached CONNECTED snapshot: its timestamp (now - 15_000L) predates
+            // currentAttemptStartMs (now - 2_000L), representing a leftover reading from a past,
+            // already-replaced connection attempt, arriving while push is stalled.
+            val staleConnectedSnapshot = StatusSnapshot(
+                "CONNECTED",
+                null,
+                0,
+                ConnectionStatus.LEVEL_CONNECTED,
+                now - 15_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, staleConnectedSnapshot)
+            )
+
+            assertNotNull(
+                "A STALE cached LEVEL_CONNECTED snapshot predating the current attempt must be " +
+                    "rejected and must NOT cancel the currently-fresh CONNECTING attempt's " +
+                    "active switch timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_connectedSnapshotFromCurrentAttemptStillCancelsSwitchTimer() {
+        // Companion to the stale-rejection test above: a CONNECTED snapshot that genuinely
+        // belongs to the CURRENT connection attempt (old in absolute terms, but at/after
+        // currentAttemptStartMs) must still be trusted and forwarded to ServerAutoSwitcher,
+        // which correctly treats it as the attempt having succeeded and cancels the active
+        // switch timer. The round-12 fix (adding LEVEL_CONNECTED to staleSnapshotTimeoutLevels)
+        // must only reject snapshots that PREDATE the current attempt, not legitimate
+        // current-attempt readings -- otherwise a real successful connection would be starved
+        // just like round 9's original bug.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The current connection attempt began 12s ago -- BEFORE the snapshot's own timestamp
+        // below, so the snapshot IS reporting on this still-ongoing attempt, not a past one.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 12_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the current-attempt " +
+                "CONNECTED snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // The snapshot itself is 11s old (> staleSnapshotMaxAgeMs=10_000L) -- old enough
+            // that an age-only check would reject it -- but its timestamp (now - 11_000L) is
+            // AFTER currentAttemptStartMs (now - 12_000L), so it belongs to the current attempt
+            // and must be trusted despite its age.
+            val currentAttemptConnectedSnapshot = StatusSnapshot(
+                "CONNECTED",
+                null,
+                0,
+                ConnectionStatus.LEVEL_CONNECTED,
+                now - 11_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, currentAttemptConnectedSnapshot)
+            )
+
+            assertNull(
+                "A LEVEL_CONNECTED snapshot genuinely reporting on the CURRENT, still-ongoing " +
+                    "connection attempt must still reach ServerAutoSwitcher and cancel the " +
+                    "active switch timer, even though it is old in absolute terms",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
@@ -1613,6 +1766,138 @@ class OpenVpnServiceStatusSyncTest {
                 "a binder callback that reaches dispatchAutoSwitcherOnEngineLevel() only after " +
                     "onDestroy() has already run must not enqueue a new dispatch or start the " +
                     "auto-switch timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun staleBinderDispatchSurvivingUserStopSweepDoesNotAffectRestartedAttempt() {
+        // Regression for round-12 bot review (Codex P2, comment 3734663965): "Make user-stop
+        // cancellation atomic with enqueue". ACTION_START clears userInitiatedStop back to
+        // false whenever the SAME service instance is reused (not destroyed -- round-7's
+        // serviceDestroyed flag does not help here since the service isn't being destroyed,
+        // just stopped-then-restarted within the same instance). This opens a 5-step race:
+        // 1) an old AIDL binder callback (carrying a stale terminal level from the attempt just
+        //    stopped) passes the serviceDestroyed check and is about to enqueue its deferred
+        //    dispatch;
+        // 2) concurrently, the main thread runs a user-stop sweep (startUserStopTeardown),
+        //    cancelling queued dispatches via the shared autoSwitchDispatchToken (round 6) --
+        //    but the queue is still empty at this exact moment, so the sweep has nothing to
+        //    catch;
+        // 3) the binder thread's callback then calls postAtTime(...) to enqueue AFTER the sweep
+        //    already ran -- this queued runnable is now untouched by the sweep;
+        // 4) a fresh ACTION_START arrives (user or auto-switch reconnecting), reusing the SAME
+        //    service instance, and clears userInitiatedStop back to false as part of starting
+        //    the new attempt;
+        // 5) the queued runnable from step 3 executes: its userInitiatedStop re-check (round 5)
+        //    now sees false -- cleared by the NEW start in step 4 -- so it does NOT skip, and
+        //    proceeds to call ServerAutoSwitcher.onEngineLevel() with the stale level, cancelling
+        //    the switch timer of the brand-new, unrelated attempt.
+        //
+        // Fixed by connectionAttemptGeneration: a monotonic counter bumped on every ACTION_START,
+        // captured at dispatch-enqueue time and re-validated inside the runnable, right before it
+        // touches ServerAutoSwitcher, regardless of what userInitiatedStop currently reads.
+        //
+        // Against the pre-fix code this test fails: the stale dispatch (captured generation 1)
+        // reaches ServerAutoSwitcher after the restart (generation 2) and cancels the new
+        // attempt's active switch timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+
+        val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun protect(fd: Int) = false
+            override fun userPause(b: Boolean) {}
+            override fun stopVPN(replaceConnection: Boolean) = true
+            override fun addAllowedExternalApp(packagename: String?) {}
+            override fun isAllowedExternalApp(packagename: String?) = false
+            override fun challengeResponse(repsonse: String?) {}
+        }
+        ReflectionHelpers.setField(service, "engineBinder", binder)
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            // Step 0: the FIRST connection attempt is already under way --
+            // connectionAttemptGeneration is 1. Set directly via reflection rather than driving a
+            // real ACTION_START intent through onStartCommand: entering the controller foreground
+            // (startForeground/notification) is not satisfiable in this Robolectric environment
+            // and is infrastructure unrelated to the race under test -- the same reason the
+            // existing currentAttemptStartMs-based tests above set that field directly instead of
+            // going through onStartCommand.
+            ReflectionHelpers.setField(service, "connectionAttemptGeneration", 1)
+
+            // Race step 2: the main thread runs the REAL user-stop sweep via a genuine ACTION_STOP
+            // intent (startUserStopTeardown()), which sets userInitiatedStop=true and cancels
+            // queued dispatches via removeCallbacksAndMessages(autoSwitchDispatchToken). The
+            // dispatch queue is still empty at this exact moment, so the sweep has nothing to
+            // cancel -- exactly the ordering the race depends on. Unlike ACTION_START,
+            // ACTION_STOP's exitControllerForeground() no-ops safely when the controller was never
+            // in the foreground, so this path runs cleanly here.
+            val stopIntent = Intent(appContext, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP)
+            }
+            service.onStartCommand(stopIntent, 0, 1)
+            assertTrue(ReflectionHelpers.getField(service, "userInitiatedStop"))
+
+            // Race steps 1 and 3: an old AIDL binder callback -- carrying a stale terminal level
+            // left over from the attempt just stopped -- reaches dispatchAutoSwitcherOnEngineLevel()
+            // on a real background thread AFTER the sweep above already ran. It captures
+            // connectionAttemptGeneration=1 (still the live value at this point) and, because it
+            // is not running on the main looper, defers via postAtTime() instead of running
+            // synchronously -- the enqueue-after-sweep gap the race depends on.
+            val thread = Thread {
+                callbacks.updateStateString(
+                    "NOPROCESS",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_NOTCONNECTED,
+                    null
+                )
+            }
+            thread.isDaemon = true
+            thread.start()
+            thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            // Race step 4: a fresh ACTION_START arrives -- reusing the SAME service instance --
+            // and, as part of starting the new attempt, clears userInitiatedStop back to false and
+            // bumps connectionAttemptGeneration to 2. Modeled directly on the two fields
+            // ACTION_START mutates for this purpose (see onStartCommand's ACTION_START branch),
+            // for the same Robolectric-FGS reason as step 0 above.
+            ReflectionHelpers.setField(service, "userInitiatedStop", false)
+            ReflectionHelpers.setField(service, "connectionAttemptGeneration", 2)
+
+            // Prime the NEW attempt's OWN switch timer with a genuinely fresh CONNECTING callback
+            // on the main/test thread (dispatched synchronously, generation 2 matches generation
+            // 2), simulating this brand-new, unrelated connection attempt actually being under way.
+            callbacks.updateStateString(
+                "TCP_CONNECT",
+                null,
+                0,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                null
+            )
+            assertNotNull(
+                "Setup precondition: the NEW attempt's own switch timer must be active before " +
+                    "the stale queued dispatch executes",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            // Race step 5: let the queued runnable from step 3 finally execute.
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNotNull(
+                "A deferred auto-switch dispatch captured for a PREVIOUS attempt generation -- " +
+                    "enqueued after a user-stop sweep already ran and only surviving because a " +
+                    "fresh ACTION_START cleared userInitiatedStop back to false -- must NOT reach " +
+                    "ServerAutoSwitcher and must NOT cancel the brand-new attempt's own active " +
+                    "switch timer",
                 ServerAutoSwitcher.remainingSeconds.value
             )
         } finally {

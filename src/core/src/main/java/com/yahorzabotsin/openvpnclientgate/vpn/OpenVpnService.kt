@@ -168,6 +168,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // or ServerAutoSwitcher never gets a chance to run). See PR #126 round 9 (Codex P2, comment
     // 3733934640).
     private var currentAttemptStartMs: Long = 0L
+    // Monotonically-increasing counter, bumped on every ACTION_START (fresh start or
+    // auto-switch reconnect), alongside currentAttemptStartMs above. Narrower and additive to
+    // currentAttemptStartMs/serviceDestroyed: those two solve their own specific problems
+    // (snapshot staleness, instance teardown) and are left as-is. This counter exists solely to
+    // close a stop-then-restart race in dispatchAutoSwitcherOnEngineLevel() where the SAME
+    // service instance is reused (serviceDestroyed never becomes true) --
+    // 1) an old AIDL binder callback carrying a stale level passes the serviceDestroyed check
+    //    and captures the generation valid at that moment;
+    // 2) the main thread runs a user-stop sweep (startUserStopTeardown), cancelling queued
+    //    dispatches via autoSwitchDispatchToken;
+    // 3) the binder thread's postAtTime() call enqueues its deferred dispatch AFTER the sweep
+    //    already ran, so the sweep never saw it;
+    // 4) a fresh ACTION_START arrives, reusing the same instance, and clears userInitiatedStop
+    //    back to false as part of starting the new attempt;
+    // 5) the queued runnable from step 3 executes: its userInitiatedStop re-check (round 5) now
+    //    sees false -- cleared by the NEW start in step 4 -- so it does NOT skip, and the stale
+    //    callback would otherwise proceed to switch away from the brand-new attempt.
+    // Comparing the generation captured in step 1 against the live value at execution time
+    // (step 5) closes this gap: a mismatch means a newer attempt has started since this
+    // dispatch was queued, so it is skipped unconditionally, regardless of what
+    // userInitiatedStop currently reads (unreliable for this specific race, per above).
+    // @Volatile: written on the main thread (onStartCommand/ACTION_START) and read on the AIDL
+    // binder thread (dispatchAutoSwitcherOnEngineLevel's capture) for cross-thread visibility,
+    // same requirement as userInitiatedStop/serviceDestroyed above. See PR #126 review thread
+    // (round 12, Codex P2, comment 3734663965).
+    @Volatile private var connectionAttemptGeneration: Int = 0
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -220,12 +246,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // before the real stop is confirmed; otherwise (not waiting on a stop) it can incorrectly
     // cancel a healthy in-progress attempt's switch timer. See PR #126 review thread (round
     // 11, Codex P2, comment 3734228641).
+    // LEVEL_CONNECTED is included for the same reason as LEVEL_NOTCONNECTED above:
+    // ServerAutoSwitcher.onEngineLevel's else branch (any level outside its timeoutLevels set)
+    // calls cancel(resetCycle=...) on the active switch timer. A STALE cached LEVEL_CONNECTED
+    // snapshot from a PREVIOUS, already-replaced attempt -- forwarded here with
+    // allowAutoSwitch=true because the live push channel is stalled (isAidlFresh()=false) --
+    // is indistinguishable from a genuine "current attempt just connected" signal once it
+    // reaches ServerAutoSwitcher, and incorrectly cancels the timer for the CURRENT attempt,
+    // which may actually still be stuck. See PR #126 review thread (round 12, Codex P2,
+    // comment 3734663954).
     private val staleSnapshotTimeoutLevels = setOf(
         ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
         ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
         ConnectionStatus.LEVEL_AUTH_FAILED,
         ConnectionStatus.LEVEL_NONETWORK,
         ConnectionStatus.LEVEL_NOTCONNECTED,
+        ConnectionStatus.LEVEL_CONNECTED,
         ConnectionStatus.UNKNOWN_LEVEL
     )
     private val staleSnapshotMaxAgeMs = 10_000L
@@ -746,6 +782,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // connection attempt -- record when, so applyStatusSnapshot() can tell a
                 // snapshot reporting on THIS attempt apart from one left over from a past one.
                 currentAttemptStartMs = watchdogNowMs()
+                // Bump alongside currentAttemptStartMs: see connectionAttemptGeneration's
+                // declaration comment for the stop-then-restart race this closes (round 12).
+                connectionAttemptGeneration += 1
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -2024,12 +2063,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         } catch (_: Exception) {
             false
         }
+        // Snapshot the attempt generation valid RIGHT NOW, at the moment this level was
+        // received and this dispatch is being prepared -- see connectionAttemptGeneration's
+        // declaration comment for the stop-then-restart race this closes (round 12, Codex P2,
+        // comment 3734663965). If a fresh ACTION_START bumps the live counter before the
+        // runnable below actually executes, the mismatch proves a newer attempt has begun since
+        // this dispatch was queued.
+        val dispatchedForGeneration = connectionAttemptGeneration
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
             // user has stopped the VPN in the meantime, or once the service itself has been
             // destroyed (system-driven onDestroy(), where userInitiatedStop stays false).
             if (userInitiatedStop || serviceDestroyed) return@Runnable
+            // Re-validated at the last possible moment, right before touching ServerAutoSwitcher:
+            // userInitiatedStop is NOT a reliable signal for the stop-then-restart race a fresh
+            // ACTION_START clears it back to false as part of starting the new attempt, even
+            // though this dispatch was queued for a now-superseded attempt. A generation mismatch
+            // means exactly that happened, so skip unconditionally regardless of the flag above.
+            if (connectionAttemptGeneration != dispatchedForGeneration) return@Runnable
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
