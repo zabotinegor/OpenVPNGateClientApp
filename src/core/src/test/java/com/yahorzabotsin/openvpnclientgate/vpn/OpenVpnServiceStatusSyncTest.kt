@@ -3123,6 +3123,121 @@ class OpenVpnServiceStatusSyncTest {
         }
     }
 
+    @Test
+    fun applyStatusSnapshot_reattachSnapshotWithConnectedDetailAndLaggingRawLevelIsAcceptedDespiteAge() {
+        // Regression for round-19 bot review (Codex P2, comment 3737217807): a recreated
+        // controller reattaching via ACTION_SYNC_STATUS (e.g. process/service restart while the
+        // engine is already connected) can observe its FIRST status snapshot with a lagging raw
+        // `level` (LEVEL_NONETWORK) while the accompanying `state` detail already reads
+        // "CONNECTED" -- the two fields can update on slightly different cadences, exactly the
+        // phenomenon ConnectionStateManager.normalizeEngineLevel's own doc comment describes and
+        // the same class of bug round 14 already fixed for ServerAutoSwitcher's consumption of
+        // this data. Before this fix, the unknown-attempt backfill pre-filter classified
+        // terminal-ness using the RAW level, so this snapshot looked terminal (LEVEL_NONETWORK is
+        // in STOP_TERMINAL_LEVELS), skipping the currentAttemptStartMs backfill. With
+        // currentAttemptStartMs left at 0L, the snapshot then fell through to the age-only
+        // fallback, which rejected it as stale purely because it is older than
+        // staleSnapshotMaxAgeMs (10s) -- so a healthy, already-connected VPN got reported as
+        // disconnected right after reattachment, and syncEngineState() (where normalization
+        // actually happens) never even ran.
+        //
+        // Against pre-fix code this test fails: the snapshot is rejected as stale, syncEngineState
+        // never runs, and ConnectionStateManager.state.value stays DISCONNECTED (the setUp()
+        // default) instead of flipping to CONNECTED.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // currentAttemptStartMs intentionally left at its default 0L (unknown) -- this service
+        // instance never went through ACTION_START, simulating the ACTION_SYNC_STATUS-only
+        // reattachment lifecycle path this comment describes.
+
+        // Raw level lags as LEVEL_NONETWORK, but state already reports "CONNECTED", and the
+        // snapshot's own timestamp is older than staleSnapshotMaxAgeMs (10s) relative to `now`.
+        val reattachSnapshot = StatusSnapshot(
+            "CONNECTED",
+            null,
+            0,
+            ConnectionStatus.LEVEL_NONETWORK,
+            now - 15_000L,
+            0L
+        )
+
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, reattachSnapshot)
+        )
+
+        assertEquals(
+            "A reattachment snapshot whose state says CONNECTED must be accepted (not rejected " +
+                "as stale) even though its raw level lags as LEVEL_NONETWORK and its timestamp " +
+                "is older than staleSnapshotMaxAgeMs -- syncEngineState() must run and drive " +
+                "ConnectionStateManager to CONNECTED",
+            ConnectionState.CONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "currentAttemptStartMs must be backfilled to the snapshot's own timestamp, proving " +
+                "the backfill pre-filter classified this snapshot as active (not terminal) using " +
+                "the normalized level",
+            now - 15_000L,
+            ReflectionHelpers.getField<Long>(service, "currentAttemptStartMs")
+        )
+    }
+
+    @Test
+    fun applyStatusSnapshot_reattachSnapshotGenuinelyTerminalStillRejectedAsStale() {
+        // Companion to the test above: proves the round-19 fix does not widen the backfill
+        // condition too far. A snapshot whose raw level AND state are BOTH genuinely terminal
+        // (LEVEL_NONETWORK with state="NONETWORK", no "CONNECTED" detail) must still be classified
+        // as terminal after normalization too (normalizeEngineLevel only overrides the level when
+        // detail=="CONNECTED"), so the backfill is correctly skipped and this old, unknown-attempt
+        // snapshot is still rejected via the pre-existing age-only fallback -- exactly the
+        // pre-round-19 behavior for a genuinely idle engine.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // currentAttemptStartMs intentionally left at its default 0L (unknown), same
+        // ACTION_SYNC_STATUS-only reattachment lifecycle path as the test above.
+
+        val genuinelyTerminalSnapshot = StatusSnapshot(
+            "NONETWORK",
+            null,
+            0,
+            ConnectionStatus.LEVEL_NONETWORK,
+            now - 15_000L,
+            0L
+        )
+
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, genuinelyTerminalSnapshot)
+        )
+
+        assertEquals(
+            "A genuinely terminal snapshot (raw level AND state both NONETWORK, no CONNECTED " +
+                "detail) must still be rejected as stale -- syncEngineState() must NOT run, so " +
+                "ConnectionStateManager.state.value must stay at the setUp() default of " +
+                "DISCONNECTED",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "currentAttemptStartMs must remain unbackfilled (0L) for a genuinely terminal " +
+                "snapshot -- the backfill pre-filter must still classify it as terminal after " +
+                "normalization",
+            0L,
+            ReflectionHelpers.getField<Long>(service, "currentAttemptStartMs")
+        )
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

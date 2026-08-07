@@ -1958,7 +1958,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // is no second, independently-tracked "different past attempt" data point for an
             // unknown-start instance to compare it against; it IS the freshest truth the engine
             // itself has to offer.
-            if (currentAttemptStartMs == 0L && level !in STOP_TERMINAL_LEVELS) {
+            // Round 19 fix (Codex P2, comment 3737217807): classify terminal-ness for this
+            // backfill decision using the NORMALIZED level, not the raw `level` read at the top
+            // of this function. The raw level and the accompanying `state`/detail string can
+            // update on slightly different cadences (the same phenomenon
+            // ConnectionStateManager.normalizeEngineLevel's own doc comment describes, and the
+            // same class of bug round 14 already fixed for ServerAutoSwitcher's consumption of
+            // this data). A recreated controller reattaching via ACTION_SYNC_STATUS can observe a
+            // first snapshot whose raw level is still a lagging LEVEL_NONETWORK while its state
+            // already reads "CONNECTED" -- i.e. genuinely healthy. Classifying that snapshot as
+            // terminal on the raw level alone skips the backfill below, leaving
+            // currentAttemptStartMs at 0L, which routes it into the age-only fallback further
+            // down -- and that fallback then wrongly rejects a healthy reattachment snapshot as
+            // stale purely because it is older than staleSnapshotMaxAgeMs. Normalizing first
+            // ensures a raw-lagging-but-actually-connected snapshot is correctly seen as active
+            // (not terminal), so the backfill runs and syncEngineState() -- where normalization
+            // would otherwise happen -- actually gets to execute.
+            val normalizedLevelForBackfill = ConnectionStateManager.normalizeEngineLevel(level, snapshot.state)
+            if (currentAttemptStartMs == 0L && normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS) {
                 currentAttemptStartMs = ts
                 // Estimate what elapsedRealtimeMs() was back when this snapshot's own timestamp
                 // (ts) was captured, by subtracting its age (now - ts) from the elapsed-realtime
