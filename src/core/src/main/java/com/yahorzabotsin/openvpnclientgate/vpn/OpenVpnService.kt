@@ -238,6 +238,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // live push channel has actually died, silently defeating the stale-push auto-switch fix.
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
+    // Monotonic counterpart to lastLiveStatusMs (SystemClock.elapsedRealtime() via
+    // elapsedRealtimeMs()), paired the same way currentAttemptStartElapsedRealtimeMs pairs with
+    // currentAttemptStartMs: it makes isAidlFresh() immune to a backward wall-clock jump after the
+    // last live AIDL push, which would otherwise make a stalled push channel look falsely "fresh"
+    // for as long as wall-clock time takes to naturally catch back up.
+    @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
     private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
@@ -687,8 +693,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun isAidlFresh(): Boolean {
-        val now = watchdogNowMs()
-        return boundToStatus && lastLiveStatusMs > 0L && (now - lastLiveStatusMs) <= aidlFreshWindowMs
+        // Round 17 fix (Codex P2, comment 3736234632): measured purely with monotonic time
+        // (elapsedRealtimeMs()/lastLiveStatusElapsedRealtimeMs), not wall-clock. The previous
+        // wall-clock-only check (now - lastLiveStatusMs) could be fooled by a backward clock jump
+        // after the last live push: the delta goes negative/small, so a stalled push channel keeps
+        // reporting "fresh" -- silently reproducing this PR's "stuck on Connecting..." bug via a
+        // clock-jump vector, since applyStatusSnapshot() derives allowAutoSwitch from
+        // !isAidlFresh().
+        return boundToStatus && lastLiveStatusMs > 0L && lastLiveStatusElapsedRealtimeMs > 0L &&
+            (elapsedRealtimeMs() - lastLiveStatusElapsedRealtimeMs) <= aidlFreshWindowMs
     }
 
     private fun shouldUseVpnStatus(): Boolean = !isAidlFresh()
@@ -1346,6 +1359,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (level == null) return
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
+            lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
             staleSnapshotCount = 0
             updateStatusSource(StatusSource.AIDL, "AIDL update")
             logEngineStateChange("AIDL", level, state)
@@ -1998,8 +2012,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // left at its default 0L by any path that sets currentAttemptStartMs without it (e.g.
             // pre-round-16 reflection-based unit tests), so this safety net never activates for
             // those, preserving the exact pre-round-16 behavior.
+            // Round 17 fix (Codex P2, comment 3736234637): the jump-size waiver above (round 16)
+            // only compared the snapshot's predates-gap against the estimated jump size, which
+            // wrongly waives rejection for a genuinely stale, small-gap prior-attempt snapshot
+            // whenever ANY large backward clock jump has happened during the current attempt's
+            // lifetime -- even one causally unrelated to that particular stale snapshot (e.g. a
+            // cached LEVEL_CONNECTED from 2s before the attempt started trivially satisfies a
+            // 2000ms gap <= a 30000ms unrelated jump). Discriminator: a genuine post-jump
+            // current-attempt snapshot's own ts is captured AFTER the jump, on the same corrected
+            // (lower) wall-clock scale as `now`, so ts can never be materially greater than now. A
+            // genuinely-stale snapshot captured BEFORE the jump uses the old/higher clock scale
+            // (same as currentAttemptStartMs), so once `now` is read post-jump, that stale ts ends
+            // up materially AHEAD of now. Requiring ts <= now + clockJumpSlackMs (slack covers read
+            // skew between the separate clock calls) rejects the stale case even though its raw
+            // predates-gap alone looked "explainable" by the jump size.
             val predatesExplainedByBackwardClockJump = knownToPredateCurrentAttempt &&
                 currentAttemptStartElapsedRealtimeMs > 0L &&
+                ts <= now + clockJumpSlackMs &&
                 run {
                     val wallClockDeltaSinceStartMs = now - currentAttemptStartMs
                     val realElapsedSinceStartMs =
