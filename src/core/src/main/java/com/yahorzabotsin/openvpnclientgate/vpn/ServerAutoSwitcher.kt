@@ -98,7 +98,21 @@ object ServerAutoSwitcher {
         val shouldSwitchImmediately =
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
-        if (shouldSwitchImmediately && !waitingStopForRetry) {
+        if (shouldSwitchImmediately) {
+            // A switch for this exact immediate-failure condition is already in progress
+            // (waitingStopForRetry == true). The poll loop (trafficPollRunnable /
+            // applyStatusSnapshot) can re-deliver the SAME cached terminal snapshot on every
+            // ~2s poll cycle without it ever going stale, since applyStatusSnapshot() restores
+            // lastStatusSnapshotMs to the snapshot's own timestamp rather than "now" -- so this
+            // is reached again and again for one underlying failure. It must be a no-op: falling
+            // through to the timeoutLevels/else block below would hit the `else -> cancel(...)`
+            // branch for LEVEL_NONETWORK (not in timeoutLevels), cancelling the switch that was
+            // already correctly kicked off by the FIRST dispatch and silently dropping the
+            // pending server change. See PR #126 round 13 (Codex P1, comment 3734974189).
+            if (waitingStopForRetry) {
+                AppLog.d(TAG, "Duplicate $level dispatch while switch already in progress; ignoring")
+                return
+            }
             // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
             // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
             // posting from a binder thread to the main looper), and by the time this deferred

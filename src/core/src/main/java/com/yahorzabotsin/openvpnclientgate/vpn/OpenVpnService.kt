@@ -468,6 +468,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         ignoreConnectedUntilNotConnected = false
         userInitiatedStop = false
+        // Bump the generation here too, not just on ACTION_START (round 12): a full
+        // user-initiated stop-to-shutdown never fires ACTION_START, but this confirmation runs
+        // BEFORE onDestroy() actually executes (serviceDestroyed is set there, not here) and
+        // BEFORE stopSelf() completes teardown. A binder callback whose deferred dispatch was
+        // enqueued before this confirmation ran, but which executes during this exact window,
+        // would otherwise see userInitiatedStop=false (just cleared above), serviceDestroyed=
+        // false (onDestroy hasn't run yet), and an unchanged generation -- passing all three
+        // defensive checks in dispatchAutoSwitcherOnEngineLevel and incorrectly starting
+        // auto-switch from stale data after the user explicitly disconnected. Bumping here closes
+        // that window with the same mechanism round 12 already introduced. See PR #126 round 13
+        // (Codex P2, comment 3734974192).
+        connectionAttemptGeneration += 1
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {

@@ -1906,6 +1906,83 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun deferredDispatchQueuedBeforeStopConfirmationDoesNotReachAutoSwitcher() {
+        // Regression for round-13 bot review (Codex P2, comment 3734974192): "Invalidate queued
+        // dispatches when stop is confirmed". finishStopFlowConfirmed() clears userInitiatedStop
+        // BEFORE stopSelf() is called, and BEFORE onDestroy() actually runs (serviceDestroyed only
+        // flips there -- see round 7). A full user-initiated stop-to-shutdown (no restart) never
+        // fires ACTION_START, so round-12's connectionAttemptGeneration counter was never bumped
+        // either. This opens a window: userInitiatedStop=false (cleared by confirmation),
+        // serviceDestroyed=false (onDestroy hasn't run yet), and the generation unchanged (no
+        // ACTION_START happened). A binder callback's deferred auto-switch dispatch -- queued via
+        // postAtTime() BEFORE the stop was confirmed -- that executes during this exact window
+        // passes all three existing defensive checks in dispatchAutoSwitcherOnEngineLevel()'s
+        // runnable and incorrectly reaches ServerAutoSwitcher, which could start a reconnect after
+        // the user explicitly disconnected.
+        //
+        // Fixed by also bumping connectionAttemptGeneration inside finishStopFlowConfirmed(),
+        // reusing the exact mechanism round 12 introduced for ACTION_START rather than inventing a
+        // new flag.
+        //
+        // Against the pre-fix code this test fails: the queued dispatch (captured generation 0,
+        // never bumped by the stop confirmation) reaches ServerAutoSwitcher and starts its switch
+        // timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+
+        try {
+            // A binder callback carrying a level from the attempt being torn down reaches
+            // dispatchAutoSwitcherOnEngineLevel() on a real background thread, BEFORE the stop is
+            // confirmed. It captures the live generation (0 here; no ACTION_START has run in this
+            // test) and, since it is not on the main looper, defers via postAtTime() -- the same
+            // enqueue-then-execute-later gap round 12's test exercises.
+            val thread = Thread {
+                ReflectionHelpers.callInstanceMethod<Any>(
+                    service,
+                    "dispatchAutoSwitcherOnEngineLevel",
+                    ClassParameter.from(
+                        ConnectionStatus::class.java,
+                        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET
+                    )
+                )
+            }
+            thread.isDaemon = true
+            thread.start()
+            thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            // The stop now confirms -- model a real user-initiated stop already in progress
+            // (startUserStopTeardown() would have set this earlier) so finishStopFlowConfirmed()'s
+            // own guard (`if (!userInitiatedStop) return`) lets it proceed.
+            ReflectionHelpers.setField(service, "userInitiatedStop", true)
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "finishStopFlowConfirmed",
+                ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NOTCONNECTED),
+                ClassParameter.from(String::class.java, "AIDL")
+            )
+
+            // serviceDestroyed must still be false here -- onDestroy() has not run yet, exactly
+            // the window under test.
+            assertFalse(ReflectionHelpers.getField<Boolean>(service, "serviceDestroyed"))
+
+            // Let the queued runnable from the background thread execute.
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNull(
+                "a deferred auto-switch dispatch queued BEFORE the stop was confirmed must not " +
+                    "reach ServerAutoSwitcher once the stop confirms and clears " +
+                    "userInitiatedStop, even though onDestroy() has not run yet",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun updateStateString_writesLiveStatusTimestampsThroughInjectedClock() {
         // Round-2 bot review (Copilot): isAidlFresh()/applyStatusSnapshot() read time via the
         // injectable watchdogNowMs(), but lastLiveStatusMs/lastStatusSnapshotMs were still
