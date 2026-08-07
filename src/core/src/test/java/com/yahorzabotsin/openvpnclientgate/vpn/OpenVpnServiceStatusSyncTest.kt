@@ -1554,6 +1554,158 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_backwardClockJumpDoesNotStarveCurrentAttempt() {
+        // Regression for round-16 bot review (Codex P2, comment 3735937824): currentAttemptStartMs
+        // is recorded from a wall clock (watchdogNowMs() / System.currentTimeMillis()). If the
+        // device's wall clock is corrected BACKWARD after ACTION_START -- e.g. automatic NTP
+        // sync -- every later snapshot's wall-clock timestampMs reads earlier than
+        // currentAttemptStartMs even though real (monotonic) time keeps moving forward normally,
+        // so the plain predates-check (ts < currentAttemptStartMs) rejects every snapshot from the
+        // CURRENT, still-ongoing attempt -- until wall-clock time naturally advances back past the
+        // stale currentAttemptStartMs value. That resurrects the "stuck on Connecting..." bug this
+        // whole PR fixes, via a clock-jump vector instead of a lifecycle-path/level-enumeration one.
+        //
+        // Against pre-round-16 code this test fails: currentAttemptStartElapsedRealtimeMs and the
+        // backward-jump detection in applyStatusSnapshot do not exist, so the snapshot below --
+        // genuinely reporting on the current attempt, delivered right after the jump -- is
+        // rejected as predating the attempt and ServerAutoSwitcher's timer never starts.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        // Simulate ACTION_START: wall clock at T0, elapsed-realtime (monotonic) at E0, exactly
+        // like the paired currentAttemptStartMs/currentAttemptStartElapsedRealtimeMs writes at
+        // ACTION_START.
+        var wallClockMs = 1_700_000_000_000L
+        var elapsedRealtimeValueMs = 500_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ wallClockMs } as () -> Long))
+        ReflectionHelpers.setField(service, "elapsedRealtimeMs", ({ elapsedRealtimeValueMs } as () -> Long))
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", wallClockMs)
+        ReflectionHelpers.setField(service, "currentAttemptStartElapsedRealtimeMs", elapsedRealtimeValueMs)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // lastLiveStatusMs deliberately left at its default 0L (no live push has arrived) instead
+        // of an "old timestamp" value like other tests use: with the wall clock about to jump
+        // backward, an old-wall-clock-timestamp value for lastLiveStatusMs would itself become
+        // arithmetically ambiguous against the post-jump `now` read inside isAidlFresh(). Leaving
+        // it at 0L is an unambiguous, valid stalled/no-live-push precondition (isAidlFresh()
+        // requires lastLiveStatusMs > 0L) that keeps this test focused on the predates-check fix.
+        ServerAutoSwitcher.resetForTest()
+
+        // Real (monotonic) time advances normally by 3s, but the wall clock is corrected
+        // BACKWARD by 30s at the same moment -- e.g. an NTP sync landing shortly after
+        // ACTION_START. Net wall-clock movement: +3_000 (real) - 30_000 (jump) = -27_000.
+        elapsedRealtimeValueMs += 3_000L
+        wallClockMs -= 27_000L
+
+        // The engine's next status snapshot is timestamped under the corrected (lower) wall
+        // clock, so its timestampMs now reads BEFORE currentAttemptStartMs even though it
+        // genuinely reports on the still-ongoing current attempt.
+        val currentAttemptSnapshotAfterJump = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            wallClockMs,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, currentAttemptSnapshotAfterJump)
+            )
+
+            assertNotNull(
+                "A snapshot genuinely reporting on the CURRENT, still-ongoing attempt, delivered " +
+                    "after a backward wall-clock correction, must still drive ServerAutoSwitcher's " +
+                    "timeout timer -- it must not be rejected purely because its wall-clock " +
+                    "timestamp now reads earlier than currentAttemptStartMs",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_clockJumpSafetyNetDoesNotMaskGenuinelyStaleSnapshot() {
+        // Companion to the test above: proves the backward-clock-jump safety net does not
+        // degrade into an unconditional bypass once currentAttemptStartElapsedRealtimeMs is
+        // tracked. A small, genuine clock correction is detected (as in the test above), but a
+        // SEPARATE, genuinely old/unrelated snapshot -- whose predates-gap is far larger than the
+        // detected jump size explains -- must still be rejected exactly like the known-attempt
+        // path from rounds 8-14. This exercises that rejection with the new field actively
+        // tracked (non-zero), not merely relying on it being unset like the pre-existing
+        // rounds 8-14 tests.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        var wallClockMs = 1_700_000_000_000L
+        var elapsedRealtimeValueMs = 500_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ wallClockMs } as () -> Long))
+        ReflectionHelpers.setField(service, "elapsedRealtimeMs", ({ elapsedRealtimeValueMs } as () -> Long))
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", wallClockMs)
+        ReflectionHelpers.setField(service, "currentAttemptStartElapsedRealtimeMs", elapsedRealtimeValueMs)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ServerAutoSwitcher.resetForTest()
+
+        // Establish an active switch timer from a trusted, current-attempt snapshot (its
+        // timestamp equals the attempt start, so it does not predate anything) -- same
+        // "setup precondition" pattern used by the rounds 8-12 tests above.
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            wallClockMs,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the genuinely stale " +
+                "NONETWORK snapshot from a past, unrelated attempt",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        // A SMALL clock correction: real time advances 1s, wall clock jumps back 5s (net -4_000).
+        // estimatedJumpMs works out to ~5_000.
+        elapsedRealtimeValueMs += 1_000L
+        wallClockMs -= 4_000L
+
+        try {
+            // Genuinely old/unrelated snapshot: its predates-gap against currentAttemptStartMs
+            // (50_000ms) is far larger than the detected jump (~5_000ms) plus slack could ever
+            // explain, so it must still be rejected as stale leftover data, not trusted.
+            val genuinelyStaleSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                wallClockMs - 50_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, genuinelyStaleSnapshot)
+            )
+
+            assertNotNull(
+                "A genuinely old/unrelated snapshot whose predates-gap is far larger than any " +
+                    "detected clock-jump size must still be rejected as stale and must NOT " +
+                    "cancel/trigger an immediate switch on the current attempt's active timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()

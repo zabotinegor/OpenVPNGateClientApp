@@ -168,6 +168,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // or ServerAutoSwitcher never gets a chance to run). See PR #126 round 9 (Codex P2, comment
     // 3733934640).
     private var currentAttemptStartMs: Long = 0L
+    // Paired with currentAttemptStartMs above using SystemClock.elapsedRealtime() (device-uptime
+    // based; immune to wall-clock corrections such as automatic NTP sync or a manual/system
+    // clock change). Recorded at the same moments as currentAttemptStartMs -- every ACTION_START
+    // and the round-15 ACTION_SYNC_STATUS backfill below -- so applyStatusSnapshot() can tell a
+    // genuine backward wall-clock jump during the current attempt apart from a snapshot that
+    // truly predates it: if the device wall clock is corrected backward after currentAttemptStartMs
+    // is captured, every later snapshot's wall-clock timestampMs reads earlier than
+    // currentAttemptStartMs even though real (monotonic) time keeps moving forward, so the
+    // existing predates-check alone would reject every snapshot from the current attempt forever.
+    // See PR #126 round 16 (Codex P2, comment 3735937824).
+    // Left at its default 0L by any path that sets currentAttemptStartMs without also setting
+    // this field (e.g. pre-round-16 unit tests using reflection to set currentAttemptStartMs
+    // directly) -- the safety net in applyStatusSnapshot() is gated on this being > 0L so an
+    // unset baseline degrades to the exact pre-round-16 wall-clock-only behavior instead of
+    // comparing against a meaningless value.
+    private var currentAttemptStartElapsedRealtimeMs: Long = 0L
     // Monotonically-increasing counter, bumped on every ACTION_START (fresh start or
     // auto-switch reconnect), alongside currentAttemptStartMs above. Narrower and additive to
     // currentAttemptStartMs/serviceDestroyed: those two solve their own specific problems
@@ -258,6 +274,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // regardless of which level the snapshot carries, so every level -- current members and any
     // added to the enum in the future -- goes through the same gate now.
     private val staleSnapshotMaxAgeMs = 10_000L
+    // Round 16 (Codex P2, comment 3735937824): thresholds for the backward-wall-clock-jump
+    // safety net in applyStatusSnapshot(). clockJumpMinDetectableMs filters out the sub-second
+    // measurement noise between two separate watchdogNowMs()/elapsedRealtimeMs() reads from
+    // being mistaken for a genuine clock correction. clockJumpSlackMs is a small tolerance added
+    // on top of the estimated jump size when deciding whether a snapshot's predates-gap is fully
+    // explained by that detected jump, absorbing the same read skew.
+    private val clockJumpMinDetectableMs = 1_000L
+    private val clockJumpSlackMs = 2_000L
     private val liveStatusGraceMs = 5_000L
     private val statusHandler = Handler(Looper.getMainLooper())
     private val trafficHandler = Handler(Looper.getMainLooper())
@@ -292,6 +316,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
      */
     private var watchdogRecoveryInFlight = false
     internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
+    // Monotonic counterpart to watchdogNowMs, used only to pair with
+    // currentAttemptStartElapsedRealtimeMs for the backward-wall-clock-jump safety net in
+    // applyStatusSnapshot(). Injectable for the same reason watchdogNowMs is: deterministic unit
+    // tests can simulate a clock jump without depending on real device uptime.
+    internal var elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() }
     internal var watchdogProbeDispatcher: CoroutineDispatcher = Dispatchers.IO
     internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
         performReachabilityProbe(host, port, timeoutMs)
@@ -787,6 +816,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // connection attempt -- record when, so applyStatusSnapshot() can tell a
                 // snapshot reporting on THIS attempt apart from one left over from a past one.
                 currentAttemptStartMs = watchdogNowMs()
+                // Paired monotonic baseline -- see currentAttemptStartElapsedRealtimeMs's
+                // declaration comment for why this is captured alongside the wall-clock value.
+                currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
                 // Bump alongside currentAttemptStartMs: see connectionAttemptGeneration's
                 // declaration comment for the stop-then-restart race this closes (round 12).
                 connectionAttemptGeneration += 1
@@ -1854,6 +1886,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
         val level = snapshot.level ?: return
         val now = watchdogNowMs()
+        val nowElapsedRealtimeMs = elapsedRealtimeMs()
         val ts = snapshot.timestampMs
         // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration
         // comment above for why round 14 removed the per-level allowlist that used to gate this
@@ -1886,6 +1919,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // itself has to offer.
             if (currentAttemptStartMs == 0L && level !in STOP_TERMINAL_LEVELS) {
                 currentAttemptStartMs = ts
+                // Estimate what elapsedRealtimeMs() was back when this snapshot's own timestamp
+                // (ts) was captured, by subtracting its age (now - ts) from the elapsed-realtime
+                // reading taken at THIS backfill moment. Keeps the pairing with
+                // currentAttemptStartMs (=ts) consistent with the ACTION_START path, where both
+                // fields are captured together at the same instant.
+                currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - (now - ts)
             }
             val ageMs = now - ts
             // A snapshot's absolute age alone cannot tell apart two very different situations:
@@ -1924,8 +1963,54 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // (ageMs > staleSnapshotMaxAgeMs) apply instead.
             val currentAttemptStartKnown = currentAttemptStartMs > 0L
             val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
+            // Round 16 fix (Codex P2, comment 3735937824): the predates-check above compares two
+            // wall-clock readings (ts, currentAttemptStartMs) taken via watchdogNowMs() /
+            // System.currentTimeMillis() -- including on the engine side, since
+            // StatusSnapshot.timestampMs is produced by OpenVPNStatusService using
+            // System.currentTimeMillis() too, outside this app's control. If the device wall
+            // clock is corrected BACKWARD at any point during the current attempt's lifetime
+            // (e.g. automatic NTP sync, a user/system clock change), every snapshot delivered
+            // after the correction reads earlier than currentAttemptStartMs (captured before the
+            // correction, under the old/higher clock), so EVERY subsequent snapshot looks like it
+            // predates the attempt and gets rejected -- until wall-clock time naturally advances
+            // back past the stale currentAttemptStartMs value. That silently defeats the whole
+            // stale-push auto-switch mechanism via a clock-jump vector, distinct from the
+            // lifecycle-path/level-enumeration vectors rounds 9-15 closed.
+            //
+            // SystemClock.elapsedRealtime() is monotonic and immune to wall-clock corrections.
+            // Pairing it with currentAttemptStartMs (see currentAttemptStartElapsedRealtimeMs's
+            // declaration) lets us detect this: if LESS wall-clock time appears to have passed
+            // since the attempt started (now - currentAttemptStartMs) than the REAL, monotonic
+            // time that has actually passed (nowElapsedRealtimeMs -
+            // currentAttemptStartElapsedRealtimeMs), the wall clock must have moved backward by
+            // approximately that difference at some point during this attempt -- direct evidence
+            // of a clock artifact, not a genuinely old/unrelated snapshot. When the snapshot's own
+            // predates-gap is fully covered by that estimated jump size (plus a small slack for
+            // read skew between the separate clock calls), it is trusted as genuine current-attempt
+            // data delivered after the correction, not leftover data from a truly past attempt.
+            //
+            // Residual limitation, stated honestly rather than overclaimed: this only explains a
+            // predates-gap up to the size of the DETECTED jump. An arbitrarily long-running
+            // attempt combined with an arbitrarily large backward jump can, in principle, still
+            // mask a genuinely-stale leftover snapshot whose gap happens to fall within the
+            // detected jump size -- an inherent limit of reasoning about wall-clock data with no
+            // independent monotonic timestamp of its own. currentAttemptStartElapsedRealtimeMs is
+            // left at its default 0L by any path that sets currentAttemptStartMs without it (e.g.
+            // pre-round-16 reflection-based unit tests), so this safety net never activates for
+            // those, preserving the exact pre-round-16 behavior.
+            val predatesExplainedByBackwardClockJump = knownToPredateCurrentAttempt &&
+                currentAttemptStartElapsedRealtimeMs > 0L &&
+                run {
+                    val wallClockDeltaSinceStartMs = now - currentAttemptStartMs
+                    val realElapsedSinceStartMs =
+                        nowElapsedRealtimeMs - currentAttemptStartElapsedRealtimeMs
+                    val estimatedJumpMs = realElapsedSinceStartMs - wallClockDeltaSinceStartMs
+                    val predatesGapMs = currentAttemptStartMs - ts
+                    estimatedJumpMs > clockJumpMinDetectableMs &&
+                        predatesGapMs <= estimatedJumpMs + clockJumpSlackMs
+                }
             val shouldRejectAsStale = if (currentAttemptStartKnown) {
-                knownToPredateCurrentAttempt
+                knownToPredateCurrentAttempt && !predatesExplainedByBackwardClockJump
             } else {
                 ageMs > staleSnapshotMaxAgeMs
             }
