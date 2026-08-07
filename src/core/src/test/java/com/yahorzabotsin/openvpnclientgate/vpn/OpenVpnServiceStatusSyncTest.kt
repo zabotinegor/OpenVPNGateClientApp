@@ -95,6 +95,16 @@ class OpenVpnServiceStatusSyncTest {
 
         ReflectionHelpers.setField(service, "boundToStatus", true)
         ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // Round 15 fix (Codex P2, comment 3735628745): applyStatusSnapshot() now backfills
+        // currentAttemptStartMs from the first active-level snapshot it observes when unknown
+        // (0L), so it no longer stays unknown across these 3 identical calls the way it did
+        // before this fix -- the fallback age-only check this test used to exercise via the
+        // default 0L only applies before that first backfill. Setting currentAttemptStartMs
+        // explicitly to a point AFTER the snapshot's own timestamp keeps this test's original
+        // intent intact (a snapshot predating the current attempt, repeated 3x, must still be
+        // rejected every time and trigger a forced rebind) via the known-attempt predates-check
+        // instead of the now-changed unknown-start fallback.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now)
 
         val snapshot = StatusSnapshot(
             "CONNECTING",
@@ -1405,6 +1415,142 @@ class OpenVpnServiceStatusSyncTest {
                 "proving the gate is genuinely unconditional rather than an enumerated allowlist",
             logs.any { it.contains("Skipping stale snapshot") }
         )
+    }
+
+    @Test
+    fun applyStatusSnapshot_unknownAttemptStartTrustsFirstActiveSnapshotDespiteAge() {
+        // Regression for round-15 bot review (Codex P2, comment 3735628745):
+        // MainActivityCore.onStart() reattaches to an already-running engine via
+        // ACTION_SYNC_STATUS, not ACTION_START, so currentAttemptStartMs is never set for a
+        // service instance recreated this way -- it stays at its default 0L (unknown) even
+        // though a real, still-ongoing engine attempt genuinely exists. Before this fix, the
+        // only available cached snapshot for a long-stuck attempt would inevitably exceed
+        // staleSnapshotMaxAgeMs (10s) and be rejected forever, starving ServerAutoSwitcher and
+        // resurrecting the original "stuck on Connecting..." bug via this lifecycle path.
+        //
+        // Against pre-fix (round 14) code this test fails: currentAttemptStartMs stays 0L, the
+        // age-only fallback fires (ageMs=20_000 > staleSnapshotMaxAgeMs), the snapshot is
+        // rejected, and ServerAutoSwitcher.remainingSeconds stays null.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs/liveStatusGraceMs -- exactly
+        // the stalled-push condition this whole PR is about.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // currentAttemptStartMs intentionally left at its default 0L (unknown) -- this service
+        // instance never went through ACTION_START, simulating the ACTION_SYNC_STATUS-only
+        // lifecycle path Codex's comment describes.
+        ServerAutoSwitcher.resetForTest()
+
+        // The only cached snapshot available, old enough (20s) that the pre-fix age-only
+        // fallback (10s) would reject it on every single poll, forever.
+        val oldConnectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now - 20_000L,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, oldConnectingSnapshot)
+            )
+
+            assertNotNull(
+                "An old cached snapshot reporting a genuinely active engine level must still " +
+                    "drive ServerAutoSwitcher's timeout timer when currentAttemptStartMs is " +
+                    "unknown (ACTION_SYNC_STATUS lifecycle path), not be rejected forever by the " +
+                    "age-only fallback",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+            assertEquals(
+                "currentAttemptStartMs must be backfilled to the snapshot's own timestamp -- " +
+                    "the earliest evidence this instance has of the current attempt -- so later " +
+                    "snapshots compare against a known baseline instead of staying unknown " +
+                    "forever",
+                now - 20_000L,
+                ReflectionHelpers.getField<Long>(service, "currentAttemptStartMs")
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_unknownAttemptStartStillRejectsSnapshotPredatingBackfilledAttempt() {
+        // Companion to the test above: once the first active-level snapshot backfills
+        // currentAttemptStartMs, a SUBSEQUENT snapshot that predates that backfilled baseline --
+        // i.e. genuinely older/leftover data, not a reading of the current attempt -- must still
+        // be rejected exactly like the known-attempt path (rounds 8-12). This proves the fix
+        // does not degrade into blanket-trusting every snapshot once unknown-start backfill
+        // happens; it establishes real tracking, not an unconditional bypass.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // currentAttemptStartMs starts unknown (0L), same ACTION_SYNC_STATUS-only lifecycle.
+        ServerAutoSwitcher.resetForTest()
+
+        // First snapshot observed: active level, backfills currentAttemptStartMs to (now - 3_000).
+        val firstActiveSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now - 3_000L,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, firstActiveSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active after the first backfilling " +
+                "snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+        assertEquals(
+            now - 3_000L,
+            ReflectionHelpers.getField<Long>(service, "currentAttemptStartMs")
+        )
+
+        try {
+            // A second, genuinely older snapshot -- e.g. a leftover reading from a distinct past
+            // session -- whose timestamp PREDATES the just-backfilled currentAttemptStartMs.
+            val olderUnrelatedSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                now - 20_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, olderUnrelatedSnapshot)
+            )
+
+            assertNotNull(
+                "A snapshot predating the backfilled currentAttemptStartMs must still be " +
+                    "rejected as stale and must NOT cancel the active switch timer, exactly like " +
+                    "the known-attempt predates-check from rounds 8-12",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
     }
 
     @Test

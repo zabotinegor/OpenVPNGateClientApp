@@ -1859,6 +1859,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // comment above for why round 14 removed the per-level allowlist that used to gate this
         // block.
         if (ts > 0L) {
+            // Round 15 fix (Codex P2, comment 3735628745): MainActivityCore.onStart() reattaches
+            // to an already-running engine via ACTION_SYNC_STATUS, NOT ACTION_START -- e.g. after
+            // the Activity or this Service's process was recreated while the underlying engine
+            // connection attempt was still genuinely in progress. currentAttemptStartMs is only
+            // ever set inside ACTION_START handling, so a service instance that comes up via
+            // ACTION_SYNC_STATUS leaves it at its default 0L (unknown) even though a real attempt
+            // exists. Left alone, that forces every snapshot through the age-only fallback below,
+            // and the one cached snapshot available for a long-stuck attempt inevitably exceeds
+            // staleSnapshotMaxAgeMs, getting rejected on every poll/rebind forever -- resurrecting
+            // the exact "stuck on Connecting..." bug this PR fixes, via this lifecycle path
+            // instead of ACTION_START's. Fix: the first snapshot an unknown-start instance
+            // observes that carries a genuinely active engine level (i.e. NOT one of
+            // STOP_TERMINAL_LEVELS, which mean the engine is idle/never started) backfills
+            // currentAttemptStartMs to that snapshot's OWN timestamp -- the earliest evidence
+            // this instance has of the current attempt. The backfilled value may be later than
+            // when the attempt actually started; that is fine and intentional, since it only
+            // needs to serve as a baseline for the predates-check below. This snapshot and every
+            // later one then compare against a known baseline instead of an unknown 0L, exactly
+            // like the ACTION_START path, so a genuinely older/unrelated snapshot delivered
+            // afterwards is still correctly rejected by the existing predates-check. Trusting the
+            // very first observed snapshot unconditionally is safe here because
+            // trySyncStatusSnapshot() reads the AIDL binder's single lastStatusSnapshot -- there
+            // is no second, independently-tracked "different past attempt" data point for an
+            // unknown-start instance to compare it against; it IS the freshest truth the engine
+            // itself has to offer.
+            if (currentAttemptStartMs == 0L && level !in STOP_TERMINAL_LEVELS) {
+                currentAttemptStartMs = ts
+            }
             val ageMs = now - ts
             // A snapshot's absolute age alone cannot tell apart two very different situations:
             // (a) it is a leftover reading from a PAST, different connection attempt (round 8's
