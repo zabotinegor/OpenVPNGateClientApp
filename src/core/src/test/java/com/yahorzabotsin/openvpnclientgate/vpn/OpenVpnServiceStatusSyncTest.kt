@@ -2989,6 +2989,140 @@ class OpenVpnServiceStatusSyncTest {
         )
     }
 
+    @Test
+    fun startUserStopTeardown_cancelsActiveAutoSwitchTimerOnMainThread() {
+        // Regression for PR #126 round 18 (Codex P1, comment 3736956722): ServerAutoSwitcher
+        // runs its countdown timer on its OWN main-looper Handler, completely separate from
+        // this service's statusHandler. startUserStopTeardown()'s
+        // statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken) sweep only cancels
+        // queued-but-not-yet-run dispatches TO ServerAutoSwitcher -- it does nothing to a timer
+        // ServerAutoSwitcher is already running from before teardown began, because
+        // dispatchAutoSwitcherOnEngineLevel's userInitiatedStop/serviceDestroyed guard discards
+        // the one AIDL callback (LEVEL_NOTCONNECTED) that would otherwise have reached
+        // ServerAutoSwitcher.onEngineLevel() and stopped it there. Before this fix, that timer
+        // fires a few seconds after an explicit user disconnect and silently reconnects.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ServerAutoSwitcher.setNoReplyThresholdForTest(5)
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val startCalls = mutableListOf<String>()
+        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.stopper = { _ -> }
+
+        try {
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+            assertNotNull(
+                "precondition: the auto-switch timer must be actively running before teardown",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "startUserStopTeardown",
+                ClassParameter.from(String::class.java, "user_action"),
+                ClassParameter.from(Boolean::class.javaPrimitiveType, true)
+            )
+
+            assertNull(
+                "a user-stop teardown on the main thread must cancel an already-running " +
+                    "ServerAutoSwitcher timer immediately",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            // Advance well past the original 5s threshold; the cancelled timer must not fire.
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertTrue(
+                "ServerAutoSwitcher must not reconnect after its timer was cancelled by a user stop",
+                startCalls.isEmpty()
+            )
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+        }
+    }
+
+    @Test
+    fun startUserStopTeardown_cancelsActiveAutoSwitchTimerFromBinderThreadOnceMainLooperDrains() {
+        // Follow-up finding during round 18 review (this fix's own thread-safety check,
+        // required by comment 3736956722): startUserStopTeardown() is reachable synchronously
+        // from the AIDL binder thread via maybeStartStaleStopReconciliation() ->
+        // syncEngineState() -> updateStateString() (the "stale_relaunch" path) -- unlike the
+        // ACTION_STOP (onStartCommand, always main thread) and watchdog_fail_safe (always
+        // dispatched via statusHandler.post in handleConnectedProbeResult) call sites, it is NOT
+        // guaranteed to run on the main thread. ServerAutoSwitcher's internal timer state
+        // (runnable/seconds/timerActive/timerLevel) is plain, non-volatile state that assumes a
+        // single main-looper caller -- the same invariant dispatchAutoSwitcherOnEngineLevel's own
+        // Looper.myLooper() check protects a few lines below in this same file. The fix mirrors
+        // that exact pattern: it dispatches the ServerAutoSwitcher.cancelForUserStop() call onto
+        // the main thread via statusHandler.post {} whenever startUserStopTeardown() itself was
+        // NOT already called on the main thread. This test proves the cancellation is deferred
+        // -- not executed synchronously -- when startUserStopTeardown() is invoked from a real
+        // background thread (simulating the AIDL binder-pool thread), and only takes effect once
+        // the main looper is idled.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ServerAutoSwitcher.setNoReplyThresholdForTest(5)
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val startCalls = mutableListOf<String>()
+        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.stopper = { _ -> }
+
+        try {
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+            assertNotNull(
+                "precondition: the auto-switch timer must be actively running before teardown",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            val thread = Thread {
+                ReflectionHelpers.callInstanceMethod<Any>(
+                    service,
+                    "startUserStopTeardown",
+                    ClassParameter.from(String::class.java, "stale_relaunch"),
+                    ClassParameter.from(Boolean::class.javaPrimitiveType, false)
+                )
+            }
+            // Copilot review precedent (round 9, sibling binder-thread test above): daemon +
+            // bounded join + interrupt-on-timeout so a stuck thread cannot hang the test JVM.
+            thread.isDaemon = true
+            thread.start()
+            thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            assertNotNull(
+                "ServerAutoSwitcher must not be cancelled synchronously from a non-main-looper " +
+                    "thread; the cancellation must be deferred to the main looper queue",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNull(
+                "ServerAutoSwitcher timer must be cancelled once the deferred cancellation runs " +
+                    "on the main looper",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+            assertTrue(
+                "ServerAutoSwitcher must not reconnect after its timer was cancelled by a " +
+                    "binder-thread-originated user stop",
+                startCalls.isEmpty()
+            )
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+        }
+    }
+
     private fun drainStartedServices(service: OpenVpnService) {
         val shadow = Shadows.shadowOf(service)
         while (shadow.nextStartedService != null) {

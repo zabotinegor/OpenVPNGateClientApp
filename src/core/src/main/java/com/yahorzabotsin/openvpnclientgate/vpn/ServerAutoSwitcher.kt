@@ -252,6 +252,19 @@ object ServerAutoSwitcher {
         }
     }
 
+    /**
+     * Cancels any in-progress switch timer or stop-retry wait immediately, with no side
+     * effects beyond stopping this object's own internal machinery (no reconnect attempt
+     * is triggered). Call this from a genuine user/system-initiated stop teardown so an
+     * already-running timer from a prior engine state cannot fire after the stop and
+     * silently reconnect. Must be called from the main thread -- see onEngineLevel's
+     * declaration comment on why this object's internal timer state assumes a single
+     * (main-looper) caller. See PR #126 round 18 (Codex P1, comment 3736956722).
+     */
+    fun cancelForUserStop() {
+        cancel(resetCycle = true)
+    }
+
     private fun requestSwitchNow(
         appContext: Context,
         level: ConnectionStatus,

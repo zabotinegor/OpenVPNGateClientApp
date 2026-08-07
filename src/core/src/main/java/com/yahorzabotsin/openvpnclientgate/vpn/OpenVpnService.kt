@@ -457,7 +457,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         resumeActionInFlight = false
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+        // This sweep only cancels dispatches to ServerAutoSwitcher that are queued but not yet
+        // run (see autoSwitchDispatchToken's declaration comment). It does nothing to a
+        // ServerAutoSwitcher switch timer that was ALREADY running before this teardown began --
+        // that timer lives on ServerAutoSwitcher's own separate main-looper Handler, and the one
+        // AIDL callback that would normally stop it (LEVEL_NOTCONNECTED reaching onEngineLevel)
+        // is intentionally discarded during a user/system stop by
+        // dispatchAutoSwitcherOnEngineLevel's userInitiatedStop/serviceDestroyed guard. Without an
+        // explicit cancel here, that timer fires a few seconds after an explicit disconnect and
+        // silently reconnects. See PR #126 round 18 (Codex P1, comment 3736956722).
         statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // startUserStopTeardown() can be reached synchronously from the AIDL binder thread via
+        // maybeStartStaleStopReconciliation() -> syncEngineState() -> updateStateString() (the
+        // "stale_relaunch" path) -- it is NOT guaranteed to run on the main thread the way the
+        // ACTION_STOP and watchdog_fail_safe call sites are. ServerAutoSwitcher's internal timer
+        // state is plain, non-volatile state that assumes a single main-looper caller (the same
+        // invariant dispatchAutoSwitcherOnEngineLevel's Looper check below protects), so the
+        // cancellation itself must be dispatched onto the main thread exactly like
+        // dispatchAutoSwitcherOnEngineLevel already does for the same reason. Posted untagged
+        // (not with autoSwitchDispatchToken): that token exists to let teardown cancel
+        // forward-looking auto-switch REACTION dispatches -- this post IS the cancellation
+        // action, so tagging it the same way would risk a later
+        // removeCallbacksAndMessages(autoSwitchDispatchToken) sweep (e.g. from onDestroy())
+        // wiping out this cancel-the-timer post before it runs.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            ServerAutoSwitcher.cancelForUserStop()
+        } else {
+            statusHandler.post { ServerAutoSwitcher.cancelForUserStop() }
+        }
         requestStopIcsOpenVpn()
     }
 
