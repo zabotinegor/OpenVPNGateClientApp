@@ -211,11 +211,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // is exactly what makes isAidlFresh() false, the stale reading gets trusted enough to
     // immediately stop/switch a currently-fresh, unrelated CONNECTING attempt. See PR #126
     // review thread (round 8, Codex P2).
+    // LEVEL_NOTCONNECTED is included for the same reason plus one more:
+    // ServerAutoSwitcher.onEngineLevel treats a NOTCONNECTED callback received while
+    // waitingStopForRetry=true as the stop-confirmation it needs before starting the next
+    // chained-switch server (see ServerAutoSwitcher.kt onEngineLevel's waitingStopForRetry
+    // branch). A stale cached NOTCONNECTED snapshot forwarded here with allowAutoSwitch=true
+    // can be misread as that confirmation and prematurely start the replacement connection
+    // before the real stop is confirmed; otherwise (not waiting on a stop) it can incorrectly
+    // cancel a healthy in-progress attempt's switch timer. See PR #126 review thread (round
+    // 11, Codex P2, comment 3734228641).
     private val staleSnapshotTimeoutLevels = setOf(
         ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
         ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
         ConnectionStatus.LEVEL_AUTH_FAILED,
         ConnectionStatus.LEVEL_NONETWORK,
+        ConnectionStatus.LEVEL_NOTCONNECTED,
         ConnectionStatus.UNKNOWN_LEVEL
     )
     private val staleSnapshotMaxAgeMs = 10_000L
@@ -1814,10 +1824,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // indefinite "stuck on Connecting..." bug through this rebind/poll path. Distinguish
             // them by comparing the snapshot's own timestamp against when the CURRENT attempt
             // started: only a snapshot that predates the current attempt is case (a). When
-            // currentAttemptStartMs is unknown (0L, e.g. never went through ACTION_START), fall
-            // back to the pre-existing, more conservative behavior of always treating it as
-            // predating -- this keeps every caller that does not track attempt identity exactly
-            // as before. See PR #126 round 9 (Codex P2, comment 3733934640).
+            // currentAttemptStartMs is unknown (0L, e.g. never went through ACTION_START), the
+            // predates-check cannot be evaluated at all, so this falls back to the pre-existing,
+            // purely age-based check (ageMs > staleSnapshotMaxAgeMs) -- this keeps every caller
+            // that does not track attempt identity exactly as before. See PR #126 round 9 (Codex
+            // P2, comment 3733934640).
             //
             // Round 10 fix (Codex P2, comment 3734081106): the "predates" check above must be
             // evaluated INDEPENDENTLY of the absolute-age gate below, not nested inside it. A
@@ -1829,10 +1840,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // staleSnapshotMaxAgeMs purely because little wall-clock time has passed, even
             // though its timestamp is known to predate currentAttemptStartMs. Nesting the
             // predates-check inside `ageMs > staleSnapshotMaxAgeMs` let that case slip through
-            // uncaught, since the outer age gate never fired. The correct priority: a snapshot
-            // KNOWN to predate the current attempt is always rejected regardless of age; a
-            // snapshot belonging to the current attempt (or one whose attempt start is unknown)
-            // keeps the pre-existing age-based handling.
+            // uncaught, since the outer age gate never fired. The actual priority, per the
+            // if/else below: when currentAttemptStartMs is known, that is the ONLY test applied
+            // -- a snapshot predating the current attempt is always rejected regardless of age,
+            // and a snapshot that does NOT predate it (i.e. belongs to the current, still-stuck
+            // attempt) is always accepted regardless of age, per round 9. Only when
+            // currentAttemptStartMs is unknown does the pre-existing age-based check
+            // (ageMs > staleSnapshotMaxAgeMs) apply instead.
             val currentAttemptStartKnown = currentAttemptStartMs > 0L
             val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
             val shouldRejectAsStale = if (currentAttemptStartKnown) {

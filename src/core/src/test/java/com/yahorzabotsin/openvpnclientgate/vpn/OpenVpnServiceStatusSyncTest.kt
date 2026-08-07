@@ -703,6 +703,157 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_staleNotConnectedSnapshotDoesNotCancelActiveSwitchTimer() {
+        // Regression for round-11 bot review (Codex P2, comment 3734228641): LEVEL_NOTCONNECTED
+        // was the third level (after LEVEL_AUTH_FAILED in round 8/9/10's original fix and
+        // LEVEL_NONETWORK) missing from staleSnapshotTimeoutLevels. An OLD/STALE cached
+        // NOTCONNECTED snapshot -- one predating the CURRENT connection attempt -- skipped the
+        // predates/age check entirely and flowed straight through to
+        // syncEngineState(..., allowAutoSwitch = !isAidlFresh()). Since a stalled live push
+        // channel is exactly what makes isAidlFresh() false, the stale reading got trusted enough
+        // to reach ServerAutoSwitcher.onEngineLevel, which (when not waitingStopForRetry) treats
+        // any level outside its timeoutLevels set -- NOTCONNECTED included -- as "engine is now
+        // idle" and cancels the active switch timer via cancel(resetCycle=...), silently
+        // abandoning a currently-fresh, unrelated CONNECTING attempt. Fixed by adding
+        // LEVEL_NOTCONNECTED to staleSnapshotTimeoutLevels so it goes through the same
+        // predates-current-attempt check already used for LEVEL_AUTH_FAILED/LEVEL_NONETWORK.
+        // Against the pre-fix code this test fails: the stale NOTCONNECTED snapshot reaches
+        // syncEngineState and cancels the active timer below.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs/liveStatusGraceMs -- exactly
+        // the condition (isAidlFresh()=false) that makes the stale cached level get trusted.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The current connection attempt started 2s ago -- AFTER the stale snapshot below was
+        // captured (now - 15_000L), so the snapshot predates this attempt.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 2_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        // Prime the auto-switch timeout timer via a FRESH CONNECTING snapshot first, simulating
+        // a currently-fresh, in-progress, unrelated connection attempt.
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the stale NOTCONNECTED " +
+                "snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // OLD/STALE cached NOTCONNECTED snapshot: its timestamp (now - 15_000L) predates
+            // currentAttemptStartMs (now - 2_000L), representing a leftover reading from a past,
+            // already-replaced connection attempt, arriving while push is stalled.
+            val staleNotConnectedSnapshot = StatusSnapshot(
+                "NOPROCESS",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NOTCONNECTED,
+                now - 15_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, staleNotConnectedSnapshot)
+            )
+
+            assertNotNull(
+                "A STALE cached LEVEL_NOTCONNECTED snapshot predating the current attempt must " +
+                    "be rejected and must NOT cancel the currently-fresh CONNECTING attempt's " +
+                    "active switch timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_notConnectedSnapshotFromCurrentAttemptStillCancelsSwitchTimer() {
+        // Companion to the stale-rejection test above: a NOTCONNECTED snapshot that genuinely
+        // belongs to the CURRENT connection attempt (old in absolute terms, but at/after
+        // currentAttemptStartMs) must still be trusted and forwarded to ServerAutoSwitcher, which
+        // correctly treats it as the engine going idle and cancels the active switch timer. The
+        // round-11 fix (adding LEVEL_NOTCONNECTED to staleSnapshotTimeoutLevels) must only reject
+        // snapshots that PREDATE the current attempt, not legitimate current-attempt readings --
+        // otherwise a real idle transition would be starved just like round 9's original bug.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The current connection attempt began 12s ago -- BEFORE the snapshot's own timestamp
+        // below, so the snapshot IS reporting on this still-ongoing attempt, not a past one.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 12_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the current-attempt " +
+                "NOTCONNECTED snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // The snapshot itself is 11s old (> staleSnapshotMaxAgeMs=10_000L) -- old enough that
+            // an age-only check would reject it -- but its timestamp (now - 11_000L) is AFTER
+            // currentAttemptStartMs (now - 12_000L), so it belongs to the current attempt and
+            // must be trusted despite its age.
+            val currentAttemptNotConnectedSnapshot = StatusSnapshot(
+                "NOPROCESS",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NOTCONNECTED,
+                now - 11_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, currentAttemptNotConnectedSnapshot)
+            )
+
+            assertNull(
+                "A LEVEL_NOTCONNECTED snapshot genuinely reporting on the CURRENT, still-ongoing " +
+                    "connection attempt must still reach ServerAutoSwitcher and cancel the " +
+                    "active switch timer, even though it is old in absolute terms",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
