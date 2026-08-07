@@ -227,43 +227,36 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
     private val aidlFreshWindowMs = 3_000L
-    // LEVEL_NONETWORK is included alongside LEVEL_AUTH_FAILED because both drive
-    // ServerAutoSwitcher's shouldSwitchImmediately fast path (see
-    // ServerAutoSwitcher.onEngineLevel: level == LEVEL_AUTH_FAILED || (source == "AIDL" &&
-    // level == LEVEL_NONETWORK)) once allowAutoSwitch is true. Without this entry, a STALE
-    // cached LEVEL_NONETWORK snapshot (e.g. an old device-offline reading the status service
-    // never refreshed) skips the age-check entirely and flows straight through to
-    // syncEngineState(..., allowAutoSwitch = !isAidlFresh()) -- and since a stalled live push
-    // is exactly what makes isAidlFresh() false, the stale reading gets trusted enough to
-    // immediately stop/switch a currently-fresh, unrelated CONNECTING attempt. See PR #126
-    // review thread (round 8, Codex P2).
-    // LEVEL_NOTCONNECTED is included for the same reason plus one more:
-    // ServerAutoSwitcher.onEngineLevel treats a NOTCONNECTED callback received while
-    // waitingStopForRetry=true as the stop-confirmation it needs before starting the next
-    // chained-switch server (see ServerAutoSwitcher.kt onEngineLevel's waitingStopForRetry
-    // branch). A stale cached NOTCONNECTED snapshot forwarded here with allowAutoSwitch=true
-    // can be misread as that confirmation and prematurely start the replacement connection
-    // before the real stop is confirmed; otherwise (not waiting on a stop) it can incorrectly
-    // cancel a healthy in-progress attempt's switch timer. See PR #126 review thread (round
-    // 11, Codex P2, comment 3734228641).
-    // LEVEL_CONNECTED is included for the same reason as LEVEL_NOTCONNECTED above:
-    // ServerAutoSwitcher.onEngineLevel's else branch (any level outside its timeoutLevels set)
-    // calls cancel(resetCycle=...) on the active switch timer. A STALE cached LEVEL_CONNECTED
-    // snapshot from a PREVIOUS, already-replaced attempt -- forwarded here with
-    // allowAutoSwitch=true because the live push channel is stalled (isAidlFresh()=false) --
-    // is indistinguishable from a genuine "current attempt just connected" signal once it
-    // reaches ServerAutoSwitcher, and incorrectly cancels the timer for the CURRENT attempt,
-    // which may actually still be stuck. See PR #126 review thread (round 12, Codex P2,
-    // comment 3734663954).
-    private val staleSnapshotTimeoutLevels = setOf(
-        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
-        ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-        ConnectionStatus.LEVEL_AUTH_FAILED,
-        ConnectionStatus.LEVEL_NONETWORK,
-        ConnectionStatus.LEVEL_NOTCONNECTED,
-        ConnectionStatus.LEVEL_CONNECTED,
-        ConnectionStatus.UNKNOWN_LEVEL
-    )
+    // History (rounds 8-13): this gate started as a per-level allowlist
+    // (staleSnapshotTimeoutLevels) that grew by one entry almost every round --
+    // LEVEL_CONNECTING_NO_SERVER_REPLY_YET/LEVEL_CONNECTING_SERVER_REPLIED/LEVEL_AUTH_FAILED
+    // from the original fix, LEVEL_NONETWORK (round 8, Codex P2: it drives
+    // ServerAutoSwitcher's shouldSwitchImmediately fast path -- level == LEVEL_AUTH_FAILED ||
+    // (source == "AIDL" && level == LEVEL_NONETWORK) -- and without the gate a stale cached
+    // NONETWORK reading could immediately stop/switch a currently-fresh CONNECTING attempt),
+    // LEVEL_NOTCONNECTED (round 11, Codex P2, comment 3734228641: ServerAutoSwitcher treats it
+    // either as a waitingStopForRetry stop-confirmation or, in its else branch, as a reason to
+    // cancel(...) the active switch timer -- a stale reading could misfire either path), and
+    // LEVEL_CONNECTED (round 12, Codex P2, comment 3734663954: the same else-branch cancel(...)
+    // path, this time indistinguishable from a genuine "current attempt just connected"
+    // signal). By round 14 the allowlist held 7 of the 10 possible ConnectionStatus values,
+    // and Codex (comment 3735319526) pointed out that the remaining 3 -- LEVEL_START,
+    // LEVEL_WAITING_FOR_USER_INPUT, LEVEL_VPNPAUSED -- hit the EXACT SAME
+    // ServerAutoSwitcher.onEngineLevel else-branch cancel(...) path as LEVEL_NOTCONNECTED /
+    // LEVEL_CONNECTED above: none of the three is in ServerAutoSwitcher's own `timeoutLevels`
+    // set, none is UNKNOWN_LEVEL, none is the AUTH_FAILED/AIDL+NONETWORK immediate-switch case,
+    // so a stale/predating snapshot carrying any of them would incorrectly cancel a healthy
+    // active switch timer exactly like the round-11/12 bugs.
+    //
+    // Rather than add a 4th (and inevitably 5th, 6th...) entry, round 14 removed the allowlist
+    // entirely: since adding those 3 named levels would have made the set equal to the FULL
+    // ConnectionStatus domain (10 of 10 values -- see ConnectionStatus.java), enumerating "every
+    // level" and simply applying the check unconditionally are behaviorally identical for this
+    // closed enum, and only the latter closes the "one more level missing" bug class for good.
+    // No ConnectionStatus value has a reason to skip this check: the predates-current-attempt /
+    // age logic below already handles "is this genuinely the current attempt's data" correctly
+    // regardless of which level the snapshot carries, so every level -- current members and any
+    // added to the enum in the future -- goes through the same gate now.
     private val staleSnapshotMaxAgeMs = 10_000L
     private val liveStatusGraceMs = 5_000L
     private val statusHandler = Handler(Looper.getMainLooper())
@@ -1862,7 +1855,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val level = snapshot.level ?: return
         val now = watchdogNowMs()
         val ts = snapshot.timestampMs
-        if (ts > 0L && level in staleSnapshotTimeoutLevels) {
+        // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration
+        // comment above for why round 14 removed the per-level allowlist that used to gate this
+        // block.
+        if (ts > 0L) {
             val ageMs = now - ts
             // A snapshot's absolute age alone cannot tell apart two very different situations:
             // (a) it is a leftover reading from a PAST, different connection attempt (round 8's
@@ -1967,6 +1963,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
+        // Normalize ONCE, up front, and forward the SAME result to every consumer that derives
+        // an "effective" engine level from (level, detail). ConnectionStateManager.updateFromEngine
+        // normalizes internally (state=="CONNECTED" wins over a still-transitional raw level), but
+        // until round 14 that normalization only happened AFTER dispatchAutoSwitcherOnEngineLevel()
+        // below had already been called with the raw, un-normalized level -- so ServerAutoSwitcher
+        // and ConnectionStateManager could observe two DIFFERENT effective levels for the exact
+        // same snapshot. A raw connecting-family level could start a needless switch timer on an
+        // already-healthy connection, and a raw LEVEL_NONETWORK could trigger an immediate switch
+        // away from a connection the app itself is about to (or already does) recognize as
+        // connected. See PR #126 review thread (round 14, Codex P1, comment 3735319517).
+        val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, detail)
         // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
         // We must NOT exit the FGS notification in two situations:
         // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
@@ -2011,9 +2018,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
-            dispatchAutoSwitcherOnEngineLevel(level)
+            dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
         }
-        ConnectionStateManager.updateFromEngine(level, detail)
+        ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
         handleEngineLevelForStop(level, "AIDL")
     }
 
