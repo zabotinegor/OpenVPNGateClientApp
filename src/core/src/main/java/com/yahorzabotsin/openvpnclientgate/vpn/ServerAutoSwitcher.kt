@@ -66,7 +66,12 @@ object ServerAutoSwitcher {
         }
     }
 
-    fun onEngineLevel(appContext: Context, level: ConnectionStatus, source: String) {
+    fun onEngineLevel(
+        appContext: Context,
+        level: ConnectionStatus,
+        source: String,
+        wasConnectingAtDispatch: Boolean? = null
+    ) {
         logEngineLevel(level, source)
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
@@ -93,8 +98,32 @@ object ServerAutoSwitcher {
         val shouldSwitchImmediately =
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
-        if (shouldSwitchImmediately && !waitingStopForRetry) {
-            val isConnecting = try {
+        if (shouldSwitchImmediately) {
+            // A switch for this exact immediate-failure condition is already in progress
+            // (waitingStopForRetry == true). The poll loop (trafficPollRunnable /
+            // applyStatusSnapshot) can re-deliver the SAME cached terminal snapshot on every
+            // ~2s poll cycle without it ever going stale, since applyStatusSnapshot() restores
+            // lastStatusSnapshotMs to the snapshot's own timestamp rather than "now" -- so this
+            // is reached again and again for one underlying failure. It must be a no-op: falling
+            // through to the timeoutLevels/else block below would hit the `else -> cancel(...)`
+            // branch for LEVEL_NONETWORK (not in timeoutLevels), cancelling the switch that was
+            // already correctly kicked off by the FIRST dispatch and silently dropping the
+            // pending server change. See PR #126 round 13 (Codex P1, comment 3734974189).
+            if (waitingStopForRetry) {
+                AppLog.d(TAG, "Duplicate $level dispatch while switch already in progress; ignoring")
+                return
+            }
+            // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
+            // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
+            // posting from a binder thread to the main looper), and by the time this deferred
+            // block runs, ConnectionStateManager.state may already have been mutated away from
+            // CONNECTING by ConnectionStateManager.updateFromEngine(), which the caller invokes
+            // synchronously right after dispatching this callback. Re-reading state at that later
+            // point would silently defeat the immediate-switch fast path on a fresh connection
+            // attempt (no timer running yet). Callers that already run synchronously and in-order
+            // (e.g. the VPN_STATUS/updateState main-thread path, or tests) omit the parameter and
+            // fall back to reading current state, which is safe for them.
+            val isConnecting = wasConnectingAtDispatch ?: try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
             } catch (_: Exception) {
                 false
@@ -221,6 +250,19 @@ object ServerAutoSwitcher {
         if (resetCycle) {
             cycleStartIndex = null
         }
+    }
+
+    /**
+     * Cancels any in-progress switch timer or stop-retry wait immediately, with no side
+     * effects beyond stopping this object's own internal machinery (no reconnect attempt
+     * is triggered). Call this from a genuine user/system-initiated stop teardown so an
+     * already-running timer from a prior engine state cannot fire after the stop and
+     * silently reconnect. Must be called from the main thread -- see onEngineLevel's
+     * declaration comment on why this object's internal timer state assumes a single
+     * (main-looper) caller. See PR #126 round 18 (Codex P1, comment 3736956722).
+     */
+    fun cancelForUserStop() {
+        cancel(resetCycle = true)
     }
 
     private fun requestSwitchNow(

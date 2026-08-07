@@ -149,13 +149,32 @@ object ConnectionStateManager {
         }
     }
 
-    @MainThread
-    internal fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
-        val normalizedLevel = if (detail == "CONNECTED" && level != ConnectionStatus.LEVEL_CONNECTED) {
+    /**
+     * Normalizes a raw engine [level] against its accompanying [detail] string: when [detail]
+     * is "CONNECTED", the connection IS effectively connected regardless of what transitional
+     * value [level] still carries (the two fields can update on slightly different cadences).
+     *
+     * This is a public/shared entry point precisely so callers that fan the SAME raw snapshot
+     * out to multiple consumers (e.g. OpenVpnService.syncEngineState, which drives both
+     * ServerAutoSwitcher and [updateFromEngine]) can normalize once, up front, and pass the
+     * identical resulting level to every consumer. Before this was extracted, only
+     * [updateFromEngine] normalized internally, so ServerAutoSwitcher could receive a raw
+     * connecting-family or LEVEL_NONETWORK level for a snapshot [updateFromEngine] would treat
+     * as LEVEL_CONNECTED -- starting a needless switch timer, or worse, triggering an immediate
+     * switch away from a connection the app itself already recognizes as healthy. See PR #126
+     * review thread (round 14, Codex P1, comment 3735319517).
+     */
+    internal fun normalizeEngineLevel(level: ConnectionStatus, detail: String?): ConnectionStatus {
+        return if (detail == "CONNECTED" && level != ConnectionStatus.LEVEL_CONNECTED) {
             ConnectionStatus.LEVEL_CONNECTED
         } else {
             level
         }
+    }
+
+    @MainThread
+    internal fun updateFromEngine(level: ConnectionStatus, detail: String? = null) {
+        val normalizedLevel = normalizeEngineLevel(level, detail)
         _engineLevel.value = normalizedLevel
         _engineDetail.value = detail
 

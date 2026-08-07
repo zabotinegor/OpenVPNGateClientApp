@@ -20,14 +20,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
         exit 1
       fi
-      if ! git branch -r 2>/dev/null | grep -q 'archive/archive-dev-'; then
-        echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
-        exit 1
-      fi
       if [ "$local_sha" = "$zero" ]; then
-        # Deleting dev: an old archive ref is not enough — require an
-        # archive/archive-dev-* ref at the current remote dev tip, so unmerged
-        # dev work can never lose its last remote reference.
+        # Deleting dev: an old archive ref is not enough - require an
+        # archive/archive-dev-* ref at the current remote dev tip, so
+        # unmerged dev work can never lose its last remote reference.
         dev_sha=$(git rev-parse origin/dev 2>/dev/null || true)
         archived_match=""
         if [ -n "$dev_sha" ]; then

@@ -164,6 +164,42 @@ class ServerAutoSwitcherTest {
         assertEquals(true, calls.first().reconnect)
     }
 
+    // PR #126 round 13 (Codex P1, comment 3734974189): the poll loop can re-deliver the SAME
+    // cached terminal snapshot (e.g. LEVEL_NONETWORK) on every ~2s poll cycle without it ever
+    // going stale, because applyStatusSnapshot() restores lastStatusSnapshotMs to the snapshot's
+    // OWN timestamp, not "now". Before the fix, a duplicate dispatch of an already-in-progress
+    // immediate-switch level fell through to the generic timeoutLevels/else block and hit
+    // `else -> cancel(...)`, silently cancelling the switch the FIRST dispatch had already
+    // correctly begun. Verify the duplicate is a no-op and the original switch still completes.
+    @Test
+    fun duplicateImmediateSwitchDispatchDoesNotCancelInProgressSwitch() {
+        // Get an active timer running so the first LEVEL_NONETWORK dispatch takes the
+        // immediate-switch fast path (timerActive || isConnecting).
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+
+        // First dispatch: triggers requestSwitchNow() -> waitingStopForRetry=true, pending
+        // config armed, engine stop requested. No start yet until NOTCONNECTED is observed.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NONETWORK, "AIDL")
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+        assertEquals(0, calls.size)
+
+        // Duplicate dispatch of the IDENTICAL level while the switch is still in progress
+        // (waitingStopForRetry still true). Must be a no-op: the pending switch must survive.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NONETWORK, "AIDL")
+
+        // The switch armed by the FIRST dispatch must still complete normally.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "duplicate dispatch must not cancel the switch already in progress",
+            1,
+            calls.size
+        )
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
+    }
+
     @Test
     fun noAlternativeServersDoesNotSwitch() {
         val single = listOf(

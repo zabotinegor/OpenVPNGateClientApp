@@ -540,3 +540,87 @@ no crash and correct fallback for users upgrading from a build where a removed s
 
 - `src/core/.../settings/UserSettingsStore.kt` (`load()` migration logic)
 - the ClickUp QA suite (manual QA case files)
+
+---
+
+## Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat
+
+**When to use**
+
+You have a **release-build** logcat capture (field report, crash report, or a release APK you
+can't easily rebuild as debug) and need to answer "did code path X ever execute during this
+window" — where X's own logging uses `AppLog.dThrottled(...)` / a plain `AppLog.d(...)` at
+`DEBUG` priority. A naive `grep <tag>` is inconclusive here: `AppReleaseTree.log()`
+(`src/core/.../logging/AppLogTrees.kt`) drops `DEBUG`/`VERBOSE` entirely from release logcat —
+
+```kotlin
+if (priority == Log.DEBUG || priority == Log.VERBOSE) return
+```
+
+— so "the tag never appears" is consistent with both "the code path never ran" and "it ran
+repeatedly but every line was filtered." Grepping alone cannot distinguish these.
+
+**The technique**
+
+`AppLog.logThrottled()` (`src/core/.../logging/AppLog.kt`) always emits its periodic
+suppressed-count summary at **`Log.INFO`** priority, independent of the throttled call's own
+priority:
+
+```kotlin
+log(priority = Log.INFO, tag = tag, message = "Suppressed $suppressed repeated logs for key=$key", ...)
+```
+
+`Log.INFO` passes the `AppReleaseTree` filter unconditionally. So if a `DEBUG`-level throttled
+call site fired at least once and then fired again after its 30 s throttle window (the default
+`windowMs`) closed, a `Suppressed N repeated logs for key=<key>` line at `INFO` appears in the
+release logcat for that tag — even though every individual `DEBUG` line is invisible. Its
+**absence** across the window under investigation is **inconclusive**, not proof the call site
+never fired: `logThrottled()` only emits the summary after at least one suppressed call is
+followed by a later call that flushes it, so a timer that reaches its threshold and fires
+immediately (the normal successful case) can legitimately produce no suppressed call and no
+flush at all, even though the code ran correctly.
+
+**Steps**
+
+1. Identify the tag and throttle key of the call site in question (e.g.
+   `ServerAutoSwitcher`'s `AppLog.dThrottled(TAG, "Switch wait: ...", key = "switch-wait-$level")`).
+2. In the release logcat capture, search for the tag combined with `"Suppressed"`:
+   ```bash
+   grep "<Tag>" logcat.txt | grep -i "suppressed"
+   ```
+3. Presence of a matching line proves the call site fired at least twice with more than 30 s
+   between window closes. Absence is **inconclusive**, not proof of non-execution: if the timer
+   reaches its threshold and fires on its very first attempt (the normal successful case), there
+   may be no suppressed call and no later flush to emit the summary at all, even though the code
+   ran correctly. Absence only becomes meaningful evidence when combined with other signals (step
+   4) that confirm the surrounding window was long enough and active enough that a real
+   invocation would have produced some observable trace.
+4. Cross-check with a nearby `INFO`/`WARN`/`ERROR` log from a *different* component that you know
+   should correlate (e.g. a poll-path log that keeps firing regardless) to confirm you're reading
+   the right window and the release tree isn't dropping everything for an unrelated reason (Timber
+   not planted, wrong build variant, etc.).
+
+**Limitation**
+
+This only helps for call sites using `AppLog.dThrottled`/`AppLog.iThrottled`. A plain
+`AppLog.d(...)` with no throttling has no periodic `INFO` summary to fall back on — for those,
+either reproduce on a debug build, or add a throttled variant if the call site is a plausible
+future diagnostic target.
+
+**First demonstrated**
+
+Bug 86cb21563 (`bug-autoswitch-stale-push-stall`) — the total absence of
+`ServerAutoSwitcher`'s `"Suppressed N repeated logs for key=switch-wait-*"` summary line across a
+multi-minute field incident window was, on its own, inconclusive (see "The technique" above, and
+step 3). Combined with the step-4 cross-check confirming the surrounding window was long and
+active enough that a real invocation would have left some trace, it supported the conclusion that
+`onEngineLevel` never ran — the key insight that identified the hardcoded `allowAutoSwitch=false`
+in `OpenVpnService.applyStatusSnapshot()` as the root cause.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLog.kt` (`logThrottled`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLogTrees.kt` (`AppReleaseTree.log`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
+- `docs/features/logging.md` ("Anti-spam" section)
+- `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")

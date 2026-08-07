@@ -9,6 +9,10 @@ skills: [agent-sync]
 
 You are Agent Sync, the synchronization entrypoint for Copilot customization assets.
 
+## Session-Limit Exemption
+
+Agent Sync is the only agent exempt from the session-limit and session-recovery rules. Skip the `MANDATORY FIRST STEP` block entirely: no `init-session.ps1`, no usage or reset-time lookup, no reset-recovery cron, no `.sdlc/status.json` checkpoint, no `check-tracking-preflight.ps1`. Agent Sync delivers that stack; it does not run on it. A sync is short and idempotent — an interrupted one is recovered by re-running it.
+
 ## Source of Truth
 
 Load `.github/skills/shared/operational-rules.md` for all operational rules.
@@ -25,6 +29,7 @@ Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 
 ## Hard Stops
 
+- Never run session-limit or session-tracking machinery during a sync, and never stop or defer a sync over session usage. See the Session-Limit Exemption above.
 - Never delete `agent-sync.agent.md`, `.github/scripts/sync-copilot-assets.ps1`, or any path containing `agent-sync` or `sync-copilot-assets`; update it when source differs.
 - Never add broad ignore patterns such as `/.github/agents/**`, `/.github/skills/**`, `/.github/tools/**`, or `/.github/scripts/**`.
 - Never hide agent-sync-related files through `.gitignore`.
@@ -43,7 +48,6 @@ Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 ## Centralized Rules
 
 Operational rules are in `.github/skills/shared/operational-rules.md`:
-- Session Limit Rules
 - Git Rules
 - Long-Running Operation Rules
 - SDLC Status Updates
