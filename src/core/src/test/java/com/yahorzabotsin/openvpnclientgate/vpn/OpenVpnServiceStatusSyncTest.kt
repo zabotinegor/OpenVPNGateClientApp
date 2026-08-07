@@ -887,6 +887,84 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun userStopCancelsQueuedAutoSwitchDispatchFromBinderThread() {
+        // Regression for round-5 bot review (Codex, P2): dispatchAutoSwitcherOnEngineLevel()
+        // posts an anonymous Runnable to the main-looper statusHandler when updateStateString()
+        // runs on a non-main thread (the real AIDL binder-pool thread). If the user stops the VPN
+        // (ACTION_STOP) -- or OpenVpnService.onDestroy() runs -- before the main looper actually
+        // executes that queued runnable, it stayed queued forever: teardown only ever called
+        // statusHandler.removeCallbacks() on named Runnable fields (stopBindTimeoutRunnable,
+        // pauseActionTimeoutRunnable, etc.), never this anonymous one. A stale connecting/failure
+        // level could then fire an auto-switch dispatch AFTER the user already stopped the VPN,
+        // potentially starting a new connection to another server. Fixed by storing the posted
+        // runnable in pendingAutoSwitchRunnable and cancelling it from
+        // startUserStopTeardown()/onDestroy(), plus a defensive userInitiatedStop re-check inside
+        // the runnable itself as a second layer. This test posts the runnable from a real
+        // background thread (as the AIDL binder callback would), then issues ACTION_STOP before
+        // idling the main looper, and asserts the queued dispatch never starts the auto-switch
+        // timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+
+        val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun protect(fd: Int) = false
+            override fun userPause(b: Boolean) {}
+            override fun stopVPN(replaceConnection: Boolean) = true
+            override fun addAllowedExternalApp(packagename: String?) {}
+            override fun isAllowedExternalApp(packagename: String?) = false
+            override fun challengeResponse(repsonse: String?) {}
+        }
+        ReflectionHelpers.setField(service, "engineBinder", binder)
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            val thread = Thread {
+                callbacks.updateStateString(
+                    "TCP_CONNECT",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    null
+                )
+            }
+            thread.start()
+            thread.join(5_000)
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            assertNotNull(
+                "the deferred auto-switch dispatch must be tracked in a field so teardown can " +
+                    "cancel it before the main looper runs it",
+                ReflectionHelpers.getField<Any?>(service, "pendingAutoSwitchRunnable")
+            )
+
+            // Simulate the user stopping the VPN before the main looper drains the queued
+            // dispatch -- exactly the race window the review comment describes.
+            val stopIntent = Intent(appContext, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP)
+            }
+            service.onStartCommand(stopIntent, 0, 1)
+
+            assertNull(
+                "startUserStopTeardown() must remove and clear the pending auto-switch runnable",
+                ReflectionHelpers.getField<Any?>(service, "pendingAutoSwitchRunnable")
+            )
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNull(
+                "a stale auto-switch dispatch queued before the user stopped the VPN must not " +
+                    "start the auto-switch timer once teardown has run",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun updateStateString_writesLiveStatusTimestampsThroughInjectedClock() {
         // Round-2 bot review (Copilot): isAidlFresh()/applyStatusSnapshot() read time via the
         // injectable watchdogNowMs(), but lastLiveStatusMs/lastStatusSnapshotMs were still

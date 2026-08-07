@@ -344,6 +344,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         resumeActionInFlight = false
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+        pendingAutoSwitchRunnable?.let { statusHandler.removeCallbacks(it) }
+        pendingAutoSwitchRunnable = null
         requestStopIcsOpenVpn()
     }
 
@@ -1031,6 +1033,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopRetryRunnable)
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+        pendingAutoSwitchRunnable?.let { statusHandler.removeCallbacks(it) }
+        pendingAutoSwitchRunnable = null
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -1865,6 +1869,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         handleEngineLevelForStop(level, "AIDL")
     }
 
+    // Holds the most recently posted deferred dispatch from dispatchAutoSwitcherOnEngineLevel()
+    // below, so teardown paths (startUserStopTeardown(), onDestroy()) can cancel it with
+    // statusHandler.removeCallbacks() before it runs -- otherwise a stale connecting/failure-level
+    // callback queued from the AIDL binder thread stays in the main-looper queue after the user
+    // stops the VPN, and can start a new connection to another server after the user already
+    // disconnected. See PR #126 review thread (P2 follow-up to the CONNECTING-preservation fix
+    // below).
+    private var pendingAutoSwitchRunnable: Runnable? = null
+
     // syncEngineState() is reachable both from the AIDL binder-thread callback
     // (updateStateString) and from the main thread (applyStatusSnapshot, via
     // trySyncStatusSnapshot's onServiceConnected/trafficPollRunnable poll path). Before the
@@ -1896,6 +1909,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             false
         }
         val invoke = Runnable {
+            pendingAutoSwitchRunnable = null
+            // Defensive re-check: even if teardown's removeCallbacks() raced with this runnable
+            // already being pulled off the main-looper queue, don't act on it once the user has
+            // stopped the VPN in the meantime.
+            if (userInitiatedStop) return@Runnable
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
@@ -1905,6 +1923,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (Looper.myLooper() == Looper.getMainLooper()) {
             invoke.run()
         } else {
+            pendingAutoSwitchRunnable = invoke
             statusHandler.post(invoke)
         }
     }
