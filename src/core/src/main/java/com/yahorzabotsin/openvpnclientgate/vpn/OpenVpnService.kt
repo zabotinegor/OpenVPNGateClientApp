@@ -190,10 +190,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
     private val aidlFreshWindowMs = 3_000L
+    // LEVEL_NONETWORK is included alongside LEVEL_AUTH_FAILED because both drive
+    // ServerAutoSwitcher's shouldSwitchImmediately fast path (see
+    // ServerAutoSwitcher.onEngineLevel: level == LEVEL_AUTH_FAILED || (source == "AIDL" &&
+    // level == LEVEL_NONETWORK)) once allowAutoSwitch is true. Without this entry, a STALE
+    // cached LEVEL_NONETWORK snapshot (e.g. an old device-offline reading the status service
+    // never refreshed) skips the age-check entirely and flows straight through to
+    // syncEngineState(..., allowAutoSwitch = !isAidlFresh()) -- and since a stalled live push
+    // is exactly what makes isAidlFresh() false, the stale reading gets trusted enough to
+    // immediately stop/switch a currently-fresh, unrelated CONNECTING attempt. See PR #126
+    // review thread (round 8, Codex P2).
     private val staleSnapshotTimeoutLevels = setOf(
         ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
         ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
         ConnectionStatus.LEVEL_AUTH_FAILED,
+        ConnectionStatus.LEVEL_NONETWORK,
         ConnectionStatus.UNKNOWN_LEVEL
     )
     private val staleSnapshotMaxAgeMs = 10_000L

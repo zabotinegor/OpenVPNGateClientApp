@@ -355,6 +355,140 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_staleNoNetworkSnapshotDoesNotTriggerImmediateSwitch() {
+        // Regression for round-8 bot review (Codex P2): LEVEL_NONETWORK was missing from
+        // staleSnapshotTimeoutLevels, so an OLD/STALE cached snapshot carrying LEVEL_NONETWORK
+        // (e.g. a past device-offline reading the status service never refreshed) skipped the
+        // existing age-check entirely and flowed straight through to
+        // syncEngineState(..., allowAutoSwitch = !isAidlFresh()). Since a stalled live push
+        // channel is exactly what makes isAidlFresh() false, the stale reading got trusted
+        // enough to fire ServerAutoSwitcher's shouldSwitchImmediately fast path (level ==
+        // LEVEL_AUTH_FAILED || (source == "AIDL" && level == LEVEL_NONETWORK)) and cancel/switch
+        // a currently-fresh, unrelated CONNECTING attempt. Fixed by adding LEVEL_NONETWORK to
+        // staleSnapshotTimeoutLevels so it goes through the same staleSnapshotMaxAgeMs age-check
+        // that LEVEL_AUTH_FAILED already used. Against the pre-fix code this test fails: the
+        // stale NONETWORK snapshot reaches syncEngineState and cancels the active timer below.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs (3_000L) -- this is exactly
+        // the condition (isAidlFresh()=false) that makes the stale cached level get trusted.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 10_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        // Prime the auto-switch timeout timer via a FRESH CONNECTING snapshot first, simulating
+        // a currently-fresh, in-progress, unrelated connection attempt (same setup as the
+        // AUTH_FAILED test above).
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the stale NONETWORK snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // OLD/STALE cached NONETWORK snapshot: its own payload timestamp is far older than
+            // staleSnapshotMaxAgeMs (10_000L), representing a past device-offline reading the
+            // status service never refreshed, arriving while push is stalled.
+            val staleNoNetworkSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                now - 15_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, staleNoNetworkSnapshot)
+            )
+
+            assertNotNull(
+                "A STALE cached LEVEL_NONETWORK snapshot must be rejected by the age-check and " +
+                    "must NOT cancel/trigger an immediate switch on the currently-fresh " +
+                    "CONNECTING attempt's active timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_freshNoNetworkSnapshotStillTriggersImmediateSwitch() {
+        // Companion to the stale-rejection test above: a GENUINELY FRESH LEVEL_NONETWORK
+        // snapshot (recent timestamp, real current network loss) must still correctly drive an
+        // immediate switch through the stale-push poll path -- the staleSnapshotTimeoutLevels
+        // age-check added above must only reject OLD stale data, not legitimate current
+        // NONETWORK readings.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 10_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the fresh NONETWORK snapshot",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            val freshNoNetworkSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                now,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, freshNoNetworkSnapshot)
+            )
+
+            assertNull(
+                "A genuinely FRESH LEVEL_NONETWORK snapshot must still trigger " +
+                    "ServerAutoSwitcher's immediate switch, canceling the active timeout timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
