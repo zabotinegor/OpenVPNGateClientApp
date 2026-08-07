@@ -489,6 +489,136 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_oldSnapshotFromCurrentAttemptStillDrivesAutoSwitch() {
+        // Regression for round-9 bot review (Codex P2, comment 3733934640): the round-8 fix
+        // (LEVEL_NONETWORK added to staleSnapshotTimeoutLevels) age-checks every old snapshot in
+        // staleSnapshotTimeoutLevels uniformly, but a snapshot can be old in absolute terms while
+        // still being the ONLY status data available for the CURRENT, still-ongoing connection
+        // attempt -- e.g. the status service rebinds while push callbacks are stalled and the
+        // engine has genuinely been stuck connecting the whole time. Rejecting that snapshot
+        // starves ServerAutoSwitcher of its only signal and resurrects the original indefinite
+        // "stuck on Connecting..." bug through this rebind/poll path. Fixed by comparing the
+        // snapshot's own timestamp against currentAttemptStartMs (recorded on every
+        // ACTION_START): a snapshot at/after the current attempt's start is trusted regardless
+        // of its absolute age; only a snapshot that PREDATES the current attempt (round 8's
+        // scenario) is still rejected.
+        //
+        // Against pre-fix code (round 8, commit c4e1d46) this test fails: the old CONNECTING
+        // snapshot never reaches syncEngineState because ageMs > staleSnapshotMaxAgeMs
+        // unconditionally rejected it, so ServerAutoSwitcher's timer never starts.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond aidlFreshWindowMs/liveStatusGraceMs -- exactly
+        // the "push callbacks are stalled" condition from the bot comment.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The current connection attempt began 12s ago -- BEFORE the snapshot's own timestamp
+        // below, so the snapshot IS reporting on this still-ongoing attempt, not a past one.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 12_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        // The snapshot itself is 11s old (> staleSnapshotMaxAgeMs=10_000L) -- old enough that
+        // round 8's age-check alone would reject it -- but its timestamp (now - 11_000L) is
+        // AFTER currentAttemptStartMs (now - 12_000L), so it belongs to the current attempt and
+        // must be trusted despite its age.
+        val staleButCurrentSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now - 11_000L,
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, staleButCurrentSnapshot)
+            )
+
+            assertNotNull(
+                "An old snapshot that is reporting on the CURRENT, still-ongoing connection " +
+                    "attempt (no newer attempt has started since its timestamp) must still " +
+                    "drive ServerAutoSwitcher's timeout timer, even though it is old in " +
+                    "absolute terms",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun applyStatusSnapshot_snapshotPredatingNewerAttemptStillRejectedAsStale() {
+        // Companion to the test above: locks in round 8's original fix under the new
+        // attempt-aware comparison, exercised explicitly through currentAttemptStartMs rather
+        // than relying on its 0L (unknown) fallback. A cached snapshot whose timestamp predates
+        // the CURRENT attempt's start -- i.e. a NEWER connection attempt has begun since this
+        // snapshot was captured, the exact round-8 scenario (a leftover NONETWORK reading from a
+        // past attempt) -- must still be rejected by the age-check and must not cancel/trigger
+        // an immediate switch on the new, unrelated attempt's active timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 10_000L)
+        // A NEW connection attempt started 2s ago -- AFTER the stale snapshot below was
+        // captured (now - 15_000L).
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 2_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the stale NONETWORK " +
+                "snapshot from a past attempt",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            val staleNoNetworkSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                now - 15_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, staleNoNetworkSnapshot)
+            )
+
+            assertNotNull(
+                "A snapshot predating the current (newer) attempt must still be rejected as " +
+                    "stale and must NOT cancel/trigger an immediate switch on the current " +
+                    "attempt's active timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
@@ -906,12 +1036,18 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            // Copilot review (round 9): a plain non-daemon thread that times out on join() below
+            // both fails the assertion AND strands a live thread that can hang the test JVM even
+            // after the failure is reported. isDaemon=true lets the JVM exit regardless, and
+            // interrupt() on a timeout gives the stuck thread a chance to unwind.
+            thread.isDaemon = true
             thread.start()
             thread.join(5_000)
             // Copilot review (round 3): a bare join(5_000) can silently time out without failing
             // the test if the background thread hasn't finished, letting the assertions below run
             // against a possibly-still-executing thread (nondeterministic false positives). Fail
             // fast instead if the thread is still alive.
+            if (thread.isAlive) thread.interrupt()
             assertFalse("background thread did not finish within timeout", thread.isAlive)
 
             assertNull(
@@ -994,8 +1130,12 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            // Copilot review (round 9): daemonize so a join() timeout below can't strand a live
+            // thread and hang the test JVM; interrupt on timeout as a best-effort unwind signal.
+            thread.isDaemon = true
             thread.start()
             thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
             assertFalse("background thread did not finish within timeout", thread.isAlive)
 
             ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
@@ -1065,8 +1205,12 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            // Copilot review (round 9): daemonize so a join() timeout below can't strand a live
+            // thread and hang the test JVM; interrupt on timeout as a best-effort unwind signal.
+            thread.isDaemon = true
             thread.start()
             thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
             assertFalse("background thread did not finish within timeout", thread.isAlive)
 
             // Simulate the user stopping the VPN before the main looper drains the queued
@@ -1129,8 +1273,12 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            // Copilot review (round 9): daemonize so a join() timeout below can't strand a live
+            // thread and hang the test JVM; interrupt on timeout as a best-effort unwind signal.
+            thread1.isDaemon = true
             thread1.start()
             thread1.join(5_000)
+            if (thread1.isAlive) thread1.interrupt()
             assertFalse("first background thread did not finish within timeout", thread1.isAlive)
 
             val thread2 = Thread {
@@ -1142,8 +1290,10 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            thread2.isDaemon = true
             thread2.start()
             thread2.join(5_000)
+            if (thread2.isAlive) thread2.interrupt()
             assertFalse("second background thread did not finish within timeout", thread2.isAlive)
 
             // System-initiated teardown (e.g. task removal, low-memory kill) -- never goes
@@ -1214,8 +1364,12 @@ class OpenVpnServiceStatusSyncTest {
                     null
                 )
             }
+            // Copilot review (round 9): daemonize so a join() timeout below can't strand a live
+            // thread and hang the test JVM; interrupt on timeout as a best-effort unwind signal.
+            thread.isDaemon = true
             thread.start()
             thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
             assertFalse("background thread did not finish within timeout", thread.isAlive)
 
             ShadowLooper.runUiThreadTasksIncludingDelayedTasks()

@@ -157,6 +157,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
+    // Timestamp (via watchdogNowMs()) marking when the CURRENT connection attempt began -- set
+    // on every ACTION_START (fresh start or auto-switch reconnect), alongside sessionAttempt.
+    // Written and read on the main thread only (onStartCommand / applyStatusSnapshot), so no
+    // @Volatile is required here (unlike the binder-thread-written fields above/below).
+    // Used by applyStatusSnapshot() to distinguish a cached snapshot that PREDATES this attempt
+    // (genuinely stale/irrelevant leftover from a past, different attempt -- round 8's
+    // scenario) from one that IS reporting on this still-ongoing attempt, just old because the
+    // attempt itself has been stuck the whole time (round 9's scenario: must NOT be rejected,
+    // or ServerAutoSwitcher never gets a chance to run). See PR #126 round 9 (Codex P2, comment
+    // 3733934640).
+    private var currentAttemptStartMs: Long = 0L
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -721,6 +732,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     watchdogRecoveryInFlight = false
                     watchdogState.recoveryAttempts = 0
                 }
+                // Every ACTION_START (fresh start or auto-switch reconnect) begins a new
+                // connection attempt -- record when, so applyStatusSnapshot() can tell a
+                // snapshot reporting on THIS attempt apart from one left over from a past one.
+                currentAttemptStartMs = watchdogNowMs()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -1788,7 +1803,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val ts = snapshot.timestampMs
         if (ts > 0L && level in staleSnapshotTimeoutLevels) {
             val ageMs = now - ts
-            if (ageMs > staleSnapshotMaxAgeMs) {
+            // A snapshot's absolute age alone cannot tell apart two very different situations:
+            // (a) it is a leftover reading from a PAST, different connection attempt (round 8's
+            // scenario -- e.g. a cached NONETWORK snapshot the status service never refreshed
+            // after a new attempt began) and should be rejected; vs (b) it IS the status of the
+            // CURRENT, still-ongoing attempt, just old because that attempt has genuinely been
+            // stuck the whole time (round 9's scenario -- e.g. the status service rebinds while
+            // push callbacks are stalled and this snapshot is the only data available). Rejecting
+            // case (b) starves ServerAutoSwitcher of its only signal and resurrects the original
+            // indefinite "stuck on Connecting..." bug through this rebind/poll path. Distinguish
+            // them by comparing the snapshot's own timestamp against when the CURRENT attempt
+            // started: only a snapshot that predates the current attempt is case (a). When
+            // currentAttemptStartMs is unknown (0L, e.g. never went through ACTION_START), fall
+            // back to the pre-existing, more conservative behavior of always treating it as
+            // predating -- this keeps every caller that does not track attempt identity exactly
+            // as before. See PR #126 round 9 (Codex P2, comment 3733934640).
+            val predatesCurrentAttempt = currentAttemptStartMs <= 0L || ts < currentAttemptStartMs
+            if (ageMs > staleSnapshotMaxAgeMs && predatesCurrentAttempt) {
                 if (now - lastLiveStatusMs <= liveStatusGraceMs) {
                     AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
