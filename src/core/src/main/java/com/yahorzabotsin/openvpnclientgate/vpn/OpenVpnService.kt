@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
@@ -344,8 +345,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         resumeActionInFlight = false
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
-        pendingAutoSwitchRunnable?.let { statusHandler.removeCallbacks(it) }
-        pendingAutoSwitchRunnable = null
+        statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
         requestStopIcsOpenVpn()
     }
 
@@ -1033,8 +1033,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopRetryRunnable)
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
-        pendingAutoSwitchRunnable?.let { statusHandler.removeCallbacks(it) }
-        pendingAutoSwitchRunnable = null
+        statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -1869,14 +1868,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         handleEngineLevelForStop(level, "AIDL")
     }
 
-    // Holds the most recently posted deferred dispatch from dispatchAutoSwitcherOnEngineLevel()
-    // below, so teardown paths (startUserStopTeardown(), onDestroy()) can cancel it with
-    // statusHandler.removeCallbacks() before it runs -- otherwise a stale connecting/failure-level
-    // callback queued from the AIDL binder thread stays in the main-looper queue after the user
-    // stops the VPN, and can start a new connection to another server after the user already
-    // disconnected. See PR #126 review thread (P2 follow-up to the CONNECTING-preservation fix
-    // below).
-    private var pendingAutoSwitchRunnable: Runnable? = null
+    // Shared Handler token tagging every deferred dispatch posted by
+    // dispatchAutoSwitcherOnEngineLevel() below, so teardown paths (startUserStopTeardown(),
+    // onDestroy()) can cancel ALL of them in one statusHandler.removeCallbacksAndMessages(token)
+    // call before they run. A single `Runnable?` field (round 5's first attempt) only remembers
+    // the MOST RECENTLY posted runnable: if the AIDL binder thread posts more than one deferred
+    // dispatch before the main looper drains its queue (e.g. rapid engine-level changes), each
+    // new post overwrites the field and orphans the previous runnable -- teardown could then
+    // cancel only the last one, leaving earlier ones queued with no reference left to cancel
+    // them. A shared token avoids that: every posted Runnable is tagged with the same token
+    // object, and removeCallbacksAndMessages(token) removes the whole family regardless of how
+    // many are queued, with no mutable reference to read cross-thread (and therefore no
+    // @Volatile question either). See PR #126 review thread (round 6, Codex P2 + Copilot,
+    // follow-up to the CONNECTING-preservation fix below).
+    private val autoSwitchDispatchToken = Any()
 
     // syncEngineState() is reachable both from the AIDL binder-thread callback
     // (updateStateString) and from the main thread (applyStatusSnapshot, via
@@ -1909,10 +1914,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             false
         }
         val invoke = Runnable {
-            pendingAutoSwitchRunnable = null
-            // Defensive re-check: even if teardown's removeCallbacks() raced with this runnable
-            // already being pulled off the main-looper queue, don't act on it once the user has
-            // stopped the VPN in the meantime.
+            // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
+            // runnable already being pulled off the main-looper queue, don't act on it once the
+            // user has stopped the VPN in the meantime.
             if (userInitiatedStop) return@Runnable
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
@@ -1923,8 +1927,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (Looper.myLooper() == Looper.getMainLooper()) {
             invoke.run()
         } else {
-            pendingAutoSwitchRunnable = invoke
-            statusHandler.post(invoke)
+            // Tag with the shared token (instead of a plain post()) so teardown can cancel this
+            // dispatch -- and any other deferred dispatch still queued alongside it -- in one
+            // removeCallbacksAndMessages(autoSwitchDispatchToken) call.
+            statusHandler.postAtTime(invoke, autoSwitchDispatchToken, SystemClock.uptimeMillis())
         }
     }
 

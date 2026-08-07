@@ -896,13 +896,14 @@ class OpenVpnServiceStatusSyncTest {
         // statusHandler.removeCallbacks() on named Runnable fields (stopBindTimeoutRunnable,
         // pauseActionTimeoutRunnable, etc.), never this anonymous one. A stale connecting/failure
         // level could then fire an auto-switch dispatch AFTER the user already stopped the VPN,
-        // potentially starting a new connection to another server. Fixed by storing the posted
-        // runnable in pendingAutoSwitchRunnable and cancelling it from
-        // startUserStopTeardown()/onDestroy(), plus a defensive userInitiatedStop re-check inside
-        // the runnable itself as a second layer. This test posts the runnable from a real
-        // background thread (as the AIDL binder callback would), then issues ACTION_STOP before
-        // idling the main looper, and asserts the queued dispatch never starts the auto-switch
-        // timer.
+        // potentially starting a new connection to another server. Fixed (round 6) by tagging
+        // every deferred dispatch with a shared autoSwitchDispatchToken and cancelling the whole
+        // family from startUserStopTeardown()/onDestroy() via
+        // statusHandler.removeCallbacksAndMessages(token), plus a defensive userInitiatedStop
+        // re-check inside the runnable itself as a second layer. This test posts the runnable
+        // from a real background thread (as the AIDL binder callback would), then issues
+        // ACTION_STOP before idling the main looper, and asserts the queued dispatch never starts
+        // the auto-switch timer.
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         ServerAutoSwitcher.resetForTest()
@@ -934,12 +935,6 @@ class OpenVpnServiceStatusSyncTest {
             thread.join(5_000)
             assertFalse("background thread did not finish within timeout", thread.isAlive)
 
-            assertNotNull(
-                "the deferred auto-switch dispatch must be tracked in a field so teardown can " +
-                    "cancel it before the main looper runs it",
-                ReflectionHelpers.getField<Any?>(service, "pendingAutoSwitchRunnable")
-            )
-
             // Simulate the user stopping the VPN before the main looper drains the queued
             // dispatch -- exactly the race window the review comment describes.
             val stopIntent = Intent(appContext, OpenVpnService::class.java).apply {
@@ -947,16 +942,87 @@ class OpenVpnServiceStatusSyncTest {
             }
             service.onStartCommand(stopIntent, 0, 1)
 
-            assertNull(
-                "startUserStopTeardown() must remove and clear the pending auto-switch runnable",
-                ReflectionHelpers.getField<Any?>(service, "pendingAutoSwitchRunnable")
-            )
-
             ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
             assertNull(
                 "a stale auto-switch dispatch queued before the user stopped the VPN must not " +
                     "start the auto-switch timer once teardown has run",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun onDestroyWithoutUserStopCancelsAllQueuedAutoSwitchDispatchesFromBinderThreads() {
+        // Regression for round-6 bot review (Codex P2 + Copilot, same root cause reported
+        // independently): round 5 tracked only the MOST RECENTLY posted deferred auto-switch
+        // dispatch in a single `pendingAutoSwitchRunnable` field. If the AIDL binder thread posts
+        // MULTIPLE deferred dispatches before the main looper drains its queue (e.g. rapid
+        // engine-level changes), each new post overwrites that field and orphans the previous
+        // runnable -- teardown's `pendingAutoSwitchRunnable?.let { removeCallbacks(it) }` could
+        // then cancel only the last one, leaving earlier ones queued with no reference left to
+        // cancel them. The defensive `if (userInitiatedStop) return@Runnable` check inside each
+        // runnable does not close this gap for a system-initiated teardown (onDestroy() without
+        // going through startUserStopTeardown(), so userInitiatedStop stays false) -- an orphaned
+        // earlier callback can still fire an auto-switch dispatch AFTER the service is destroyed.
+        // Fixed by tagging every deferred dispatch with a shared autoSwitchDispatchToken and
+        // cancelling the whole family via statusHandler.removeCallbacksAndMessages(token) in
+        // onDestroy(), regardless of how many are queued.
+        //
+        // This test posts TWO deferred dispatches from two separate simulated binder threads
+        // before the main looper drains, then calls onDestroy() directly WITHOUT ever setting
+        // userInitiatedStop (no ACTION_STOP), and asserts neither queued dispatch reaches
+        // ServerAutoSwitcher once the main looper is idled. Against round 5's single-field
+        // tracking this test fails: the first-posted runnable is orphaned by the second post,
+        // onDestroy() cancels only the second, and the orphaned first runnable still executes
+        // (userInitiatedStop is false, so its defensive check does not block it), starting the
+        // auto-switch timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            val thread1 = Thread {
+                callbacks.updateStateString(
+                    "TCP_CONNECT",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    null
+                )
+            }
+            thread1.start()
+            thread1.join(5_000)
+            assertFalse("first background thread did not finish within timeout", thread1.isAlive)
+
+            val thread2 = Thread {
+                callbacks.updateStateString(
+                    "TCP_CONNECT",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    null
+                )
+            }
+            thread2.start()
+            thread2.join(5_000)
+            assertFalse("second background thread did not finish within timeout", thread2.isAlive)
+
+            // System-initiated teardown (e.g. task removal, low-memory kill) -- never goes
+            // through startUserStopTeardown(), so userInitiatedStop stays false and the runnable's
+            // own defensive re-check cannot save us here.
+            service.onDestroy()
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNull(
+                "neither of the two queued auto-switch dispatches posted before onDestroy() may " +
+                    "start the auto-switch timer -- onDestroy() must cancel the whole family of " +
+                    "deferred dispatches, not just the most recently posted one",
                 ServerAutoSwitcher.remainingSeconds.value
             )
         } finally {
