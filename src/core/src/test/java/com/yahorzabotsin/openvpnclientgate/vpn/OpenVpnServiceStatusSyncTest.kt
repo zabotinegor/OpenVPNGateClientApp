@@ -1031,6 +1031,73 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun lateBinderDispatchAfterOnDestroyDoesNotEnqueueAutoSwitch() {
+        // Regression for round-7 bot review (Codex P2, follow-up to the shared-token fix): the
+        // autoSwitchDispatchToken sweep in onDestroy() (statusHandler.removeCallbacksAndMessages)
+        // only clears dispatches queued BEFORE the sweep runs. It cannot help against a genuine
+        // TOCTOU race: an AIDL binder callback that had already started executing
+        // updateStateString()/syncEngineState() on its own thread before teardown began, and just
+        // had not yet reached the postAtTime(...) call inside dispatchAutoSwitcherOnEngineLevel(),
+        // can still enqueue a BRAND NEW dispatch AFTER the sweep already ran and after
+        // unregisterStatusCallback() should have silenced it -- the sweep is a one-time
+        // point-in-time cleanup, not an ongoing barrier. During a system-driven onDestroy() (task
+        // removal, low-memory kill), userInitiatedStop stays false, so the runnable's existing
+        // `if (userInitiatedStop) return@Runnable` defensive re-check does not help either: the
+        // newly queued runnable passes its only lifecycle check and can start an auto-switch timer
+        // after the service is already destroyed.
+        //
+        // Fixed by a monotonic `serviceDestroyed` gate set as the very first statement in
+        // onDestroy() (before the sweep) and checked at the enqueue point in
+        // dispatchAutoSwitcherOnEngineLevel() (and again defensively inside the deferred runnable
+        // itself), so ANY dispatch attempt -- whether it started before or after teardown began --
+        // is rejected the moment it actually tries to enqueue, not at some earlier point that
+        // could go stale.
+        //
+        // This test calls onDestroy() FIRST (simulating teardown having already fully run), then
+        // invokes the AIDL binder callback directly from a real background thread -- exactly like
+        // an in-flight callback that reaches syncEngineState() only after the service is destroyed
+        // -- and asserts it never starts the auto-switch timer. Against the pre-fix code (no
+        // serviceDestroyed flag), this test fails: the callback thread posts a fresh dispatch via
+        // postAtTime() after the sweep already ran, userInitiatedStop is false so the runnable's
+        // own re-check does not block it, and idling the main looper starts the auto-switch timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            // System-initiated teardown happens first -- never goes through
+            // startUserStopTeardown(), so userInitiatedStop stays false throughout this test.
+            service.onDestroy()
+
+            val thread = Thread {
+                callbacks.updateStateString(
+                    "TCP_CONNECT",
+                    null,
+                    0,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    null
+                )
+            }
+            thread.start()
+            thread.join(5_000)
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+            assertNull(
+                "a binder callback that reaches dispatchAutoSwitcherOnEngineLevel() only after " +
+                    "onDestroy() has already run must not enqueue a new dispatch or start the " +
+                    "auto-switch timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun updateStateString_writesLiveStatusTimestampsThroughInjectedClock() {
         // Round-2 bot review (Copilot): isAidlFresh()/applyStatusSnapshot() read time via the
         // injectable watchdogNowMs(), but lastLiveStatusMs/lastStatusSnapshotMs were still

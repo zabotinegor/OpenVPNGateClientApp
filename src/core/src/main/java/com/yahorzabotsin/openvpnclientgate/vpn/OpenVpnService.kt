@@ -121,6 +121,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // causing the FGS guard or stop-flow checks to act on outdated state.
     @Volatile private var userInitiatedStart = false
     @Volatile private var userInitiatedStop = false
+    // Distinct from userInitiatedStop above: userInitiatedStop models "the user asked to
+    // disconnect", but this Service instance keeps running (onDestroy() is not called) and can
+    // reconnect -- see onStartCommand()/ACTION_START, which clears userInitiatedStop and reuses
+    // the same instance. serviceDestroyed models "this Service instance is being torn down" and
+    // is set exactly once, as the very first statement in onDestroy(), before any teardown step
+    // (including the autoSwitchDispatchToken sweep and unregisterStatusCallback()) runs. A new
+    // connection after a full stop (stopSelf()) creates a brand-new OpenVpnService instance with
+    // this flag freshly false, so it never needs resetting.
+    // @Volatile: written on the main thread (onDestroy) and read on the AIDL binder thread
+    // (dispatchAutoSwitcherOnEngineLevel, invoked from updateStateString) to close the TOCTOU
+    // window where an in-flight binder callback -- already past this check but not yet at the
+    // postAtTime() enqueue when round-6's code ran -- could enqueue a fresh auto-switch dispatch
+    // after the removeCallbacksAndMessages(autoSwitchDispatchToken) sweep already ran and after
+    // unregisterStatusCallback() should have silenced it. See PR #126 review thread (round 7,
+    // Codex P2, follow-up to the shared-token fix).
+    @Volatile private var serviceDestroyed = false
     @Volatile private var ignoreConnectedUntilNotConnected = false
     // Same cross-thread visibility requirement as above: stopRequestId/stopStartedAtMs are
     // written on the main thread (startUserStopTeardown) and read on the AIDL binder thread
@@ -1020,6 +1036,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun stopSelfSafely() { stopSelf() }
 
     override fun onDestroy() {
+        // Set before anything else -- including the autoSwitchDispatchToken sweep a few lines
+        // below and unregisterStatusCallback() further down -- so there is no window where a
+        // binder thread reading this flag observes a stale false. See the field's doc comment
+        // for why this is distinct from userInitiatedStop.
+        serviceDestroyed = true
         exitControllerForeground()
         super.onDestroy()
         VpnStatus.removeStateListener(this)
@@ -1896,6 +1917,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // relies on. The fast path preserves the previously synchronous behavior for the
     // applyStatusSnapshot main-thread caller.
     private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
+        // Monotonic destroyed gate, checked at the enqueue point rather than swept after the
+        // fact: round 6's removeCallbacksAndMessages(autoSwitchDispatchToken) sweep in onDestroy()
+        // only clears dispatches queued BEFORE the sweep runs. An in-flight binder callback that
+        // had already started executing updateStateString()/syncEngineState() before teardown
+        // began, but had not yet reached this function, could still call postAtTime() AFTER the
+        // sweep -- enqueuing a dispatch the sweep never saw and has no way to catch. Checking
+        // serviceDestroyed here, at the moment this specific call actually tries to enqueue,
+        // closes that gap: it does not matter whether the call started before or after teardown
+        // began, only whether the service is destroyed right now. userInitiatedStop is NOT a
+        // substitute for this check during a system-driven onDestroy() (e.g. task removal), where
+        // userInitiatedStop stays false because the user never asked to disconnect. See PR #126
+        // review thread (round 7, Codex P2).
+        if (serviceDestroyed) return
         // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now
         // -- before returning to syncEngineState(), which calls ConnectionStateManager
         // .updateFromEngine(level, detail) immediately afterward on the CALLING thread (the AIDL
@@ -1916,8 +1950,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
-            // user has stopped the VPN in the meantime.
-            if (userInitiatedStop) return@Runnable
+            // user has stopped the VPN in the meantime, or once the service itself has been
+            // destroyed (system-driven onDestroy(), where userInitiatedStop stays false).
+            if (userInitiatedStop || serviceDestroyed) return@Runnable
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
