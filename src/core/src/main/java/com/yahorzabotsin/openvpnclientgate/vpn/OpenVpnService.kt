@@ -1818,8 +1818,29 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // back to the pre-existing, more conservative behavior of always treating it as
             // predating -- this keeps every caller that does not track attempt identity exactly
             // as before. See PR #126 round 9 (Codex P2, comment 3733934640).
-            val predatesCurrentAttempt = currentAttemptStartMs <= 0L || ts < currentAttemptStartMs
-            if (ageMs > staleSnapshotMaxAgeMs && predatesCurrentAttempt) {
+            //
+            // Round 10 fix (Codex P2, comment 3734081106): the "predates" check above must be
+            // evaluated INDEPENDENTLY of the absolute-age gate below, not nested inside it. A
+            // snapshot's absolute age alone does not prove it belongs to the current attempt --
+            // the status service can re-deliver the SAME cached snapshot from a just-replaced
+            // attempt on a routine poll shortly after the new attempt starts (e.g. the new
+            // attempt begins ~5s after the old snapshot was captured, then a poll ~2s later
+            // redelivers that same old snapshot). Its absolute age is then still under
+            // staleSnapshotMaxAgeMs purely because little wall-clock time has passed, even
+            // though its timestamp is known to predate currentAttemptStartMs. Nesting the
+            // predates-check inside `ageMs > staleSnapshotMaxAgeMs` let that case slip through
+            // uncaught, since the outer age gate never fired. The correct priority: a snapshot
+            // KNOWN to predate the current attempt is always rejected regardless of age; a
+            // snapshot belonging to the current attempt (or one whose attempt start is unknown)
+            // keeps the pre-existing age-based handling.
+            val currentAttemptStartKnown = currentAttemptStartMs > 0L
+            val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
+            val shouldRejectAsStale = if (currentAttemptStartKnown) {
+                knownToPredateCurrentAttempt
+            } else {
+                ageMs > staleSnapshotMaxAgeMs
+            }
+            if (shouldRejectAsStale) {
                 if (now - lastLiveStatusMs <= liveStatusGraceMs) {
                     AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return

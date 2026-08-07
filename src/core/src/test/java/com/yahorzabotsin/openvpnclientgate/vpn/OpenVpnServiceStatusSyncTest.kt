@@ -619,6 +619,90 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_youngSnapshotPredatingNewerAttemptStillRejectedAsStale() {
+        // Regression for round-10 bot review (Codex P2, comment 3734081106): round 9's fix
+        // (applyStatusSnapshot_snapshotPredatingNewerAttemptStillRejectedAsStale above) only
+        // exercised a snapshot whose absolute age (15s) already exceeded staleSnapshotMaxAgeMs
+        // (10s) -- i.e. the OLD age-only gate would have rejected it anyway, so that test could
+        // not catch a compositional bug in how the two conditions were combined. Round 9's actual
+        // code was `if (ageMs > staleSnapshotMaxAgeMs && predatesCurrentAttempt)`, which only
+        // ever CONSULTS the predates-check once the absolute-age gate has already fired. This
+        // test reproduces the scenario where that composition fails: an old NONETWORK snapshot
+        // triggers a switch, a NEW connection attempt starts a few seconds later
+        // (currentAttemptStartMs advances), and shortly after that the status service's routine
+        // poll RE-DELIVERS THE SAME OLD snapshot. Its absolute age (8s) is still under
+        // staleSnapshotMaxAgeMs (10s) -- so the pre-fix outer age gate never fires and the
+        // predates-check is never reached -- yet its timestamp genuinely predates the new
+        // attempt's start (5s ago), so it is stale data from a replaced attempt and must still be
+        // rejected. Against pre-fix (round 9) code this test fails: the young-but-predating
+        // snapshot is trusted and cancels/re-triggers the current attempt's active timer.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel stalled well beyond liveStatusGraceMs (5_000L) so a wrongly-trusted
+        // snapshot would reach syncEngineState's allowAutoSwitch=true path, exactly like the
+        // round-9 companion test above.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // The NEW connection attempt started 5s ago -- AFTER the old snapshot below was
+        // originally captured (now - 8_000L), so the snapshot predates this newer attempt.
+        ReflectionHelpers.setField(service, "currentAttemptStartMs", now - 5_000L)
+        ServerAutoSwitcher.resetForTest()
+
+        val connectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now,
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, connectingSnapshot)
+        )
+        assertNotNull(
+            "Setup precondition: switch timer must be active before the young-but-predating " +
+                "NONETWORK snapshot from a past attempt",
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        try {
+            // Its absolute age is only 8s (now - (now - 8_000L)) -- UNDER staleSnapshotMaxAgeMs
+            // (10s) -- but its timestamp (now - 8_000L) is still BEFORE currentAttemptStartMs
+            // (now - 5_000L), i.e. it genuinely predates the current attempt despite being
+            // "young" in absolute terms.
+            val youngButPredatingSnapshot = StatusSnapshot(
+                "NONETWORK",
+                null,
+                0,
+                ConnectionStatus.LEVEL_NONETWORK,
+                now - 8_000L,
+                0L
+            )
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, youngButPredatingSnapshot)
+            )
+
+            assertNotNull(
+                "A snapshot that predates the current (newer) attempt must be rejected as " +
+                    "stale EVEN WHEN its absolute age is under staleSnapshotMaxAgeMs -- the " +
+                    "predates-check must not depend on the age gate having already fired -- " +
+                    "and must NOT cancel/trigger an immediate switch on the current attempt's " +
+                    "active timer",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun userStopDispatchFailureRetriesAndMarksExplicitFailure() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
