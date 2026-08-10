@@ -1225,7 +1225,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
-        if (controllerForegroundActive) return true
+        // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
+        // already true. A genuine ACTION_START must get a fresh startForeground() call to satisfy
+        // Android's foreground-service-start timing requirement, regardless of any prior
+        // controllerForegroundActive state left over from an earlier ACTION_SYNC_STATUS-triggered
+        // onCreate() call. Repeated/redundant startForeground() calls are idempotent and Android-
+        // supported (they just (re)show/update the notification), so this is safe.
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
             val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }

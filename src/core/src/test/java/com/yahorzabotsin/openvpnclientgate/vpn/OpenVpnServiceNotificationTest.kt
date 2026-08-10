@@ -191,6 +191,67 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for the RemoteServiceException$ForegroundServiceDidNotStartInTimeException
+    // crash (ClickUp 86cb35fbt): an OpenVpnService instance created via ACTION_SYNC_STATUS sets
+    // controllerForegroundActive=true through onCreate()'s eager enterControllerForeground() call.
+    // If that same instance later receives a genuine ACTION_START, enterControllerForeground() must
+    // still perform a fresh startForeground() call rather than short-circuiting on the
+    // already-true flag, or Android kills the app ~5s later for missing the foreground-service-start
+    // timing requirement.
+    //
+    // NOTE: under Robolectric, the real NotificationCompat.Builder(...).build() call inside
+    // enterControllerForeground() throws (NoSuchMethodError on Notification$Builder.setShowWhen)
+    // due to an AndroidX/Robolectric shadow API-level mismatch unrelated to this fix — this is the
+    // same reason the other tests in this file bypass the real method via
+    // simulateEnteredControllerForeground() instead of invoking it directly. That mismatch is
+    // actually useful here: it means we can distinguish "guard short-circuited, nothing happened"
+    // (old buggy behavior: flag stays true, no notification, service not stopped) from "a fresh
+    // attempt was made" (fixed behavior: either the notification gets (re)posted, or — as observed
+    // in this test environment — the attempt fails and is handled via the existing catch block,
+    // resetting the flag and calling stopSelf() since stopOnFailure=true for a real ACTION_START).
+    // Either outcome proves the early-return guard no longer skips the call; only the old buggy
+    // no-op leaves all three signals untouched.
+    @Test
+    fun startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+
+        // Simulate the earlier ACTION_SYNC_STATUS-triggered onCreate() having already left the
+        // service in "controller foreground active" state, WITHOUT posting a notification here —
+        // this isolates whether enterControllerForeground() itself attempts a fresh startForeground()
+        // call when invoked again, as opposed to the test helper doing it for us.
+        val activeField = OpenVpnService::class.java.getDeclaredField("controllerForegroundActive")
+        activeField.isAccessible = true
+        activeField.setBoolean(service, true)
+        notificationManager.cancelAll()
+        assertTrue("Precondition: no notification posted yet", shadowNotificationManager.allNotifications.isEmpty())
+        assertFalse("Precondition: service not yet stopped", shadowOf(service).isStoppedBySelf)
+
+        val method = OpenVpnService::class.java.getDeclaredMethod(
+            "enterControllerForeground",
+            Boolean::class.javaPrimitiveType
+        )
+        method.isAccessible = true
+        method.invoke(service, true)
+
+        val notificationPosted = !shadowNotificationManager.allNotifications.isEmpty()
+        val attemptFailedAndWasHandled = !activeField.getBoolean(service) && shadowOf(service).isStoppedBySelf
+
+        assertTrue(
+            "enterControllerForeground() must attempt a fresh startForeground() call even when " +
+                "controllerForegroundActive was already true; it must not silently short-circuit and " +
+                "return without doing anything. Expected either a (re)posted notification " +
+                "(notificationPosted=$notificationPosted) or a handled failed attempt " +
+                "(flag reset + stopSelf, attemptFailedAndWasHandled=$attemptFailedAndWasHandled) -- " +
+                "neither happened, meaning the early-return guard skipped the call",
+            notificationPosted || attemptFailedAndWasHandled
+        )
+    }
+
     @Test
     fun syncStatusActionWaitsForInitialStateThenStopsOnTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)

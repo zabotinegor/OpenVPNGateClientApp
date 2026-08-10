@@ -15,8 +15,14 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
+// sdk = [27]: pauseLifecycle_clearsInFlightFlagOnActionStart drives a real ACTION_START through
+// enterControllerForeground() with controllerForegroundActive already true (ClickUp 86cb35fbt
+// regression scenario), which now always attempts NotificationCompat.Builder(...).build(). On the
+// project's default Robolectric SDK, that call throws NoSuchMethodError (an unrelated
+// AndroidX-core/Robolectric shadow-jar mismatch) -- pinning sdk=27 avoids it, matching the same
+// workaround already used by OpenVpnServiceSessionLoggingTest for the same reason.
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServicePauseLifecycleTest {
     private val appContext = RuntimeEnvironment.getApplication()
 
