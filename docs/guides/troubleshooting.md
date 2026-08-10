@@ -34,6 +34,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed](#engine-update-build-fails-with-failed-to-find-target-with-hash-string-android-37--sdk-platform-37-not-yet-installed)
 - [CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can](#cis-bundled-sdkmanager-cannot-resolve-platformsandroid-37-even-though-gradle-can)
 - [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
+- [Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563](#auto-switch-never-fires-when-the-live-aidl-push-status-callback-stalls--bug-86cb21563)
+- [OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt](#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt)
 
 ---
 
@@ -388,6 +390,14 @@ The subsequent `ACTION_START` delivery in `onStartCommand()` retries with the de
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
 - the ClickUp story
+
+**Related but distinct:** this same exception/service/mechanism recurred later via a different
+trigger path — see
+[OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on
+reconnect after a background status sync — bug
+86cb35fbt](#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt)
+below. This fix (8b2a778) covers the `onCreate()` race; that one covers a stale
+`controllerForegroundActive` flag skipping a required *subsequent* `startForeground()` call.
 
 ---
 
@@ -1031,3 +1041,104 @@ release-build logcat").
 - `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md` -- **not committed** (path is
   gitignored, local-only quality-gate evidence); see ClickUp task
   [86cb21563](https://app.clickup.com/t/86cb21563) for the actual evidence
+
+---
+
+## OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt
+
+**Status: RESOLVED** — commit `ce2f952`, ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt)
+
+**Symptom**
+
+`OpenVpnService` crashed roughly 5 seconds after a VPN reconnect with:
+
+```
+android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException
+```
+
+It only happened when the `OpenVpnService` instance handling the reconnect had earlier been
+created by a passive `ACTION_SYNC_STATUS` status sync (`context.startService()`, not
+`startForegroundService()`) rather than a genuine `ACTION_START` — e.g. the app returning to the
+foreground and syncing status while a connection was already active/connecting, followed shortly
+after by a real connect/reconnect on that same still-alive service instance.
+
+**Root cause**
+
+`OpenVpnService.enterControllerForeground()` had an early-return guard:
+
+```kotlin
+private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
+    if (controllerForegroundActive) return true
+    // ... Service.startForeground() call below, skipped when the guard returns early
+}
+```
+
+`onCreate()` eagerly calls `enterControllerForeground(stopOnFailure = false)` (the 8b2a778 fix,
+previous entry above), which sets `controllerForegroundActive = true` and posts the notification
+regardless of which action triggered creation. The `ACTION_SYNC_STATUS` handler only calls
+`exitControllerForeground()` when the VPN is `DISCONNECTED` — so an instance created by
+`ACTION_SYNC_STATUS` while a connection was active/connecting kept
+`controllerForegroundActive = true`.
+
+When a genuine `ACTION_START` later arrived on that same instance (via
+`ContextCompat.startForegroundService()`, per `VpnManager.startVpn()`), Android's
+ActivityManagerService starts a **new, independent 5-second foreground-service-start timer** for
+that specific `startForegroundService()` call — regardless of any earlier `startForeground()` call
+made for a different triggering intent. `enterControllerForeground()`'s early-return guard skipped
+the fresh `Service.startForeground()` call needed to satisfy *this* timer (it saw
+`controllerForegroundActive` already `true` from the earlier `ACTION_SYNC_STATUS`-triggered
+`onCreate()` and returned immediately). The timer expired ~5 s later with no matching
+`startForeground()` call registered against it, and Android killed the process.
+
+**Relationship to the earlier crash (8b2a778):** same exception class, same service, same
+underlying "app must call `startForeground()` within 5 s of `startForegroundService()`"
+constraint — but a different trigger path. The 8b2a778 fix closed a race in `onCreate()` itself;
+this fix closes a gap where a *later*, unrelated promotion to foreground (from
+`ACTION_SYNC_STATUS`) could cause a *subsequent* genuine `ACTION_START` to skip its own required
+`startForeground()` call.
+
+**Fix applied**
+
+Removed the early-return guard so `enterControllerForeground()` always (re)issues
+`Service.startForeground()`, regardless of `controllerForegroundActive`'s prior state:
+
+```kotlin
+private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
+    // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
+    // already true. A genuine ACTION_START must get a fresh startForeground() call to satisfy
+    // Android's foreground-service-start timing requirement, regardless of any prior
+    // controllerForegroundActive state left over from an earlier ACTION_SYNC_STATUS-triggered
+    // onCreate() call. Repeated/redundant startForeground() calls are idempotent and Android-
+    // supported (they just (re)show/update the notification), so this is safe.
+    ...
+}
+```
+
+Repeated `startForeground()` calls are safe/idempotent on Android — they just (re)post or update
+the existing notification under the same ID — so unconditionally reissuing the call closes the gap
+without any behavior change for the already-working paths.
+
+**Evidence**
+
+- Regression test `OpenVpnServiceNotificationTest.startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive`:
+  reproduces an `ACTION_SYNC_STATUS`-created instance with the VPN left active (so
+  `exitControllerForeground()` is not called), asserts `controllerForegroundActive` is still `true`
+  as a precondition, clears the notification, then asserts a subsequent `ACTION_START` re-posts it.
+- Real-device manual QA: 19 reconnect cycles across all trigger shapes (user-initiated foreground
+  toggles, auto-switch/no-reply-timer cycles, backgrounded reconnects, airplane-mode network-drop
+  cycles) on Samsung Galaxy A71 (R58N849XQEY) at commit `9032cf934106385fb4b3b63a1005641a0c153244`.
+  Full-session logcat (222,832 lines) scanned for `ForegroundServiceDidNotStartInTimeException`,
+  `RemoteServiceException`, `FATAL EXCEPTION`, `AndroidRuntime` crash, and ANR: zero matches. The
+  exact vulnerable pattern (`ACTION_START` following `ACTION_SYNC_STATUS` on the same live
+  instance) was confirmed to have fired repeatedly during the soak (`ACTION_START`=16,
+  `ACTION_SYNC_STATUS`=17, full service teardown=27) without reproducing the crash.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
+  (`enterControllerForeground`)
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceNotificationTest.kt`
+- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt); commit `ce2f952`
+- See also the earlier, related crash above: [`RemoteServiceException`: `startForegroundService()`
+  did not call `startForeground()` — crash on first VPN connect after APK
+  update](#remoteserviceexception-startforegroundservice-did-not-call-startforeground--crash-on-first-vpn-connect-after-apk-update)
