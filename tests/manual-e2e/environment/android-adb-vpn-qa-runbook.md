@@ -1,28 +1,32 @@
 # Android ADB Manual QA Runbook (OpenVPN Gate Client)
 
 Reusable, non-secret setup/readiness/technique notes for real-device manual QA on this app.
-Primary device used to date: Samsung Galaxy A71 SM-A715F, serial `R58N849XQEY` (adb over USB).
+Primary device used to date: Samsung Galaxy A71 SM-A715F, serial `<serial>` (adb over USB).
+
+See [operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) for this device's
+general ADB workarounds (multi-user `SecurityException`, launcher-category launch, airplane-mode
+network drop) — this file only adds what is specific to VPN connect/watchdog/auto-switch QA.
 
 ## Build, install, verify freshness
 
 ```
 cd src
 ./gradlew.bat assembleDebugApp   # aggregate task, produces both mobile-debug.apk and tv-debug.apk
-adb -s <serial> install -r src/mobile/build/outputs/apk/debug/mobile-debug.apk
+adb -s <serial> install -r mobile/build/outputs/apk/debug/mobile-debug.apk
 adb -s <serial> shell dumpsys package com.yahorzabotsin.openvpnclientgate --user 0 | grep -E "versionName|versionCode|lastUpdateTime"
 ```
 
 `assembleDebugApp` reporting `UP-TO-DATE` is not a cache trap here (unlike `testDebugUnitTestApp`,
 see AGENTS.md PROCESS WARNING) — Gradle just means the existing APK's bytes already match the
 current commit's inputs. Confirm freshness via the mobile APK file's own mtime (`ls -la
-src/mobile/build/outputs/apk/debug/mobile-debug.apk`) and via `lastUpdateTime` after install, not
+mobile/build/outputs/apk/debug/mobile-debug.apk`) and via `lastUpdateTime` after install, not
 by requiring the build to say `BUILD SUCCESSFUL, N executed`.
 
 ## Multi-user shell gotcha
 
-On this device, `adb shell pm list packages` (no `--user`) can throw
-`SecurityException: Shell does not have permission to access user 150` because of a secondary
-user profile. Always pass `--user 0` for `pm` package queries.
+Same `SecurityException: ... user 150` issue as documented in
+[operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) — always pass
+`--user 0` for `pm` package queries.
 
 ## Reliable non-GUI navigation
 
@@ -38,12 +42,11 @@ user profile. Always pass `--user 0` for `pm` package queries.
 - `adb shell input tap` coordinates are in **native device pixels**, not the scaled pixels shown
   in a `screencap` image if you view it resized. If you only have a resized screenshot, multiply
   its coordinates by (native_width / displayed_width) before tapping.
-- Bring the app to the foreground from background (simulates a launcher tap, and — importantly —
-  fires `MainActivity.onStart()` → `VpnManager.syncStatus()` / `ACTION_SYNC_STATUS`, the same
-  trigger a real user hits returning to the app):
-  `adb shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.intent.category.LAUNCHER 1`.
-  A plain `am start -n .../.SplashActivity` fails here because the class isn't exported the same
-  way; the monkey launcher-intent trick is the reliable one.
+- Bring the app to the foreground from background using the launcher-category monkey trick from
+  [operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) (a plain
+  `am start -n .../.SplashActivity` fails here the same way it does there). Specific to this QA
+  area: doing so — importantly — fires `MainActivity.onStart()` → `VpnManager.syncStatus()` /
+  `ACTION_SYNC_STATUS`, the same trigger a real user hits returning to the app.
 - Background the app: `adb shell input keyevent KEYCODE_HOME`.
 
 ## Forcing a reconnect/auto-switch deterministically
@@ -56,11 +59,12 @@ specific country as "always dead". Two reliable techniques instead:
 1. **Country selector server-count check**: open the server/country list in-app and read the live
    ping badges — a country still showing 0 live/green servers is currently dead and will
    reproduce the "5s no-reply → timed switch" behavior deterministically for that session only.
-2. **Airplane-mode network drop** (reliable regardless of server liveness): while connected,
-   `adb shell cmd connectivity airplane-mode enable`, wait ~8s, then
-   `adb shell cmd connectivity airplane-mode disable`. This reliably forces the engine to detect
-   loss of network and drives the watchdog/auto-switch path, independent of any particular
-   server's current availability. Combine with `KEYCODE_HOME` beforehand to exercise the
+2. **Airplane-mode network drop** (reliable regardless of server liveness): the same
+   `airplane-mode enable`/`disable` toggle documented in
+   [operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) (mind its settle-time
+   note), applied while connected and held for ~8s. This reliably forces the engine to detect loss
+   of network and drives the watchdog/auto-switch path, independent of any particular server's
+   current availability. Combine with `KEYCODE_HOME` beforehand to exercise the
    backgrounded-reconnect scenario at the same time.
 
 ## Notification / foreground-service sanity

@@ -57,6 +57,7 @@ Current behaviour, not change history.
 | [operations/device-qa-miui.md](operations/device-qa-miui.md) | MIUI readiness commands and known device blockers |
 | [operations/device-qa-tv.md](operations/device-qa-tv.md) | MIBOX4 Leanback launch, D-pad injection, focus gotchas |
 | [operations/device-qa-log.md](operations/device-qa-log.md) | Chronological Android QA findings kept for their device-specific detail |
+| [../tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md](../tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md) | VPN connect/watchdog/auto-switch QA techniques specific to this app: build/install path, deterministic reconnect-forcing, foreground-service crash-signature scan. Points to `operations/device-qa-phone.md` for general device workarounds instead of restating them |
 
 ## Conventions — rules for agents
 
