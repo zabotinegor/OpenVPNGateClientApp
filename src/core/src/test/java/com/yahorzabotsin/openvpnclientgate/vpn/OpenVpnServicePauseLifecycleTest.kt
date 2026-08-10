@@ -15,14 +15,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
-// sdk = [27]: pauseLifecycle_clearsInFlightFlagOnActionStart drives a real ACTION_START through
-// enterControllerForeground() with controllerForegroundActive already true (ClickUp 86cb35fbt
-// regression scenario), which now always attempts NotificationCompat.Builder(...).build(). On the
-// project's default Robolectric SDK, that call throws NoSuchMethodError (an unrelated
-// AndroidX-core/Robolectric shadow-jar mismatch) -- pinning sdk=27 avoids it, matching the same
-// workaround already used by OpenVpnServiceSessionLoggingTest for the same reason.
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE, sdk = [27])
+@Config(manifest = Config.NONE)
 class OpenVpnServicePauseLifecycleTest {
     private val appContext = RuntimeEnvironment.getApplication()
 
@@ -40,6 +34,15 @@ class OpenVpnServicePauseLifecycleTest {
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
     }
 
+    // sdk = [27]: this test drives a real ACTION_START through enterControllerForeground() with
+    // controllerForegroundActive already true (ClickUp 86cb35fbt regression scenario), which now
+    // always attempts NotificationCompat.Builder(...).build(). On the project's default Robolectric
+    // SDK, that call throws NoSuchMethodError (an unrelated AndroidX-core/Robolectric shadow-jar
+    // mismatch) -- pinning sdk=27 avoids it. The other two tests in this class do not exercise that
+    // code path and pass at the default SDK, so the pin is scoped to this method only. The pattern
+    // of pinning sdk=27 to route around this mismatch is precedented elsewhere in this suite (e.g.
+    // OpenVpnServiceSessionLoggingTest), though that file's pin carries no comment explaining why.
+    @Config(sdk = [27])
     @Test
     fun pauseLifecycle_clearsInFlightFlagOnActionStart() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
