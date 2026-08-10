@@ -319,6 +319,13 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '**/.sdlc/clickup-token',
         '/.sdlc/clickup-migration-map.json',
         '**/.sdlc/clickup-migration-map.json',
+        # tools-fix runtime state: where this machine's CopilotTools checkout
+        # lives, and the resume record for an in-flight fix. Both are per-machine
+        # and per-session, so they are noise in every client repo that syncs.
+        '/.sdlc/copilottools-source.json',
+        '**/.sdlc/copilottools-source.json',
+        '/.sdlc/tools-fix.json',
+        '**/.sdlc/tools-fix.json',
         '/.claude/settings.local.json',
         '**/.claude/settings.local.json'
     )
@@ -460,10 +467,99 @@ function Merge-PsObjects {
     return $changed
 }
 
+function Get-HookCommands {
+    param([pscustomobject]$Settings)
+
+    $commands = New-Object System.Collections.Generic.HashSet[string]
+    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return $commands }
+
+    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
+        foreach ($entry in @($event.Value)) {
+            if ($null -eq $entry -or $null -eq $entry.hooks) { continue }
+            foreach ($hook in @($entry.hooks)) {
+                $command = [string]$hook.command
+                if (-not [string]::IsNullOrWhiteSpace($command)) { $commands.Add($command) | Out-Null }
+            }
+        }
+    }
+
+    return $commands
+}
+
+function Remove-DeadHookEntries {
+    param(
+        [pscustomobject]$Settings,
+        [string]$Root,
+        [System.Collections.Generic.HashSet[string]]$SourceCommands
+    )
+
+    # Hook arrays are merged by union (see Merge-PsObjects) so client-added
+    # hooks survive a sync. The cost is that a hook we RETIRE lives forever in
+    # every repo that once synced it - and a hook whose script is gone still
+    # runs, fails, and exits non-2, which the harness treats as a non-blocking
+    # error. That is a hook which looks configured and guards nothing, the exact
+    # failure mode that left the Bash-tool branch guard inert. A command naming
+    # a '.github/scripts/' file that no longer exists is unambiguously dead:
+    # that directory is mirror-synced with stale-file deletion, so the file was
+    # either kept or deliberately removed.
+    $removed = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return $removed }
+
+    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
+        $entries = @($event.Value)
+        if ($entries.Count -eq 0) { continue }
+
+        $keptEntries = New-Object System.Collections.Generic.List[object]
+        $entryChanged = $false
+
+        foreach ($entry in $entries) {
+            if ($null -eq $entry -or $null -eq $entry.hooks) {
+                $keptEntries.Add($entry)
+                continue
+            }
+
+            $keptHooks = New-Object System.Collections.Generic.List[object]
+            foreach ($hook in @($entry.hooks)) {
+                $command = [string]$hook.command
+                # A hook the SOURCE still declares is never retired, whatever
+                # the target looks like. Pruning one would fight the very merge
+                # that just added it: apply removes, verify re-adds, and the run
+                # reports a mismatch on every sync. A source hook whose script
+                # is missing is a sync-scope problem, and the existing mismatch
+                # machinery is what should say so.
+                $declaredBySource = $null -ne $SourceCommands -and $SourceCommands.Contains($command)
+                $scriptRef = [regex]::Match($command, '(?i)\.github[\\/]scripts[\\/]([A-Za-z0-9._-]+)')
+                if ($scriptRef.Success -and -not $declaredBySource) {
+                    $scriptPath = Join-Path $Root (Join-Path '.github/scripts' $scriptRef.Groups[1].Value)
+                    if (-not (Test-Path -LiteralPath $scriptPath)) {
+                        $removed.Add($command)
+                        $entryChanged = $true
+                        continue
+                    }
+                }
+                $keptHooks.Add($hook)
+            }
+
+            if ($keptHooks.Count -eq 0) { continue }
+            if ($keptHooks.Count -ne @($entry.hooks).Count) {
+                $entry.hooks = [object[]]$keptHooks.ToArray()
+            }
+            $keptEntries.Add($entry)
+        }
+
+        if ($entryChanged) {
+            $event.Value = [object[]]$keptEntries.ToArray()
+        }
+    }
+
+    return $removed
+}
+
 function Merge-JsonSettings {
     param(
         [string]$SourcePath,
         [string]$TargetPath,
+        [string]$RepoRoot,
         [switch]$DryRun
     )
 
@@ -498,6 +594,15 @@ function Merge-JsonSettings {
 
     $changed = Merge-PsObjects -Source $sourceObj -Target $targetObj
 
+    $removedHooks = @()
+    if (-not [string]::IsNullOrWhiteSpace($RepoRoot)) {
+        $removedHooks = @(Remove-DeadHookEntries `
+            -Settings $targetObj `
+            -Root $RepoRoot `
+            -SourceCommands (Get-HookCommands -Settings $sourceObj))
+        if ($removedHooks.Count -gt 0) { $changed = $true }
+    }
+
     if ($changed -and -not $DryRun) {
         $targetDir = Split-Path -Parent $TargetPath
         if (-not [string]::IsNullOrWhiteSpace($targetDir)) {
@@ -512,6 +617,7 @@ function Merge-JsonSettings {
     return [pscustomobject]@{
         changed = $changed
         action = $actionValue
+        removedDeadHooks = $removedHooks
     }
 }
 
@@ -750,6 +856,7 @@ try {
     }
 
     $mergedJsonFiles = New-Object System.Collections.Generic.List[string]
+    $removedDeadHooks = New-Object System.Collections.Generic.List[string]
     foreach ($mergeRelPath in $normalizedMergeJsonPaths) {
         $inScope = @($normalizedScope | Where-Object {
             $mergeRelPath -ieq $_ -or
@@ -759,12 +866,19 @@ try {
 
         $sourceMergePath = Join-Path $tempRoot $mergeRelPath
         $targetMergePath = Join-Path $targetRootResolved $mergeRelPath
-        $mergeResult = Merge-JsonSettings -SourcePath $sourceMergePath -TargetPath $targetMergePath -DryRun:$DryRun
+        $mergeResult = Merge-JsonSettings `
+            -SourcePath $sourceMergePath `
+            -TargetPath $targetMergePath `
+            -RepoRoot $targetRootResolved `
+            -DryRun:$DryRun
         if ($mergeResult.changed) {
             $mergedJsonFiles.Add($mergeRelPath)
             if ($newMergeJsonPaths.Contains($mergeRelPath)) {
                 $added.Add($mergeRelPath)
             }
+        }
+        foreach ($deadHook in @($mergeResult.removedDeadHooks)) {
+            $removedDeadHooks.Add("${mergeRelPath}: $deadHook")
         }
     }
 
@@ -824,6 +938,7 @@ try {
                 $verifyResult = Merge-JsonSettings `
                     -SourcePath $sourceFiles[$relativePath] `
                     -TargetPath (Join-Path $targetRootResolved $relativePath) `
+                    -RepoRoot $targetRootResolved `
                     -DryRun
                 if ($verifyResult.changed) { $mismatches.Add($relativePath) }
                 continue
@@ -876,6 +991,7 @@ try {
         changed = @($changed)
         deleted = @($deleted)
         mergedJsonFiles = @($mergedJsonFiles)
+        removedDeadHooks = @($removedDeadHooks)
         agentsCoreRulesInjection = $agentsCoreRulesInjection
         gitignoreExactEntryCount = $gitignoreEntryCount
         transientGitignoreEntryCount = $transientGitignoreEntryCount
