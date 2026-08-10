@@ -1126,7 +1126,7 @@ without any behavior change for the already-working paths.
   as a precondition, clears the notification, then asserts a subsequent `ACTION_START` re-posts it.
 - Real-device manual QA: 19 reconnect cycles across all trigger shapes (user-initiated foreground
   toggles, auto-switch/no-reply-timer cycles, backgrounded reconnects, airplane-mode network-drop
-  cycles) on Samsung Galaxy A71 (R58N849XQEY) at commit `9032cf934106385fb4b3b63a1005641a0c153244`.
+  cycles) on Samsung Galaxy A71 (`<serial>`) at commit `9032cf934106385fb4b3b63a1005641a0c153244`.
   Full-session logcat (222,832 lines) scanned for `ForegroundServiceDidNotStartInTimeException`,
   `RemoteServiceException`, `FATAL EXCEPTION`, `AndroidRuntime` crash, and ANR: zero matches. The
   exact vulnerable pattern (`ACTION_START` following `ACTION_SYNC_STATUS` on the same live

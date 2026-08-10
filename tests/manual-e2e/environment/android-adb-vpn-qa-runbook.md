@@ -83,10 +83,19 @@ specific country as "always dead". Two reliable techniques instead:
   guard-removal fix) — a single `E AndroidRuntime` false-positive risk is negligible since that
   string does not otherwise occur in normal operation.
 - To prove a fix that touches `ACTION_START`/`ACTION_SYNC_STATUS` sequencing was actually
-  exercised (not just "no crash by luck"), grep the same log for `ACTION_START`,
-  `ACTION_SYNC_STATUS`, and `Service destroyed` counts — a real soak run should show double-digit
-  counts of all three, confirming the full-teardown-then-fresh-instance vulnerable sequence fired
-  repeatedly.
+  exercised (not just "no crash by luck"), **do not rely on raw counts of `ACTION_START`,
+  `ACTION_SYNC_STATUS`, and `Service destroyed` alone** — double-digit counts of all three do not
+  prove the specific same-instance ordering fired, since unrelated fresh instances (full
+  teardown → new instance) can produce the same counts without ever exercising it. A round-3 PR
+  review found exactly this in `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md`:
+  16/17/27 counts, but the vulnerable ordering never actually occurred anywhere in the session (see
+  that file's correction note). Instead, split the log into per-instance brackets by pairing each
+  `Service created` with the next `Service destroyed` for the same PID, then check the order of
+  actions **inside each bracket**: the vulnerable sequence is `ACTION_SYNC_STATUS` (creates or
+  keeps the instance alive) followed by a *later* `ACTION_START` **within that same bracket, with
+  no `Service destroyed` in between**. A soak run only demonstrates the fix was exercised if at
+  least one bracket shows that exact order; brackets showing `ACTION_START` before
+  `ACTION_SYNC_STATUS`, or a `Service destroyed` between the two, do not count as evidence of it.
 
 ## Last validated
 2026-08-10, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `9032cf9`.
