@@ -58,9 +58,11 @@ class SpeedometerViewTest {
     }
 
     @Test
-    fun resolveMaxMbps_nonPositiveValueFallsBackTo100() {
-        assertEquals(100f, SpeedometerView.resolveMaxMbps(0f), 0.0001f)
-        assertEquals(100f, SpeedometerView.resolveMaxMbps(-10f), 0.0001f)
+    fun resolveMaxMbps_nonPositiveValueFallsBackTo1000() {
+        // Fix-cycle (literal reference replica): default max scale raised from 100 to 1000 Mb/s
+        // to mirror the speedtest.net reference's tick set.
+        assertEquals(1000f, SpeedometerView.resolveMaxMbps(0f), 0.0001f)
+        assertEquals(1000f, SpeedometerView.resolveMaxMbps(-10f), 0.0001f)
     }
 
     // ---- setSpeedMbps: input validation preserved ----
@@ -118,14 +120,22 @@ class SpeedometerViewTest {
         )
     }
 
-    // ---- Fix-cycle: angleForValue - shared angle math for tick placement and the new needle
-    // indicator (extracted from the former drawTicksAndLabels-local `angleFor` closure) ----
+    // ---- Fix-cycle: angleForValue - shared angle math for tick placement, the needle indicator
+    // and the gradient progress-arc sweep (extracted from the former drawTicksAndLabels-local
+    // `angleFor` closure) ----
+    //
+    // Fix-cycle (literal reference replica): the mapping is now a two-segment piecewise curve,
+    // not a single linear ratio. Values from 0 to 10% of maxMbps (the "low tier" - 0-100 Mb/s at
+    // the default 1000 Mb/s scale, where real-world speeds live) map onto the first
+    // ANGLE_LOW_TIER_SWEEP_FRACTION (45%) of the arc sweep; values above that breakpoint (the
+    // "high tier" - 100-1000 Mb/s by default) map onto the remaining 55%. This makes typical
+    // speeds visually fill much more of the arc than a strict linear 0-1000 mapping would.
 
     @Test
     fun angleForValue_atZero_returnsArcStartAngle() {
         assertEquals(
             SpeedometerView.ARC_START_ANGLE,
-            SpeedometerView.angleForValue(0f, 100f),
+            SpeedometerView.angleForValue(0f, 1000f),
             0.0001f
         )
     }
@@ -134,27 +144,57 @@ class SpeedometerViewTest {
     fun angleForValue_atMax_returnsArcStartPlusSweep() {
         assertEquals(
             SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES,
-            SpeedometerView.angleForValue(100f, 100f),
+            SpeedometerView.angleForValue(1000f, 1000f),
             0.0001f
         )
     }
 
     @Test
-    fun angleForValue_atHalfScale_returnsMidpointAngle() {
+    fun angleForValue_atLowTierBreakpoint_returnsLowTierSweepFraction() {
+        // 100 Mb/s is exactly the low/high tier breakpoint (10% of the default 1000 Mb/s max) -
+        // it must land exactly at ANGLE_LOW_TIER_SWEEP_FRACTION (45%) through the sweep.
         assertEquals(
-            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
-            SpeedometerView.angleForValue(50f, 100f),
-            0.0001f
+            SpeedometerView.ARC_START_ANGLE +
+                SpeedometerView.ARC_SWEEP_DEGREES * SpeedometerView.ANGLE_LOW_TIER_SWEEP_FRACTION,
+            SpeedometerView.angleForValue(100f, 1000f),
+            0.01f
+        )
+    }
+
+    @Test
+    fun angleForValue_belowBreakpoint_usesLowTierFraction() {
+        // 50 Mb/s is halfway through the low tier (0-100), so it must land at half of the low
+        // tier's 45% sweep share - 22.5% through the total sweep.
+        val expectedRatio = 0.5f * SpeedometerView.ANGLE_LOW_TIER_SWEEP_FRACTION
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES * expectedRatio,
+            SpeedometerView.angleForValue(50f, 1000f),
+            0.01f
+        )
+    }
+
+    @Test
+    fun angleForValue_aboveBreakpoint_usesRemainingHighTierFraction() {
+        // 500 Mb/s is 400 of the remaining 900 Mb/s (100..1000) high-tier span into the high tier
+        // (~44.4%), so it must land at 45% + 44.4%*55% (~69.4%) through the total sweep.
+        val highTierRatio = (500f - 100f) / (1000f - 100f)
+        val expectedRatio = SpeedometerView.ANGLE_LOW_TIER_SWEEP_FRACTION +
+            highTierRatio * (1f - SpeedometerView.ANGLE_LOW_TIER_SWEEP_FRACTION)
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES * expectedRatio,
+            SpeedometerView.angleForValue(500f, 1000f),
+            0.01f
         )
     }
 
     @Test
     fun angleForValue_scalesWithNonDefaultMax() {
-        // 25 out of a 50 max is the same 50% ratio as 50 out of 100 above.
+        // The breakpoint is a fraction (10%) of maxMbps, not a fixed 100 Mb/s literal - 50 out of
+        // a 500 max is the same low-tier-breakpoint ratio as 100 out of the default 1000 max.
         assertEquals(
-            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
-            SpeedometerView.angleForValue(25f, 50f),
-            0.0001f
+            SpeedometerView.angleForValue(100f, 1000f),
+            SpeedometerView.angleForValue(50f, 500f),
+            0.01f
         )
     }
 
@@ -162,7 +202,7 @@ class SpeedometerViewTest {
     fun angleForValue_clampsAboveMaxToArcEndAngle() {
         assertEquals(
             SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES,
-            SpeedometerView.angleForValue(150f, 100f),
+            SpeedometerView.angleForValue(1500f, 1000f),
             0.0001f
         )
     }
@@ -171,46 +211,81 @@ class SpeedometerViewTest {
     fun angleForValue_clampsNegativeValueToArcStartAngle() {
         assertEquals(
             SpeedometerView.ARC_START_ANGLE,
-            SpeedometerView.angleForValue(-10f, 100f),
+            SpeedometerView.angleForValue(-10f, 1000f),
             0.0001f
         )
     }
 
     @Test
-    fun angleForValue_nonPositiveMaxFallsBackToDefaultScale() {
-        // maxMbps<=0 resolves through the same 100 Mb/s default as resolveMaxMbps, so a mid-scale
-        // value still produces a sane angle instead of dividing by zero/NaN.
+    fun angleForValue_nonPositiveMaxFallsBackToDefault1000Scale() {
+        // maxMbps<=0 resolves through the same 1000 Mb/s default as resolveMaxMbps, so a
+        // breakpoint-scale value still produces the same angle as the explicit-1000-max case
+        // instead of dividing by zero/NaN.
         assertEquals(
-            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
-            SpeedometerView.angleForValue(50f, 0f),
+            SpeedometerView.angleForValue(100f, 1000f),
+            SpeedometerView.angleForValue(100f, 0f),
             0.0001f
         )
     }
 
-    // ---- Fix-cycle (arc-sweep REDO): the arc must read as closer to a semicircle - a visibly
-    // bigger bottom gap than the prior 120deg - while staying symmetric around straight-down. ----
+    // ---- Fix-cycle (literal reference replica): TICK_VALUES - fixed tick set matching the
+    // reference gauge exactly, replacing the previous evenly-spaced 0/25/50/75/100 series ----
 
     @Test
-    fun arcSweep_isWithinRequestedSemicircleBand() {
-        assertTrue(
-            "ARC_SWEEP_DEGREES must be within the requested ~180-200deg semicircle-like band",
-            SpeedometerView.ARC_SWEEP_DEGREES in 180f..200f
+    fun tickValues_matchesReferenceGaugeExactly() {
+        assertEquals(
+            listOf(0f, 5f, 10f, 50f, 100f, 250f, 500f, 750f, 1000f),
+            SpeedometerView.TICK_VALUES.toList()
         )
     }
 
+    // ---- Fix-cycle (true semicircle REDO): the arc must be a true top-half semicircle - both
+    // endpoints level with the circle's vertical center - not dipping below it as the prior
+    // 175/190deg pair did. ----
+
     @Test
-    fun arcSweep_bottomGapIsLargerThanPriorFixCycle() {
-        val gap = 360f - SpeedometerView.ARC_SWEEP_DEGREES
-        // Prior fix-cycle gap was 120deg (360 - 240) - the new gap must be visibly bigger.
-        assertTrue("Bottom gap must be larger than the prior 120deg gap", gap > 120f)
+    fun arcGeometry_isExactly180DegreeSemicircle() {
+        assertEquals(180f, SpeedometerView.ARC_START_ANGLE, 0.0001f)
+        assertEquals(180f, SpeedometerView.ARC_SWEEP_DEGREES, 0.0001f)
     }
 
     @Test
-    fun arcSweep_startAngleKeepsGapCenteredOnStraightDown() {
-        // Gap is centered on canvas angle 90deg (straight down/6 o'clock) whenever
-        // start + sweep/2 == 270 (mod 360), matching the pre-existing (150, 240) pair's symmetry.
+    fun arcGeometry_coversExactlyHalfTheCircle() {
+        // A true semicircle's drawn arc and its undrawn gap must be equal halves of the circle.
+        val gap = 360f - SpeedometerView.ARC_SWEEP_DEGREES
+        assertEquals(SpeedometerView.ARC_SWEEP_DEGREES, gap, 0.0001f)
+    }
+
+    @Test
+    fun arcGeometry_endpointsAreLevelWithVerticalCenter() {
+        // Android drawArc: 0deg = 3 o'clock/East, clockwise. An endpoint is level with the
+        // circle's vertical center exactly when sin(angle) == 0 (i.e. angle is 180 or 360/0deg).
+        val startSin = kotlin.math.sin(Math.toRadians(SpeedometerView.ARC_START_ANGLE.toDouble()))
+        val endAngle = SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES
+        val endSin = kotlin.math.sin(Math.toRadians(endAngle.toDouble()))
+        assertEquals(0.0, startSin, 0.0001)
+        assertEquals(0.0, endSin, 0.0001)
+    }
+
+    @Test
+    fun arcGeometry_apexIsAtTopOfCircle() {
+        // The arc's midpoint (start + sweep/2) must point straight up (canvas angle 270deg =
+        // 12 o'clock/North), so the semicircle bulges upward, not downward.
         val arcCenterAngle = SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f
         assertEquals(270f, arcCenterAngle, 0.0001f)
+    }
+
+    // ---- Fix-cycle (true semicircle REDO): VALUE_LOWER_AREA_CENTER_RATIO positions the value
+    // text within the newly-opened lower half (between centerY and the bottom of the view) ----
+
+    @Test
+    fun valueLowerAreaCenterRatio_isWithinTheOpenLowerHalf() {
+        assertTrue(
+            "Ratio must be strictly between 0 (centerY) and 1 (bottom of view) to sit within " +
+                "the open lower half",
+            SpeedometerView.VALUE_LOWER_AREA_CENTER_RATIO > 0f &&
+                SpeedometerView.VALUE_LOWER_AREA_CENTER_RATIO < 1f
+        )
     }
 
     // ---- Fix-cycle (spacing REDO): tickStartRadius/tickEndRadius/labelRadius - radial

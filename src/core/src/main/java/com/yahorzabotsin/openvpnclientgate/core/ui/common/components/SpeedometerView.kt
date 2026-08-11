@@ -37,28 +37,57 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         // internal (not private) so angleForValue below is unit-testable against the real
         // constants instead of duplicating them as magic numbers in the test file.
         //
-        // US-21 fix-cycle (arc-sweep REDO): the prior 240deg sweep (120deg bottom gap) read too
-        // wide/circular compared to the speedtest.net reference, which reads much closer to a
-        // semicircle with a noticeably bigger gap at the bottom. Reduced to a 190deg sweep -
-        // within the requested ~180-200deg band - which yields a 170deg gap. The pair is kept
-        // symmetric around straight-down (canvas angle 90deg = 6 o'clock) via
-        // start = 270 - sweep/2, matching the previous (150, 240) pair's own symmetry, so the
-        // arc/ticks/needle continue to read as a centered gauge rather than a lopsided one.
-        internal const val ARC_START_ANGLE = 175f
-        internal const val ARC_SWEEP_DEGREES = 190f
+        // US-21 fix-cycle (true semicircle REDO): the prior 175/190deg pair dipped visibly below
+        // the circle's vertical center on both ends, reading closer to "circle with a wedge cut
+        // out" than the reference's clean top-half semicircle. Android's drawArc convention is
+        // 0deg = 3 o'clock/East, clockwise: start=180 (9 o'clock/West) with sweep=180 travels
+        // through 270 (12 o'clock/North) to 360/0 (3 o'clock/East), so both endpoints sit exactly
+        // level with the circle's vertical center - a true flat horizontal diameter at center
+        // height, with the entire bottom half of the view open (see the value/subtitle text
+        // repositioning below).
+        internal const val ARC_START_ANGLE = 180f
+        internal const val ARC_SWEEP_DEGREES = 180f
 
         // US-21: single reused ValueAnimator, bounded duration per risk mitigation
         // (avoid excessive invalidate()/CPU cost on frequent StateFlow emissions).
         internal const val SPEED_ANIMATION_DURATION_MS = 350L
+
+        // US-21 fix-cycle (literal reference replica): the gauge's scale/tick set now mirrors the
+        // speedtest.net reference directly - 0/5/10/50/100/250/500/750/1000 Mb/s ticks against a
+        // 1000 Mb/s max (see resolveMaxMbps/TICK_VALUES below) instead of a plain 0-100 scale.
+        // The 0-100 sub-range is only 10% of that scale but is where real-world speeds live, so a
+        // linear angle mapping would cram nearly every reading into a sliver near the arc start.
+        // ANGLE_LOW_TIER_VALUE_RATIO marks that sub-range's boundary as a fraction of safeMax
+        // (100/1000 by default, but expressed proportionally so a custom setMaxMbps value still
+        // yields a sane low/high split). ANGLE_LOW_TIER_SWEEP_FRACTION is the share of the arc
+        // sweep given to that low sub-range - deliberately far larger than its 10% value-share, so
+        // typical speeds visually fill much more of the arc, matching why the reference reads
+        // "fuller" at modest values than a strict linear mapping would.
+        internal const val ANGLE_LOW_TIER_VALUE_RATIO = 0.1f
+        internal const val ANGLE_LOW_TIER_SWEEP_FRACTION = 0.45f
+        private const val ANGLE_HIGH_TIER_SWEEP_FRACTION = 1f - ANGLE_LOW_TIER_SWEEP_FRACTION
 
         // US-21 fix-cycle (AC3, needle): shared angle-for-value math, extracted from the former
         // drawTicksAndLabels-local `angleFor` closure so both tick placement and the new needle
         // indicator use one source of truth. Pure and state-free, so it is unit-tested directly
         // (no Robolectric/Context needed) following the same seam-extraction pattern as
         // formatMegabits/resolveMaxMbps/resolveSpeedTarget/shouldAnimateTo above.
+        //
+        // US-21 fix-cycle (literal reference replica): two-segment piecewise mapping instead of a
+        // single linear ratio - clamped values below the breakpoint map onto the first
+        // ANGLE_LOW_TIER_SWEEP_FRACTION of the sweep, values above it onto the remaining fraction.
+        // Ticks, the needle and the gradient progress-arc sweep all call this same function, so
+        // they stay visually aligned with each other by construction.
         internal fun angleForValue(valueMb: Float, maxMbps: Float): Float {
             val safeMax = resolveMaxMbps(maxMbps)
-            val ratio = (valueMb / safeMax).coerceIn(0f, 1f)
+            val clamped = valueMb.coerceIn(0f, safeMax)
+            val breakpoint = safeMax * ANGLE_LOW_TIER_VALUE_RATIO
+            val ratio = if (clamped <= breakpoint) {
+                (clamped / breakpoint) * ANGLE_LOW_TIER_SWEEP_FRACTION
+            } else {
+                val highTierRatio = (clamped - breakpoint) / (safeMax - breakpoint)
+                ANGLE_LOW_TIER_SWEEP_FRACTION + highTierRatio * ANGLE_HIGH_TIER_SWEEP_FRACTION
+            }
             return ARC_START_ANGLE + ARC_SWEEP_DEGREES * ratio
         }
 
@@ -149,8 +178,19 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             }
         }
 
-        // US-21 (AC5): unchanged setMaxMbps fallback - non-positive values reset to the 100 Mb/s default.
-        internal fun resolveMaxMbps(max: Float): Float = if (max > 0f) max else 100f
+        // US-21 fix-cycle (literal reference replica): setMaxMbps fallback now resets to a
+        // 1000 Mb/s default instead of 100 - the gauge's max scale/tick set now mirrors the
+        // speedtest.net reference (which tops out at 1000 Mb/s), not a plain 0-100 scale. This is
+        // an explicit product decision from this fix cycle; formatMegabits (the actual measured
+        // speed number shown in the center) is untouched by this change.
+        internal fun resolveMaxMbps(max: Float): Float = if (max > 0f) max else 1000f
+
+        // US-21 fix-cycle (literal reference replica): fixed tick values matching the reference
+        // gauge exactly, replacing the previous evenly-spaced 0/25/50/75/100 set derived from
+        // maxMbps/4. Densely packed in the low sub-range (0/5/10/50/100) where real-world speeds
+        // live, sparse above it (250/500/750/1000) - angular spacing (not value spacing) is what
+        // angleForValue's piecewise mapping compresses/expands, so these stay the literal values.
+        internal val TICK_VALUES = floatArrayOf(0f, 5f, 10f, 50f, 100f, 250f, 500f, 750f, 1000f)
 
         // Unchanged setSpeedMbps input validation - NaN/negative/infinite collapse to 0.
         internal fun resolveSpeedTarget(value: Double): Float =
@@ -161,11 +201,16 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         internal fun shouldAnimateTo(target: Float, current: Float): Boolean =
             kotlin.math.abs(target - current) > 0.01f
 
-        // US-21 fix-cycle (AC2): center value sits low near the open bottom arc gap (the
-        // undrawn segment between ARC_START_ANGLE+ARC_SWEEP_DEGREES and 360+ARC_START_ANGLE,
-        // which is centered on straight-down/6-o'clock) instead of the dead center of the
-        // circle, matching speedtest.net's layout.
-        private const val VALUE_VERTICAL_OFFSET_RATIO = 0.45f
+        // US-21 fix-cycle (true semicircle REDO): with ARC_START_ANGLE/ARC_SWEEP_DEGREES now a
+        // true top-half semicircle (see above), the arc's flat diameter sits exactly at centerY,
+        // so the entire bottom half of the view - from centerY down to the bottom of the
+        // drawable area - is open space, matching the reference where the value sits below the
+        // arc rather than inside its circular interior. VALUE_LOWER_AREA_CENTER_RATIO places the
+        // value text roughly centered in that open lower half (slightly above dead-center so the
+        // subtitle line drawn below it still has room), replacing the old radius-based
+        // `centerY + radius * 0.45` offset that was calibrated for the previous non-semicircle
+        // geometry and no longer matches the shape of the open space.
+        internal const val VALUE_LOWER_AREA_CENTER_RATIO = 0.42f
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -196,7 +241,11 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private var arcWidthFromAttrs: Boolean = false
     private var speedTextFromAttrs: Boolean = false
     private var subtitleTextFromAttrs: Boolean = false
-    private var maxMbps: Float = 100f
+    // US-21 fix-cycle (literal reference replica): default max scale raised from 100 to 1000
+    // Mb/s to mirror the speedtest.net reference's tick set (see TICK_VALUES/resolveMaxMbps in
+    // the companion object) - callers that never invoke setMaxMbps now render against this
+    // 1000 Mb/s scale instead of the previous 100 Mb/s one.
+    private var maxMbps: Float = 1000f
 
     // currentMbps is the latest target value from setSpeedMbps/setMaxMbps callers.
     // animatedMbps is the value actually rendered on each frame, eased toward currentMbps
@@ -272,7 +321,10 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val base = kotlin.math.min(w, h).toFloat()
         // Scale dimensions to view size when not provided explicitly
         if (!arcWidthFromAttrs || arcWidth <= 0f) {
-            arcWidth = (base * 0.06f).coerceAtLeast(8f)
+            // US-21 fix-cycle (thinner arc REDO): reduced from 0.06f/8f (~58% of the previous
+            // proportional value and floor) - the prior arc read as a thick/chunky band next to
+            // the reference's noticeably slimmer track.
+            arcWidth = (base * 0.035f).coerceAtLeast(5f)
         }
         if (!speedTextFromAttrs || speedTextSize <= 0f) {
             // US-21 fix-cycle (AC2): shrunk from 0.20f/24f - the reference gauge's center number
@@ -349,7 +401,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawArc(arcRect, ARC_START_ANGLE, ARC_SWEEP_DEGREES, false, paint)
 
-        // ticks + numeric labels (0..100 Mb/s)
+        // ticks + numeric labels (fixed TICK_VALUES set, see companion object)
         drawTicksAndLabels(canvas)
 
         // progress arc: multi-stop gradient (blue -> cyan -> green), fills fully if > max (AC1)
@@ -360,7 +412,11 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         paint.shader = progressShader
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
-        val sweep = (animatedMbps / maxMbps).coerceIn(0f, 1f) * ARC_SWEEP_DEGREES
+        // US-21 fix-cycle (literal reference replica): sweep now goes through the shared
+        // angleForValue piecewise mapping instead of a plain linear (animatedMbps / maxMbps)
+        // ratio, so the progress fill stays visually aligned with the ticks and needle, which
+        // already used angleForValue - all three must agree on the same non-linear mapping.
+        val sweep = angleForValue(animatedMbps, maxMbps) - ARC_START_ANGLE
         canvas.drawArc(arcRect, ARC_START_ANGLE, sweep, false, paint)
         paint.shader = null
 
@@ -368,13 +424,16 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         // top of both arcs - additive to the gradient progress fill, not a replacement for it.
         drawNeedle(canvas)
 
-        // US-21 fix-cycle (AC2/AC3): value number moved low, near the open bottom arc gap,
-        // instead of sitting dead-center in the circle, and shrunk (see onSizeChanged). The
-        // accent color that used to be on the number now marks the "Mb/s" subtitle instead,
-        // matching speedtest.net's teal "down-arrow Mbps" treatment; a unicode down-arrow glyph
-        // substitutes for a dedicated icon drawable per the story's clarifying answers.
-        val radius = arcRect.width() / 2f
-        val valueY = centerY + radius * VALUE_VERTICAL_OFFSET_RATIO
+        // US-21 fix-cycle (true semicircle REDO): value number repositioned into the open lower
+        // half created by the now-true-semicircle arc (flat diameter at centerY - see
+        // ARC_START_ANGLE/ARC_SWEEP_DEGREES above), roughly centered between centerY and the
+        // bottom of the drawable area, instead of the old radius-based `centerY + radius * 0.45`
+        // offset that was calibrated for the previous (non-semicircle) arc shape. The accent
+        // color that used to sit on the number stays on the "Mb/s" subtitle only, matching
+        // speedtest.net's teal "down-arrow Mbps" treatment; a unicode down-arrow glyph substitutes
+        // for a dedicated icon drawable per the story's clarifying answers.
+        val lowerAreaBottom = height.toFloat() - paddingBottom
+        val valueY = centerY + (lowerAreaBottom - centerY) * VALUE_LOWER_AREA_CENTER_RATIO
 
         paint.color = subtitleTextColor
         paint.style = Paint.Style.FILL
@@ -457,15 +516,16 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val outer = tickStartRadius(radius, arcWidth)
         val majorLen = arcWidth * TICK_LENGTH_RATIO
 
-        val majorIntervals = 4
-        val majorStep = maxMbps / majorIntervals
-
         // US-21 fix-cycle: minor ticks removed entirely per the speedtest.net reference - only
-        // the major value ticks (0/25/50/75/100) with labels remain. Angle math now goes through
-        // the shared angleForValue companion function (also used by drawNeedle) instead of a
-        // local closure, so tick placement and the needle stay in sync from one source of truth.
-        for (i in 0..majorIntervals) {
-            val mv = i * majorStep
+        // the major value ticks remain. Angle math now goes through the shared angleForValue
+        // companion function (also used by drawNeedle) instead of a local closure, so tick
+        // placement and the needle stay in sync from one source of truth.
+        //
+        // US-21 fix-cycle (literal reference replica): tick VALUES are now the fixed TICK_VALUES
+        // set (0/5/10/50/100/250/500/750/1000) instead of an evenly-spaced maxMbps/4 series - only
+        // their angular positions move (via angleForValue's piecewise mapping), so 0-100 reads
+        // densely packed and 250-1000 reads evenly spread, matching the reference.
+        for (mv in TICK_VALUES) {
             val a = Math.toRadians(angleForValue(mv, maxMbps).toDouble())
             val cosA = cos(a).toFloat()
             val sinA = sin(a).toFloat()
