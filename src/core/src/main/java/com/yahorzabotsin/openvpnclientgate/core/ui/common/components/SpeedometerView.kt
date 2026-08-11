@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.util.AttributeSet
@@ -35,8 +36,16 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         // tick-angle math and the progress gradient rotation - keep these in sync.
         // internal (not private) so angleForValue below is unit-testable against the real
         // constants instead of duplicating them as magic numbers in the test file.
-        internal const val ARC_START_ANGLE = 150f
-        internal const val ARC_SWEEP_DEGREES = 240f
+        //
+        // US-21 fix-cycle (arc-sweep REDO): the prior 240deg sweep (120deg bottom gap) read too
+        // wide/circular compared to the speedtest.net reference, which reads much closer to a
+        // semicircle with a noticeably bigger gap at the bottom. Reduced to a 190deg sweep -
+        // within the requested ~180-200deg band - which yields a 170deg gap. The pair is kept
+        // symmetric around straight-down (canvas angle 90deg = 6 o'clock) via
+        // start = 270 - sweep/2, matching the previous (150, 240) pair's own symmetry, so the
+        // arc/ticks/needle continue to read as a centered gauge rather than a lopsided one.
+        internal const val ARC_START_ANGLE = 175f
+        internal const val ARC_SWEEP_DEGREES = 190f
 
         // US-21: single reused ValueAnimator, bounded duration per risk mitigation
         // (avoid excessive invalidate()/CPU cost on frequent StateFlow emissions).
@@ -51,6 +60,83 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             val safeMax = resolveMaxMbps(maxMbps)
             val ratio = (valueMb / safeMax).coerceIn(0f, 1f)
             return ARC_START_ANGLE + ARC_SWEEP_DEGREES * ratio
+        }
+
+        // US-21 fix-cycle (spacing REDO): radial "breathing room" ratios for the arc -> tick ->
+        // label chain, all proportional to arcWidth so the gap scales with stroke thickness
+        // instead of the previous fixed +2f / 0.5x-arcWidth literals that read as "glued"
+        // together at typical view sizes. tickStartRadius/tickEndRadius/labelRadius below are the
+        // single source of truth for both drawTicksAndLabels and the unit tests.
+        private const val ARC_TO_TICK_GAP_RATIO = 0.35f
+        private const val TICK_LENGTH_RATIO = 0.5f
+        private const val TICK_TO_LABEL_GAP_RATIO = 0.9f
+
+        // US-21 fix-cycle (needle REDO): tapered wedge geometry ratios, all proportional to
+        // arcWidth. The wedge's narrow tip sits near the track's inner edge (radius - 0.5*arcWidth)
+        // rather than deep inside the tick/label zone, and its wide base sits just past the arc's
+        // outer edge (radius + 0.5*arcWidth) - matching the reference gauge's needle, which is
+        // wide near the outer rim and narrows toward the center instead of being a uniform-width
+        // line from near-center outward.
+        private const val NEEDLE_TIP_RADIUS_RATIO = 0.7f
+        private const val NEEDLE_BASE_RADIUS_RATIO = 0.65f
+        private const val NEEDLE_BASE_HALF_WIDTH_RATIO = 0.25f
+        private const val NEEDLE_ALPHA = 190
+
+        // US-21 fix-cycle (spacing REDO): pure radius math extracted from drawTicksAndLabels,
+        // following the same seam-extraction pattern as angleForValue - unit-testable without
+        // Canvas/Paint/Context.
+        internal fun tickStartRadius(radius: Float, arcWidth: Float): Float =
+            radius - arcWidth * (0.5f + ARC_TO_TICK_GAP_RATIO)
+
+        internal fun tickEndRadius(radius: Float, arcWidth: Float): Float =
+            tickStartRadius(radius, arcWidth) - arcWidth * TICK_LENGTH_RATIO
+
+        internal fun labelRadius(radius: Float, arcWidth: Float): Float =
+            tickEndRadius(radius, arcWidth) - arcWidth * TICK_TO_LABEL_GAP_RATIO
+
+        // US-21 fix-cycle (needle REDO): pure tapered-wedge point geometry, extracted so the
+        // shape math has one source of truth and is unit-testable without Canvas/Paint/Path.
+        // Returns the three vertices of the needle polygon (tip, base-left, base-right).
+        internal data class NeedlePoints(
+            val tipX: Float,
+            val tipY: Float,
+            val baseLeftX: Float,
+            val baseLeftY: Float,
+            val baseRightX: Float,
+            val baseRightY: Float
+        )
+
+        internal fun computeNeedlePoints(
+            cx: Float,
+            cy: Float,
+            radius: Float,
+            arcWidth: Float,
+            angleDegrees: Float
+        ): NeedlePoints {
+            val rad = Math.toRadians(angleDegrees.toDouble())
+            val cosA = cos(rad).toFloat()
+            val sinA = sin(rad).toFloat()
+            // Perpendicular to the needle direction, used to flare the wide base to either side.
+            val perpCos = -sinA
+            val perpSin = cosA
+
+            val tipR = radius - arcWidth * NEEDLE_TIP_RADIUS_RATIO
+            val baseR = radius + arcWidth * NEEDLE_BASE_RADIUS_RATIO
+            val baseHalfWidth = arcWidth * NEEDLE_BASE_HALF_WIDTH_RATIO
+
+            val tipX = cx + cosA * tipR
+            val tipY = cy + sinA * tipR
+            val baseCenterX = cx + cosA * baseR
+            val baseCenterY = cy + sinA * baseR
+
+            return NeedlePoints(
+                tipX = tipX,
+                tipY = tipY,
+                baseLeftX = baseCenterX + perpCos * baseHalfWidth,
+                baseLeftY = baseCenterY + perpSin * baseHalfWidth,
+                baseRightX = baseCenterX - perpCos * baseHalfWidth,
+                baseRightY = baseCenterY - perpSin * baseHalfWidth
+            )
         }
 
         // US-21 (AC5): unchanged formatting - 2 decimals under 10, 1 decimal under 100, none above.
@@ -99,10 +185,11 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private val gradientEndColor: Int = context.getColor(R.color.speedometer_gradient_end)
     private var progressShader: SweepGradient? = null
 
-    // US-21 fix-cycle: thin gray needle pointing at the current value, distinct from both the
-    // now-dimmed base arc track and the gradient progress fill. Not exposed as an XML/theme
-    // attr - kept as a plain constant per the story's "avoid new attr/drawable surface" guidance,
-    // Color.GRAY reads legibly against both the light and dark app_background tones.
+    // US-21 fix-cycle (needle REDO): tapered gray wedge pointing at the current value, distinct
+    // from both the now-dimmed base arc track and the gradient progress fill. Not exposed as an
+    // XML/theme attr - kept as a plain constant per the story's "avoid new attr/drawable surface"
+    // guidance. Color.GRAY reads legibly against both the light and dark app_background tones;
+    // drawn semi-transparent (NEEDLE_ALPHA) so the soft/muted look matches the reference gauge.
     private val needleColor: Int = Color.GRAY
 
     // Remember whether caller provided explicit dimensions via XML attrs
@@ -231,9 +318,9 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val cy = arcRect.centerY()
         // SweepGradient spans the full 360 degrees starting at angle 0 (3 o'clock), clockwise -
         // the same convention Canvas#drawArc uses. Map the blue->cyan->green stops across the
-        // portion of the wheel covered by our 240-degree arc (position 0..ARC_SWEEP/360), then
-        // rotate the wheel so position 0 lands on ARC_START_ANGLE. The tail stop (back to blue)
-        // covers the remaining, undrawn portion of the wheel and is never visible.
+        // portion of the wheel covered by our ARC_SWEEP_DEGREES arc (position 0..ARC_SWEEP/360),
+        // then rotate the wheel so position 0 lands on ARC_START_ANGLE. The tail stop (back to
+        // blue) covers the remaining, undrawn portion of the wheel and is never visible.
         val midPosition = (ARC_SWEEP_DEGREES / 2f) / 360f
         val endPosition = ARC_SWEEP_DEGREES / 360f
         val shader = SweepGradient(
@@ -277,8 +364,8 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         canvas.drawArc(arcRect, ARC_START_ANGLE, sweep, false, paint)
         paint.shader = null
 
-        // US-21 fix-cycle: thin gray needle at the current value's angle, rendered on top of
-        // both arcs - additive to the gradient progress fill, not a replacement for it.
+        // US-21 fix-cycle: tapered gray needle wedge at the current value's angle, rendered on
+        // top of both arcs - additive to the gradient progress fill, not a replacement for it.
         drawNeedle(canvas)
 
         // US-21 fix-cycle (AC2/AC3): value number moved low, near the open bottom arc gap,
@@ -308,25 +395,24 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val cy = arcRect.centerY()
         val radius = arcRect.width() / 2f
         val angle = angleForValue(animatedMbps, maxMbps)
-        val rad = Math.toRadians(angle.toDouble())
-        val cosA = cos(rad).toFloat()
-        val sinA = sin(rad).toFloat()
 
-        // Starts just inside the arc's inner edge and points outward past the arc band, so the
-        // tip reads as a needle poking through the track/fill rather than stopping short of it.
-        val innerR = radius - arcWidth * 1.2f
-        val outerR = radius + arcWidth * 0.35f
-        val x1 = cx + cosA * innerR
-        val y1 = cy + sinA * innerR
-        val x2 = cx + cosA * outerR
-        val y2 = cy + sinA * outerR
+        // US-21 fix-cycle (needle REDO): tapered wedge polygon instead of a uniform-width line -
+        // narrow tip near the track's inner edge, flaring to a wide base just past the outer edge.
+        // See computeNeedlePoints for the shared, unit-tested point math.
+        val points = computeNeedlePoints(cx, cy, radius, arcWidth, angle)
+        val needlePath = Path().apply {
+            moveTo(points.tipX, points.tipY)
+            lineTo(points.baseLeftX, points.baseLeftY)
+            lineTo(points.baseRightX, points.baseRightY)
+            close()
+        }
 
         paint.shader = null
         paint.color = needleColor
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = arcWidth * 0.12f
-        canvas.drawLine(x1, y1, x2, y2, paint)
+        paint.alpha = NEEDLE_ALPHA
+        paint.style = Paint.Style.FILL
+        canvas.drawPath(needlePath, paint)
+        paint.alpha = 255
     }
 
     fun setSpeedMbps(value: Double) {
@@ -364,8 +450,12 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val cx = arcRect.centerX()
         val cy = arcRect.centerY()
         val radius = arcRect.width() / 2f
-        val outer = radius - arcWidth / 2f + 2f
-        val majorLen = arcWidth * 0.60f
+        // US-21 fix-cycle (spacing REDO): radii now go through tickStartRadius/tickEndRadius/
+        // labelRadius (proportional ARC_TO_TICK_GAP_RATIO / TICK_TO_LABEL_GAP_RATIO spacing)
+        // instead of the previous fixed +2f / 0.5x-arcWidth literals, so the arc, tick marks and
+        // number labels have clear, size-proportional breathing room between them.
+        val outer = tickStartRadius(radius, arcWidth)
+        val majorLen = arcWidth * TICK_LENGTH_RATIO
 
         val majorIntervals = 4
         val majorStep = maxMbps / majorIntervals
@@ -389,7 +479,7 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             canvas.drawLine(x1, y1, x2, y2, paint)
             paint.strokeWidth = savedWidth
 
-            val labelR = outer - majorLen - (arcWidth * 0.5f)
+            val labelR = labelRadius(radius, arcWidth)
             val lx = cx + cosA * labelR
             val ly = cy + sinA * labelR
             paint.color = subtitleTextColor
