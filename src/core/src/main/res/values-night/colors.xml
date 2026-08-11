@@ -15,21 +15,30 @@
     <color name="splash_background_color">@color/dark_base_background</color>
 
     <!-- Speedometer Colors: neutral grays -->
-    <!-- US-21 fix-cycle: base arc/track color made much darker/lower-contrast against
-         dark_base_background (#121212) than the original #2A2A2A / #3A3A3A tones, so only the
-         gradient progress fill and the needle read as visually prominent, matching the
-         near-invisible unfilled track in the speedtest.net reference. Tick labels are unaffected
-         (subtitleTextColor, untouched). -->
+    <!-- Hairline color for the connection-detail dividers. -->
     <color name="speedometer_arc_color">#232323</color>
     <color name="speedometer_progress_color">#424242</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
-    <!-- US-21 (AC1): speedtest.net-style multi-stop gradient (blue -> cyan -> green), brightened
-         relative to the light theme for legibility against the dark background. -->
-    <color name="speedometer_gradient_start">#3D8BFF</color>
-    <color name="speedometer_gradient_mid">#22D3E8</color>
-    <color name="speedometer_gradient_end">#34D399</color>
-    <!-- US-21 (AC3): accent color for the center speed number, legible against dark backgrounds. -->
-    <color name="speedometer_value_accent_color">#5B9DFF</color>
+    <!-- Unfilled part of the dial band: the desaturated navy groove of the reference dial,
+         visible against #121212 without competing with the gradient fill. -->
+    <color name="speedometer_track_color">#2A2B41</color>
+    <!-- Dial face: black across most of the disc, lifting only just under the band so the
+         interior reads as unlit space rather than as a plate sitting on the background. -->
+    <color name="speedometer_face_center_color">#000000</color>
+    <color name="speedometer_face_edge_color">#0B0B18</color>
+    <!-- Progress fill: blue -> cyan -> mint, brightened for the dark background. -->
+    <color name="speedometer_gradient_start">#1BA7F5</color>
+    <color name="speedometer_gradient_mid">#35DCE6</color>
+    <color name="speedometer_gradient_end">#55EFB4</color>
+    <!-- Scale labels: bright up to the needle, muted past it. -->
+    <color name="speedometer_label_active_color">@color/text_color_primary</color>
+    <color name="speedometer_label_inactive_color">#6E6E82</color>
+    <!-- Needle: tapered wedge shaded along its length, wide end at the rim. -->
+    <color name="speedometer_needle_outer_color">#A6A6B2</color>
+    <color name="speedometer_needle_inner_color">#26262E</color>
+    <!-- Value readout inside the dial and the unit caption under it. -->
+    <color name="speedometer_value_color">@color/text_color_primary</color>
+    <color name="speedometer_unit_color">@color/text_color_secondary</color>
 
     <!-- Ping Colors -->
     <color name="ping_strong_color">#4CAF50</color>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Section: Speedometer -->
+    <!-- The dark face can carry a much stronger halo: it reads as the glow around the lit part
+         of the reference dial rather than as a wash. -->
+    <integer name="speedometer_glow_alpha_outer">24</integer>
+    <integer name="speedometer_glow_alpha_inner">50</integer>
+</resources>
