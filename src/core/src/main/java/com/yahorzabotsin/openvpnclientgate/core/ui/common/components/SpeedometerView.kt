@@ -123,6 +123,68 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         internal fun labelRadius(radius: Float, arcWidth: Float): Float =
             tickEndRadius(radius, arcWidth) - arcWidth * TICK_TO_LABEL_GAP_RATIO
 
+        // Fix-cycle (label collision fix): device verification of the 9-tick set (US-21
+        // fix-cycle 4) showed two label collisions - "0"/"10" stacking on top of each other (with
+        // "5" hidden underneath) near the arc's start, and "100"/"250" running together with no
+        // gap at the low/high-tier breakpoint. Root cause: angleForValue's angular gap between
+        // those ticks is small (single digits of degrees), and near the arc's start/end (180deg/
+        // 360deg) the circle's tangent is nearly *vertical* - drawArc's 0deg=East/clockwise
+        // convention means the radial direction there is nearly horizontal, so a small angular gap
+        // barely moves the label's x position and almost entirely moves its y position by only a
+        // few px, leaving center-aligned text stacked with near-zero vertical clearance. The same
+        // issue shows up as near-zero *horizontal* clearance near the top of the arc (270deg),
+        // where the tangent is nearly horizontal instead - which is why 100/250 collided
+        // horizontally rather than vertically. Both are the same underlying problem: a tight
+        // angular gap leaves too little room along whichever axis the local tangent dominates.
+        //
+        // Fix: tick pairs whose angular gap falls under MIN_TICK_LABEL_GAP_DEGREES get one label
+        // pushed to a distinct, closer-to-center label radius (tickLabelRadius's `staggered`
+        // branch). A *radial* offset is always perpendicular to the tangent, so it adds separation
+        // on exactly the axis the tight angle doesn't provide - vertical near the arc ends,
+        // horizontal near the top - without needing a different mechanism per zone. Computed
+        // dynamically from the real angleForValue gaps (not hardcoded to specific tick values), so
+        // it stays correct for any maxMbps set via setMaxMbps, not just the default 1000 scale.
+        internal const val MIN_TICK_LABEL_GAP_DEGREES = 20f
+        private const val TICK_LABEL_STAGGER_OFFSET_RATIO = 3f
+
+        // Fix-cycle (label collision fix): tick labels now render at their own, smaller ratio of
+        // subtitleTextSize (was a shared 0.9x used inline in drawTicksAndLabels) - the fixed
+        // 9-tick set packs several labels into a narrow angular range, so a modest size reduction
+        // adds safety margin on top of the stagger fix above. Only affects tick labels; the
+        // "Mb/s" subtitle text itself is untouched.
+        internal const val TICK_LABEL_TEXT_SIZE_RATIO = 0.75f
+
+        // Fix-cycle (label collision fix): given the tick value set and current max scale,
+        // returns which ticks are part of a "crowded" run (angular gap to the previous tick under
+        // MIN_TICK_LABEL_GAP_DEGREES) and should render at the staggered radius. Alternates within
+        // a crowded run (rather than staggering every tick in it) so consecutive crowded ticks end
+        // up at *different* radii from each other, not all pushed to the same spot; a gap at or
+        // above the threshold resets the alternation so unrelated crowded runs don't inherit each
+        // other's phase.
+        internal fun computeTickLabelStagger(tickValues: FloatArray, maxMbps: Float): BooleanArray {
+            val flags = BooleanArray(tickValues.size)
+            for (i in 1 until tickValues.size) {
+                val gap = angleForValue(tickValues[i], maxMbps) - angleForValue(tickValues[i - 1], maxMbps)
+                if (gap < MIN_TICK_LABEL_GAP_DEGREES) {
+                    flags[i] = !flags[i - 1]
+                }
+            }
+            return flags
+        }
+
+        // Fix-cycle (label collision fix): label radius for a single tick, optionally pushed
+        // inward (toward center) by TICK_LABEL_STAGGER_OFFSET_RATIO*arcWidth when `staggered` is
+        // true (see computeTickLabelStagger above). Coerced to non-negative as a defensive floor
+        // for degenerate tiny-view sizes.
+        internal fun tickLabelRadius(radius: Float, arcWidth: Float, staggered: Boolean): Float {
+            val base = labelRadius(radius, arcWidth)
+            return if (staggered) {
+                (base - arcWidth * TICK_LABEL_STAGGER_OFFSET_RATIO).coerceAtLeast(0f)
+            } else {
+                base
+            }
+        }
+
         // US-21 fix-cycle (needle REDO): pure tapered-wedge point geometry, extracted so the
         // shape math has one source of truth and is unit-testable without Canvas/Paint/Path.
         // Returns the three vertices of the needle polygon (tip, base-left, base-right).
@@ -525,7 +587,14 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         // set (0/5/10/50/100/250/500/750/1000) instead of an evenly-spaced maxMbps/4 series - only
         // their angular positions move (via angleForValue's piecewise mapping), so 0-100 reads
         // densely packed and 250-1000 reads evenly spread, matching the reference.
-        for (mv in TICK_VALUES) {
+        // Fix-cycle (label collision fix): stagger flags computed once per draw from the actual
+        // angleForValue gaps between consecutive ticks - see computeTickLabelStagger's doc for why
+        // a radial (not angular) offset is what separates labels that collide near the arc's
+        // start/end or at the low/high-tier breakpoint.
+        val staggerFlags = computeTickLabelStagger(TICK_VALUES, maxMbps)
+        val tickLabelTextSize = subtitleTextSize * TICK_LABEL_TEXT_SIZE_RATIO
+
+        for ((index, mv) in TICK_VALUES.withIndex()) {
             val a = Math.toRadians(angleForValue(mv, maxMbps).toDouble())
             val cosA = cos(a).toFloat()
             val sinA = sin(a).toFloat()
@@ -539,14 +608,14 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             canvas.drawLine(x1, y1, x2, y2, paint)
             paint.strokeWidth = savedWidth
 
-            val labelR = labelRadius(radius, arcWidth)
+            val labelR = tickLabelRadius(radius, arcWidth, staggerFlags[index])
             val lx = cx + cosA * labelR
             val ly = cy + sinA * labelR
             paint.color = subtitleTextColor
             paint.alpha = 220
             paint.style = Paint.Style.FILL
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = subtitleTextSize * 0.9f
+            paint.textSize = tickLabelTextSize
             canvas.drawText(mv.toInt().toString(), lx, ly, paint)
             paint.alpha = 255
         }

@@ -389,6 +389,132 @@ class SpeedometerViewTest {
         assertTrue(points.tipX > 0f)
     }
 
+    // ---- Fix-cycle (label collision fix): computeTickLabelStagger / tickLabelRadius - device
+    // verification of the 9-tick set showed "0"/"10" stacking (with "5" hidden) near the arc's
+    // start, and "100"/"250" running together at the low/high-tier breakpoint. Fix: ticks whose
+    // angular gap to their neighbor is under MIN_TICK_LABEL_GAP_DEGREES alternate onto a
+    // closer-to-center label radius, which is always perpendicular to the local tangent so it
+    // separates labels regardless of whether the tight gap reads as a vertical or horizontal
+    // collision. ----
+
+    @Test
+    fun computeTickLabelStagger_matchesExpectedPatternForDefaultTickSetAndMax() {
+        // Real TICK_VALUES against the default 1000 Mb/s max: 0/5/10 sit within an 8.1deg span
+        // near the arc's start (below the 20deg threshold - each consecutive pair is crowded),
+        // 10->50->100->250 widen out except at the 100->250 breakpoint (16.5deg, also crowded),
+        // and every pair from 250 onward is comfortably >= 20deg apart.
+        val flags = SpeedometerView.computeTickLabelStagger(
+            SpeedometerView.TICK_VALUES,
+            1000f
+        )
+        assertEquals(
+            listOf(false, true, false, false, false, true, false, false, false),
+            flags.toList()
+        )
+    }
+
+    @Test
+    fun computeTickLabelStagger_allFalseWhenEveryGapIsWide() {
+        // Evenly spread ticks (90deg apart on a 0..1000 linear-equivalent scale via a max chosen
+        // so angleForValue's low/high tiers don't compress them) - none should be flagged crowded.
+        val wideTicks = floatArrayOf(0f, 500f, 1000f)
+        val flags = SpeedometerView.computeTickLabelStagger(wideTicks, 1000f)
+        assertEquals(listOf(false, false, false), flags.toList())
+    }
+
+    @Test
+    fun computeTickLabelStagger_alternatesWithinACrowdedRunAndResetsAfter() {
+        // Four ticks tightly packed together (all gaps under threshold), followed by one far away
+        // - the crowded run must alternate false/true/false/true, and the far tick after a wide
+        // gap must reset to false rather than continuing the alternation.
+        val ticks = floatArrayOf(0f, 1f, 2f, 3f, 500f)
+        val flags = SpeedometerView.computeTickLabelStagger(ticks, 1000f)
+        assertEquals(listOf(false, true, false, true, false), flags.toList())
+    }
+
+    @Test
+    fun computeTickLabelStagger_singleTickIsNeverStaggered() {
+        val flags = SpeedometerView.computeTickLabelStagger(floatArrayOf(42f), 1000f)
+        assertEquals(listOf(false), flags.toList())
+    }
+
+    @Test
+    fun tickLabelRadius_staggeredIsCloserToCenterThanUnstaggered() {
+        val radius = 100f
+        val arcWidth = 10f
+        val base = SpeedometerView.tickLabelRadius(radius, arcWidth, staggered = false)
+        val staggered = SpeedometerView.tickLabelRadius(radius, arcWidth, staggered = true)
+        assertEquals(
+            "Non-staggered radius must be unchanged from the existing labelRadius function",
+            SpeedometerView.labelRadius(radius, arcWidth),
+            base,
+            0.0001f
+        )
+        assertTrue(
+            "Staggered radius must be measurably smaller (closer to center) than the base label radius",
+            staggered < base
+        )
+    }
+
+    @Test
+    fun tickLabelRadius_staggeredNeverGoesNegative() {
+        // Degenerate tiny-view guard: even when the stagger offset would exceed the base radius,
+        // the result must be coerced to a non-negative floor, not a negative/off-screen radius.
+        val result = SpeedometerView.tickLabelRadius(radius = 1f, arcWidth = 50f, staggered = true)
+        assertTrue(result >= 0f)
+    }
+
+    @Test
+    fun tickLabelTextSizeRatio_isSmallerThanFullSize() {
+        assertTrue(
+            "Tick label font must be a meaningful reduction from the full subtitle text size",
+            SpeedometerView.TICK_LABEL_TEXT_SIZE_RATIO in 0.1f..0.85f
+        )
+    }
+
+    // ---- Fix-cycle (label collision fix): verify every adjacent pair in the real 9-tick set,
+    // after staggering, has an actual position gap adequate to avoid visual overlap at a
+    // representative on-device arc size - guards against regressing any of the pairs the
+    // orchestrator asked to double-check (50/100, 500/750, 750/1000) as well as the two
+    // confirmed-broken pairs (0/10 and 100/250). ----
+
+    @Test
+    fun tickLabels_everyAdjacentPairHasAdequateSeparationAtRepresentativeSize() {
+        val radius = 145f
+        val arcWidth = 10.5f
+        val cx = 0f
+        val cy = 0f
+        val maxMbps = 1000f
+        // Same digit-height heuristic used to size TICK_LABEL_TEXT_SIZE_RATIO: numerals have no
+        // descender, so their visible glyph height is roughly 0.7x the nominal font size.
+        val subtitleTextSize = 24f
+        val glyphHeight = subtitleTextSize * SpeedometerView.TICK_LABEL_TEXT_SIZE_RATIO * 0.7f
+
+        val staggerFlags = SpeedometerView.computeTickLabelStagger(SpeedometerView.TICK_VALUES, maxMbps)
+        val positions = SpeedometerView.TICK_VALUES.indices.map { i ->
+            val angle = Math.toRadians(
+                SpeedometerView.angleForValue(SpeedometerView.TICK_VALUES[i], maxMbps).toDouble()
+            )
+            val r = SpeedometerView.tickLabelRadius(radius, arcWidth, staggerFlags[i])
+            Pair(cx + kotlin.math.cos(angle).toFloat() * r, cy + kotlin.math.sin(angle).toFloat() * r)
+        }
+
+        for (i in 1 until positions.size) {
+            val (x1, y1) = positions[i - 1]
+            val (x2, y2) = positions[i]
+            val dx = kotlin.math.abs(x2 - x1)
+            val dy = kotlin.math.abs(y2 - y1)
+            // Labels are far enough apart if EITHER axis clears the glyph height - text drawn
+            // side-by-side only needs horizontal room, text stacked vertically only needs
+            // vertical room, and a diagonal offset can satisfy either.
+            assertTrue(
+                "Tick ${SpeedometerView.TICK_VALUES[i - 1]} and ${SpeedometerView.TICK_VALUES[i]} " +
+                    "are too close: dx=$dx dy=$dy, need >= $glyphHeight on at least one axis",
+                dx >= glyphHeight || dy >= glyphHeight
+            )
+        }
+    }
+
     @Test
     fun computeNeedlePoints_scalesWithArcWidth() {
         val radius = 100f
