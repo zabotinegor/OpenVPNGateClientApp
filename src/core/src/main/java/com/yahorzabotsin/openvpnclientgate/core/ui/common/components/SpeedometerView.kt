@@ -33,12 +33,25 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
 
         // US-21: shared arc geometry constants (start angle / sweep) reused by drawing,
         // tick-angle math and the progress gradient rotation - keep these in sync.
-        private const val ARC_START_ANGLE = 150f
-        private const val ARC_SWEEP_DEGREES = 240f
+        // internal (not private) so angleForValue below is unit-testable against the real
+        // constants instead of duplicating them as magic numbers in the test file.
+        internal const val ARC_START_ANGLE = 150f
+        internal const val ARC_SWEEP_DEGREES = 240f
 
         // US-21: single reused ValueAnimator, bounded duration per risk mitigation
         // (avoid excessive invalidate()/CPU cost on frequent StateFlow emissions).
         internal const val SPEED_ANIMATION_DURATION_MS = 350L
+
+        // US-21 fix-cycle (AC3, needle): shared angle-for-value math, extracted from the former
+        // drawTicksAndLabels-local `angleFor` closure so both tick placement and the new needle
+        // indicator use one source of truth. Pure and state-free, so it is unit-tested directly
+        // (no Robolectric/Context needed) following the same seam-extraction pattern as
+        // formatMegabits/resolveMaxMbps/resolveSpeedTarget/shouldAnimateTo above.
+        internal fun angleForValue(valueMb: Float, maxMbps: Float): Float {
+            val safeMax = resolveMaxMbps(maxMbps)
+            val ratio = (valueMb / safeMax).coerceIn(0f, 1f)
+            return ARC_START_ANGLE + ARC_SWEEP_DEGREES * ratio
+        }
 
         // US-21 (AC5): unchanged formatting - 2 decimals under 10, 1 decimal under 100, none above.
         internal fun formatMegabits(mbps: Float): String {
@@ -61,6 +74,12 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         // StateFlow emissions of the same value cannot restart/stack an animation.
         internal fun shouldAnimateTo(target: Float, current: Float): Boolean =
             kotlin.math.abs(target - current) > 0.01f
+
+        // US-21 fix-cycle (AC2): center value sits low near the open bottom arc gap (the
+        // undrawn segment between ARC_START_ANGLE+ARC_SWEEP_DEGREES and 360+ARC_START_ANGLE,
+        // which is centered on straight-down/6-o'clock) instead of the dead center of the
+        // circle, matching speedtest.net's layout.
+        private const val VALUE_VERTICAL_OFFSET_RATIO = 0.45f
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -79,6 +98,12 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
     private val gradientMidColor: Int = context.getColor(R.color.speedometer_gradient_mid)
     private val gradientEndColor: Int = context.getColor(R.color.speedometer_gradient_end)
     private var progressShader: SweepGradient? = null
+
+    // US-21 fix-cycle: thin gray needle pointing at the current value, distinct from both the
+    // now-dimmed base arc track and the gradient progress fill. Not exposed as an XML/theme
+    // attr - kept as a plain constant per the story's "avoid new attr/drawable surface" guidance,
+    // Color.GRAY reads legibly against both the light and dark app_background tones.
+    private val needleColor: Int = Color.GRAY
 
     // Remember whether caller provided explicit dimensions via XML attrs
     private var arcWidthFromAttrs: Boolean = false
@@ -163,7 +188,9 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
             arcWidth = (base * 0.06f).coerceAtLeast(8f)
         }
         if (!speedTextFromAttrs || speedTextSize <= 0f) {
-            speedTextSize = (base * 0.20f).coerceAtLeast(24f)
+            // US-21 fix-cycle (AC2): shrunk from 0.20f/24f - the reference gauge's center number
+            // is noticeably smaller than a value vertically centered in the middle of the circle.
+            speedTextSize = (base * 0.13f).coerceAtLeast(18f)
         }
         if (!subtitleTextFromAttrs || subtitleTextSize <= 0f) {
             subtitleTextSize = (base * 0.08f).coerceAtLeast(12f)
@@ -250,19 +277,56 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         canvas.drawArc(arcRect, ARC_START_ANGLE, sweep, false, paint)
         paint.shader = null
 
-        // centered value shown in Mb/s (to match gauge scale 0..100 Mb/s)
-        paint.color = speedTextColor
+        // US-21 fix-cycle: thin gray needle at the current value's angle, rendered on top of
+        // both arcs - additive to the gradient progress fill, not a replacement for it.
+        drawNeedle(canvas)
+
+        // US-21 fix-cycle (AC2/AC3): value number moved low, near the open bottom arc gap,
+        // instead of sitting dead-center in the circle, and shrunk (see onSizeChanged). The
+        // accent color that used to be on the number now marks the "Mb/s" subtitle instead,
+        // matching speedtest.net's teal "down-arrow Mbps" treatment; a unicode down-arrow glyph
+        // substitutes for a dedicated icon drawable per the story's clarifying answers.
+        val radius = arcRect.width() / 2f
+        val valueY = centerY + radius * VALUE_VERTICAL_OFFSET_RATIO
+
+        paint.color = subtitleTextColor
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = speedTextSize
 
         val valueStr = formatMegabits(animatedMbps.coerceAtLeast(0f))
-        canvas.drawText(valueStr, centerX, centerY, paint)
+        canvas.drawText(valueStr, centerX, valueY, paint)
 
-        paint.color = subtitleTextColor
+        paint.color = speedTextColor
         paint.textSize = subtitleTextSize
-        val unitStr = "Mb/s"
-        canvas.drawText(unitStr, centerX, centerY + subtitleTextSize * 1.5f, paint)
+        val unitStr = "\u2193 Mb/s"
+        canvas.drawText(unitStr, centerX, valueY + subtitleTextSize * 1.5f, paint)
+    }
+
+    private fun drawNeedle(canvas: Canvas) {
+        val cx = arcRect.centerX()
+        val cy = arcRect.centerY()
+        val radius = arcRect.width() / 2f
+        val angle = angleForValue(animatedMbps, maxMbps)
+        val rad = Math.toRadians(angle.toDouble())
+        val cosA = cos(rad).toFloat()
+        val sinA = sin(rad).toFloat()
+
+        // Starts just inside the arc's inner edge and points outward past the arc band, so the
+        // tip reads as a needle poking through the track/fill rather than stopping short of it.
+        val innerR = radius - arcWidth * 1.2f
+        val outerR = radius + arcWidth * 0.35f
+        val x1 = cx + cosA * innerR
+        val y1 = cy + sinA * innerR
+        val x2 = cx + cosA * outerR
+        val y2 = cy + sinA * outerR
+
+        paint.shader = null
+        paint.color = needleColor
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = arcWidth * 0.12f
+        canvas.drawLine(x1, y1, x2, y2, paint)
     }
 
     fun setSpeedMbps(value: Double) {
@@ -302,42 +366,17 @@ class SpeedometerView(context: Context, attrs: AttributeSet?) : View(context, at
         val radius = arcRect.width() / 2f
         val outer = radius - arcWidth / 2f + 2f
         val majorLen = arcWidth * 0.60f
-        val minorLen = arcWidth * 0.35f
-
-        fun angleFor(valueMb: Float): Float {
-            val ratio = (valueMb / maxMbps).coerceIn(0f, 1f)
-            return ARC_START_ANGLE + ARC_SWEEP_DEGREES * ratio
-        }
 
         val majorIntervals = 4
         val majorStep = maxMbps / majorIntervals
-        val minorStep = majorStep / 2f
 
-        // minor ticks between major ones
-        for (i in 1 until majorIntervals * 2) {
-            if (i % 2 == 1) {
-                val v = i * minorStep
-                val a = Math.toRadians(angleFor(v).toDouble())
-                val cosA = cos(a).toFloat()
-                val sinA = sin(a).toFloat()
-                val x1 = cx + cosA * outer
-                val y1 = cy + sinA * outer
-                val x2 = cx + cosA * (outer - minorLen)
-                val y2 = cy + sinA * (outer - minorLen)
-                val savedWidth = paint.strokeWidth
-                paint.color = arcColor
-                paint.alpha = 150
-                paint.strokeWidth = arcWidth * 0.08f
-                canvas.drawLine(x1, y1, x2, y2, paint)
-                paint.strokeWidth = savedWidth
-                paint.alpha = 255
-            }
-        }
-
-        // major ticks with labels
+        // US-21 fix-cycle: minor ticks removed entirely per the speedtest.net reference - only
+        // the major value ticks (0/25/50/75/100) with labels remain. Angle math now goes through
+        // the shared angleForValue companion function (also used by drawNeedle) instead of a
+        // local closure, so tick placement and the needle stay in sync from one source of truth.
         for (i in 0..majorIntervals) {
             val mv = i * majorStep
-            val a = Math.toRadians(angleFor(mv).toDouble())
+            val a = Math.toRadians(angleForValue(mv, maxMbps).toDouble())
             val cosA = cos(a).toFloat()
             val sinA = sin(a).toFloat()
             val x1 = cx + cosA * outer

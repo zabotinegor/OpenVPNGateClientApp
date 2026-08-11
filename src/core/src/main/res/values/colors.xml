@@ -16,9 +16,11 @@
     <color name="splash_background_color">#F7F9FC</color>
 
     <!-- Section: Speedometer -->
-    <!-- US-21: base arc color darkened slightly from the original #C9D4E2 for higher contrast
-         against the new gradient progress arc (AC2), while staying legible on app_background. -->
-    <color name="speedometer_arc_color">#B9C4D1</color>
+    <!-- US-21 fix-cycle: base arc/track color made much lower-contrast against app_background
+         (#F7F9FC) than the original #B9C4D1 / #C9D4E2 tones, so only the gradient progress fill
+         and the needle read as visually prominent, matching the near-invisible unfilled track in
+         the speedtest.net reference. Tick labels are unaffected (subtitleTextColor, untouched). -->
+    <color name="speedometer_arc_color">#E7EBF0</color>
     <color name="speedometer_progress_color">#7F93A8</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
     <!-- US-21 (AC1): speedtest.net-style multi-stop gradient (blue -> cyan -> green) for the

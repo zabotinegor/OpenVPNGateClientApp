@@ -117,4 +117,73 @@ class SpeedometerViewTest {
             SpeedometerView.SPEED_ANIMATION_DURATION_MS in 300L..500L
         )
     }
+
+    // ---- Fix-cycle: angleForValue - shared angle math for tick placement and the new needle
+    // indicator (extracted from the former drawTicksAndLabels-local `angleFor` closure) ----
+
+    @Test
+    fun angleForValue_atZero_returnsArcStartAngle() {
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE,
+            SpeedometerView.angleForValue(0f, 100f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_atMax_returnsArcStartPlusSweep() {
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES,
+            SpeedometerView.angleForValue(100f, 100f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_atHalfScale_returnsMidpointAngle() {
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
+            SpeedometerView.angleForValue(50f, 100f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_scalesWithNonDefaultMax() {
+        // 25 out of a 50 max is the same 50% ratio as 50 out of 100 above.
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
+            SpeedometerView.angleForValue(25f, 50f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_clampsAboveMaxToArcEndAngle() {
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES,
+            SpeedometerView.angleForValue(150f, 100f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_clampsNegativeValueToArcStartAngle() {
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE,
+            SpeedometerView.angleForValue(-10f, 100f),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun angleForValue_nonPositiveMaxFallsBackToDefaultScale() {
+        // maxMbps<=0 resolves through the same 100 Mb/s default as resolveMaxMbps, so a mid-scale
+        // value still produces a sane angle instead of dividing by zero/NaN.
+        assertEquals(
+            SpeedometerView.ARC_START_ANGLE + SpeedometerView.ARC_SWEEP_DEGREES / 2f,
+            SpeedometerView.angleForValue(50f, 0f),
+            0.0001f
+        )
+    }
 }
