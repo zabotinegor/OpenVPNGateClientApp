@@ -15,6 +15,9 @@
     <attr name="ovpnSpeedometerArcColor" format="color" />
     <attr name="ovpnSpeedometerProgressColor" format="color" />
     <attr name="ovpnSpeedometerTextColor" format="color" />
+    <!-- US-21 (AC3): accent color for the center speed number, distinct from
+         ovpnSpeedometerTextColor (which still drives the "Mb/s" subtitle and tick labels). -->
+    <attr name="ovpnSpeedometerValueAccentColor" format="color" />
     <attr name="ovpnFocusableStateListAnimator" format="reference" />
     <!-- SUB-09: fill color for the pinned Favorites section card (colorSurface-variant tone,
          distinct from ?attr/colorSurface so the card reads as a raised block behind the

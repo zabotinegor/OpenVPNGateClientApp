@@ -20,6 +20,7 @@
         <item name="ovpnSpeedometerArcColor">@color/speedometer_arc_color</item>
         <item name="ovpnSpeedometerProgressColor">@color/speedometer_progress_color</item>
         <item name="ovpnSpeedometerTextColor">@color/speedometer_text_color</item>
+        <item name="ovpnSpeedometerValueAccentColor">@color/speedometer_value_accent_color</item>
         <item name="ovpnFocusableStateListAnimator">@animator/focus_bounce</item>
         <item name="ovpnFavoritesCardBackground">@color/favorites_card_background</item>
         <item name="ovpnPopupMenuBackground">@color/popup_menu_background</item>

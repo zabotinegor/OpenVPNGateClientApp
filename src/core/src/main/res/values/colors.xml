@@ -16,9 +16,19 @@
     <color name="splash_background_color">#F7F9FC</color>
 
     <!-- Section: Speedometer -->
-    <color name="speedometer_arc_color">#C9D4E2</color>
+    <!-- US-21: base arc color darkened slightly from the original #C9D4E2 for higher contrast
+         against the new gradient progress arc (AC2), while staying legible on app_background. -->
+    <color name="speedometer_arc_color">#B9C4D1</color>
     <color name="speedometer_progress_color">#7F93A8</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
+    <!-- US-21 (AC1): speedtest.net-style multi-stop gradient (blue -> cyan -> green) for the
+         progress arc, mapped across the arc sweep in SpeedometerView. -->
+    <color name="speedometer_gradient_start">#2E7DFB</color>
+    <color name="speedometer_gradient_mid">#17C3E8</color>
+    <color name="speedometer_gradient_end">#2ECC71</color>
+    <!-- US-21 (AC3): accent color for the center speed number, distinct from the plain
+         text_color_primary gray used elsewhere. -->
+    <color name="speedometer_value_accent_color">#1768FF</color>
 
     <!-- Section: Ping -->
     <color name="ping_strong_color">#00FF00</color>

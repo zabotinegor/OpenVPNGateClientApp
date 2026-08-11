@@ -15,9 +15,18 @@
     <color name="splash_background_color">@color/dark_base_background</color>
 
     <!-- Speedometer Colors: neutral grays -->
-    <color name="speedometer_arc_color">#2A2A2A</color>
+    <!-- US-21: base arc color lightened slightly from the original #2A2A2A for higher contrast
+         against dark_base_background and the new gradient progress arc (AC2). -->
+    <color name="speedometer_arc_color">#3A3A3A</color>
     <color name="speedometer_progress_color">#424242</color>
     <color name="speedometer_text_color">@color/text_color_primary</color>
+    <!-- US-21 (AC1): speedtest.net-style multi-stop gradient (blue -> cyan -> green), brightened
+         relative to the light theme for legibility against the dark background. -->
+    <color name="speedometer_gradient_start">#3D8BFF</color>
+    <color name="speedometer_gradient_mid">#22D3E8</color>
+    <color name="speedometer_gradient_end">#34D399</color>
+    <!-- US-21 (AC3): accent color for the center speed number, legible against dark backgrounds. -->
+    <color name="speedometer_value_accent_color">#5B9DFF</color>
 
     <!-- Ping Colors -->
     <color name="ping_strong_color">#4CAF50</color>
