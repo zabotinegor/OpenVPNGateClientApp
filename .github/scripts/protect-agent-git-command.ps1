@@ -10,7 +10,16 @@ $gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-t
 # mirroring the assignment-word handling already added to the .sh fallback
 # (protect-agent-git-command.sh), or the anchor never lines up with the
 # literal 'git' token and the whole segment is treated as a non-git command.
-$asgnPrefixPattern = '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
+# The value itself may be a quoted string containing spaces - 'X="a b" git
+# commit' is valid shell and still invokes git. A bare \S* value cannot
+# consume the space inside "a b": it stops at the first space, leaving
+# 'b" git commit' behind, which matches neither another assignment word nor
+# the literal 'git' the anchor requires next, so the whole anchor silently
+# fails to match and every check below is skipped entirely. Try the quoted
+# forms before falling back to \S* so a quoted value with embedded
+# whitespace is consumed as one unit, same as the token-glue tokenizer in
+# Get-GitTargetPath already does for '-C "path with spaces"'.
+$asgnPrefixPattern = '(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|''[^'']*''|\S*)\s+)*'
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
@@ -111,6 +120,17 @@ function Get-GitTargetPath {
         # whatever -C has established so far, but never becomes the base for
         # a later -C itself).
         $effectiveDir = $FallbackPath
+        # --git-dir and -C are orthogonal per git(1): -C changes the effective
+        # WORKING directory, while --git-dir independently selects the
+        # REPOSITORY. 'git --git-dir=/protected/.git -C /unprotected branch
+        # --show-current' still reads /protected - a LATER -C must never
+        # clobber an already-resolved --git-dir target. Track each kind's
+        # latest value separately (last-of-its-own-kind wins, matching Git's
+        # own repeated-flag handling) and let --git-dir win the final target
+        # whenever it was supplied at all, regardless of its position
+        # relative to any -C.
+        $gitDirValue = $null
+        $cOnlyValue = $null
         for ($i = $cmdIndex + 1; $i -lt $tokens.Count; $i++) {
             $token = $tokens[$i]
             if (-not $token.StartsWith('-')) { break }
@@ -144,17 +164,16 @@ function Get-GitTargetPath {
                     else {
                         $clean = [System.IO.Path]::GetFullPath($clean)
                     }
-                    $target = $clean
-                    # Last -C/--git-dir flag wins, matching Git's own
-                    # last-flag-wins option parsing. --work-tree never reaches
-                    # here (it is not in $pathFlags), so it cannot overwrite
-                    # a target that -C or --git-dir already set, and it never
-                    # supplies one on its own.
-                    $targetKind = $name
-                    # Only -C itself chdir's; --git-dir merely names the
-                    # metadata directory without moving the effective
-                    # directory, so a later -C must not compose onto it.
-                    if ($name -eq '-C') {
+                    if ($name -eq '--git-dir') {
+                        # Only -C itself chdir's; --git-dir merely names the
+                        # metadata directory without moving the effective
+                        # directory, so it must not touch $effectiveDir and
+                        # must not be overwritten by a -C that appears later.
+                        $gitDirValue = $clean
+                    }
+                    else {
+                        # $name -eq '-C'
+                        $cOnlyValue = $clean
                         $effectiveDir = $clean
                     }
                 }
@@ -162,6 +181,19 @@ function Get-GitTargetPath {
             elseif ($null -eq $inlineValue -and $valueFlags -ccontains $name) {
                 $i++
             }
+        }
+        # --git-dir always wins the "which repository" question once supplied
+        # anywhere in the segment - a -C appearing before OR after it only
+        # ever affects working-directory-relative path resolution, never the
+        # resolved target. Fall back to the last -C when --git-dir was never
+        # given.
+        if ($null -ne $gitDirValue) {
+            $target = $gitDirValue
+            $targetKind = '--git-dir'
+        }
+        elseif ($null -ne $cOnlyValue) {
+            $target = $cOnlyValue
+            $targetKind = '-C'
         }
 
         $targets.Add([pscustomobject]@{

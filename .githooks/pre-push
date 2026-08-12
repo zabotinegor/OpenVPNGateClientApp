@@ -45,6 +45,18 @@ while read -r local_ref local_sha remote_ref remote_sha; do
           echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
           exit 1
         fi
+        # Recreating dev from scratch (remote dev absent, so remote_sha was
+        # zero above) is the same release-flow archive step as deletion, and
+        # must carry the same guarantee: some archive/archive-dev-* ref must
+        # exist, proving a prior dev was actually archived. Without this, the
+        # tip-match check alone widens the narrow release-flow exception into
+        # blanket permission to recreate the protected dev branch from
+        # scratch any time it happens to be missing on the remote.
+        archive_exists=$(git for-each-ref --format='%(objectname)' 'refs/remotes/origin/archive/archive-dev-*' 2>/dev/null | head -n 1)
+        if [ -z "$archive_exists" ]; then
+          echo "BLOCKED: recreating refs/heads/dev requires an existing archive/archive-dev-* ref (release-flow archive step); archive the prior dev before recreating it." >&2
+          exit 1
+        fi
       fi
       ;;
   esac
