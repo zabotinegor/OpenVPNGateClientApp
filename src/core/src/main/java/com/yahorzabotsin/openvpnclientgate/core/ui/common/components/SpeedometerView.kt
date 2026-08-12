@@ -23,12 +23,14 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.flow.combine
 
 /**
  * Speed dial modelled on the speedtest.net gauge: a 252-degree band that starts at the
@@ -148,6 +150,24 @@ class SpeedometerView @JvmOverloads constructor(
             if (value.isFinite() && value >= 0.0) value.toFloat() else 0f
 
         /**
+         * Whether [onDraw] should draw the needle at all: only while a connection is active or
+         * being attempted. At rest the needle idles on the "0" tick, and
+         * `NEEDLE_OUTER_RADIUS_RATIO` (0.66) sits further out than `LABEL_RADIUS_RATIO` (0.61), so
+         * the wedge would otherwise overlap that label every time the dial is disconnected.
+         * Extracted as a pure seam so the gating decision is unit-testable without constructing
+         * the View (see [SpeedometerView] class doc for why the View itself cannot be constructed
+         * in these JVM tests).
+         */
+        fun shouldDrawNeedle(connected: Boolean): Boolean = connected
+
+        /**
+         * Whether [setConnected] should update state and invalidate: only when [next] actually
+         * differs from [current]. Mirrors the redundant-call guard other setters use, so a steady
+         * connection state (the common case) doesn't force a redraw on every collected value.
+         */
+        fun shouldUpdateConnected(current: Boolean, next: Boolean): Boolean = current != next
+
+        /**
          * Two decimals like the reference, dropping precision as the number gets wider. Formatted
          * with a fixed [Locale.US] rather than the device locale, matching every other numeric
          * readout on this screen (duration, downloaded/uploaded bytes, UTC offset all use
@@ -250,6 +270,11 @@ class SpeedometerView @JvmOverloads constructor(
     private var maxMbps: Float = DEFAULT_MAX_MBPS
     private var animator: ValueAnimator? = null
 
+    // The needle only makes sense while the VPN is attempting/holding a connection: at rest its
+    // wedge idles on the "0" label (NEEDLE_OUTER_RADIUS_RATIO > LABEL_RADIUS_RATIO, so the tip
+    // geometrically overlaps whatever label it points at) and there is nothing for it to point to.
+    private var isConnected: Boolean = false
+
     init {
         contentDescription = describe(currentMbps)
     }
@@ -279,10 +304,28 @@ class SpeedometerView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * Shows or hides the needle. Only invalidates when [connected] actually flips the current
+     * value, mirroring [setSpeedMbps]'s change-detection so a steady state doesn't force redundant
+     * redraws.
+     */
+    fun setConnected(connected: Boolean) {
+        if (!shouldUpdateConnected(isConnected, connected)) return
+        isConnected = connected
+        invalidate()
+    }
+
     fun bindTo(lifecycleOwner: LifecycleOwner) {
         lifecycleOwner.launchLogged(TAG) {
             lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ConnectionStateManager.speedMbps.collect { setSpeedMbps(it) }
+                combine(
+                    ConnectionStateManager.speedMbps,
+                    ConnectionStateManager.state,
+                ) { speed, state -> speed to state }
+                    .collect { (speed, state) ->
+                        setSpeedMbps(speed)
+                        setConnected(state != ConnectionState.DISCONNECTED)
+                    }
             }
         }
     }
@@ -366,7 +409,11 @@ class SpeedometerView @JvmOverloads constructor(
         canvas.drawCircle(centerX, centerY, (outerRadius - arcWidth).coerceAtLeast(1f), facePaint)
         canvas.drawArc(arcBounds, ARC_START_ANGLE, ARC_SWEEP_DEGREES, false, trackPaint)
         drawProgress(canvas, sweep)
-        drawNeedle(canvas, sweep)
+        // The needle only has meaning while the VPN is attempting/holding a connection; at rest
+        // it is skipped entirely (not just made invisible) so it can't collide with the "0" label.
+        if (shouldDrawNeedle(isConnected)) {
+            drawNeedle(canvas, sweep)
+        }
         // Labels last: at a reading that lands on a scale stop the needle would otherwise cover
         // that stop's label, and the number matters more than the last few pixels of the wedge.
         drawScaleLabels(canvas, sweep)

@@ -8,10 +8,13 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.lastActiveStopIndex
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveMaxMbps
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveSpeed
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldDrawNeedle
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldUpdateConnected
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.Locale
@@ -253,4 +256,34 @@ class SpeedometerViewTest {
     // whose default locale formats numbers differently.
     private fun expected(pattern: String, value: Any) =
         String.format(Locale.US, pattern, value)
+
+    // --------------- shouldDrawNeedle ---------------
+
+    @Test
+    fun `the needle is hidden while disconnected`() {
+        assertFalse(shouldDrawNeedle(connected = false))
+    }
+
+    @Test
+    fun `the needle is shown while connected or connecting`() {
+        assertTrue(shouldDrawNeedle(connected = true))
+    }
+
+    // --------------- shouldUpdateConnected ---------------
+
+    @Test
+    fun `a connected-state change from disconnected to connected should update`() {
+        assertTrue(shouldUpdateConnected(current = false, next = true))
+    }
+
+    @Test
+    fun `a connected-state change from connected to disconnected should update`() {
+        assertTrue(shouldUpdateConnected(current = true, next = false))
+    }
+
+    @Test
+    fun `a redundant connected-state call should not update`() {
+        assertFalse(shouldUpdateConnected(current = true, next = true))
+        assertFalse(shouldUpdateConnected(current = false, next = false))
+    }
 }
