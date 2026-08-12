@@ -3,6 +3,14 @@ $ErrorActionPreference = 'Stop'
 $protected = @('main', 'dev', 'master', 'develop')
 $protectedPattern = '(?:main|dev|master|develop)'
 $gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--namespace=\S+|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*'
+# A valid shell segment may open with one or more environment-assignment
+# words (NAME=value ...) before the actual command - e.g. 'X=1 git commit'
+# still invokes git. Every start-of-segment anchor below ('(?:^|[;&|]\s*)'
+# immediately followed by 'git'/$gitPrefixPattern) must skip these first,
+# mirroring the assignment-word handling already added to the .sh fallback
+# (protect-agent-git-command.sh), or the anchor never lines up with the
+# literal 'git' token and the whole segment is treated as a non-git command.
+$asgnPrefixPattern = '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
@@ -80,7 +88,15 @@ function Get-GitTargetPath {
         # Token pattern keeps a quoted run glued to its token, so both
         # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive.
         $tokens = @([regex]::Matches($segment.Trim(), '(?:[^\s"'']+|"[^"]*"|''[^'']*'')+') | ForEach-Object { $_.Value })
-        if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { continue }
+        # Skip leading POSIX assignment-word tokens (NAME=value) before
+        # looking for the git token itself - see $asgnPrefixPattern above.
+        # 'X=1 git -C /protected commit' must still resolve /protected as
+        # the target, not be discarded as a non-git segment.
+        $cmdIndex = 0
+        while ($cmdIndex -lt $tokens.Count -and $tokens[$cmdIndex] -match '^[A-Za-z_][A-Za-z0-9_]*=') {
+            $cmdIndex++
+        }
+        if ($cmdIndex -ge $tokens.Count -or $tokens[$cmdIndex] -ne 'git') { continue }
 
         $target = $null
         $targetKind = 'cwd'
@@ -95,7 +111,7 @@ function Get-GitTargetPath {
         # whatever -C has established so far, but never becomes the base for
         # a later -C itself).
         $effectiveDir = $FallbackPath
-        for ($i = 1; $i -lt $tokens.Count; $i++) {
+        for ($i = $cmdIndex + 1; $i -lt $tokens.Count; $i++) {
             $token = $tokens[$i]
             if (-not $token.StartsWith('-')) { break }
 
@@ -154,10 +170,23 @@ function Get-GitTargetPath {
         })
     }
 
-    # No git segment, or several different targets in one command line: fall
-    # back to the session repo. Ambiguity must never widen what is allowed.
+    # No git segment: fall back to the session repo - there is nothing to be
+    # ambiguous about. Several DIFFERENT targets in one command line (e.g.
+    # 'git -C /protected commit && git status' where cwd is an unprotected
+    # repo) is a distinct case: silently falling back to the session repo
+    # here would judge every segment - including the '-C /protected' commit -
+    # by the unprotected repo's branch state, letting the real mutation slip
+    # through ungated. Ambiguity must never widen what is allowed, so mark it
+    # unresolvable ('ambiguous') instead of picking either target; the caller
+    # denies the whole command rather than guessing which one applies. A full
+    # per-segment evaluation (resolving and checking each target on its own)
+    # would be more precise but requires re-deriving $branch per mutating
+    # occurrence below instead of once globally - a materially larger change
+    # to this security-critical gate. Blocking the rare mixed-repository
+    # compound command outright is the safer minimal fix here.
     $distinctPaths = @($targets | Select-Object -ExpandProperty Path -Unique)
     if ($distinctPaths.Count -eq 1) { return $targets[-1] }
+    if ($distinctPaths.Count -gt 1) { return [pscustomobject]@{ Path = $FallbackPath; Kind = 'ambiguous' } }
     return [pscustomobject]@{ Path = $FallbackPath; Kind = 'cwd' }
 }
 
@@ -203,6 +232,22 @@ function Resolve-GitRepoState {
 }
 
 $evalTarget = Get-GitTargetPath -NormalizedCommand $normalized -FallbackPath $cwd
+
+# A compound command whose git segments resolve to more than one distinct
+# repository cannot be safely judged by any single target's branch state -
+# see the comment in Get-GitTargetPath. Deny outright rather than falling
+# back to one of them.
+if ($evalTarget.Kind -eq 'ambiguous') {
+    [ordered]@{
+        hookSpecificOutput = [ordered]@{
+            hookEventName = 'PreToolUse'
+            permissionDecision = 'deny'
+            permissionDecisionReason = 'Command contains multiple git segments that target different repositories (e.g. via -C/--git-dir); refusing to evaluate an ambiguous multi-repository command instead of guessing which target applies.'
+        }
+    } | ConvertTo-Json -Depth 5 -Compress
+    exit 0
+}
+
 $evalPath = $evalTarget.Path
 $state = Resolve-GitRepoState -Path $evalPath -Kind $evalTarget.Kind
 
@@ -224,13 +269,13 @@ if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (J
     exit 0
 }
 
-$switchPattern = "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)([^\s;&|]+)"
+$switchPattern = "(?i)(?:^|[;&|]\s*)$asgnPrefixPattern$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)([^\s;&|]+)"
 
 $reason = $null
-if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
+if ($normalized -match "(?i)(^|[;&|]\s*)${asgnPrefixPattern}git\s+") {
     # Commit: evaluate branch state at each commit occurrence independently so a
     # switch AFTER a reset (but before the commit) is correctly accounted for.
-    foreach ($cm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+commit\b")) {
+    foreach ($cm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$asgnPrefixPattern$gitPrefixPattern\s+commit\b")) {
         $eff = $branch
         foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
             if ($sm.Index -ge $cm.Index) { break }
@@ -244,7 +289,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     }
 
     if (-not $reason -and $normalized -match "(?i)$gitPrefixPattern\s+push\b") {
-        $pushMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+push\b")
+        $pushMatch = [regex]::Match($normalized, "(?i)(?:^|[;&|]\s*)$asgnPrefixPattern$gitPrefixPattern\s+push\b")
         $eff = $branch
         if ($pushMatch.Success) {
             foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
@@ -327,7 +372,7 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
     # reset does not falsely trigger on an earlier soft reset. Strip quotes from
     # switch targets so git switch "main" does not bypass the protected check.
     if (-not $reason) {
-        foreach ($rm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b")) {
+        foreach ($rm in [regex]::Matches($normalized, "(?i)(?:^|[;&|]\s*)$asgnPrefixPattern$gitPrefixPattern\s+reset\b")) {
             $eff = $branch
             foreach ($sm in [regex]::Matches($normalized, $switchPattern)) {
                 if ($sm.Index -ge $rm.Index) { break }
