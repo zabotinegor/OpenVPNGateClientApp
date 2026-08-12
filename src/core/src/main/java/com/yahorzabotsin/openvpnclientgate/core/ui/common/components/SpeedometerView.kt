@@ -76,7 +76,28 @@ class SpeedometerView @JvmOverloads constructor(
         // reference gauge.
         private const val ARC_WIDTH_RATIO = 0.125f
         private const val LABEL_RADIUS_RATIO = 0.61f
-        private const val NEEDLE_OUTER_RADIUS_RATIO = 0.66f
+
+        /**
+         * Kept well clear of [LABEL_RADIUS_RATIO] so the needle's tip never enters any scale
+         * label's legibility halo (see [labelHaloRadius]) - previously it did, at every stop the
+         * needle passed through, which read as the halo biting a concave notch out of the wedge.
+         *
+         * The binding constraint is the *widest* label, "1000" (4 digits, the most characters of
+         * any [SCALE_STOPS] entry), not the narrowest ("0"): at [LABEL_TEXT_SIZE_RATIO], "1000"
+         * measures roughly `0.194 * outerRadius` wide by `0.0996 * outerRadius` tall, giving a
+         * halo radius of `hypot(0.194, 0.0996) / 2 + 0.018 ~= 0.127 * outerRadius`
+         * ([LABEL_HALO_PADDING_RATIO] padding included). Every label sits at the same
+         * [LABEL_RADIUS_RATIO] (0.61) center, so a *larger* halo radius pushes that label's
+         * *inner* edge - the closest point of any halo to the dial's center - further in:
+         * `0.61 - 0.127 ~= 0.483 * outerRadius`. That is the smallest inner edge of all 9 stops
+         * (narrower labels have smaller halos and a correspondingly larger, less constraining
+         * inner edge), so it is what this ratio must clear, not the "0" label's own `~0.537`.
+         *
+         * `0.45` leaves `0.483 - 0.45 = 0.033 * outerRadius` (~3 % of the dial radius) of margin
+         * beyond that bare minimum, so the needle still clears every halo if font metrics shift
+         * slightly across devices, densities, or locales.
+         */
+        private const val NEEDLE_OUTER_RADIUS_RATIO = 0.45f
         private const val NEEDLE_INNER_RADIUS_RATIO = 0.09f
         private const val NEEDLE_OUTER_HALF_WIDTH_RATIO = 0.030f
         private const val NEEDLE_INNER_HALF_WIDTH_RATIO = 0.013f
@@ -160,15 +181,17 @@ class SpeedometerView @JvmOverloads constructor(
             if (value.isFinite() && value >= 0.0) value.toFloat() else 0f
 
         /**
-         * Whether [onDraw] should draw the needle at all: only while a connection is active or
-         * being attempted. At rest the needle idles on the "0" tick, and
-         * `NEEDLE_OUTER_RADIUS_RATIO` (0.66) sits further out than `LABEL_RADIUS_RATIO` (0.61), so
-         * the wedge would otherwise overlap that label every time the dial is disconnected.
-         * Extracted as a pure seam so the gating decision is unit-testable without constructing
-         * the View (see [SpeedometerView] class doc for why the View itself cannot be constructed
-         * in these JVM tests).
+         * Whether the needle should be shown for a given connection [state]: everywhere except
+         * `DISCONNECTED` - i.e. while a connection is being attempted, is active, or is being
+         * torn down (`CONNECTING`, `CONNECTED`, `PAUSING`, `PAUSED`, `DISCONNECTING`). At rest
+         * (`DISCONNECTED`) the needle idles on the "0" tick and there is nothing for it to point
+         * to, so it is skipped entirely rather than just made invisible.
+         *
+         * This is the only real decision behind [setConnected]/`isConnected`; extracted as a pure
+         * seam so it is unit-testable without constructing the View (see [SpeedometerView] class
+         * doc for why the View itself cannot be constructed in these JVM tests).
          */
-        fun shouldDrawNeedle(connected: Boolean): Boolean = connected
+        fun shouldShowNeedle(state: ConnectionState): Boolean = state != ConnectionState.DISCONNECTED
 
         /**
          * Whether [setConnected] should update state and invalidate: only when [next] actually
@@ -263,15 +286,16 @@ class SpeedometerView @JvmOverloads constructor(
     }
 
     // Legibility backing painted behind each scale label before its text (see
-    // SpeedometerView.Companion.labelHaloRadius). Flat faceCenterColor rather than facePaint's
-    // RadialGradient shader: at LABEL_RADIUS_RATIO (0.61 * outerRadius) the face gradient is still
-    // inside its flat center segment - it only starts blending toward faceEdgeColor at 0.78 of its
-    // own radius, which is (outerRadius - arcWidth) * 0.78 = 0.6825 * outerRadius, further out than
-    // the label radius - so a solid faceCenterColor fill is an exact match for what is actually
-    // behind the labels, not an approximation.
+    // SpeedometerView.Companion.labelHaloRadius). Shares facePaint's RadialGradient shader
+    // (assigned below, in onSizeChanged) rather than approximating it with a flat color: a flat
+    // faceCenterColor fill is only exact for labels whose halo stays inside the gradient's flat
+    // center segment (out to 0.78 * (outerRadius - arcWidth) = 0.6825 * outerRadius), and the
+    // wider labels' halos ("1000", "750", "500") reach past that into the blend zone, leaving a
+    // faint hard-edged ring where the halo meets the real face. Reusing the same shader object -
+    // drawScaleLabels runs with no canvas transform, so its coordinate space matches facePaint's
+    // exactly - makes the halo reproduce the face's color at every radius instead.
     private val labelHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = faceCenterColor
     }
     private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
@@ -295,6 +319,14 @@ class SpeedometerView @JvmOverloads constructor(
     private val progressShaderMatrix = Matrix()
     private var needleGradient: LinearGradient? = null
 
+    // Scale label text and halo radius per SCALE_STOPS entry, recomputed in
+    // recomputeScaleLabelCache (called from onSizeChanged and setMaxMbps) instead of drawScaleLabels:
+    // both formatScaleStop and labelPaint.measureText are onSizeChanged/maxMbps-scoped, not
+    // per-frame, so recomputing them on every onDraw (as before) was measureText/String.format
+    // churn on every animated frame for no reason - the values never changed between calls.
+    private val scaleLabelTexts = Array(SCALE_STOPS.size) { "" }
+    private val scaleLabelHaloRadii = FloatArray(SCALE_STOPS.size)
+
     private var centerX = 0f
     private var centerY = 0f
     private var outerRadius = 0f
@@ -310,9 +342,12 @@ class SpeedometerView @JvmOverloads constructor(
     private var maxMbps: Float = DEFAULT_MAX_MBPS
     private var animator: ValueAnimator? = null
 
-    // The needle only makes sense while the VPN is attempting/holding a connection: at rest its
-    // wedge idles on the "0" label (NEEDLE_OUTER_RADIUS_RATIO > LABEL_RADIUS_RATIO, so the tip
-    // geometrically overlaps whatever label it points at) and there is nothing for it to point to.
+    // The needle only makes sense while the VPN is attempting, holding, or tearing down a
+    // connection - i.e. state != DISCONNECTED (see shouldShowNeedle), which covers CONNECTING,
+    // CONNECTED, PAUSING, PAUSED and DISCONNECTING, not just CONNECTED. At rest (DISCONNECTED)
+    // there is nothing for the needle to point to, so it is skipped entirely. This is a UX
+    // choice, not a geometry workaround: NEEDLE_OUTER_RADIUS_RATIO already stays clear of every
+    // label's legibility halo, so the wedge would no longer overlap the "0" label even if shown.
     private var isConnected: Boolean = false
 
     init {
@@ -341,7 +376,25 @@ class SpeedometerView @JvmOverloads constructor(
     fun setMaxMbps(max: Float) {
         maxMbps = resolveMaxMbps(max)
         shaderSweep = -1f
+        recomputeScaleLabelCache()
         invalidate()
+    }
+
+    /**
+     * Rebuilds [scaleLabelTexts] and [scaleLabelHaloRadii] for the current [maxMbps] and label
+     * text metrics. Called from [onSizeChanged] and [setMaxMbps] - the only two places either
+     * input changes - so [drawScaleLabels] can read the cached arrays instead of recomputing them
+     * on every frame.
+     */
+    private fun recomputeScaleLabelCache() {
+        val scale = maxMbps / SCALE_STOPS.last()
+        val textHeight = labelFontMetrics.descent - labelFontMetrics.ascent
+        for (index in SCALE_STOPS.indices) {
+            val text = formatScaleStop(SCALE_STOPS[index] * scale)
+            scaleLabelTexts[index] = text
+            scaleLabelHaloRadii[index] =
+                labelHaloRadius(labelPaint.measureText(text), textHeight, labelHaloPadding)
+        }
     }
 
     /**
@@ -364,7 +417,7 @@ class SpeedometerView @JvmOverloads constructor(
                 ) { speed, state -> speed to state }
                     .collect { (speed, state) ->
                         setSpeedMbps(speed)
-                        setConnected(state != ConnectionState.DISCONNECTED)
+                        setConnected(shouldShowNeedle(state))
                     }
             }
         }
@@ -418,6 +471,9 @@ class SpeedometerView @JvmOverloads constructor(
         labelPaint.getFontMetrics(labelFontMetrics)
         valuePaint.getFontMetrics(valueFontMetrics)
         unitPaint.getFontMetrics(unitFontMetrics)
+        // Depends on labelPaint.textSize, labelFontMetrics and labelHaloPadding, all just set
+        // above - must run after them.
+        recomputeScaleLabelCache()
         needlePaint.pathEffect = CornerPathEffect(
             outerRadius * NEEDLE_OUTER_HALF_WIDTH_RATIO * NEEDLE_CORNER_RATIO,
         )
@@ -429,6 +485,9 @@ class SpeedometerView @JvmOverloads constructor(
             floatArrayOf(0f, 0.78f, 1f),
             Shader.TileMode.CLAMP,
         )
+        // Same shader instance as facePaint (see labelHaloPaint's doc): drawScaleLabels draws in
+        // the same untransformed coordinate space, so this reproduces the face exactly.
+        labelHaloPaint.shader = facePaint.shader
         val needleInnerRadius = outerRadius * NEEDLE_INNER_RADIUS_RATIO
         val needleTipRadius = outerRadius * NEEDLE_OUTER_RADIUS_RATIO
         needleGradient = LinearGradient(
@@ -450,13 +509,17 @@ class SpeedometerView @JvmOverloads constructor(
         canvas.drawCircle(centerX, centerY, (outerRadius - arcWidth).coerceAtLeast(1f), facePaint)
         canvas.drawArc(arcBounds, ARC_START_ANGLE, ARC_SWEEP_DEGREES, false, trackPaint)
         drawProgress(canvas, sweep)
-        // The needle only has meaning while the VPN is attempting/holding a connection; at rest
-        // it is skipped entirely (not just made invisible) so it can't collide with the "0" label.
-        if (shouldDrawNeedle(isConnected)) {
+        // The needle only has meaning while the VPN is attempting/holding/tearing down a
+        // connection (state != DISCONNECTED; see shouldShowNeedle), so it is skipped entirely at
+        // rest rather than just made invisible.
+        if (isConnected) {
             drawNeedle(canvas, sweep)
         }
-        // Labels last: at a reading that lands on a scale stop the needle would otherwise cover
-        // that stop's label, and the number matters more than the last few pixels of the wedge.
+        // Labels last. This used to matter for overlap - a reading that landed on a scale stop
+        // let the needle cover that stop's label - but NEEDLE_OUTER_RADIUS_RATIO now stays clear
+        // of every label's legibility halo (see its KDoc), so the needle and the label ring never
+        // occupy the same pixels; drawn last purely so labels sit visually on top of everything
+        // else on the face.
         drawScaleLabels(canvas, sweep)
         drawReadout(canvas)
     }
@@ -504,28 +567,23 @@ class SpeedometerView @JvmOverloads constructor(
     }
 
     private fun drawScaleLabels(canvas: Canvas, sweep: Float) {
-        val scale = maxMbps / SCALE_STOPS.last()
         val radius = outerRadius * LABEL_RADIUS_RATIO
         val baselineOffset = -(labelFontMetrics.ascent + labelFontMetrics.descent) / 2f
-        val textHeight = labelFontMetrics.descent - labelFontMetrics.ascent
         val segments = SCALE_STOPS.size - 1
         val lastActive = lastActiveStopIndex(sweep)
         for (index in SCALE_STOPS.indices) {
             val stopSweep = ARC_SWEEP_DEGREES * index / segments
             val radians = Math.toRadians((ARC_START_ANGLE + stopSweep).toDouble())
-            val text = formatScaleStop(SCALE_STOPS[index] * scale)
+            val text = scaleLabelTexts[index]
             val labelX = centerX + radius * cos(radians).toFloat()
             val labelY = centerY + radius * sin(radians).toFloat()
 
             // Legibility halo first: whatever was drawn earlier (the needle, chiefly) must not
             // show through a hollow digit's counter once the text is painted on top - see
-            // labelHaloRadius's doc for why drawText alone can't guarantee that.
-            canvas.drawCircle(
-                labelX,
-                labelY,
-                labelHaloRadius(labelPaint.measureText(text), textHeight, labelHaloPadding),
-                labelHaloPaint,
-            )
+            // labelHaloRadius's doc for why drawText alone can't guarantee that. Text and halo
+            // radius come from scaleLabelTexts/scaleLabelHaloRadii (see recomputeScaleLabelCache)
+            // rather than being recomputed here every frame.
+            canvas.drawCircle(labelX, labelY, scaleLabelHaloRadii[index], labelHaloPaint)
 
             labelPaint.color = if (index <= lastActive) labelActiveColor else labelInactiveColor
             canvas.drawText(text, labelX, labelY + baselineOffset, labelPaint)

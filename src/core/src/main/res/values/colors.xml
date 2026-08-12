@@ -39,14 +39,14 @@
     <color name="speedometer_label_active_color">@color/text_color_primary</color>
     <color name="speedometer_label_inactive_color">#6F7E90</color>
     <!-- Needle: tapered wedge shaded along its length, wide end at the rim. Inner (hub-side)
-         stop narrowed from #C4CDDA: that tone measured ~1.24:1 contrast against
-         speedometer_track_color and ~1.6:1 against speedometer_face_center_color - both far
-         below the ~3:1 WCAG non-text minimum - so the needle's hub half visually disappeared
-         wherever it crossed the track/face in light theme (reported as "gray on gray" even
-         while connected). #66738A measures ~3.7:1 against the track and ~4.8:1 against the
-         white face center, in the same range as the ~4.5:1/~5.8:1 the outer stop already
-         achieves, so the wedge now reads as solid along its full length while keeping a slight
-         taper towards the rim. -->
+         stop narrowed from #C4CDDA: that tone measured ~1.6:1 contrast against
+         speedometer_face_center_color, far below the ~3:1 WCAG non-text minimum, so the needle's
+         hub half visually disappeared against the face in light theme (reported as "gray on
+         gray" even while connected). #66738A measures ~4.8:1 against the white face center, in
+         the same range as the ~5.8:1 the outer stop already achieves, so the wedge now reads as
+         solid along its full length while keeping a slight taper towards the rim. (The needle's
+         radius range, 0.09-0.45 * outerRadius, never reaches the track band at
+         0.875-1.0 * outerRadius, so a track-color comparison doesn't apply here.) -->
     <color name="speedometer_needle_outer_color">#59667A</color>
     <color name="speedometer_needle_inner_color">#66738A</color>
     <!-- Value readout inside the dial and the unit caption under it. -->

@@ -9,9 +9,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.lastActiveStopIndex
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveMaxMbps
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveSpeed
-import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldDrawNeedle
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldShowNeedle
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldUpdateConnected
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlin.math.hypot
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -292,16 +293,38 @@ class SpeedometerViewTest {
         assertEquals(5f, withPadding - noPadding, tolerance)
     }
 
-    // --------------- shouldDrawNeedle ---------------
+    // --------------- shouldShowNeedle ---------------
+    // Truth table over all six ConnectionState values (the spec in .sdlc/status.json names each
+    // one explicitly): only DISCONNECTED hides the needle.
 
     @Test
     fun `the needle is hidden while disconnected`() {
-        assertFalse(shouldDrawNeedle(connected = false))
+        assertFalse(shouldShowNeedle(ConnectionState.DISCONNECTED))
     }
 
     @Test
-    fun `the needle is shown while connected or connecting`() {
-        assertTrue(shouldDrawNeedle(connected = true))
+    fun `the needle is shown while connecting`() {
+        assertTrue(shouldShowNeedle(ConnectionState.CONNECTING))
+    }
+
+    @Test
+    fun `the needle is shown while connected`() {
+        assertTrue(shouldShowNeedle(ConnectionState.CONNECTED))
+    }
+
+    @Test
+    fun `the needle is shown while pausing`() {
+        assertTrue(shouldShowNeedle(ConnectionState.PAUSING))
+    }
+
+    @Test
+    fun `the needle is shown while paused`() {
+        assertTrue(shouldShowNeedle(ConnectionState.PAUSED))
+    }
+
+    @Test
+    fun `the needle is shown while disconnecting`() {
+        assertTrue(shouldShowNeedle(ConnectionState.DISCONNECTING))
     }
 
     // --------------- shouldUpdateConnected ---------------
