@@ -48,7 +48,16 @@ function Get-GitTargetPath {
     $pathFlags = @('-C', '--git-dir', '--work-tree')
     $valueFlags = @('-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env')
 
-    $targets = New-Object System.Collections.Generic.List[string]
+    # Each entry tracks not just the resolved path but which option supplied it
+    # ('-C', '--git-dir', '--work-tree', or 'cwd' when no flag was present).
+    # -C and --work-tree both name an ordinary working-tree directory, but
+    # --git-dir names the '.git' metadata directory itself - 'git -C <that
+    # path> rev-parse --show-toplevel' fails there because a bare '.git'
+    # directory has no work tree, and treating that failure as "unresolvable"
+    # previously discarded the target entirely and fell back to evaluating the
+    # command's own cwd. The Kind lets the resolver below query each option
+    # with matching Git semantics instead of a uniform -C-style query.
+    $targets = New-Object System.Collections.Generic.List[object]
     foreach ($segment in ($NormalizedCommand -split '[;&|]+')) {
         # Token pattern keeps a quoted run glued to its token, so both
         # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive.
@@ -56,6 +65,7 @@ function Get-GitTargetPath {
         if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { continue }
 
         $target = $null
+        $targetKind = 'cwd'
         for ($i = 1; $i -lt $tokens.Count; $i++) {
             $token = $tokens[$i]
             if (-not $token.StartsWith('-')) { break }
@@ -78,13 +88,16 @@ function Get-GitTargetPath {
                     # command's own cwd ($FallbackPath, from the payload), not to this
                     # hook subprocess's cwd (fixed to the repo root by
                     # protected-branches.json's "cwd": "."). Resolve it against
-                    # $FallbackPath before use, or 'git -C $Path ...' below evaluates
+                    # $FallbackPath before use, or the resolver below evaluates
                     # the wrong repository entirely. An already-absolute target is
                     # left unchanged.
                     if (-not [System.IO.Path]::IsPathRooted($clean) -and -not [string]::IsNullOrWhiteSpace($FallbackPath)) {
                         $clean = [System.IO.Path]::GetFullPath((Join-Path $FallbackPath $clean))
                     }
                     $target = $clean
+                    # Last -C/--git-dir/--work-tree flag wins, matching Git's own
+                    # last-flag-wins option parsing.
+                    $targetKind = $name
                 }
             }
             elseif ($null -eq $inlineValue -and $valueFlags -ccontains $name) {
@@ -92,26 +105,50 @@ function Get-GitTargetPath {
             }
         }
 
-        $targets.Add($(if ($target) { $target } else { $FallbackPath }))
+        $targets.Add([pscustomobject]@{
+            Path = $(if ($target) { $target } else { $FallbackPath })
+            Kind = $(if ($target) { $targetKind } else { 'cwd' })
+        })
     }
 
     # No git segment, or several different targets in one command line: fall
     # back to the session repo. Ambiguity must never widen what is allowed.
-    $distinct = @($targets | Select-Object -Unique)
-    if ($distinct.Count -eq 1) { return $distinct[0] }
-    return $FallbackPath
+    $distinctPaths = @($targets | Select-Object -ExpandProperty Path -Unique)
+    if ($distinctPaths.Count -eq 1) { return $targets[-1] }
+    return [pscustomobject]@{ Path = $FallbackPath; Kind = 'cwd' }
 }
 
 function Resolve-GitRepoState {
-    param([string]$Path)
+    param([string]$Path, [string]$Kind = '-C')
 
     $root = ''
     $head = ''
     $previousEap = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $root = ((git -C $Path rev-parse --show-toplevel 2>$null) | Out-String).Trim()
-        $head = ((git -C $Path branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
+        if ($Kind -eq '--git-dir') {
+            # --git-dir alone names the repository's metadata directory, not a
+            # work tree, so 'rev-parse --show-toplevel' has nothing to report
+            # there. Query with the matching '--git-dir=' option instead of
+            # '-C': ref-only queries like 'branch --show-current' only read
+            # HEAD and succeed regardless of a work tree. Derive Root the same
+            # way Git itself does when --work-tree/core.worktree is absent -
+            # the parent of a directory literally named '.git'. A target that
+            # is not named '.git' is a bare repository with no working tree to
+            # hold the '.copilottools-source' exemption marker in, so Root
+            # stays empty on purpose (fail-safe: no exemption without a
+            # resolvable working tree).
+            $head = ((git --git-dir=$Path branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
+            $gitDirName = Split-Path -Leaf $Path
+            if ($gitDirName -eq '.git') {
+                $root = Split-Path -Parent $Path
+            }
+        }
+        else {
+            # -C and --work-tree both name an ordinary working-tree directory.
+            $root = ((git -C $Path rev-parse --show-toplevel 2>$null) | Out-String).Trim()
+            $head = ((git -C $Path branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
+        }
     }
     finally {
         $ErrorActionPreference = $previousEap
@@ -120,14 +157,18 @@ function Resolve-GitRepoState {
     return [pscustomobject]@{ Root = $root; Branch = $head }
 }
 
-$evalPath = Get-GitTargetPath -NormalizedCommand $normalized -FallbackPath $cwd
-$state = Resolve-GitRepoState -Path $evalPath
+$evalTarget = Get-GitTargetPath -NormalizedCommand $normalized -FallbackPath $cwd
+$evalPath = $evalTarget.Path
+$state = Resolve-GitRepoState -Path $evalPath -Kind $evalTarget.Kind
 
-# An unresolvable -C path must not become an escape hatch. Fall back to the
-# session repo and keep evaluating rather than sailing through with no branch.
-if ([string]::IsNullOrWhiteSpace($state.Root) -and $evalPath -ne $cwd) {
+# An unresolvable target must not become an escape hatch. Branch is the signal
+# that matters here (it drives every protected-branch check below); Root only
+# gates the exemption lookup and is allowed to stay empty (see --git-dir case
+# above). Fall back to the session repo, and keep evaluating, only when the
+# target could not even tell us its branch.
+if ([string]::IsNullOrWhiteSpace($state.Branch) -and $evalPath -ne $cwd) {
     $evalPath = $cwd
-    $state = Resolve-GitRepoState -Path $evalPath
+    $state = Resolve-GitRepoState -Path $evalPath -Kind '-C'
 }
 
 $repoRoot = $state.Root

@@ -690,6 +690,12 @@ finally {
     $ErrorActionPreference = $previousEap
 }
 
+# Branches whose index must never be mutated by this script, matching the
+# protected-branch list used by protect-agent-git-command.ps1.
+$protectedSyncBranches = @('main', 'dev', 'master', 'develop')
+$isTargetOnProtectedBranch = -not [string]::IsNullOrWhiteSpace($targetBranch) -and
+    ($protectedSyncBranches -contains $targetBranch.ToLowerInvariant())
+
 if (-not $DryRun) {
     if (-not $targetIsGitWorktree) {
         throw 'Target must be a Git worktree before applying synchronized agent assets.'
@@ -701,6 +707,11 @@ if (-not $DryRun) {
     # working-tree files and never commits, stages, or pushes (see agent-sync
     # SKILL.md), so it must apply on whatever branch is currently checked out
     # -- including main/dev -- rather than forcing a branch switch or creation.
+    # The one exception is the "untrack gitignored files" cleanup below (git rm
+    # --cached), which is the sole step in this script that mutates the index.
+    # It is skipped on a protected branch ($isTargetOnProtectedBranch) so the
+    # "never stages anything" claim above stays true there too - see that
+    # block for details.
 }
 
 $normalizedMergeJsonPaths = @(
@@ -892,7 +903,22 @@ try {
     # Untrack any synced files that git is still tracking despite being gitignored.
     # git rm --cached removes from the index only; the file stays on disk.
     # This prevents synced scripts from appearing as modified in git clients (Fork, VS Code).
-    if (-not $DryRun) {
+    #
+    # This is the only index mutation in the whole script (everything else above
+    # only writes gitignored working-tree files), so it is skipped entirely on a
+    # protected branch: staging a deletion for a file that was previously
+    # committed there - or clobbering whatever the user/another agent already
+    # staged for it - directly on main/dev is exactly the kind of surprise the
+    # "never stages" contract above promises will not happen. The file stays
+    # tracked (and correctly gitignored going forward) until the branch is
+    # switched to a feature branch, where this cleanup then applies normally.
+    if ($DryRun) {
+        # No index mutation to report in dry-run mode; unchanged from before.
+    }
+    elseif ($isTargetOnProtectedBranch) {
+        Write-Host "  Skipped untracking gitignored files from git index: target branch '$targetBranch' is protected - git rm --cached must not run there."
+    }
+    else {
         $untrackedCount = 0
         foreach ($relativePath in $sourceFiles.Keys) {
             $isExcluded = (@($ExcludeGitignorePattern | Where-Object { $relativePath -match [regex]::Escape($_) }).Count -gt 0)
