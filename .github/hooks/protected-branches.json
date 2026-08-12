@@ -6,7 +6,7 @@
         "type": "command",
         "matcher": "bash|powershell",
         "bash": "sh .github/scripts/protect-agent-git-command.sh",
-        "powershell": "pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1",
+        "powershell": "cmd /c .github/scripts/protect-agent-git-command.cmd",
         "cwd": ".",
         "timeoutSec": 10
       }

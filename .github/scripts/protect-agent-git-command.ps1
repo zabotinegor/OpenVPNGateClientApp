@@ -33,11 +33,15 @@ $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$p
 $normalized = ($command -replace '\s+', ' ').Trim()
 
 # A command can act on a repository other than the session's own via
-# 'git -C <path>' (--git-dir/--work-tree likewise). Judging it by the session
-# cwd is wrong in both directions: it reads the wrong branch, and it never
-# applies the target repo's '.copilottools-source' exemption - which is what
-# denied a CopilotTools push issued from a client-repo session. Resolve the
+# 'git -C <path>' (--git-dir likewise). Judging it by the session cwd is
+# wrong in both directions: it reads the wrong branch, and it never applies
+# the target repo's '.copilottools-source' exemption - which is what denied
+# a CopilotTools push issued from a client-repo session. Resolve the
 # repository the command actually targets.
+#
+# --work-tree is NOT one of these redirecting options - see the $pathFlags
+# comment in Get-GitTargetPath below for why it must stay out of this
+# resolution entirely.
 function Get-GitTargetPath {
     param([string]$NormalizedCommand, [string]$FallbackPath)
 
@@ -45,18 +49,32 @@ function Get-GitTargetPath {
     # A plain search would also hit subcommand flags that reuse the letter -
     # 'git commit -C HEAD~1' reuses a commit message, it does not change repo.
     # Comparisons are case-sensitive on purpose: -c (config) is not -C (path).
-    $pathFlags = @('-C', '--git-dir', '--work-tree')
+    #
+    # '--work-tree' is deliberately NOT in $pathFlags. Git does not use
+    # --work-tree to pick the repository: per git(1), it only "sets the path
+    # to the working tree" for file operations. The repository (and therefore
+    # the branch this guard cares about) still comes from the invocation cwd,
+    # or from --git-dir when given. Treating --work-tree like -C let
+    # 'git --work-tree=<unprotected dir> commit', run from a protected
+    # checkout's cwd, get judged against the unprotected work-tree path while
+    # actually committing to the protected repo - the guard would wave
+    # through exactly the commit it exists to block. --work-tree still needs
+    # to be recognized as a value-taking flag below (so its value is not
+    # mistaken for the start of the next flag), it just must never set the
+    # resolved target.
+    $pathFlags = @('-C', '--git-dir')
     $valueFlags = @('-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env')
 
     # Each entry tracks not just the resolved path but which option supplied it
-    # ('-C', '--git-dir', '--work-tree', or 'cwd' when no flag was present).
-    # -C and --work-tree both name an ordinary working-tree directory, but
-    # --git-dir names the '.git' metadata directory itself - 'git -C <that
-    # path> rev-parse --show-toplevel' fails there because a bare '.git'
-    # directory has no work tree, and treating that failure as "unresolvable"
-    # previously discarded the target entirely and fell back to evaluating the
-    # command's own cwd. The Kind lets the resolver below query each option
-    # with matching Git semantics instead of a uniform -C-style query.
+    # ('-C', '--git-dir', or 'cwd' when no flag was present, including when
+    # --work-tree was the only flag present - it is parsed and skipped, but
+    # never becomes the target). --git-dir names the '.git' metadata
+    # directory itself - 'git -C <that path> rev-parse --show-toplevel' fails
+    # there because a bare '.git' directory has no work tree, and treating
+    # that failure as "unresolvable" previously discarded the target entirely
+    # and fell back to evaluating the command's own cwd. The Kind lets the
+    # resolver below query each option with matching Git semantics instead of
+    # a uniform -C-style query.
     $targets = New-Object System.Collections.Generic.List[object]
     foreach ($segment in ($NormalizedCommand -split '[;&|]+')) {
         # Token pattern keeps a quoted run glued to its token, so both
@@ -95,8 +113,11 @@ function Get-GitTargetPath {
                         $clean = [System.IO.Path]::GetFullPath((Join-Path $FallbackPath $clean))
                     }
                     $target = $clean
-                    # Last -C/--git-dir/--work-tree flag wins, matching Git's own
-                    # last-flag-wins option parsing.
+                    # Last -C/--git-dir flag wins, matching Git's own
+                    # last-flag-wins option parsing. --work-tree never reaches
+                    # here (it is not in $pathFlags), so it cannot overwrite
+                    # a target that -C or --git-dir already set, and it never
+                    # supplies one on its own.
                     $targetKind = $name
                 }
             }
@@ -145,7 +166,9 @@ function Resolve-GitRepoState {
             }
         }
         else {
-            # -C and --work-tree both name an ordinary working-tree directory.
+            # -C names an ordinary working-tree directory. ($Kind is never
+            # '--work-tree' here - see the $pathFlags note above - so this
+            # branch only ever runs for '-C' or the 'cwd' fallback.)
             $root = ((git -C $Path rev-parse --show-toplevel 2>$null) | Out-String).Trim()
             $head = ((git -C $Path branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
         }
