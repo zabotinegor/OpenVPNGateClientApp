@@ -25,4 +25,17 @@ if command -v pwsh >/dev/null 2>&1; then
     exec pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1
 fi
 
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: pwsh (PowerShell 7+) was not found on PATH, so the protected-branch guard cannot run on this host. Install pwsh (https://aka.ms/install-powershell) before running git commands here - refusing to allow this command ungated rather than letting it through unguarded."}}'
+# Without pwsh, the full guard (branch resolution, -C/--git-dir target
+# parsing, force-push detection, etc.) cannot run here. Denying every Bash
+# command in that case - not just Git mutations - blocks the exact thing
+# this fallback exists to support: agents inspecting files and running tests
+# on a Bash-only host. This guard only ever exists to gate `git`, so read
+# the raw hook payload and fail closed solely when it looks like a `git`
+# invocation; every other command passes through untouched.
+payload="$(cat)"
+if ! printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_])git([^A-Za-z0-9_]|$)'; then
+    printf '%s\n' '{}'
+    exit 0
+fi
+
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: pwsh (PowerShell 7+) was not found on PATH, so the protected-branch guard cannot verify this git command on this host. Install pwsh (https://aka.ms/install-powershell) before running git commands here - refusing to allow this command ungated rather than letting it through unguarded."}}'

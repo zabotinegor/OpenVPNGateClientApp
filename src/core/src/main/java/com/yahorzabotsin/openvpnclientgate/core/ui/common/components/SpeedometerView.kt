@@ -119,8 +119,9 @@ class SpeedometerView @JvmOverloads constructor(
         private const val LABEL_HALO_PADDING_RATIO = 0.018f
 
         // The dial spans one outer radius above its center and 0.84 below it (the unit caption
-        // sits lower than the arc's endpoints, which only reach 0.588).
-        private const val VERTICAL_EXTENT_RATIO = 1.84f
+        // sits lower than the arc's endpoints, which only reach 0.588). Internal (not private) so
+        // SpeedometerViewTest can assert computeGeometry's vertical placement precisely.
+        internal const val VERTICAL_EXTENT_RATIO = 1.84f
 
         // Halo passes drawn under the fill, widest and faintest first. Cheaper than a
         // BlurMaskFilter, which would force this view into a software layer. The alphas are
@@ -132,10 +133,11 @@ class SpeedometerView @JvmOverloads constructor(
          * The widest halo pass (index 0 of [GLOW_WIDTH_RATIOS]) is a stroke centered on the arc
          * path, so it reaches `arcWidth * (GLOW_WIDTH_RATIOS[0] - 1) / 2` beyond [outerRadius] on
          * every side. The arc sweeps past 3, 9 and 12 o'clock, so that extra radial extent must be
-         * folded into the space [onSizeChanged] reserves, or the halo flat-clips at the view
-         * bounds.
+         * folded into the space [computeGeometry] reserves, or the halo flat-clips at the view
+         * bounds. Internal (not private) so SpeedometerViewTest can assert computeGeometry's
+         * vertical placement precisely.
          */
-        private val GLOW_EXTENT_RATIO =
+        internal val GLOW_EXTENT_RATIO =
             1f + ARC_WIDTH_RATIO * (GLOW_WIDTH_RATIOS[0] - 1f) / 2f
 
         /** Where the mid gradient color lands within the filled part of the arc. */
@@ -245,6 +247,44 @@ class SpeedometerView @JvmOverloads constructor(
          */
         fun labelHaloRadius(textWidth: Float, textHeight: Float, paddingPx: Float): Float =
             hypot(textWidth, textHeight) / 2f + paddingPx
+
+        /** [outerRadius] and the dial's center, as computed by [computeGeometry]. */
+        data class Geometry(val outerRadius: Float, val centerX: Float, val centerY: Float)
+
+        /**
+         * Pure [onSizeChanged] geometry math: given the space left after padding, computes
+         * [outerRadius] and where the dial's center sits within it. Kept resource- and
+         * View-free (same seam-extraction pattern as the rest of this companion) so it is
+         * unit-testable directly - `SpeedometerView` itself cannot be constructed under this
+         * module's Robolectric setup (see `docs/runbooks/how-to.md`'s SpeedometerView geometry
+         * entry).
+         *
+         * The vertical placement must reserve the *full* glow-overflow allowance
+         * (`GLOW_EXTENT_RATIO - 1`) above the arc, not split it evenly above and below it: the
+         * widest halo pass only extends past the dial's base vertical extent at 12 o'clock -
+         * above center - never below, where [VERTICAL_EXTENT_RATIO]'s remaining `0.84` share
+         * (the value/unit caption) already has no halo to clear. Splitting the allowance evenly
+         * left only half of it above the dial, clipping the top of the glow by
+         * `(GLOW_EXTENT_RATIO - 1) / 2 * outerRadius` (~2.2% of the radius) whenever height was
+         * the limiting dimension.
+         */
+        fun computeGeometry(
+            availableWidth: Float,
+            availableHeight: Float,
+            paddingLeft: Float,
+            paddingTop: Float,
+        ): Geometry {
+            val outerRadius = min(
+                availableWidth / (2f * GLOW_EXTENT_RATIO),
+                availableHeight / (VERTICAL_EXTENT_RATIO + (GLOW_EXTENT_RATIO - 1f)),
+            ).coerceAtLeast(0f)
+            val centerX = paddingLeft + availableWidth / 2f
+            // Full content height, top of glow to bottom of caption, at this outerRadius.
+            val contentHeight = outerRadius * (VERTICAL_EXTENT_RATIO + (GLOW_EXTENT_RATIO - 1f))
+            val slack = (availableHeight - contentHeight).coerceAtLeast(0f)
+            val centerY = paddingTop + slack / 2f + outerRadius * GLOW_EXTENT_RATIO
+            return Geometry(outerRadius, centerX, centerY)
+        }
     }
 
     private val trackColor = ContextCompat.getColor(context, R.color.speedometer_track_color)
@@ -442,18 +482,18 @@ class SpeedometerView @JvmOverloads constructor(
         val availableHeight = (h - paddingTop - paddingBottom).toFloat()
         // Both the horizontal half-extent and the extent above center must leave room for the
         // widest halo pass's overflow (GLOW_EXTENT_RATIO), since the arc sweeps past 3, 9 and 12
-        // o'clock. Only the "above center" share of VERTICAL_EXTENT_RATIO needs the extra room -
-        // the arc never reaches the "below center" area reserved for the value/unit text.
-        outerRadius = min(
-            availableWidth / (2f * GLOW_EXTENT_RATIO),
-            availableHeight / (VERTICAL_EXTENT_RATIO + (GLOW_EXTENT_RATIO - 1f)),
-        ).coerceAtLeast(0f)
+        // o'clock. See computeGeometry's KDoc for why the vertical reservation is not split
+        // evenly above/below the arc.
+        val geometry = computeGeometry(
+            availableWidth,
+            availableHeight,
+            paddingLeft.toFloat(),
+            paddingTop.toFloat(),
+        )
+        outerRadius = geometry.outerRadius
         arcWidth = outerRadius * ARC_WIDTH_RATIO
-
-        centerX = paddingLeft + availableWidth / 2f
-        // Center the dial's full vertical extent in whatever height is left over.
-        val slack = (availableHeight - outerRadius * VERTICAL_EXTENT_RATIO).coerceAtLeast(0f)
-        centerY = paddingTop + slack / 2f + outerRadius
+        centerX = geometry.centerX
+        centerY = geometry.centerY
 
         val bandRadius = outerRadius - arcWidth / 2f
         arcBounds.set(

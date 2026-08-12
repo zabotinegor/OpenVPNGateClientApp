@@ -2,7 +2,10 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.ARC_SWEEP_DEGREES
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.DEFAULT_MAX_MBPS
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.GLOW_EXTENT_RATIO
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.SCALE_STOPS
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.VERTICAL_EXTENT_RATIO
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.computeGeometry
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.formatScaleStop
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.formatValue
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.labelHaloRadius
@@ -343,5 +346,71 @@ class SpeedometerViewTest {
     fun `a redundant connected-state call should not update`() {
         assertFalse(shouldUpdateConnected(current = true, next = true))
         assertFalse(shouldUpdateConnected(current = false, next = false))
+    }
+
+    // --------------- computeGeometry: vertical glow-overflow reservation ---------------
+    //
+    // Regression coverage for the bug where onSizeChanged split the glow-overflow allowance
+    // (GLOW_EXTENT_RATIO - 1) evenly above and below the arc instead of reserving it fully above,
+    // clipping ~2.2% of the radius off the top of the widest halo pass whenever height was the
+    // limiting dimension. See computeGeometry's KDoc for the full derivation.
+
+    @Test
+    fun `when height is the limiting dimension, the full glow overflow is reserved above the arc with no clipping`() {
+        val availableWidth = 2000f
+        val availableHeight = 400f
+        val geometry = computeGeometry(availableWidth, availableHeight, paddingLeft = 0f, paddingTop = 0f)
+
+        // Height must actually be the binding constraint for this case to be meaningful.
+        assertTrue(geometry.outerRadius < availableWidth / (2f * GLOW_EXTENT_RATIO) + tolerance)
+
+        val topOfGlow = geometry.centerY - geometry.outerRadius * GLOW_EXTENT_RATIO
+        // Before the fix this was negative by (GLOW_EXTENT_RATIO - 1) / 2 * outerRadius - roughly
+        // 2.2% of the radius - i.e. the glow clipped above the view's top edge.
+        assertEquals(0f, topOfGlow, tolerance)
+
+        val bottomOfContent = geometry.centerY + geometry.outerRadius * (VERTICAL_EXTENT_RATIO - 1f)
+        assertEquals(availableHeight, bottomOfContent, tolerance)
+    }
+
+    @Test
+    fun `when width is the limiting dimension, leftover vertical slack is split evenly above and below the full glow-reserved content`() {
+        val availableWidth = 200f
+        val availableHeight = 2000f
+        val geometry = computeGeometry(availableWidth, availableHeight, paddingLeft = 0f, paddingTop = 0f)
+
+        // Width must actually be the binding constraint for this case to be meaningful.
+        val heightLimitedRadius = availableHeight / (VERTICAL_EXTENT_RATIO + (GLOW_EXTENT_RATIO - 1f))
+        assertTrue(geometry.outerRadius < heightLimitedRadius - tolerance)
+
+        val topSlack = geometry.centerY - geometry.outerRadius * GLOW_EXTENT_RATIO
+        val bottomSlack =
+            availableHeight - (geometry.centerY + geometry.outerRadius * (VERTICAL_EXTENT_RATIO - 1f))
+        assertEquals(topSlack, bottomSlack, tolerance)
+        // No clipping in this direction either - there is slack to spare.
+        assertTrue(topSlack >= -tolerance)
+    }
+
+    @Test
+    fun `computeGeometry offsets the center by the given padding`() {
+        val paddingLeft = 12f
+        val paddingTop = 34f
+        val geometry = computeGeometry(
+            availableWidth = 500f,
+            availableHeight = 500f,
+            paddingLeft = paddingLeft,
+            paddingTop = paddingTop,
+        )
+
+        val unpadded = computeGeometry(
+            availableWidth = 500f,
+            availableHeight = 500f,
+            paddingLeft = 0f,
+            paddingTop = 0f,
+        )
+
+        assertEquals(unpadded.centerX + paddingLeft, geometry.centerX, tolerance)
+        assertEquals(unpadded.centerY + paddingTop, geometry.centerY, tolerance)
+        assertEquals(unpadded.outerRadius, geometry.outerRadius, tolerance)
     }
 }
