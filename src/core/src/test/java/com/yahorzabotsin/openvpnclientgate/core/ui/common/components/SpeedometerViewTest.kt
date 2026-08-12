@@ -5,12 +5,14 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.SCALE_STOPS
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.formatScaleStop
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.formatValue
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.labelHaloRadius
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.lastActiveStopIndex
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveMaxMbps
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveSpeed
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldDrawNeedle
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldUpdateConnected
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
+import kotlin.math.hypot
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -256,6 +258,39 @@ class SpeedometerViewTest {
     // whose default locale formats numbers differently.
     private fun expected(pattern: String, value: Any) =
         String.format(Locale.US, pattern, value)
+
+    // --------------- labelHaloRadius ---------------
+
+    @Test
+    fun `halo radius covers the text's bounding box diagonal plus padding`() {
+        // A 10x6 box has an 11.66-long half-diagonal (hypot(10, 6) / 2); the halo must reach at
+        // least that far in every direction, plus the requested padding, to fully clear the
+        // glyph's corners rather than just its sides.
+        val expected = hypot(10f, 6f) / 2f + 2f
+        assertEquals(expected, labelHaloRadius(textWidth = 10f, textHeight = 6f, paddingPx = 2f), tolerance)
+    }
+
+    @Test
+    fun `halo radius grows with wider labels`() {
+        // "1000" is wider than "0", so its halo must be larger even though both share the same
+        // font-metrics text height - otherwise a wide label's corners would poke out past the
+        // circle meant to backstop it.
+        val narrow = labelHaloRadius(textWidth = 8f, textHeight = 20f, paddingPx = 4f)
+        val wide = labelHaloRadius(textWidth = 40f, textHeight = 20f, paddingPx = 4f)
+        assertTrue("wide=$wide should exceed narrow=$narrow", wide > narrow)
+    }
+
+    @Test
+    fun `halo radius is zero-safe for an empty label`() {
+        assertEquals(3f, labelHaloRadius(textWidth = 0f, textHeight = 0f, paddingPx = 3f), tolerance)
+    }
+
+    @Test
+    fun `halo radius scales linearly with padding alone`() {
+        val noPadding = labelHaloRadius(textWidth = 12f, textHeight = 8f, paddingPx = 0f)
+        val withPadding = labelHaloRadius(textWidth = 12f, textHeight = 8f, paddingPx = 5f)
+        assertEquals(5f, withPadding - noPadding, tolerance)
+    }
 
     // --------------- shouldDrawNeedle ---------------
 

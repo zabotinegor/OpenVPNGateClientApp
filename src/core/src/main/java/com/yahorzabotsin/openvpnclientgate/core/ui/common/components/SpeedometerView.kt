@@ -27,6 +27,7 @@ import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -86,6 +87,15 @@ class SpeedometerView @JvmOverloads constructor(
         private const val VALUE_TEXT_SIZE_RATIO = 0.23f
         private const val UNIT_TEXT_SIZE_RATIO = 0.085f
         private const val LABEL_TEXT_SIZE_RATIO = 0.085f
+
+        /**
+         * Margin, as a fraction of [outerRadius], added around a scale label's text bounds when
+         * sizing its legibility halo (see [labelHaloRadius]). Matches the "a few dp" scale of the
+         * other ratio constants in this class - on a ~180dp-radius dial this works out to a little
+         * over 3dp, enough that the halo clearly clears the glyph without reading as a blob when
+         * nothing sits underneath.
+         */
+        private const val LABEL_HALO_PADDING_RATIO = 0.018f
 
         // The dial spans one outer radius above its center and 0.84 below it (the unit caption
         // sits lower than the arc's endpoints, which only reach 0.588).
@@ -197,6 +207,21 @@ class SpeedometerView @JvmOverloads constructor(
                 String.format(Locale.US, "%.1f", value)
             }
         }
+
+        /**
+         * Radius of a filled circle that fully covers a [textWidth] x [textHeight] bounding box
+         * plus [paddingPx] of margin on every side - sized as the half-diagonal so the circle's
+         * edge clears the box's corners, not just its sides.
+         *
+         * This backs the legibility halo [drawScaleLabels] paints behind each label before its
+         * text: `canvas.drawText` only paints a glyph's ink, never the hollow counter enclosed by
+         * digits like "0", "6", "8" or "9", so when the needle (or anything else) sits under such
+         * a digit that counter shows whatever was drawn earlier straight through, reading as a
+         * thin washed-out ring instead of a solid number. Repainting an opaque circle in the face
+         * color first re-establishes a solid backing regardless of what is underneath.
+         */
+        fun labelHaloRadius(textWidth: Float, textHeight: Float, paddingPx: Float): Float =
+            hypot(textWidth, textHeight) / 2f + paddingPx
     }
 
     private val trackColor = ContextCompat.getColor(context, R.color.speedometer_track_color)
@@ -236,6 +261,18 @@ class SpeedometerView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT_BOLD
     }
+
+    // Legibility backing painted behind each scale label before its text (see
+    // SpeedometerView.Companion.labelHaloRadius). Flat faceCenterColor rather than facePaint's
+    // RadialGradient shader: at LABEL_RADIUS_RATIO (0.61 * outerRadius) the face gradient is still
+    // inside its flat center segment - it only starts blending toward faceEdgeColor at 0.78 of its
+    // own radius, which is (outerRadius - arcWidth) * 0.78 = 0.6825 * outerRadius, further out than
+    // the label radius - so a solid faceCenterColor fill is an exact match for what is actually
+    // behind the labels, not an approximation.
+    private val labelHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = faceCenterColor
+    }
     private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
@@ -262,6 +299,9 @@ class SpeedometerView @JvmOverloads constructor(
     private var centerY = 0f
     private var outerRadius = 0f
     private var arcWidth = 0f
+
+    /** [LABEL_HALO_PADDING_RATIO] resolved in pixels for the current size; see [labelHaloRadius]. */
+    private var labelHaloPadding = 0f
 
     /** Sweep the cached [progressPaint] shader was built for; -1 forces a rebuild. */
     private var shaderSweep = -1f
@@ -374,6 +414,7 @@ class SpeedometerView @JvmOverloads constructor(
         labelPaint.textSize = outerRadius * LABEL_TEXT_SIZE_RATIO
         valuePaint.textSize = outerRadius * VALUE_TEXT_SIZE_RATIO
         unitPaint.textSize = outerRadius * UNIT_TEXT_SIZE_RATIO
+        labelHaloPadding = outerRadius * LABEL_HALO_PADDING_RATIO
         labelPaint.getFontMetrics(labelFontMetrics)
         valuePaint.getFontMetrics(valueFontMetrics)
         unitPaint.getFontMetrics(unitFontMetrics)
@@ -466,18 +507,28 @@ class SpeedometerView @JvmOverloads constructor(
         val scale = maxMbps / SCALE_STOPS.last()
         val radius = outerRadius * LABEL_RADIUS_RATIO
         val baselineOffset = -(labelFontMetrics.ascent + labelFontMetrics.descent) / 2f
+        val textHeight = labelFontMetrics.descent - labelFontMetrics.ascent
         val segments = SCALE_STOPS.size - 1
         val lastActive = lastActiveStopIndex(sweep)
         for (index in SCALE_STOPS.indices) {
             val stopSweep = ARC_SWEEP_DEGREES * index / segments
             val radians = Math.toRadians((ARC_START_ANGLE + stopSweep).toDouble())
-            labelPaint.color = if (index <= lastActive) labelActiveColor else labelInactiveColor
-            canvas.drawText(
-                formatScaleStop(SCALE_STOPS[index] * scale),
-                centerX + radius * cos(radians).toFloat(),
-                centerY + radius * sin(radians).toFloat() + baselineOffset,
-                labelPaint,
+            val text = formatScaleStop(SCALE_STOPS[index] * scale)
+            val labelX = centerX + radius * cos(radians).toFloat()
+            val labelY = centerY + radius * sin(radians).toFloat()
+
+            // Legibility halo first: whatever was drawn earlier (the needle, chiefly) must not
+            // show through a hollow digit's counter once the text is painted on top - see
+            // labelHaloRadius's doc for why drawText alone can't guarantee that.
+            canvas.drawCircle(
+                labelX,
+                labelY,
+                labelHaloRadius(labelPaint.measureText(text), textHeight, labelHaloPadding),
+                labelHaloPaint,
             )
+
+            labelPaint.color = if (index <= lastActive) labelActiveColor else labelInactiveColor
+            canvas.drawText(text, labelX, labelY + baselineOffset, labelPaint)
         }
     }
 
