@@ -204,6 +204,10 @@ class SpeedometerViewTest {
         assertEquals("25", formatScaleStop(25.4f))
     }
 
+    // formatValue/formatScaleStop are fixed to Locale.US (not the JVM/device default) so the
+    // gauge's decimal separator always matches the rest of the screen - mirror that here rather
+    // than getDefault(), or this helper silently drifts from the implementation on any machine
+    // whose default locale formats numbers differently.
     private fun expected(pattern: String, value: Any) =
-        String.format(Locale.getDefault(), pattern, value)
+        String.format(Locale.US, pattern, value)
 }

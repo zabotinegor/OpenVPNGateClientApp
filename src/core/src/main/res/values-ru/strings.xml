@@ -119,6 +119,9 @@
     <string name="speed_unit_mbps">МБ/с</string>
     <string name="speed_unit_gbps">ГБ/с</string>
 
+    <!-- Section: Speedometer gauge unit (bits per second - distinct from the byte-rate units above) -->
+    <string name="speedometer_unit_mbps">Мбит/с</string>
+
     <!-- Section: Countdown suffix for UI button during connecting phases -->
     <string name="state_countdown_seconds"> (%1$d сек)</string>
     <!-- Section: Main screen defaults / status -->

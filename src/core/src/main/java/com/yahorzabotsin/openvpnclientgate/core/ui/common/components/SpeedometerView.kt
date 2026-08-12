@@ -137,27 +137,34 @@ class SpeedometerView @JvmOverloads constructor(
         fun resolveSpeed(value: Double): Float =
             if (value.isFinite() && value >= 0.0) value.toFloat() else 0f
 
-        /** Two decimals like the reference, dropping precision as the number gets wider. */
+        /**
+         * Two decimals like the reference, dropping precision as the number gets wider. Formatted
+         * with a fixed [Locale.US] rather than the device locale, matching every other numeric
+         * readout on this screen (duration, downloaded/uploaded bytes, UTC offset all use
+         * Locale.US in ConnectionControlsPresenter/ConnectionControlsUseCase/
+         * ServerDisplayFormatter) - a locale-dependent decimal separator here would visibly
+         * disagree with its neighbours on the same screen (e.g. "0,00" next to "40.15 MB").
+         */
         fun formatValue(value: Float): String {
             val pattern = when {
                 value < 100f -> "%.2f"
                 value < 1000f -> "%.1f"
                 else -> "%.0f"
             }
-            return String.format(Locale.getDefault(), pattern, value)
+            return String.format(Locale.US, pattern, value)
         }
 
         /**
          * Scale labels: integers where possible, one decimal only when the scale is compressed.
-         * Formatted through the default locale like [formatValue] rather than via toString, so
-         * the labels and the value readout always agree on digit shapes and decimal separator.
+         * Fixed [Locale.US] like [formatValue], so the labels and the value readout always agree
+         * on digit shapes and decimal separator with each other and with the rest of the screen.
          */
         fun formatScaleStop(value: Float): String {
             val rounded = value.roundToInt()
             return if (value >= 10f || rounded.toFloat() == value) {
-                String.format(Locale.getDefault(), "%d", rounded)
+                String.format(Locale.US, "%d", rounded)
             } else {
-                String.format(Locale.getDefault(), "%.1f", value)
+                String.format(Locale.US, "%.1f", value)
             }
         }
     }
@@ -211,7 +218,7 @@ class SpeedometerView @JvmOverloads constructor(
 
     private val arcBounds = RectF()
     private val needlePath = Path()
-    private val unitLabel: String = context.getString(R.string.speed_unit_mbps)
+    private val unitLabel: String = context.getString(R.string.speedometer_unit_mbps)
 
     private var centerX = 0f
     private var centerY = 0f
