@@ -16,10 +16,10 @@
     <color name="splash_background_color">#F7F9FC</color>
 
     <!-- Section: Speedometer -->
-    <!-- Hairline color for the connection-detail dividers; also the gauge's unfilled track. -->
+    <!-- Hairline color for the connection-detail dividers. Not the gauge's unfilled track -
+         that is speedometer_track_color below. -->
     <color name="speedometer_arc_color">#E7EBF0</color>
     <color name="speedometer_progress_color">#7F93A8</color>
-    <color name="speedometer_text_color">@color/text_color_primary</color>
     <!-- Unfilled part of the dial band. Reads as a quiet groove so only the gradient fill,
          the needle and the value carry visual weight (as on the speedtest.net dial). -->
     <color name="speedometer_track_color">#DCE3ED</color>

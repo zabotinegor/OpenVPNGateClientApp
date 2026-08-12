@@ -95,6 +95,16 @@ class SpeedometerView @JvmOverloads constructor(
         // reads as a wash on the light one.
         private val GLOW_WIDTH_RATIOS = floatArrayOf(1.7f, 1.28f)
 
+        /**
+         * The widest halo pass (index 0 of [GLOW_WIDTH_RATIOS]) is a stroke centered on the arc
+         * path, so it reaches `arcWidth * (GLOW_WIDTH_RATIOS[0] - 1) / 2` beyond [outerRadius] on
+         * every side. The arc sweeps past 3, 9 and 12 o'clock, so that extra radial extent must be
+         * folded into the space [onSizeChanged] reserves, or the halo flat-clips at the view
+         * bounds.
+         */
+        private val GLOW_EXTENT_RATIO =
+            1f + ARC_WIDTH_RATIO * (GLOW_WIDTH_RATIOS[0] - 1f) / 2f
+
         /** Where the mid gradient color lands within the filled part of the arc. */
         private const val GRADIENT_MID_POSITION = 0.45f
 
@@ -220,6 +230,14 @@ class SpeedometerView @JvmOverloads constructor(
     private val needlePath = Path()
     private val unitLabel: String = context.getString(R.string.speedometer_unit_mbps)
 
+    // Reused across draw calls instead of being reallocated per frame: all their inputs are
+    // onSizeChanged-scoped, not per-frame, so rebuilding them in onDraw is pure GC churn.
+    private val labelFontMetrics = Paint.FontMetrics()
+    private val valueFontMetrics = Paint.FontMetrics()
+    private val unitFontMetrics = Paint.FontMetrics()
+    private val progressShaderMatrix = Matrix()
+    private var needleGradient: LinearGradient? = null
+
     private var centerX = 0f
     private var centerY = 0f
     private var outerRadius = 0f
@@ -286,8 +304,14 @@ class SpeedometerView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         val availableWidth = (w - paddingLeft - paddingRight).toFloat()
         val availableHeight = (h - paddingTop - paddingBottom).toFloat()
-        outerRadius = min(availableWidth / 2f, availableHeight / VERTICAL_EXTENT_RATIO)
-            .coerceAtLeast(0f)
+        // Both the horizontal half-extent and the extent above center must leave room for the
+        // widest halo pass's overflow (GLOW_EXTENT_RATIO), since the arc sweeps past 3, 9 and 12
+        // o'clock. Only the "above center" share of VERTICAL_EXTENT_RATIO needs the extra room -
+        // the arc never reaches the "below center" area reserved for the value/unit text.
+        outerRadius = min(
+            availableWidth / (2f * GLOW_EXTENT_RATIO),
+            availableHeight / (VERTICAL_EXTENT_RATIO + (GLOW_EXTENT_RATIO - 1f)),
+        ).coerceAtLeast(0f)
         arcWidth = outerRadius * ARC_WIDTH_RATIO
 
         centerX = paddingLeft + availableWidth / 2f
@@ -307,6 +331,9 @@ class SpeedometerView @JvmOverloads constructor(
         labelPaint.textSize = outerRadius * LABEL_TEXT_SIZE_RATIO
         valuePaint.textSize = outerRadius * VALUE_TEXT_SIZE_RATIO
         unitPaint.textSize = outerRadius * UNIT_TEXT_SIZE_RATIO
+        labelPaint.getFontMetrics(labelFontMetrics)
+        valuePaint.getFontMetrics(valueFontMetrics)
+        unitPaint.getFontMetrics(unitFontMetrics)
         needlePaint.pathEffect = CornerPathEffect(
             outerRadius * NEEDLE_OUTER_HALF_WIDTH_RATIO * NEEDLE_CORNER_RATIO,
         )
@@ -316,6 +343,17 @@ class SpeedometerView @JvmOverloads constructor(
             (outerRadius - arcWidth).coerceAtLeast(1f),
             intArrayOf(faceCenterColor, faceCenterColor, faceEdgeColor),
             floatArrayOf(0f, 0.78f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        val needleInnerRadius = outerRadius * NEEDLE_INNER_RADIUS_RATIO
+        val needleTipRadius = outerRadius * NEEDLE_OUTER_RADIUS_RATIO
+        needleGradient = LinearGradient(
+            centerX + needleInnerRadius,
+            centerY,
+            centerX + needleTipRadius,
+            centerY,
+            needleInnerColor,
+            needleOuterColor,
             Shader.TileMode.CLAMP,
         )
         shaderSweep = -1f
@@ -370,16 +408,17 @@ class SpeedometerView @JvmOverloads constructor(
             filled,
             1f,
         )
+        progressShaderMatrix.reset()
+        progressShaderMatrix.postRotate(ARC_START_ANGLE, centerX, centerY)
         return SweepGradient(centerX, centerY, colors, positions).apply {
-            setLocalMatrix(Matrix().apply { postRotate(ARC_START_ANGLE, centerX, centerY) })
+            setLocalMatrix(progressShaderMatrix)
         }
     }
 
     private fun drawScaleLabels(canvas: Canvas, sweep: Float) {
         val scale = maxMbps / SCALE_STOPS.last()
         val radius = outerRadius * LABEL_RADIUS_RATIO
-        val metrics = labelPaint.fontMetrics
-        val baselineOffset = -(metrics.ascent + metrics.descent) / 2f
+        val baselineOffset = -(labelFontMetrics.ascent + labelFontMetrics.descent) / 2f
         val segments = SCALE_STOPS.size - 1
         val lastActive = lastActiveStopIndex(sweep)
         for (index in SCALE_STOPS.indices) {
@@ -408,15 +447,7 @@ class SpeedometerView @JvmOverloads constructor(
         needlePath.lineTo(centerX + tipRadius, centerY + tipHalfWidth)
         needlePath.lineTo(centerX + innerRadius, centerY + innerHalfWidth)
         needlePath.close()
-        needlePaint.shader = LinearGradient(
-            centerX + innerRadius,
-            centerY,
-            centerX + tipRadius,
-            centerY,
-            needleInnerColor,
-            needleOuterColor,
-            Shader.TileMode.CLAMP,
-        )
+        needlePaint.shader = needleGradient
 
         canvas.save()
         canvas.rotate(ARC_START_ANGLE + sweep, centerX, centerY)
@@ -425,20 +456,18 @@ class SpeedometerView @JvmOverloads constructor(
     }
 
     private fun drawReadout(canvas: Canvas) {
-        val valueMetrics = valuePaint.fontMetrics
         canvas.drawText(
             formatValue(currentMbps),
             centerX,
             centerY + outerRadius * VALUE_CENTER_RATIO -
-                (valueMetrics.ascent + valueMetrics.descent) / 2f,
+                (valueFontMetrics.ascent + valueFontMetrics.descent) / 2f,
             valuePaint,
         )
-        val unitMetrics = unitPaint.fontMetrics
         canvas.drawText(
             unitLabel,
             centerX,
             centerY + outerRadius * UNIT_CENTER_RATIO -
-                (unitMetrics.ascent + unitMetrics.descent) / 2f,
+                (unitFontMetrics.ascent + unitFontMetrics.descent) / 2f,
             unitPaint,
         )
     }

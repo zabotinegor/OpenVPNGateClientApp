@@ -9,7 +9,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveMaxMbps
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.resolveSpeed
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Before
 import org.junit.Test
 import java.util.Locale
 
@@ -21,6 +24,18 @@ class SpeedometerViewTest {
 
     private val tolerance = 0.001f
     private val segmentSweep = ARC_SWEEP_DEGREES / (SCALE_STOPS.size - 1)
+
+    private lateinit var originalDefaultLocale: Locale
+
+    @Before
+    fun saveDefaultLocale() {
+        originalDefaultLocale = Locale.getDefault()
+    }
+
+    @After
+    fun restoreDefaultLocale() {
+        Locale.setDefault(originalDefaultLocale)
+    }
 
     // --------------- sweepForValue: scale stops ---------------
 
@@ -178,6 +193,34 @@ class SpeedometerViewTest {
         assertEquals(expected("%.0f", 1000f), formatValue(1000f))
     }
 
+    // --------------- locale independence (regression guard) ---------------
+
+    // formatValue/formatScaleStop must always use a period, never a locale-dependent decimal
+    // separator (e.g. a comma in ru-RU/pl-PL/de-DE), even when the JVM/device default locale
+    // uses one. Pinning Locale.setDefault() here - unlike expected(), which mirrors
+    // Locale.US and would drift together with a reverted implementation - is what makes this
+    // test actually fail if the Locale.US fix in formatValue/formatScaleStop is ever reverted
+    // back to Locale.getDefault().
+    @Test
+    fun `formatValue keeps a period decimal separator under a comma-decimal default locale`() {
+        Locale.setDefault(Locale.forLanguageTag("ru-RU"))
+
+        val formatted = formatValue(81.74f)
+
+        assertEquals(expected("%.2f", 81.74f), formatted)
+        assertFalse("expected a period, not a locale comma: $formatted", formatted.contains(','))
+    }
+
+    @Test
+    fun `formatScaleStop keeps a period decimal separator under a comma-decimal default locale`() {
+        Locale.setDefault(Locale.forLanguageTag("ru-RU"))
+
+        val formatted = formatScaleStop(0.5f)
+
+        assertEquals(expected("%.1f", 0.5f), formatted)
+        assertFalse("expected a period, not a locale comma: $formatted", formatted.contains(','))
+    }
+
     // --------------- formatScaleStop ---------------
 
     @Test
@@ -190,7 +233,7 @@ class SpeedometerViewTest {
     @Test
     fun `scale stops carry no grouping separator`() {
         // "%d" must not turn the top of the scale into "1,000" / "1 000".
-        assertEquals(4, formatScaleStop(1000f).length)
+        assertEquals("1000", formatScaleStop(1000f))
     }
 
     @Test
