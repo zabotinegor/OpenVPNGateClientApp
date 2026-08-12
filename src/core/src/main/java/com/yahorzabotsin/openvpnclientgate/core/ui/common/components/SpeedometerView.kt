@@ -118,10 +118,23 @@ class SpeedometerView @JvmOverloads constructor(
          */
         private const val LABEL_HALO_PADDING_RATIO = 0.018f
 
-        // The dial spans one outer radius above its center and 0.84 below it (the unit caption
-        // sits lower than the arc's endpoints, which only reach 0.588). Internal (not private) so
-        // SpeedometerViewTest can assert computeGeometry's vertical placement precisely.
-        internal const val VERTICAL_EXTENT_RATIO = 1.84f
+        /**
+         * The circular face onDraw paints (see the `drawCircle` call using this radius) reaches
+         * `(1 - ARC_WIDTH_RATIO) * outerRadius` below center at every angle - the arc band's inner
+         * edge. That is the true lower bound for [VERTICAL_EXTENT_RATIO]: the unit caption below
+         * the arc (at [UNIT_CENTER_RATIO]) only reaches roughly `0.84 * outerRadius`, less than
+         * this, so it never binds. Reserving less than the face's own extent clipped the bottom of
+         * the circular face into a flat edge whenever height was the limiting dimension and there
+         * was no bottom padding. Internal (not private) so SpeedometerViewTest can assert
+         * computeGeometry's reserved extent against it directly.
+         */
+        internal const val FACE_LOWER_EXTENT_RATIO = 1f - ARC_WIDTH_RATIO
+
+        // The dial spans one outer radius above its center and FACE_LOWER_EXTENT_RATIO (0.875)
+        // below it - see FACE_LOWER_EXTENT_RATIO's KDoc for why the face circle, not the unit
+        // caption, is the binding constraint. Internal (not private) so SpeedometerViewTest can
+        // assert computeGeometry's vertical placement precisely.
+        internal const val VERTICAL_EXTENT_RATIO = 1f + FACE_LOWER_EXTENT_RATIO
 
         // Halo passes drawn under the fill, widest and faintest first. Cheaper than a
         // BlurMaskFilter, which would force this view into a software layer. The alphas are

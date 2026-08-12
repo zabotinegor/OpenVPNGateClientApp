@@ -73,8 +73,12 @@ fi
 
 if [ -n "$command_text" ]; then
     # A real command invocation, not a data mention: split on ; & | (each
-    # possibly repeated, e.g. && ||) and check whether any segment's first
-    # whitespace-delimited token is exactly "git".
+    # possibly repeated, e.g. && ||) and check whether any segment's command
+    # token is exactly "git". A valid POSIX shell segment may open with one or
+    # more environment-assignment words (NAME=value ...) before the actual
+    # command - e.g. "X=1 git commit" still invokes git - so skip leading
+    # assignment-word tokens (matching `^[A-Za-z_][A-Za-z0-9_]*=`) before
+    # treating a token as the command.
     is_git="$(printf '%s' "$command_text" | awk '
         {
             n = split($0, segs, /[;&|]+/)
@@ -83,8 +87,14 @@ if [ -n "$command_text" ]; then
                 seg = segs[i]
                 gsub(/^[ \t]+/, "", seg)
                 if (seg == "") continue
-                split(seg, toks, /[ \t]+/)
-                tok = toks[1]
+                m = split(seg, toks, /[ \t]+/)
+                tok = ""
+                for (j = 1; j <= m; j++) {
+                    cand = toks[j]
+                    if (cand ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { continue }
+                    tok = cand
+                    break
+                }
                 gsub(/^["\x27]+|["\x27]+$/, "", tok)
                 if (tok == "git") { found = 1; break }
             }

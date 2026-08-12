@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.ARC_SWEEP_DEGREES
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.DEFAULT_MAX_MBPS
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.FACE_LOWER_EXTENT_RATIO
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.GLOW_EXTENT_RATIO
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.SCALE_STOPS
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.VERTICAL_EXTENT_RATIO
@@ -389,6 +390,31 @@ class SpeedometerViewTest {
         assertEquals(topSlack, bottomSlack, tolerance)
         // No clipping in this direction either - there is slack to spare.
         assertTrue(topSlack >= -tolerance)
+    }
+
+    @Test
+    fun `when height is the limiting dimension with no bottom padding, the full circular face is reserved with no clipping`() {
+        // Regression coverage for the bug where the lower extent reserved only the unit
+        // caption's ~0.84 * outerRadius, less than the circular face onDraw actually paints
+        // (FACE_LOWER_EXTENT_RATIO = 1 - ARC_WIDTH_RATIO = 0.875 * outerRadius), clipping the
+        // bottom of the face into a flat edge whenever height was the limiting dimension and
+        // there was no bottom padding.
+        val availableWidth = 2000f
+        val availableHeight = 400f
+        val geometry = computeGeometry(availableWidth, availableHeight, paddingLeft = 0f, paddingTop = 0f)
+
+        // Height must actually be the binding constraint for this case to be meaningful.
+        assertTrue(geometry.outerRadius < availableWidth / (2f * GLOW_EXTENT_RATIO) + tolerance)
+
+        val bottomOfFace = geometry.centerY + geometry.outerRadius * FACE_LOWER_EXTENT_RATIO
+        // Before the fix this exceeded the view's bottom edge - the face circle painted past
+        // the space computeGeometry reserved, clipping into a flat edge.
+        assertTrue(bottomOfFace <= availableHeight + tolerance)
+
+        val bottomOfContent = geometry.centerY + geometry.outerRadius * (VERTICAL_EXTENT_RATIO - 1f)
+        assertEquals(availableHeight, bottomOfContent, tolerance)
+        // The content's reserved lower extent must cover at least the face circle's own extent.
+        assertTrue(bottomOfContent >= bottomOfFace - tolerance)
     }
 
     @Test
