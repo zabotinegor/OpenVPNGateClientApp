@@ -92,6 +92,21 @@ if [ -n "$command_text" ]; then
     # falls INSIDE a quoted run before splitting, so a quoted value survives
     # as one token, mirroring the quoted-value handling already added to the
     # PowerShell guard (protect-agent-git-command.ps1, $asgnPrefixPattern).
+    #
+    # Round 8: mask_quotes used to run PER SEGMENT, after the ';'/'&'/'|'
+    # split already happened - so the split itself was quote-blind. A ';'
+    # inside a double-quoted string (e.g. `printf "safe; git commit"`) was
+    # treated as a real segment separator, splitting `printf "safe` and
+    # `git commit"` apart and denying an ordinary non-git command (false
+    # positive). Worse, the inverse - `X="a;b" git commit` - split the
+    # segment INSIDE the quoted assignment value, so the assignment-prefix
+    # token no longer matched `NAME=...` cleanly and "git" was never
+    # recognized as the command token, letting a real git mutation through
+    # unguarded (false negative / bypass). Fix: tokenize separators and
+    # quotes in ONE pass - extend mask_quotes to also mask ';'/'&'/'|' (not
+    # just whitespace) while inside a quoted run, and run it over the WHOLE
+    # command_text before splitting into segments, so only unquoted (real)
+    # operators are ever seen by the segment split.
     is_git="$(printf '%s' "$command_text" | awk '
         function mask_quotes(s,    n, i, c, out, inq, qch) {
             n = length(s)
@@ -103,7 +118,7 @@ if [ -n "$command_text" ]; then
                 if (inq) {
                     if (c == qch) {
                         inq = 0
-                    } else if (c == " " || c == "\t") {
+                    } else if (c == " " || c == "\t" || c == ";" || c == "&" || c == "|") {
                         c = "\001"
                     }
                 } else if (c ~ /^["\x27]$/) {
@@ -115,14 +130,14 @@ if [ -n "$command_text" ]; then
             return out
         }
         {
-            n = split($0, segs, /[;&|]+/)
+            masked = mask_quotes($0)
+            n = split(masked, segs, /[;&|]+/)
             found = 0
             for (i = 1; i <= n; i++) {
                 seg = segs[i]
                 gsub(/^[ \t]+/, "", seg)
                 if (seg == "") continue
-                masked = mask_quotes(seg)
-                m = split(masked, toks, /[ \t]+/)
+                m = split(seg, toks, /[ \t]+/)
                 tok = ""
                 for (j = 1; j <= m; j++) {
                     cand = toks[j]
