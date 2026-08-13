@@ -273,4 +273,99 @@ class OpenVpnServiceNotificationTest {
         Shadows.shadowOf(service.mainLooper).idleFor(13, java.util.concurrent.TimeUnit.SECONDS)
         assertTrue(shadowOf(service).isStoppedBySelf)
     }
+
+    // Regression tests for the second stopAfterOneShotSyncRunnable race (ClickUp 86cb35fbt,
+    // fix-cycle 2): stopAfterOneShotSyncRunnable used to call stopSelf() directly once its own
+    // guard checks passed. Android's main-thread looper is strictly serial, so if a genuine
+    // ACTION_START (from ContextCompat.startForegroundService(), user tapping Connect) was
+    // enqueued to arrive at nearly the same wall-clock moment this runnable's own
+    // ONE_SHOT_STOP_DELAY_MS timer was due, whichever message the looper processed first won --
+    // if the stop runnable won, ACTION_START's removeCallbacks(stopAfterOneShotSyncRunnable)
+    // arrived too late to cancel it, and stopSelf() could tear the instance down out from under
+    // a startForeground() that had already succeeded moments later, producing
+    // RemoteServiceException$ForegroundServiceDidNotStartInTimeException on the OS side. Device
+    // reproduced at a ~1058ms gap; see
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md ADDENDUM.
+    //
+    // The fix defers the actual stopSelf() by ONE_SHOT_STOP_CONFIRM_DELAY_MS (400ms) into a
+    // second runnable (stopAfterOneShotSyncConfirmedRunnable) that re-runs the same guard checks
+    // immediately before firing. These two tests invoke the private
+    // onOneShotInitialStateSynced(reason) hand-off directly to isolate the stop-buffer timing
+    // under test, matching the pattern already used elsewhere in this file for private-method
+    // access via reflection.
+
+    @Test
+    fun oneShotSync_stopsAfterConfirmBuffer_whenUninterrupted() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Stage 1 (the original ONE_SHOT_STOP_DELAY_MS decision) fires here but must NOT stop
+        // the service directly -- it only schedules the buffered confirmation.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "stopSelf() must not fire until the confirm buffer elapses and re-validates",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // Stage 2 (the confirm buffer) elapses with nothing having interrupted the decision --
+        // the legitimate "just checking status, nothing else happening" cleanup path must still
+        // complete within a bound close to the original ~1000ms (now ~1000ms + buffer).
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue(
+            "Legitimate idle one-shot-sync cleanup must still stop the service after the buffer",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    @Test
+    fun oneShotSync_abortsBufferedStop_whenActionStartInterruptsDuringBuffer() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Stage 1 fires and schedules the buffered confirmation, exactly like the control case.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // Simulate the state a genuine ACTION_START sets very early in onStartCommand --
+        // WITHOUT going through onStartCommand's own removeCallbacks() cancellation -- to
+        // isolate the buffered re-check itself as the safety net, independent of whether the
+        // cancellation call wins its own race against an already-fired stage-1 runnable (that
+        // race losing is the original bug this fix closes).
+        val userInitiatedStartField = OpenVpnService::class.java.getDeclaredField("userInitiatedStart")
+        userInitiatedStartField.isAccessible = true
+        userInitiatedStartField.setBoolean(service, true)
+
+        // The confirm buffer elapses; the re-check must see userInitiatedStart=true and abort.
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "Buffered re-check must abort stopSelf() when a genuine ACTION_START set " +
+                "userInitiatedStart=true during the confirm buffer, even if the cancellation " +
+                "call itself lost its race against the already-fired stage-1 runnable",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
 }

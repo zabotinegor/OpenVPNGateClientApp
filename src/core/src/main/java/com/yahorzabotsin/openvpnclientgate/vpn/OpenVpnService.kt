@@ -84,6 +84,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
         private const val MAX_THROTTLE_KEY_LENGTH = 96
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
+        // Buffer between "decided to stop after a passive status sync" and the actual
+        // stopSelf() call. Closes a race where a genuine ACTION_START (user tapping Connect,
+        // dispatched via ContextCompat.startForegroundService()) is enqueued to the main-thread
+        // message queue at nearly the same wall-clock moment stopAfterOneShotSyncRunnable's own
+        // ONE_SHOT_STOP_DELAY_MS timer is due. Android's looper is strictly serial, so whichever
+        // message is processed first "wins" -- if the stop runnable wins, ACTION_START's
+        // removeCallbacks(stopAfterOneShotSyncRunnable) arrives too late to cancel it, and a
+        // stopSelf() called on that same instance can tear it down out from under a
+        // startForeground() that already succeeded, producing
+        // RemoteServiceException$ForegroundServiceDidNotStartInTimeException on the OS side.
+        // Device-reproduced at a ~1058ms gap; see
+        // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md ADDENDUM. Value is
+        // clearly longer than realistic same-tick IPC/looper jitter but short enough not to
+        // meaningfully delay legitimate idle cleanup.
+        private const val ONE_SHOT_STOP_CONFIRM_DELAY_MS = 400L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
@@ -369,6 +384,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (userInitiatedStart || userInitiatedStop) return@Runnable
         if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
             AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected")
+            return@Runnable
+        }
+        // Do not call stopSelf() here. Defer it by ONE_SHOT_STOP_CONFIRM_DELAY_MS and
+        // re-run the same guard checks in stopAfterOneShotSyncConfirmedRunnable immediately
+        // before the deferred stopSelf() actually fires -- see ONE_SHOT_STOP_CONFIRM_DELAY_MS's
+        // declaration comment for the boundary-timing race this closes. If a genuine
+        // ACTION_START is the reason this runnable ran at all (its removeCallbacks() call
+        // arrived just after this runnable had already started executing), that same
+        // ACTION_START sets userInitiatedStart = true very early in onStartCommand() -- well
+        // before this buffer elapses -- so the confirmed runnable's re-check correctly aborts.
+        AppLog.d(TAG, "One-shot status sync decided to stop; confirming after ${ONE_SHOT_STOP_CONFIRM_DELAY_MS}ms buffer")
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
+        statusHandler.postDelayed(stopAfterOneShotSyncConfirmedRunnable, ONE_SHOT_STOP_CONFIRM_DELAY_MS)
+    }
+
+    // Second stage of the one-shot-sync stop decision -- see stopAfterOneShotSyncRunnable and
+    // ONE_SHOT_STOP_CONFIRM_DELAY_MS. This is a genuinely separate Runnable/Handler token, so
+    // removeCallbacks(stopAfterOneShotSyncRunnable) does NOT automatically cancel a pending
+    // instance of this one; every cancellation site for the former must also cancel this one.
+    private val stopAfterOneShotSyncConfirmedRunnable = Runnable {
+        if (!oneShotSyncRequested) return@Runnable
+        if (!oneShotSyncReceivedInitialState) return@Runnable
+        if (userInitiatedStart || userInitiatedStop) {
+            AppLog.d(TAG, "One-shot sync stop aborted by buffered re-check (userInitiatedStart/Stop set)")
+            return@Runnable
+        }
+        if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected (buffered re-check)")
             return@Runnable
         }
         oneShotSyncRequested = false
@@ -824,6 +867,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -892,6 +936,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -928,6 +973,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 if (!boundToStatus) bindStatusService()
                 val snapshotApplied = trySyncStatusSnapshot()
@@ -989,6 +1035,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleOneShotStop(delayMs: Long = ONE_SHOT_STOP_DELAY_MS) {
         if (!oneShotSyncRequested) return
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        // Restarting the stage-1 decision timer invalidates any stage-2 confirmation already
+        // in flight from a previous decision -- cancel it too so a stale confirmed-runnable
+        // can't fire stopSelf() after this fresh scheduling.
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.postDelayed(stopAfterOneShotSyncRunnable, delayMs)
     }
 
@@ -1200,6 +1250,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
