@@ -1046,23 +1046,45 @@ release-build logcat").
 
 ## OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt
 
-**Status: RESOLVED** — commit `ce2f952`, ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt)
+**Status: RESOLVED** — two distinct races, both closed. ClickUp
+[86cb35fbt](https://app.clickup.com/t/86cb35fbt); commits `ce2f952` (race 1), `20e7512` (partial
+narrowing of race 2), and the fix-cycle-3 structural closure of race 2 (this fix).
 
 **Symptom**
 
-`OpenVpnService` crashed roughly 5 seconds after a VPN reconnect with:
+`OpenVpnService` crashed with:
 
 ```
 android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException
 ```
 
-It only happened when the `OpenVpnService` instance handling the reconnect had earlier been
-created by a passive `ACTION_SYNC_STATUS` status sync (`context.startService()`, not
-`startForegroundService()`) rather than a genuine `ACTION_START` — e.g. the app returning to the
-foreground and syncing status while a connection was already active/connecting, followed shortly
-after by a real connect/reconnect on that same still-alive service instance.
+Two independent bugs produced this same exception on this same service, at different points in its
+life. Both are described below because the second was initially misdiagnosed as fixed when it
+was not (see "Disproven evidence" at the end of this entry) — a future investigator hitting this
+crash again should check which mechanism is actually in play rather than assuming either fix is
+incomplete.
 
-**Root cause**
+**The actual crash mechanism (applies to both races)**
+
+The crash is decided in `ActivityManagerService`, not in app code. Android gives an app 5 seconds
+after `ContextCompat.startForegroundService()` to call `Service.startForeground()` on the resulting
+instance (`fgRequired`). If AMS is concurrently tearing a service instance down (`stopSelf()` →
+`onDestroy()`) while it is still holding an *unsatisfied* `fgRequired` obligation from a
+`startForegroundService()` call, AMS logs "Bringing down service while still waiting for start
+foreground" and the process is killed shortly after `onDestroy()` completes — regardless of whether
+the `startForeground()` call would have arrived moments later. Device evidence (PID 8057,
+`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md`) bounds this hazard window to
+`stopSelf()` → `onDestroy()` completion, ~34ms, anchored on the `stopSelf()` instant:
+
+```
+36.469 stopSelf | 36.470 AMS "Bringing down service while still waiting for start foreground" |
+36.472 ACTION_START | 36.503 onDestroy done | 36.512 FATAL
+```
+
+Both races below are different ways an internal `stopSelf()` call ends up racing a genuine
+`ACTION_START`'s `startForegroundService()` on the same, still-alive service instance.
+
+**Race 1 (`ce2f952`): `enterControllerForeground()`'s early-return guard**
 
 `OpenVpnService.enterControllerForeground()` had an early-return guard:
 
@@ -1073,72 +1095,102 @@ private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
 }
 ```
 
-`onCreate()` eagerly calls `enterControllerForeground(stopOnFailure = false)` (the 8b2a778 fix,
-previous entry above), which sets `controllerForegroundActive = true` and posts the notification
-regardless of which action triggered creation. The `ACTION_SYNC_STATUS` handler only calls
-`exitControllerForeground()` when the VPN is `DISCONNECTED` — so an instance created by
-`ACTION_SYNC_STATUS` while a connection was active/connecting kept
-`controllerForegroundActive = true`.
+`onCreate()` eagerly calls `enterControllerForeground(stopOnFailure = false)` (the 8b2a778 fix, see
+the entry above this one), which sets `controllerForegroundActive = true` and posts the
+notification regardless of which action triggered creation. The `ACTION_SYNC_STATUS` handler only
+calls `exitControllerForeground()` when the VPN is `DISCONNECTED` — so an instance created by
+`ACTION_SYNC_STATUS` while a connection was active/connecting kept `controllerForegroundActive =
+true`. When a genuine `ACTION_START` later arrived on that same instance, AMS started a **new,
+independent 5-second `fgRequired` timer** for that specific `startForegroundService()` call, but
+the early-return guard skipped the fresh `Service.startForeground()` call needed to satisfy it. The
+timer expired with no matching call registered, and AMS killed the process.
 
-When a genuine `ACTION_START` later arrived on that same instance (via
-`ContextCompat.startForegroundService()`, per `VpnManager.startVpn()`), Android's
-ActivityManagerService starts a **new, independent 5-second foreground-service-start timer** for
-that specific `startForegroundService()` call — regardless of any earlier `startForeground()` call
-made for a different triggering intent. `enterControllerForeground()`'s early-return guard skipped
-the fresh `Service.startForeground()` call needed to satisfy *this* timer (it saw
-`controllerForegroundActive` already `true` from the earlier `ACTION_SYNC_STATUS`-triggered
-`onCreate()` and returned immediately). The timer expired ~5 s later with no matching
-`startForeground()` call registered against it, and Android killed the process.
+**Fix applied (`ce2f952`):** removed the early-return guard so `enterControllerForeground()` always
+(re)issues `Service.startForeground()`, regardless of `controllerForegroundActive`'s prior state.
+Repeated `startForeground()` calls are safe/idempotent on Android (they just (re)post or update the
+existing notification under the same ID), so unconditionally reissuing the call closes the gap
+without any behavior change for the already-working paths. Covered by
+`OpenVpnServiceNotificationTest.startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive`.
 
-**Relationship to the earlier crash (8b2a778):** same exception class, same service, same
-underlying "app must call `startForeground()` within 5 s of `startForegroundService()`"
-constraint — but a different trigger path. The 8b2a778 fix closed a race in `onCreate()` itself;
-this fix closes a gap where a *later*, unrelated promotion to foreground (from
-`ACTION_SYNC_STATUS`) could cause a *subsequent* genuine `ACTION_START` to skip its own required
-`startForeground()` call.
+**Race 2: `stopAfterOneShotSyncRunnable`'s own `stopSelf()` timer**
 
-**Fix applied**
+Separately, `OpenVpnService` runs a one-shot idle-teardown timer after a passive
+`ACTION_SYNC_STATUS` sync observes the VPN as disconnected (`stopAfterOneShotSyncRunnable`,
+`ONE_SHOT_STOP_DELAY_MS` = 1000ms). Device-targeted re-verification (the addendum in
+`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md`) reproduced the crash on a build
+that had *already* shipped the race-1 fix above, at a ~1058ms sync-to-start gap: a genuine
+`ACTION_START` (`startForegroundService()`, from `MainActivityCore.kt`'s Connect action) landed on
+the main-thread looper at nearly the same tick as the timer's own `stopSelf()`. Android's looper is
+strictly serial — whichever message the looper processed first won. When the stop runnable won,
+`ACTION_START`'s `removeCallbacks(stopAfterOneShotSyncRunnable)` arrived too late to cancel it, and
+the resulting `stopSelf()` tore the instance down while the just-arrived `ACTION_START`'s
+`fgRequired` obligation was still unsatisfied.
 
-Removed the early-return guard so `enterControllerForeground()` always (re)issues
-`Service.startForeground()`, regardless of `controllerForegroundActive`'s prior state:
+**First remediation attempt (`20e7512`) — narrowed but did not close the window.** This introduced
+`ONE_SHOT_STOP_CONFIRM_DELAY_MS` (400ms): the decision to stop is deferred into a second runnable
+that re-runs the same guard checks (`userInitiatedStart`/`userInitiatedStop`/`CONNECTED`)
+immediately before the real `stopSelf()` fires, catching the case where the cancellation call and
+the stage-1 decision land on the looper at nearly the same tick. This is real, narrow protection —
+but quality-gate review (fix-cycle 3, `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-2.md`,
+finding G1) established that on its own it only *relocates* the same ~34ms hazard from ~1000ms to
+~1400ms after the sync, at unchanged width: `ACTION_START`'s only real dispatcher is a human
+tapping Connect after `MainActivityCore.onStart()` fires the sync, and nothing makes a 1400ms
+arrival any less likely than a 1000ms one. Expected crash rate was unchanged by this step alone.
 
-```kotlin
-private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
-    // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
-    // already true. A genuine ACTION_START must get a fresh startForeground() call to satisfy
-    // Android's foreground-service-start timing requirement, regardless of any prior
-    // controllerForegroundActive state left over from an earlier ACTION_SYNC_STATUS-triggered
-    // onCreate() call. Repeated/redundant startForeground() calls are idempotent and Android-
-    // supported (they just (re)show/update the notification), so this is safe.
-    ...
-}
-```
+**Final fix applied (fix-cycle 3) — structural closure, not another relocation.** A genuine
+`ACTION_START` can only ever be dispatched from a visible activity (a human tapping Connect —
+`VpnManager.startVpn()`'s only caller is `MainActivityCore`). `OpenVpnService` now refuses to call
+`stopSelf()` from this one-shot path at all while any activity is started
+(`isAppForegroundVisible()`, backed by `ProcessLifecycleOwner`), removing the coincidence rather
+than narrowing its timing window — a real `ACTION_START` and this internal `stopSelf()` now require
+mutually exclusive process-lifecycle states, not merely a low-probability timer alignment. A
+suppressed stop is not a leak: the instance already drops its foreground notification via the
+existing `ACTION_SYNC_STATUS`-triggered `exitControllerForeground()` call, so it sits idle with no
+user-visible notification. It is reaped once the UI actually leaves the foreground by a new
+`ProcessLifecycleOwner` `ON_STOP` observer (`appLifecycleObserver`) that calls the pre-existing,
+already-tested `VpnManager.stopControllerIfIdle()` / `ACTION_STOP_IF_IDLE` path (previously only
+triggered from the Settings screen). The `ONE_SHOT_STOP_CONFIRM_DELAY_MS` buffer from `20e7512` was
+kept — it still earns its keep for the narrower same-tick alignment case described above — but its
+declaration comment was corrected to no longer imply it closes the AMS race by itself.
 
-Repeated `startForeground()` calls are safe/idempotent on Android — they just (re)post or update
-the existing notification under the same ID — so unconditionally reissuing the call closes the gap
-without any behavior change for the already-working paths.
+**Disproven evidence (do not cite this as proof race 2 is fixed) —** the original `20e7512` gate
+pass and the `ce2f952` docs update both cited a 19-cycle real-device soak
+(`ACTION_START`=16, `ACTION_SYNC_STATUS`=17, full teardown=27, zero crash matches) as evidence race
+2 was closed. PR-review investigation (round 3) and a full raw-logcat PID correlation across all 27
+service-instance brackets established that soak **never actually exercised the vulnerable
+same-instance `ACTION_SYNC_STATUS`-then-`ACTION_START` sequence** — it is recorded as defect #1 of
+this bug-fix flow. A subsequent *targeted* re-verification, specifically constructed to force that
+exact sequence, did reproduce the crash (the ~1058ms gap described above). Do not re-cite the
+19-cycle soak as evidence for race 2; treat it as retracted.
 
-**Evidence**
+**Evidence (final fix, fix-cycle 3)**
 
-- Regression test `OpenVpnServiceNotificationTest.startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive`:
-  reproduces an `ACTION_SYNC_STATUS`-created instance with the VPN left active (so
-  `exitControllerForeground()` is not called), asserts `controllerForegroundActive` is still `true`
-  as a precondition, clears the notification, then asserts a subsequent `ACTION_START` re-posts it.
-- Real-device manual QA: 19 reconnect cycles across all trigger shapes (user-initiated foreground
-  toggles, auto-switch/no-reply-timer cycles, backgrounded reconnects, airplane-mode network-drop
-  cycles) on Samsung Galaxy A71 (`<serial>`) at commit `9032cf934106385fb4b3b63a1005641a0c153244`.
-  Full-session logcat (222,832 lines) scanned for `ForegroundServiceDidNotStartInTimeException`,
-  `RemoteServiceException`, `FATAL EXCEPTION`, `AndroidRuntime` crash, and ANR: zero matches. The
-  exact vulnerable pattern (`ACTION_START` following `ACTION_SYNC_STATUS` on the same live
-  instance) was confirmed to have fired repeatedly during the soak (`ACTION_START`=16,
-  `ACTION_SYNC_STATUS`=17, full service teardown=27) without reproducing the crash.
+- Regression tests in `OpenVpnServiceNotificationTest.kt`:
+  `oneShotSync_suppressesStopSelf_whileAppUiIsForeground`,
+  `oneShotSync_stopsSelf_onceAppUiLeavesForegroundAfterSuppression`,
+  `appLifecycleObserver_onStop_dispatchesActionStopIfIdle`,
+  `appLifecycleObserver_onStop_isNoOpWhileVpnActive`,
+  `scheduleOneShotStop_cancelsStalePendingConfirmation_whenReScheduled`,
+  `oneShotSync_realActionStartThroughOnStartCommand_abortsBufferedStop`,
+  `oneShotSync_connectedGuard_abortsBufferedStop_whenVpnConnectsDuringBuffer`.
+- Full core unit suite green at the fix-cycle-3 HEAD (forced run, XML-verified, not a cached
+  0-test result): 830/830 (823 baseline + 7 new).
+- `assembleDebugApp`: BUILD SUCCESSFUL.
+- Manual QA retest against the corrected same-instance sequence and the new suppression/reap
+  behavior is tracked separately in `.sdlc/status.json` for this flow; see that file's `manualQa`
+  step for current status rather than treating this doc entry as QA sign-off.
 
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
-  (`enterControllerForeground`)
+  (`enterControllerForeground`, `isAppForegroundVisible`, `appLifecycleObserver`,
+  `stopAfterOneShotSyncRunnable`, `stopAfterOneShotSyncConfirmedRunnable`)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceNotificationTest.kt`
-- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt); commit `ce2f952`
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md` (device timeline, PID 8057;
+  addendum with the targeted re-verification and disproven-soak correlation)
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-2.md` (G1/G2 findings that drove
+  this fix-cycle-3 rewrite)
+- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt); commits `ce2f952`, `20e7512`
 - See also the earlier, related crash above: [`RemoteServiceException`: `startForegroundService()`
   did not call `startForeground()` — crash on first VPN connect after APK
   update](#remoteserviceexception-startforegroundservice-did-not-call-startforeground--crash-on-first-vpn-connect-after-apk-update)

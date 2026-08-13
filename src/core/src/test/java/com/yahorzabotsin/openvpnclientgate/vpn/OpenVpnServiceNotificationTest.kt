@@ -4,9 +4,12 @@ import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.Before
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,6 +19,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 class OpenVpnServiceNotificationTest {
@@ -365,6 +369,302 @@ class OpenVpnServiceNotificationTest {
             "Buffered re-check must abort stopSelf() when a genuine ACTION_START set " +
                 "userInitiatedStart=true during the confirm buffer, even if the cancellation " +
                 "call itself lost its race against the already-fired stage-1 runnable",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression tests for quality-gate finding G1 (fix-cycle 3, docs/qa-evidence/
+    // 86cb35fbt-vpn-foreground-service-crash-gate-2.md): ONE_SHOT_STOP_CONFIRM_DELAY_MS alone only
+    // relocates the AMS "bringing down service while still waiting for start foreground" crash
+    // window from ~1000ms to ~1000-1400ms; it does not remove it, because the race is against a
+    // human Connect tap that can land at any point on that timeline. The structural fix is
+    // isAppForegroundVisible(): stopSelf() from the one-shot sync path is now refused outright
+    // while any activity is started -- the only condition under which a genuine ACTION_START can be
+    // dispatched (VpnManager.startVpn()'s only real caller is MainActivityCore's Connect action) --
+    // with appLifecycleObserver reaping the deferred stop via the pre-existing, already-tested
+    // ACTION_STOP_IF_IDLE path once the UI actually leaves the foreground.
+
+    // These two tests override appForegroundVisibleProvider by reflection rather than driving a
+    // real Activity through Robolectric -- ProcessLifecycleOwner is a process-wide singleton whose
+    // internal LifecycleRegistry is only wired to Activity callbacks via androidx-startup
+    // initialization, which is not reliably active for a bare Robolectric-built Activity in this
+    // module's test environment. The provider field is the same injectable-clock pattern already
+    // used for watchdogNowMs/elapsedRealtimeMs elsewhere in this class.
+
+    @Test
+    fun oneShotSync_suppressesStopSelf_whileAppUiIsForeground() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ true } as () -> Boolean))
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Run stage 1 and stage 2 all the way past their combined ~1400ms schedule -- with
+        // pre-fix-cycle-3 code this would call stopSelf() here regardless of UI state.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+        assertFalse(
+            "stopSelf() must never fire from the one-shot sync path while an activity is " +
+                "started -- that is exactly the condition under which a genuine ACTION_START " +
+                "(human Connect tap) can be dispatched, and calling stopSelf() here is the AMS " +
+                "bring-down race G1 requires closed structurally, not just narrowed",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    @Test
+    fun oneShotSync_stopsSelf_onceAppUiLeavesForegroundAfterSuppression() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ true } as () -> Boolean))
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "Precondition: stop must be suppressed while the app is foreground",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // The UI leaves the foreground -- appLifecycleObserver.onStop() dispatches
+        // ACTION_STOP_IF_IDLE via VpnManager.stopControllerIfIdle(), exactly as it does in
+        // production (see appLifecycleObserver_onStop_dispatchesActionStopIfIdle above, which
+        // isolates that dispatch), and the real ACTION_STOP_IF_IDLE branch in onStartCommand()
+        // (see the pre-existing stopIfIdleActionStopsService test) performs the actual stop --
+        // independent of the one-shot mechanism's own state, since it only checks
+        // ConnectionStateManager directly.
+        // Drain any unrelated started-service intents queued by the ACTION_SYNC_STATUS setup above
+        // (e.g. bindStatusService()'s own service start) so nextStartedService below reliably picks
+        // up the one appLifecycleObserver.onStop() dispatches, not an earlier unrelated entry.
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).clearStartedServices()
+
+        val observerField = OpenVpnService::class.java.getDeclaredField("appLifecycleObserver")
+        observerField.isAccessible = true
+        val observer = observerField.get(service) as DefaultLifecycleObserver
+        observer.onStop(ProcessLifecycleOwner.get())
+
+        val reapIntent = Shadows.shadowOf(RuntimeEnvironment.getApplication()).nextStartedService
+        assertTrue("Precondition: onStop() must dispatch ACTION_STOP_IF_IDLE", reapIntent != null)
+        service.onStartCommand(reapIntent, 0, 2)
+
+        assertTrue(
+            "Leaving the foreground must reap a one-shot stop that was suppressed while " +
+                "visible, via the pre-existing ACTION_STOP_IF_IDLE path -- otherwise a " +
+                "suppressed idle controller would never be cleaned up",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    @Test
+    fun appLifecycleObserver_onStop_dispatchesActionStopIfIdle() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).clearStartedServices()
+
+        val observerField = OpenVpnService::class.java.getDeclaredField("appLifecycleObserver")
+        observerField.isAccessible = true
+        val observer = observerField.get(service) as DefaultLifecycleObserver
+        observer.onStop(ProcessLifecycleOwner.get())
+
+        val started = Shadows.shadowOf(RuntimeEnvironment.getApplication()).nextStartedService
+        assertTrue(
+            "appLifecycleObserver.onStop() must dispatch ACTION_STOP_IF_IDLE via " +
+                "VpnManager.stopControllerIfIdle() so a one-shot stop suppressed while foreground " +
+                "gets reaped once the UI goes away",
+            started != null && started.getStringExtra(VpnManager.actionKey(service)) == VpnManager.ACTION_STOP_IF_IDLE
+        )
+    }
+
+    @Test
+    fun appLifecycleObserver_onStop_isNoOpWhileVpnActive() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).clearStartedServices()
+
+        val observerField = OpenVpnService::class.java.getDeclaredField("appLifecycleObserver")
+        observerField.isAccessible = true
+        val observer = observerField.get(service) as DefaultLifecycleObserver
+        observer.onStop(ProcessLifecycleOwner.get())
+
+        assertNull(
+            "Leaving the foreground must not touch an active (non-DISCONNECTED) controller " +
+                "instance -- stopControllerIfIdle()'s own guard must still apply",
+            Shadows.shadowOf(RuntimeEnvironment.getApplication()).nextStartedService
+        )
+    }
+
+    // Regression test for quality-gate finding G3: of the five cancellation sites for
+    // stopAfterOneShotSyncConfirmedRunnable, scheduleOneShotStop()'s (~line 1041) is the only one
+    // that is genuinely load-bearing -- it is the sole site that must cancel a stage-2 confirmation
+    // left pending by a PREVIOUS scheduling cycle when the sync path is re-entered. The other four
+    // sites are provably redundant with stage-2's own guards (ACTION_START/ACTION_STOP resetting
+    // oneShotSyncRequested, onDestroy() tearing down the instance). This isolates that one site
+    // directly, the same way onOneShotInitialStateSynced is already invoked directly elsewhere in
+    // this file to isolate a single mechanism from the full onStartCommand() flow.
+    @Test
+    fun scheduleOneShotStop_cancelsStalePendingConfirmation_whenReScheduled() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // t=1000ms: stage 1 fires, scheduling the STALE stage-2 confirmation for t=1400ms.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // t=1200ms: re-enter the sync path directly through scheduleOneShotStop() -- the same
+        // method stage 1 itself calls -- while the stale stage-2 confirmation is still pending.
+        Shadows.shadowOf(service.mainLooper).idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        val scheduleOneShotStop = OpenVpnService::class.java.getDeclaredMethod(
+            "scheduleOneShotStop", Long::class.javaPrimitiveType
+        )
+        scheduleOneShotStop.isAccessible = true
+        scheduleOneShotStop.invoke(service, 1000L)
+
+        // t=1400ms: the STALE deadline. If scheduleOneShotStop() had not cancelled the pending
+        // stage-2 token (the load-bearing cancellation), stopSelf() would fire here.
+        Shadows.shadowOf(service.mainLooper).idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "A stage-2 confirmation left pending by a previous scheduling cycle must be " +
+                "cancelled when scheduleOneShotStop() re-enters the sync path, not left to fire " +
+                "on its stale schedule",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // t=2200ms: the NEW stage-1 deadline (1000ms after the t=1200ms re-entry).
+        Shadows.shadowOf(service.mainLooper).idleFor(800, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // t=2600ms: the NEW stage-2 deadline. The controller must still stop, following the fresh
+        // schedule established by the re-entry.
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue(
+            "The controller must still stop, following the NEW schedule established by " +
+                "scheduleOneShotStop()'s re-entry, not be stuck forever",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression test for quality-gate finding G4: the pre-existing abort test
+    // (oneShotSync_abortsBufferedStop_whenActionStartInterruptsDuringBuffer) pokes
+    // userInitiatedStart via reflection, which isolates a WEAKER guard than the real ACTION_START
+    // path trips first (oneShotSyncRequested=false, set earlier in onStartCommand, ahead of
+    // userInitiatedStart=true). This drives a real ACTION_START Intent through the actual
+    // onStartCommand() path end-to-end while a one-shot stop is pending, matching what a device
+    // build actually does.
+    //
+    // sdk = [27]: as in startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive
+    // above, ACTION_START's enterControllerForeground() call builds a real notification; on the
+    // project's default Robolectric SDK that throws NoSuchMethodError (AndroidX-core/Robolectric
+    // shadow-jar mismatch unrelated to this fix), which enterControllerForeground()'s catch block
+    // then treats as a failure and calls stopSelf() -- masking the very thing this test checks.
+    @Config(sdk = [27])
+    @Test
+    fun oneShotSync_realActionStartThroughOnStartCommand_abortsBufferedStop() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Stage 1 fires, scheduling the pending stage-2 confirmation.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // A REAL ACTION_START intent, driven through the actual onStartCommand() path.
+        val app = RuntimeEnvironment.getApplication()
+        val startIntent = Intent(app, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(app), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(app), "client\n")
+            putExtra(VpnManager.extraTitleKey(app), "RU")
+        }
+        service.onStartCommand(startIntent, 0, 2)
+
+        // Advance through the confirm buffer: the real ACTION_START path must have prevented the
+        // pending stage-2 confirmation from ever calling stopSelf().
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "A genuine ACTION_START Intent driven through the real onStartCommand() path must " +
+                "abort the pending one-shot stop end-to-end, not merely when userInitiatedStart " +
+                "is flipped in isolation",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression test for quality-gate finding G4's CONNECTED-guard follow-up: the buffered
+    // re-check must also abort when the VPN has become CONNECTED during the buffer, independent of
+    // userInitiatedStart/Stop (e.g. an in-flight auto-switch reconnect succeeding).
+    @Test
+    fun oneShotSync_connectedGuard_abortsBufferedStop_whenVpnConnectsDuringBuffer() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // The VPN reaches CONNECTED during the confirm buffer.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "The buffered re-check must abort stopSelf() once the VPN is CONNECTED, even without " +
+                "userInitiatedStart/Stop being set",
             shadowOf(service).isStoppedBySelf
         )
     }
