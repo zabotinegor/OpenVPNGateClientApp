@@ -1046,9 +1046,12 @@ release-build logcat").
 
 ## OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt
 
-**Status: RESOLVED** — two distinct races, both closed. ClickUp
+**Status: FIX IMPLEMENTED — pending device QA (fix-cycle 4)**. Two distinct races; race 1 is
+closed. Race 2 had two dispatchers, closed in two separate fix cycles (see below) — believed
+complete, not yet device-verified against this cycle. ClickUp
 [86cb35fbt](https://app.clickup.com/t/86cb35fbt); commits `ce2f952` (race 1), `20e7512` (partial
-narrowing of race 2), and the fix-cycle-3 structural closure of race 2 (this fix).
+narrowing of race 2), the fix-cycle-3 structural closure of race 2's UI dispatcher, and the
+fix-cycle-4 closure of race 2's second, non-UI dispatcher (this fix).
 
 **Symptom**
 
@@ -1137,21 +1140,46 @@ finding G1) established that on its own it only *relocates* the same ~34ms hazar
 tapping Connect after `MainActivityCore.onStart()` fires the sync, and nothing makes a 1400ms
 arrival any less likely than a 1000ms one. Expected crash rate was unchanged by this step alone.
 
-**Final fix applied (fix-cycle 3) — structural closure, not another relocation.** A genuine
-`ACTION_START` can only ever be dispatched from a visible activity (a human tapping Connect —
-`VpnManager.startVpn()`'s only caller is `MainActivityCore`). `OpenVpnService` now refuses to call
+**Fix-cycle 3 — structural closure of the UI dispatcher, not another relocation.** A genuine
+`ACTION_START` from a human tapping Connect is dispatched from a visible activity
+(`VpnManager.startVpn()`'s `MainActivityCore` caller). `OpenVpnService` now refuses to call
 `stopSelf()` from this one-shot path at all while any activity is started
 (`isAppForegroundVisible()`, backed by `ProcessLifecycleOwner`), removing the coincidence rather
-than narrowing its timing window — a real `ACTION_START` and this internal `stopSelf()` now require
-mutually exclusive process-lifecycle states, not merely a low-probability timer alignment. A
-suppressed stop is not a leak: the instance already drops its foreground notification via the
-existing `ACTION_SYNC_STATUS`-triggered `exitControllerForeground()` call, so it sits idle with no
-user-visible notification. It is reaped once the UI actually leaves the foreground by a new
-`ProcessLifecycleOwner` `ON_STOP` observer (`appLifecycleObserver`) that calls the pre-existing,
-already-tested `VpnManager.stopControllerIfIdle()` / `ACTION_STOP_IF_IDLE` path (previously only
-triggered from the Settings screen). The `ONE_SHOT_STOP_CONFIRM_DELAY_MS` buffer from `20e7512` was
-kept — it still earns its keep for the narrower same-tick alignment case described above — but its
-declaration comment was corrected to no longer imply it closes the AMS race by itself.
+than narrowing its timing window for that dispatcher — a UI-driven `ACTION_START` and this internal
+`stopSelf()` now require mutually exclusive process-lifecycle states, not merely a low-probability
+timer alignment. A suppressed stop is not a leak: the instance already drops its foreground
+notification via the existing `ACTION_SYNC_STATUS`-triggered `exitControllerForeground()` call, so
+it sits idle with no user-visible notification. It is reaped once the UI actually leaves the
+foreground by a new `ProcessLifecycleOwner` `ON_STOP` observer (`appLifecycleObserver`) that calls
+the pre-existing, already-tested `VpnManager.stopControllerIfIdle()` / `ACTION_STOP_IF_IDLE` path
+(previously only triggered from the Settings screen). The `ONE_SHOT_STOP_CONFIRM_DELAY_MS` buffer
+from `20e7512` was kept — it still earns its keep for the narrower same-tick alignment case
+described above — but its declaration comment was corrected to no longer imply it closes the AMS
+race by itself.
+
+**Fix-cycle 3's stated invariant was false — code review proved it by execution, not inspection.**
+`VpnManager.startVpn()` has a SECOND production caller: `ServerAutoSwitcher`'s background retry
+timers (`ServerAutoSwitcher.kt`, ~350ms after observing `LEVEL_NOTCONNECTED`, and its stop-retry
+timeout path), neither gated by UI visibility at all. Across the whole auto-switch stop-to-start
+gap, `reconnectingHint` holds `ConnectionStateManager`'s mapped state at `CONNECTING` rather than
+`DISCONNECTED`, and `userInitiatedStart` is cleared back to `false` the moment the engine reports
+`LEVEL_NOTCONNECTED` — so neither of stage-2's other guards covered this dispatcher, and
+`isAppForegroundVisible()` does nothing for a backgrounded app. A code-review probe test modelling
+exactly that gap (backgrounded, `reconnectingHint = true`, state `CONNECTING`) proved `stopSelf()`
+still fired. This is a residual, not a regression: at `20e7512` the same window was exposed in both
+the foreground and background case, and fix-cycle 3 closed the dominant, device-reproduced
+foreground half. Full findings:
+`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-4.md`.
+
+**Fix-cycle 4 — closes the second dispatcher.** Tightened the same state guard fix-cycle 3 already
+had (`stopAfterOneShotSyncRunnable` / `stopAfterOneShotSyncConfirmedRunnable`) from "is `CONNECTED`"
+to "is not `DISCONNECTED`" — matching the guard the pre-existing `ACTION_STOP_IF_IDLE` reaper path
+already used. Because `reconnectingHint` holds state at `CONNECTING` for the entire auto-switch
+gap, this guard alone now excludes `ServerAutoSwitcher`'s dispatcher the same way
+`isAppForegroundVisible()` excludes the UI dispatcher, making the exclusion provable for both
+rather than incidental for one. Covered by
+`oneShotSync_suppressesStopSelf_duringAutoSwitchGapWhileBackgrounded`, a permanent regression test
+adapted directly from the review's probe methodology (assertion inverted).
 
 **Disproven evidence (do not cite this as proof race 2 is fixed) —** the original `20e7512` gate
 pass and the `ce2f952` docs update both cited a 19-cycle real-device soak
@@ -1163,7 +1191,7 @@ this bug-fix flow. A subsequent *targeted* re-verification, specifically constru
 exact sequence, did reproduce the crash (the ~1058ms gap described above). Do not re-cite the
 19-cycle soak as evidence for race 2; treat it as retracted.
 
-**Evidence (final fix, fix-cycle 3)**
+**Evidence (fix-cycle 3 + fix-cycle 4)**
 
 - Regression tests in `OpenVpnServiceNotificationTest.kt`:
   `oneShotSync_suppressesStopSelf_whileAppUiIsForeground`,
@@ -1172,24 +1200,30 @@ exact sequence, did reproduce the crash (the ~1058ms gap described above). Do no
   `appLifecycleObserver_onStop_isNoOpWhileVpnActive`,
   `scheduleOneShotStop_cancelsStalePendingConfirmation_whenReScheduled`,
   `oneShotSync_realActionStartThroughOnStartCommand_abortsBufferedStop`,
-  `oneShotSync_connectedGuard_abortsBufferedStop_whenVpnConnectsDuringBuffer`.
-- Full core unit suite green at the fix-cycle-3 HEAD (forced run, XML-verified, not a cached
-  0-test result): 830/830 (823 baseline + 7 new).
-- `assembleDebugApp`: BUILD SUCCESSFUL.
-- Manual QA retest against the corrected same-instance sequence and the new suppression/reap
-  behavior is tracked separately in `.sdlc/status.json` for this flow; see that file's `manualQa`
-  step for current status rather than treating this doc entry as QA sign-off.
+  `oneShotSync_connectedGuard_abortsBufferedStop_whenVpnConnectsDuringBuffer` (fix-cycle 3);
+  `oneShotSync_suppressesStopSelf_duringAutoSwitchGapWhileBackgrounded` (fix-cycle 4, F1).
+- Full core unit suite and `assembleDebugApp` results for fix-cycle 4: see this flow's
+  `.sdlc/status.json` `implementation` step for the exact counts (forced run, XML-verified).
+- Manual QA retest is tracked separately in `.sdlc/status.json` for this flow; see that file's
+  `manualQa` step for current status rather than treating this doc entry as QA sign-off. The QA
+  sweep target for fix-cycle 4 differs from fix-cycle 3's Connect-tap timing sweep: background the
+  app during an active auto-switch cycle with a status sync armed, and correlate the `stopSelf()`
+  log timestamp against `ServerAutoSwitcher`'s retry-timer dispatch.
 
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
   (`enterControllerForeground`, `isAppForegroundVisible`, `appLifecycleObserver`,
   `stopAfterOneShotSyncRunnable`, `stopAfterOneShotSyncConfirmedRunnable`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (the
+  second `ACTION_START` dispatcher fix-cycle 4 excludes)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceNotificationTest.kt`
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa.md` (device timeline, PID 8057;
   addendum with the targeted re-verification and disproven-soak correlation)
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-2.md` (G1/G2 findings that drove
-  this fix-cycle-3 rewrite)
+  the fix-cycle-3 rewrite)
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-4.md` (F1/F2 findings that drove
+  the fix-cycle-4 rewrite, including the probe test proving the fix-cycle-3 invariant false)
 - ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt); commits `ce2f952`, `20e7512`
 - See also the earlier, related crash above: [`RemoteServiceException`: `startForegroundService()`
   did not call `startForeground()` — crash on first VPN connect after APK

@@ -89,17 +89,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val MAX_THROTTLE_KEY_LENGTH = 96
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
         // Buffer between "decided to stop after a passive status sync" and the actual
-        // stopSelf() call, re-running the same guard checks (userInitiatedStart/Stop, CONNECTED)
-        // immediately before the deferred stopSelf() actually fires. On its own this buffer does
-        // NOT close the underlying AMS "bringing down service while still waiting for start
-        // foreground" crash window -- it only narrows the specific 1000ms-arrival slice of it and,
-        // taken alone, would simply relocate the same-width hazard to ~1000-1400ms after the sync
-        // (quality-gate finding G1, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-2.md).
-        // The actual closure is isAppForegroundVisible() in stopAfterOneShotSyncConfirmedRunnable:
-        // stopSelf() is never called at all while any activity is started, which is the only
-        // condition under which a genuine ACTION_START (a human tapping Connect, dispatched via
-        // ContextCompat.startForegroundService()) can be dispatched -- see VpnManager.startVpn()'s
-        // callers. This buffer still earns its keep on top of that guard: it catches the narrower
+        // stopSelf() call, re-running the same guard checks (userInitiatedStart/Stop,
+        // != DISCONNECTED) immediately before the deferred stopSelf() actually fires. On its own
+        // this buffer does NOT close the underlying AMS "bringing down service while still waiting
+        // for start foreground" crash window -- it only narrows the specific 1000ms-arrival slice
+        // of it and, taken alone, would simply relocate the same-width hazard to ~1000-1400ms after
+        // the sync (quality-gate finding G1, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-2.md).
+        // The actual closure has two parts, one per production ACTION_START dispatcher (review-4
+        // F1, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-4.md):
+        // isAppForegroundVisible() in stopAfterOneShotSyncConfirmedRunnable excludes the UI
+        // dispatcher (stopSelf() is never called while any activity is started -- see
+        // VpnManager.startVpn()'s MainActivityCore.kt caller); the
+        // != ConnectionState.DISCONNECTED state guard excludes ServerAutoSwitcher's background
+        // retry-timer dispatcher, which is not gated by UI visibility at all -- reconnectingHint
+        // holds state at CONNECTING for the whole auto-switch stop-to-start gap. This buffer still
+        // earns its keep on top of both guards: it catches the narrower
         // case where stopAfterOneShotSyncRunnable's own ONE_SHOT_STOP_DELAY_MS timer and a fresh
         // ACTION_START's removeCallbacks(stopAfterOneShotSyncRunnable) call land on the main-thread
         // looper at nearly the same tick, so that a stage-1 "decided to stop" that already started
@@ -386,16 +390,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var oneShotSyncRequested = false
     private var oneShotSyncReceivedInitialState = false
 
-    // Structural closure for quality-gate finding G1 (fix-cycle 3): a genuine ACTION_START can
-    // only ever be dispatched from a visible activity (a human tapping Connect -- see
-    // VpnManager.startVpn()'s callers, MainActivityCore.kt). ONE_SHOT_STOP_CONFIRM_DELAY_MS alone
+    // Structural closure for quality-gate finding G1 (fix-cycle 3), UI dispatcher only: a genuine
+    // ACTION_START from a human Connect tap is dispatched from a visible activity (see
+    // VpnManager.startVpn()'s MainActivityCore.kt caller). ONE_SHOT_STOP_CONFIRM_DELAY_MS alone
     // only relocates the AMS "bringing down service while still waiting for start foreground"
     // race to a later timer tick; it does not remove the possibility that some tick coincides with
     // a real Connect tap. Gating the actual stopSelf() call on "is any activity currently started"
-    // instead removes the coincidence entirely: stopSelf() from this one-shot path and a real
-    // ACTION_START now require mutually exclusive process-lifecycle states, not merely
-    // low-probability timer alignment. See stopAfterOneShotSyncConfirmedRunnable and
-    // appLifecycleObserver below.
+    // instead removes the coincidence entirely for that dispatcher: stopSelf() from this one-shot
+    // path and a UI-driven ACTION_START now require mutually exclusive process-lifecycle states,
+    // not merely low-probability timer alignment. See stopAfterOneShotSyncConfirmedRunnable and
+    // appLifecycleObserver below. A SECOND ACTION_START dispatcher exists --
+    // ServerAutoSwitcher's background retry timers, not gated by UI visibility at all -- and is
+    // excluded separately by the != ConnectionState.DISCONNECTED state guard in both
+    // stopAfterOneShotSyncRunnable and stopAfterOneShotSyncConfirmedRunnable (review-4 F1,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-4.md).
     // Injectable, like watchdogNowMs/elapsedRealtimeMs elsewhere in this class: tests override
     // this field via reflection instead of trying to drive the real process-wide
     // ProcessLifecycleOwner singleton through Robolectric's Activity lifecycle simulation, which
@@ -414,6 +422,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    // Assumes this Service runs in the app's main process (it has no android:process in any
+    // manifest today, unlike the engine's :openvpn process -- CoreApp.isMainProcess() guards its
+    // own ProcessLifecycleOwner usage for the same reason). If that ever changes,
+    // ProcessLifecycleOwner here would never observe an activity and this would silently return
+    // false forever, making the G1 suppression a permanent no-op (review-4 F7).
     private fun isAppForegroundVisible(): Boolean = appForegroundVisibleProvider()
 
     // Reaps a one-shot-sync-created controller instance once the UI that made it unsafe to stop
@@ -424,7 +437,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // does not hit Android's "cannot startService() from the background" restriction the way
     // starting a brand-new service would. ACTION_STOP_IF_IDLE itself only stops when
     // ConnectionStateManager is DISCONNECTED, so it is a no-op whenever a real session (including
-    // an in-flight auto-switch reconnect) is active.
+    // an in-flight auto-switch reconnect) is active. This is a single edge event, not a retry loop
+    // (review-4 F4): if the VPN is not yet DISCONNECTED at the moment ON_STOP fires, or the
+    // startService() call it issues is rejected, nothing re-arms it until the next
+    // foreground-then-background cycle. Bounded and non-crashing -- the instance has already
+    // dropped its foreground notification via exitControllerForeground() -- just not immediate.
     private val appLifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
             AppLog.i(TAG, "App UI left foreground; reaping idle controller via ACTION_STOP_IF_IDLE")
@@ -455,8 +472,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return@Runnable
         }
         if (userInitiatedStart || userInitiatedStop) return@Runnable
-        if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
-            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected")
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle")
             return@Runnable
         }
         // Do not call stopSelf() here. Defer it by ONE_SHOT_STOP_CONFIRM_DELAY_MS and
@@ -485,23 +502,36 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.i(TAG, "One-shot sync stop aborted by buffered re-check (userInitiatedStart/Stop set)")
             return@Runnable
         }
-        if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
-            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected (buffered re-check)")
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            // Excludes ServerAutoSwitcher's background retry-timer ACTION_START dispatcher
+            // (review-4 F1): reconnectingHint holds state at CONNECTING for the whole auto-switch
+            // stop-to-start gap, so this guard alone already makes stopSelf() and that dispatcher
+            // mutually exclusive, the same way isAppForegroundVisible() below does for the UI
+            // dispatcher.
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle (buffered re-check)")
             return@Runnable
         }
         if (isAppForegroundVisible()) {
-            // G1 structural closure: never call stopSelf() from this one-shot path while any
-            // activity is started -- that is the only condition under which a genuine ACTION_START
-            // (a human Connect tap) can arrive. Leave oneShotSyncRequested/
-            // oneShotSyncReceivedInitialState set; appLifecycleObserver.onStop() reaps the
-            // still-idle instance via ACTION_STOP_IF_IDLE the moment the UI actually goes away, and
-            // a genuine ACTION_START aborts this decision outright via the check above.
+            // G1 structural closure, UI dispatcher: never call stopSelf() from this one-shot path
+            // while any activity is started -- that is the only condition under which a genuine
+            // ACTION_START from a human Connect tap can arrive (MainActivityCore.kt). The OTHER
+            // production ACTION_START dispatcher, ServerAutoSwitcher's background retry timers, is
+            // not gated by UI visibility at all and is excluded instead by the != DISCONNECTED
+            // guard above (review-4 F1,
+            // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-4.md). Leave
+            // oneShotSyncRequested/oneShotSyncReceivedInitialState set; appLifecycleObserver.onStop()
+            // reaps the still-idle instance via ACTION_STOP_IF_IDLE the moment the UI actually goes
+            // away, and a genuine ACTION_START aborts this decision outright via the checks above.
             AppLog.i(TAG, "One-shot sync stop suppressed while app UI is foreground; deferring to UI-gone-away teardown")
             return@Runnable
         }
         oneShotSyncRequested = false
         oneShotSyncReceivedInitialState = false
-        AppLog.d(TAG, "One-shot status sync complete; stopping controller service")
+        // AppLog.i, not .d: this is the actual stopSelf() event the device diagnosis for this bug
+        // is anchored on (gate-2's PID 8057 timeline). Promoting only the abort/suppression lines
+        // to INFO while leaving this one at DEBUG would show every averted stop and no executed
+        // one in a release-build log (review-4 F6).
+        AppLog.i(TAG, "One-shot status sync complete; stopping controller service")
         stopSelf()
     }
     private val oneShotSyncTimeoutRunnable = Runnable {

@@ -377,12 +377,15 @@ class OpenVpnServiceNotificationTest {
     // 86cb35fbt-vpn-foreground-service-crash-gate-2.md): ONE_SHOT_STOP_CONFIRM_DELAY_MS alone only
     // relocates the AMS "bringing down service while still waiting for start foreground" crash
     // window from ~1000ms to ~1000-1400ms; it does not remove it, because the race is against a
-    // human Connect tap that can land at any point on that timeline. The structural fix is
-    // isAppForegroundVisible(): stopSelf() from the one-shot sync path is now refused outright
-    // while any activity is started -- the only condition under which a genuine ACTION_START can be
-    // dispatched (VpnManager.startVpn()'s only real caller is MainActivityCore's Connect action) --
+    // genuine ACTION_START that can land at any point on that timeline. There are TWO production
+    // ACTION_START dispatchers (review-4 F1/F2, docs/qa-evidence/
+    // 86cb35fbt-vpn-foreground-service-crash-review-4.md), and each is excluded by a different
+    // mechanism: isAppForegroundVisible() refuses stopSelf() outright while any activity is
+    // started, excluding a human Connect tap (VpnManager.startVpn()'s MainActivityCore.kt caller),
     // with appLifecycleObserver reaping the deferred stop via the pre-existing, already-tested
-    // ACTION_STOP_IF_IDLE path once the UI actually leaves the foreground.
+    // ACTION_STOP_IF_IDLE path once the UI actually leaves the foreground; the
+    // != ConnectionState.DISCONNECTED state guard excludes ServerAutoSwitcher's background
+    // retry-timer dispatcher, which is not gated by UI visibility at all.
 
     // These two tests override appForegroundVisibleProvider by reflection rather than driving a
     // real Activity through Robolectric -- ProcessLifecycleOwner is a process-wide singleton whose
@@ -477,6 +480,55 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for review-4 F1 (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // review-4.md): fix-cycle 3's isAppForegroundVisible() only excludes the UI ACTION_START
+    // dispatcher. ServerAutoSwitcher's background retry timers are a SECOND, non-UI-gated
+    // ACTION_START dispatcher, and the reviewer proved by executing a probe test that stopSelf()
+    // still fired in that window under the fix-cycle-3 == CONNECTED guard alone. This models the
+    // same scenario the probe used -- app backgrounded (appForegroundVisibleProvider = { false }),
+    // reconnectingHint = true and state = CONNECTING (exactly what the auto-switch stop-to-start
+    // gap looks like, per ConnectionState.kt's engine-idle-to-CONNECTING mapping while
+    // reconnectingHint holds), userInitiatedStart left false (as OpenVpnService's own
+    // AUTO_SWITCH_LEVELS handling leaves it during that gap) -- and asserts stopSelf() is now
+    // suppressed by the fix-cycle-4 != DISCONNECTED state guard, independent of UI visibility.
+    @Test
+    fun oneShotSync_suppressesStopSelf_duringAutoSwitchGapWhileBackgrounded() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Model the auto-switch stop-to-start gap: reconnectingHint holds the mapped state at
+        // CONNECTING (not DISCONNECTED) for its whole duration, with no activity started.
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // Run stage 1 and stage 2 all the way past their combined ~1400ms schedule -- under the
+        // disproven fix-cycle-3 invariant this would call stopSelf() here despite the app being
+        // backgrounded, exactly as PROBE-1 demonstrated.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+        assertFalse(
+            "stopSelf() must never fire from the one-shot sync path while ConnectionStateManager " +
+                "is not DISCONNECTED -- that is the condition under which ServerAutoSwitcher's " +
+                "background-timer ACTION_START dispatcher can fire, independent of app UI " +
+                "visibility, and calling stopSelf() here is the review-4 F1 residual race",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
     @Test
     fun appLifecycleObserver_onStop_dispatchesActionStopIfIdle() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
@@ -530,6 +582,9 @@ class OpenVpnServiceNotificationTest {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // Pin explicitly (review-4 F5) rather than relying on Robolectric leaving
+        // ProcessLifecycleOwner at INITIALIZED -- this test is not about UI visibility.
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
 
         val syncIntent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
@@ -598,6 +653,10 @@ class OpenVpnServiceNotificationTest {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // Pin explicitly (review-4 F5) rather than relying on Robolectric leaving
+        // ProcessLifecycleOwner at INITIALIZED -- this test is about the ACTION_START abort path,
+        // not UI visibility.
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
 
         val syncIntent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
@@ -642,6 +701,10 @@ class OpenVpnServiceNotificationTest {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // Pin explicitly (review-4 F5) rather than relying on Robolectric leaving
+        // ProcessLifecycleOwner at INITIALIZED -- this test is about the state guard, not UI
+        // visibility.
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
 
         val syncIntent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
