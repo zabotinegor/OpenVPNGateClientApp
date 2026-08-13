@@ -33,6 +33,101 @@ $gitPrefixPattern = "\bgit(?:\s+-C\s+$qval|\s+--git-dir(?:=$qval|\s+$qval)|\s+--
 # whitespace is consumed as one unit, same as the token-glue tokenizer in
 # Get-GitTargetPath already does for '-C "path with spaces"'.
 $asgnPrefixPattern = '(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|''[^'']*''|\S*)\s+)*'
+
+# Quote-aware whitespace normalization: collapse runs of whitespace to a
+# single space OUTSIDE quotes, but copy whitespace INSIDE a quoted run
+# through untouched. The previous approach (`-replace '\s+', ' '`) collapsed
+# whitespace everywhere, including inside a quoted Git target path - so
+# 'git -C "/workspace/protected  repo" commit' got normalized to a
+# single-space path before Get-GitTargetPath ever resolved it, while Git
+# itself still executes against the real two-space path. The guard then
+# resolves and checks a DIFFERENT (non-existent) path; when that path fails
+# to resolve, the fallback below (see the $evalPath/$cwd reconciliation)
+# lands back on the caller's own feature-branch cwd and can allow a
+# mutation against what is actually a protected checkout. Single-pass
+# quote-tracking here mirrors the mask/split approach the .sh fallback uses
+# in mask_quotes (protect-agent-git-command.sh), applied to whitespace
+# collapsing instead of separator masking.
+function ConvertTo-NormalizedCommand {
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    $quoteChar = [char]0
+    $i = 0
+    $n = $Text.Length
+    while ($i -lt $n) {
+        $ch = $Text[$i]
+        if ($quoteChar -ne [char]0) {
+            [void]$sb.Append($ch)
+            if ($ch -eq $quoteChar) { $quoteChar = [char]0 }
+            $i++
+            continue
+        }
+        if ($ch -eq '"' -or $ch -eq "'") {
+            $quoteChar = $ch
+            [void]$sb.Append($ch)
+            $i++
+            continue
+        }
+        if ([char]::IsWhiteSpace($ch)) {
+            [void]$sb.Append(' ')
+            while ($i -lt $n -and [char]::IsWhiteSpace($Text[$i])) { $i++ }
+            continue
+        }
+        [void]$sb.Append($ch)
+        $i++
+    }
+    return $sb.ToString().Trim()
+}
+
+# Quote-aware segment splitting: split on runs of ';', '&', '|' only when
+# they fall OUTSIDE a quoted run. Get-GitTargetPath previously used a plain
+# `-split '[;&|]+'`, which is quote-blind - 'X="a;b" git -C /protected
+# commit' splits INSIDE the quoted assignment value into 'X="a' and
+# 'b" git -C /protected commit'. Neither fragment starts with a recognizable
+# assignment-word token followed by 'git', so the target resolver finds no
+# Git target in either half and silently falls back to the caller's own
+# cwd - even though the mutation-detection regexes further below (which
+# scan the whole string with $asgnPrefixPattern instead of splitting it)
+# correctly understand the quoted assignment and DO detect the commit. Net
+# effect: the guard evaluates the wrong (feature-branch) branch state while
+# Git itself executes the commit against the protected target. Mirrors
+# mask_quotes in protect-agent-git-command.sh, applied here to ';','&','|'
+# instead of whitespace.
+function Split-CommandSegments {
+    param([string]$Text)
+    $segments = New-Object System.Collections.Generic.List[string]
+    $sb = New-Object System.Text.StringBuilder
+    $quoteChar = [char]0
+    $i = 0
+    $n = $Text.Length
+    while ($i -lt $n) {
+        $ch = $Text[$i]
+        if ($quoteChar -ne [char]0) {
+            [void]$sb.Append($ch)
+            if ($ch -eq $quoteChar) { $quoteChar = [char]0 }
+            $i++
+            continue
+        }
+        if ($ch -eq '"' -or $ch -eq "'") {
+            $quoteChar = $ch
+            [void]$sb.Append($ch)
+            $i++
+            continue
+        }
+        if ($ch -eq ';' -or $ch -eq '&' -or $ch -eq '|') {
+            [void]$segments.Add($sb.ToString())
+            $sb = New-Object System.Text.StringBuilder
+            while ($i -lt $n -and ($Text[$i] -eq ';' -or $Text[$i] -eq '&' -or $Text[$i] -eq '|')) { $i++ }
+            continue
+        }
+        [void]$sb.Append($ch)
+        $i++
+    }
+    [void]$segments.Add($sb.ToString())
+    return $segments.ToArray()
+}
+
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
@@ -60,7 +155,7 @@ if ($toolInput -is [string]) {
 $command = if ($toolInput -is [string]) { $toolInput } elseif ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
 
-$normalized = ($command -replace '\s+', ' ').Trim()
+$normalized = ConvertTo-NormalizedCommand -Text $command
 
 # A command can act on a repository other than the session's own via
 # 'git -C <path>' (--git-dir likewise). Judging it by the session cwd is
@@ -106,7 +201,7 @@ function Get-GitTargetPath {
     # resolver below query each option with matching Git semantics instead of
     # a uniform -C-style query.
     $targets = New-Object System.Collections.Generic.List[object]
-    foreach ($segment in ($NormalizedCommand -split '[;&|]+')) {
+    foreach ($segment in (Split-CommandSegments -Text $NormalizedCommand)) {
         # Token pattern keeps a quoted run glued to its token, so both
         # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive.
         $tokens = @([regex]::Matches($segment.Trim(), '(?:[^\s"'']+|"[^"]*"|''[^'']*'')+') | ForEach-Object { $_.Value })
