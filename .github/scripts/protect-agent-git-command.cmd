@@ -20,6 +20,20 @@ rem pwsh first, then powershell.exe, and only fail closed (deny) if this host
 rem has neither - a state that should not be reachable in practice, since a
 rem "PowerShell" tool invocation implies some PowerShell exists to run it.
 rem
+rem A found-but-broken host is a THIRD case, distinct from "not found": `where`
+rem can succeed while the resolved pwsh/powershell is stale, corrupt, or the
+rem guard script itself throws before printing a verdict. That launch/exec
+rem failure surfaces as a non-zero exit code, but this hook's caller only
+rem treats exit code 2 as blocking - every other non-zero code (see
+rem sync-copilot-assets.ps1's Remove-DeadHookEntries comment: "runs, fails,
+rem and exits non-2, which the harness treats as a non-blocking error") is
+rem waved through same as exit 0, silently allowing the protected-branch git
+rem command the guard exists to stop. So a broken host's exit code must never
+rem be forwarded as-is: fall back to the other PowerShell host first, and if
+rem that also fails (or is absent), emit the same deny-JSON verdict used for
+rem "neither found" with exit 0 - the one outcome this caller reliably reads
+rem as a real decision, blocking or not.
+rem
 rem This entrypoint relies on the hook's declared "cwd": "." like every other
 rem hook command here, but resolves the guard script from its own directory
 rem (%~dp0) rather than the caller's cwd, so it does not depend on that.
@@ -40,14 +54,26 @@ setlocal enabledelayedexpansion
 where pwsh >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     pwsh -NoProfile -NonInteractive -File "%~dp0protect-agent-git-command.ps1"
-    exit /b !ERRORLEVEL!
+    if !ERRORLEVEL! EQU 0 (
+        exit /b 0
+    )
+    rem pwsh was on PATH but exited non-zero: it crashed, is broken/stale, or
+    rem the guard script itself errored before it could print a verdict. Do
+    rem NOT forward this code (the caller only blocks on exit 2 - see the
+    rem header comment above) - fall through and try powershell.exe instead
+    rem of treating a failed launch as an implicit allow.
 )
 
 where powershell >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     powershell -NoProfile -NonInteractive -File "%~dp0protect-agent-git-command.ps1"
-    exit /b !ERRORLEVEL!
+    if !ERRORLEVEL! EQU 0 (
+        exit /b 0
+    )
+    rem Same reasoning as the pwsh branch above: a non-zero exit here means
+    rem powershell.exe also failed to produce a verdict. Fall through to the
+    rem explicit deny below instead of forwarding the raw failure code.
 )
 
-echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: neither pwsh (PowerShell 7+) nor Windows PowerShell (powershell.exe) was found on PATH, so the protected-branch guard cannot run. Install PowerShell before running commands here - refusing to allow this command ungated rather than letting it through unguarded."}}
+echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: the protected-branch guard could not produce an allow/deny verdict on this host - either no PowerShell (pwsh or powershell.exe) was found on PATH, or the one(s) found failed to launch or run the guard script to completion. Refusing to allow this command ungated rather than treating a broken or missing guard as a green light."}}
 exit /b 0
