@@ -13,7 +13,6 @@ data class UserSettings(
     val language: LanguageOption = LanguageOption.SYSTEM,
     val theme: ThemeOption = ThemeOption.SYSTEM,
     val serverSource: ServerSource = ServerSource.DEFAULT_V2,
-    val customServerUrl: String = "",
     val cacheTtlMs: Long = UserSettingsStore.DEFAULT_CACHE_TTL_MS,
     val autoSwitchWithinCountry: Boolean = true,
     val statusStallTimeoutSeconds: Int = UserSettingsStore.DEFAULT_STATUS_STALL_TIMEOUT_SECONDS,
@@ -22,14 +21,13 @@ data class UserSettings(
 
 enum class LanguageOption { SYSTEM, ENGLISH, RUSSIAN, POLISH }
 enum class ThemeOption { SYSTEM, LIGHT, DARK }
-enum class ServerSource { LEGACY, VPNGATE, CUSTOM, DEFAULT_V2 }
+enum class ServerSource { VPNGATE, DEFAULT_V2 }
 
 object UserSettingsStore {
     private const val PREFS_NAME = "user_settings"
     private const val KEY_LANGUAGE = "language"
     private const val KEY_THEME = "theme"
     private const val KEY_SERVER_SOURCE = "server_source"
-    private const val KEY_CUSTOM_SERVER_URL = "custom_server_url"
     private const val KEY_CACHE_TTL_MS = "cache_ttl_ms"
     private const val KEY_AUTO_SWITCH_WITHIN_COUNTRY = "auto_switch_within_country"
     private const val KEY_STATUS_STALL_TIMEOUT_SECONDS = "status_stall_timeout_seconds"
@@ -51,11 +49,12 @@ object UserSettingsStore {
             .firstOrNull { it.name == p.getString(KEY_THEME, null) } ?: ThemeOption.SYSTEM
         val serverSourceRaw = p.getString(KEY_SERVER_SOURCE, null)
         val serverSource = when (serverSourceRaw) {
-            "DEFAULT" -> ServerSource.LEGACY  // migration: old DEFAULT becomes LEGACY
             null -> ServerSource.DEFAULT_V2   // new install default
-            else -> ServerSource.values().firstOrNull { it.name == serverSourceRaw } ?: ServerSource.LEGACY
+            // Migration: stale persisted values from removed sources (legacy "DEFAULT" CSV string,
+            // and the since-deleted LEGACY/CUSTOM enum names) are silently rewritten to DEFAULT_V2.
+            "DEFAULT", "LEGACY", "CUSTOM" -> ServerSource.DEFAULT_V2
+            else -> ServerSource.values().firstOrNull { it.name == serverSourceRaw } ?: ServerSource.DEFAULT_V2
         }
-        val customUrl = p.getString(KEY_CUSTOM_SERVER_URL, "") ?: ""
         val cacheTtl = p.getLong(KEY_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS).coerceAtLeast(MIN_CACHE_TTL_MS)
         val autoSwitch = p.getBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, true)
         val storedTimeout = if (p.contains(KEY_STATUS_STALL_TIMEOUT_SECONDS)) {
@@ -65,7 +64,7 @@ object UserSettingsStore {
         }
         val statusStallTimeoutSeconds = storedTimeout.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS)
         val dnsOption = DnsOption.fromString(p.getString(KEY_DNS_OPTION, null))
-        return UserSettings(language, theme, serverSource, customUrl, cacheTtl, autoSwitch, statusStallTimeoutSeconds, dnsOption)
+        return UserSettings(language, theme, serverSource, cacheTtl, autoSwitch, statusStallTimeoutSeconds, dnsOption)
     }
 
     fun save(ctx: Context, settings: UserSettings) {
@@ -73,7 +72,6 @@ object UserSettingsStore {
             .putString(KEY_LANGUAGE, settings.language.name)
             .putString(KEY_THEME, settings.theme.name)
             .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
-            .putString(KEY_CUSTOM_SERVER_URL, settings.customServerUrl)
             .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
             .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
             .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, settings.statusStallTimeoutSeconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
@@ -89,9 +87,6 @@ object UserSettingsStore {
 
     fun saveServerSource(ctx: Context, source: ServerSource) =
         prefs(ctx).edit().putString(KEY_SERVER_SOURCE, source.name).apply()
-
-    fun saveCustomServerUrl(ctx: Context, url: String) =
-        prefs(ctx).edit().putString(KEY_CUSTOM_SERVER_URL, url).apply()
 
     fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =
         prefs(ctx).edit().putLong(KEY_CACHE_TTL_MS, ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)).apply()
@@ -154,18 +149,9 @@ object UserSettingsStore {
         LanguageOption.POLISH -> "pl"
     }
 
-    fun resolveLegacyServerUrls(): List<String> = listOf(
-        ApiConstants.primaryLegacyServersUrl(),
-        ApiConstants.FALLBACK_SERVERS_URL
-    ).map { it.trim() }
-        .filter { it.isNotBlank() }
-        .filter { isUsableServerUrl(it) }
-
     fun resolveServerUrls(settings: UserSettings): List<String> {
         val rawUrls = when (settings.serverSource) {
-            ServerSource.LEGACY -> resolveLegacyServerUrls()
             ServerSource.VPNGATE -> listOf(ApiConstants.FALLBACK_SERVERS_URL)
-            ServerSource.CUSTOM -> settings.customServerUrl.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: emptyList()
             ServerSource.DEFAULT_V2 -> emptyList()
         }
         return rawUrls.map { it.trim() }

@@ -164,7 +164,7 @@ class VpnInactivityHardprobeTriggerTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
 
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
@@ -201,7 +201,7 @@ class VpnInactivityHardprobeTriggerTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
 
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")

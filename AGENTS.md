@@ -36,7 +36,7 @@
 ## Conventions
 - Branch naming follows `feature/<feature_name>` for feature branches, `bugfix/<issue>` for bug fixes, and `hotfix/<issue>` for urgent hotfixes. Use lowercase with hyphens for multi-word features.
 - Keep new domain and UI logic in `src/core` unless the change is genuinely mobile-only or tv-only.
-- Use Timber for logging. Follow `src/docs/logging-policy.md`; do not introduce `android.util.Log` for app code.
+- Use Timber for logging. Follow `docs/features/logging.md`; do not introduce `android.util.Log` for app code.
 - Do not log secrets, raw credentials, or full sensitive URLs.
 - Build-time server endpoints come from Gradle properties, environment variables, or `servers.local.json`, in that order. Do not hardcode production endpoints in source files.
 - If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation using the local path from `AGENTS.local.md` and keep client/server formats aligned.
@@ -60,6 +60,9 @@
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
   - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+  - `testDebugUnitTestApp` does not run the engine's own unit tests (`:openVpnEngine` is not a dependency of that aggregate task). Run `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or change engine-side tests. See `docs/guides/how-to.md`.
+  - If the merged upstream commits raise the engine module's `compileSdk`/`targetSdk`, the first build on a machine without that SDK Platform installed can fail with `Failed to find target with hash string 'android-NN'`; retry once the SDK manager installs it (or install it explicitly). See `docs/guides/troubleshooting.md`.
+  - Run the full regression checklist in `docs/guides/engine-update.md` (cold launch, server-list load, VPN connect/watchdog/disconnect, notification-tap regression, full-session stability) before trusting the merge.
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
@@ -79,7 +82,7 @@
 - Keep local overlays aligned with global docs while preserving local-only constraints:
   - README.local.md
   - AGENTS.local.md
-- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md. These are local-only, gitignored, and mirrored via the `agent-sync` skill — if absent (fresh checkout without agent-sync run), treat as not-yet-provisioned and ask the user to run `agent-sync` rather than assuming the workflow doesn't apply or silently skipping it (same pattern as `AGENTS.local.md`).
 - Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
 ## Long-Running Operation Rules
@@ -102,9 +105,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
-- `src/docs` for technical implementation notes used by contributors and AI agents.
-- `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
-- `src/docs/server-sync-flow.md` for server-list synchronization triggers, guard conditions, and coordinator reuse guidance.
+- `docs/INDEX.md` for the full technical knowledge-base catalog — flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks. This is the one entry point; read the relevant catalog row rather than re-deriving or re-documenting something the catalog already covers.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
@@ -118,7 +119,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt` for the shared server-list synchronization entrypoint used by splash, main foreground, settings changes, and periodic refresh.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` for periodic sync execution that reuses the shared coordinator.
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for source/custom URL changes that trigger forced server sync.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for server source changes that trigger forced server sync.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 
 ## When Extending Instructions

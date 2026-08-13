@@ -32,7 +32,7 @@ class ServerSelectionSyncCoordinatorTest {
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 
@@ -145,10 +145,12 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(emptyList<Server>(), result)
     }
 
+    // AC3: v2-failure fallback goes directly to VPNGATE — no intermediate LEGACY step, single
+    // URL requested (ApiConstants.FALLBACK_SERVERS_URL), and the resolved source persists as VPNGATE.
     @Test
-    fun sync_default_v2_falls_back_to_primary_legacy_and_persists_legacy() = runBlocking {
+    fun sync_default_v2_falls_back_directly_to_vpngate_and_persists_vpngate() = runBlocking {
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
-        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1))) }))
+        val api = SequenceApi(listOf({ sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))) }))
         val repository = ServerRepository(api)
         val coordinator = DefaultServerSelectionSyncCoordinator(
             context,
@@ -160,62 +162,23 @@ class ServerSelectionSyncCoordinatorTest {
         val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
 
         assertEquals(1, result.size)
-        assertEquals(listOf(ApiConstants.primaryLegacyServersUrl()), api.calledUrls)
-        assertEquals(ServerSource.LEGACY, UserSettingsStore.load(context).serverSource)
-    }
-
-    @Test
-    fun sync_default_v2_falls_back_to_vpngate_when_primary_legacy_fails() = runBlocking {
-        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
-        val api = SequenceApi(
-            listOf(
-                { throw IOException("legacy primary down") },
-                { sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))) }
-            )
-        )
-        val repository = ServerRepository(api)
-        val coordinator = DefaultServerSelectionSyncCoordinator(
-            context,
-            repository,
-            SelectedCountryServerSync(context, repository),
-            ThrowingCountriesV2SyncCoordinator()
-        )
-
-        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
-
-        assertEquals(1, result.size)
-        assertEquals(ApiConstants.primaryLegacyServersUrl(), api.calledUrls[0])
-        assertEquals(ApiConstants.FALLBACK_SERVERS_URL, api.calledUrls[1])
+        assertEquals(listOf(ApiConstants.FALLBACK_SERVERS_URL), api.calledUrls)
         assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
     }
 
+    // Regression guard: if the persisted server source changes concurrently with the in-flight
+    // DEFAULT_V2 -> VPNGATE fallback network fetch (e.g. the user flips it in Settings mid-refresh),
+    // the coordinator must not clobber that concurrently-set value when persisting the resolved
+    // fallback source. With only DEFAULT_V2/VPNGATE left in the enum, VPNGATE is the only value the
+    // fallback path could persist, so the switched-to value below coincides with it — the assertion
+    // still exercises the coordinator's post-fetch re-read-and-compare guard (see
+    // ServerSelectionSyncCoordinator lines ~91-96) rather than a stale captured source value.
     @Test
     fun sync_default_v2_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
         val api = SourceSwitchingApi(
             context = context,
-            switchedSource = ServerSource.CUSTOM,
-            body = sampleCsv(listOf(makeServer("legacy-ok", lineIndex = 1)))
-        )
-        val repository = ServerRepository(api)
-        val coordinator = DefaultServerSelectionSyncCoordinator(
-            context,
-            repository,
-            SelectedCountryServerSync(context, repository),
-            ThrowingCountriesV2SyncCoordinator()
-        )
-
-        coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
-
-        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
-    }
-
-    @Test
-    fun sync_default_v2_vpngate_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
-        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
-        val api = FallbackThenSourceSwitchingApi(
-            context = context,
-            switchedSource = ServerSource.CUSTOM,
+            switchedSource = ServerSource.VPNGATE,
             body = sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1)))
         )
         val repository = ServerRepository(api)
@@ -229,13 +192,34 @@ class ServerSelectionSyncCoordinatorTest {
         val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
 
         assertEquals(1, result.size)
-        assertEquals(ServerSource.CUSTOM, UserSettingsStore.load(context).serverSource)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
     }
 
-    // TS-7 (Legacy regression): Legacy CSV source is unaffected by the DEFAULT_V2 path.
+    // Same guard, exercised at an earlier race window than the test above: the source changes
+    // while the DEFAULT_V2 (v2) sync attempt itself is still in flight and failing, before the
+    // VPNGATE fallback network call even starts.
     @Test
-    fun sync_legacy_source_does_not_call_v2_selected_country_sync() = runBlocking {
-        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
+    fun sync_default_v2_vpngate_fallback_does_not_override_source_changed_during_refresh() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
+        val api = FixedApi(sampleCsv(listOf(makeServer("vpngate-ok", lineIndex = 1))))
+        val repository = ServerRepository(api)
+        val coordinator = DefaultServerSelectionSyncCoordinator(
+            context,
+            repository,
+            SelectedCountryServerSync(context, repository),
+            SourceSwitchingThenThrowingCountriesV2SyncCoordinator(context, ServerSource.VPNGATE)
+        )
+
+        val result = coordinator.sync(forceRefresh = true, cacheOnly = false, clearCacheBeforeRefresh = false)
+
+        assertEquals(1, result.size)
+        assertEquals(ServerSource.VPNGATE, UserSettingsStore.load(context).serverSource)
+    }
+
+    // TS-7 (VPN Gate regression): VPN Gate CSV source is unaffected by the DEFAULT_V2 path.
+    @Test
+    fun sync_vpngate_source_does_not_call_v2_selected_country_sync() = runBlocking {
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
         val v2Coordinator = TrackingV2SyncCoordinator()
         val servers = listOf(makeServer(name = "srv-1", lineIndex = 1, ip = "10.0.0.1", config = "c1"))
         val repository = ServerRepository(FixedApi(sampleCsv(servers)))
@@ -249,21 +233,20 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(0, v2Coordinator.syncSelectedCountryCallCount)
     }
 
-    // AC-4.6: Persist LEGACY only after a real CSV fallback fetch, not when returning stale cache.
+    // AC-4.6: Persist VPNGATE only after a real CSV fallback fetch, not when returning stale cache.
     @Test
-    fun sync_default_v2_does_not_persist_legacy_when_csv_fallback_returns_only_cache() = runBlocking {
+    fun sync_default_v2_does_not_persist_vpngate_when_csv_fallback_returns_only_cache() = runBlocking {
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
-        // First, pre-populate cache by loading legacy servers
-        val legacyServer = makeServer("cached-server", lineIndex = 1)
-        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(legacyServer))))
-        cachedRepository.getServers(context, forceRefresh = true, settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY))
+        // First, pre-populate cache by loading VPN Gate servers
+        val cachedServer = makeServer("cached-server", lineIndex = 1)
+        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(cachedServer))))
+        cachedRepository.getServers(context, forceRefresh = true, settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.VPNGATE))
 
         // Now create a coordinator with an API that fails for all URLs (simulating offline)
         val api = SequenceApi(
             listOf(
                 { throw IOException("v2 down") },  // v2 fails
-                { throw IOException("csv primary down") }, // legacy primary fails
-                { throw IOException("fallback down") }     // vpngate fails
+                { throw IOException("vpngate down") } // vpngate fallback fails
             )
         )
         val repository = ServerRepository(api)
@@ -274,33 +257,32 @@ class ServerSelectionSyncCoordinatorTest {
             ThrowingCountriesV2SyncCoordinator()
         )
 
-        // Sync should succeed (returns cached servers), but should NOT persist LEGACY because
+        // Sync should succeed (returns cached servers), but should NOT persist VPNGATE because
         // the CSV fallback didn't actually execute (usedIndex == -1)
         val result = coordinator.sync(forceRefresh = false, cacheOnly = false, clearCacheBeforeRefresh = false)
 
         assertEquals(1, result.size)
         assertEquals("cached-server", result[0].name)
-        // Source should remain DEFAULT_V2 (not switched to LEGACY) because only cache was returned
+        // Source should remain DEFAULT_V2 (not switched to VPNGATE) because only cache was returned
         assertEquals(ServerSource.DEFAULT_V2, UserSettingsStore.load(context).serverSource)
     }
 
     @Test
-    fun sync_default_v2_does_not_persist_legacy_from_stale_last_used_index() = runBlocking {
+    fun sync_default_v2_does_not_persist_vpngate_from_stale_last_used_index() = runBlocking {
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)
 
-        val legacyServer = makeServer("cached-server", lineIndex = 1)
-        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(legacyServer))))
+        val cachedServer = makeServer("cached-server", lineIndex = 1)
+        val cachedRepository = ServerRepository(FixedApi(sampleCsv(listOf(cachedServer))))
         cachedRepository.getServers(
             context,
             forceRefresh = true,
-            settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.LEGACY)
+            settingsOverride = UserSettingsStore.load(context).copy(serverSource = ServerSource.VPNGATE)
         )
 
         val api = SequenceApi(
             listOf(
                 { throw IOException("v2 down") },
-                { throw IOException("csv primary down") },
-                { throw IOException("fallback down") }
+                { throw IOException("vpngate down") }
             )
         )
         val repository = ServerRepository(api)
@@ -486,21 +468,26 @@ class ServerSelectionSyncCoordinatorTest {
         }
     }
 
-    private class FallbackThenSourceSwitchingApi(
-        private val context: Context,
-        private val switchedSource: ServerSource,
-        private val body: String
-    ) : VpnServersApi {
-        private var callCount = 0
-
-        override suspend fun getServers(url: String): ResponseBody {
-            callCount += 1
-            return if (callCount == 1) {
-                throw IOException("legacy primary down")
-            } else {
-                UserSettingsStore.saveServerSource(context, switchedSource)
-                body.toResponseBody("text/plain".toMediaType())
-            }
+    private class SourceSwitchingThenThrowingCountriesV2SyncCoordinator(
+        private val appContext: Context,
+        private val switchedSource: ServerSource
+    ) : ServersV2SyncCoordinator {
+        override suspend fun syncCountries(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ): List<CountryV2> {
+            UserSettingsStore.saveServerSource(appContext, switchedSource)
+            throw IOException("v2 down")
         }
+
+        override suspend fun syncSelectedCountryServers(
+            context: Context,
+            forceRefresh: Boolean,
+            cacheOnly: Boolean
+        ) = Unit
+
+        override suspend fun clearCaches(context: Context) = Unit
     }
+
 }

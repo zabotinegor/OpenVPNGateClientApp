@@ -345,7 +345,7 @@ class ConnectionControlsPresenterTest {
 
     @Test
     fun `buildLocationField keeps address and ip for non v2 source`() {
-        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.LEGACY))
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.VPNGATE))
 
         val field = presenter.buildLocationField(
             sync = ConnectionServerSync(
@@ -363,7 +363,7 @@ class ConnectionControlsPresenterTest {
 
     @Test
     fun `buildLocationField falls back to sync ip when selected ip is blank for non v2 source`() {
-        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.LEGACY))
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.VPNGATE))
 
         val field = presenter.buildLocationField(
             sync = ConnectionServerSync(

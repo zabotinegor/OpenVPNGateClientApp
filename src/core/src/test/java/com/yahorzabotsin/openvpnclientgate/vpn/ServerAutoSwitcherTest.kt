@@ -11,6 +11,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -63,6 +64,36 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.setProbeRequestQueueForTest(null)
         ServerAutoSwitcher.v2HydrationCallback = null
         ServerAutoSwitcher.resetForTest()
+    }
+
+    // beginChainedSwitch reports whether a switch was actually begun. The watchdog relies on this
+    // to avoid consuming a recovery attempt on a dispatch that never happened, so every path that
+    // aborts internally must return false rather than looking like success.
+
+    @Test
+    fun beginChainedSwitch_returnsFalseWhenAutoSwitchDisabled() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, false)
+
+        assertFalse(
+            "a skipped switch is not a begun switch",
+            ServerAutoSwitcher.beginChainedSwitch(appContext, "client\n", "RU")
+        )
+    }
+
+    @Test
+    fun beginChainedSwitch_returnsFalseWhenStopDispatchRejected() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        // VpnManager.startControllerService catches IllegalStateException from startService and
+        // returns false -- the background-start restriction case.
+        val rejectingContext = object : android.content.ContextWrapper(appContext) {
+            override fun startService(service: android.content.Intent?): android.content.ComponentName? =
+                throw IllegalStateException("background start not allowed")
+        }
+
+        assertFalse(
+            "a rejected stop dispatch aborts the switch, so it must not report success",
+            ServerAutoSwitcher.beginChainedSwitch(rejectingContext, "client\n", "RU")
+        )
     }
 
     @Test
@@ -129,6 +160,42 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
         assertEquals(1, calls.size)
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
+    }
+
+    // PR #126 round 13 (Codex P1, comment 3734974189): the poll loop can re-deliver the SAME
+    // cached terminal snapshot (e.g. LEVEL_NONETWORK) on every ~2s poll cycle without it ever
+    // going stale, because applyStatusSnapshot() restores lastStatusSnapshotMs to the snapshot's
+    // OWN timestamp, not "now". Before the fix, a duplicate dispatch of an already-in-progress
+    // immediate-switch level fell through to the generic timeoutLevels/else block and hit
+    // `else -> cancel(...)`, silently cancelling the switch the FIRST dispatch had already
+    // correctly begun. Verify the duplicate is a no-op and the original switch still completes.
+    @Test
+    fun duplicateImmediateSwitchDispatchDoesNotCancelInProgressSwitch() {
+        // Get an active timer running so the first LEVEL_NONETWORK dispatch takes the
+        // immediate-switch fast path (timerActive || isConnecting).
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+
+        // First dispatch: triggers requestSwitchNow() -> waitingStopForRetry=true, pending
+        // config armed, engine stop requested. No start yet until NOTCONNECTED is observed.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NONETWORK, "AIDL")
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+        assertEquals(0, calls.size)
+
+        // Duplicate dispatch of the IDENTICAL level while the switch is still in progress
+        // (waitingStopForRetry still true). Must be a no-op: the pending switch must survive.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NONETWORK, "AIDL")
+
+        // The switch armed by the FIRST dispatch must still complete normally.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "duplicate dispatch must not cancel the switch already in progress",
+            1,
+            calls.size
+        )
         assertEquals("conf2", calls.first().cfg)
         assertEquals(true, calls.first().reconnect)
     }
@@ -252,7 +319,7 @@ class ServerAutoSwitcherTest {
             // When total==0, currentServer() is null → failingServerId==0 → probe guard prevents enqueue
             assertTrue("No probe enqueued when failingServerId=0 (empty store)", fakeQueue.enqueuedIds.isEmpty())
         } finally {
-            UserSettingsStore.saveServerSource(appContext, ServerSource.LEGACY)
+            UserSettingsStore.saveServerSource(appContext, ServerSource.VPNGATE)
         }
     }
 

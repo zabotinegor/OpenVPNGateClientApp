@@ -21,8 +21,8 @@ class SplashServerPreloadInteractorTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun preload_servers_legacy_delegates_to_sync_coordinator_with_expected_flags() = runBlocking {
-        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.LEGACY))
+    fun preload_servers_vpngate_delegates_to_sync_coordinator_with_expected_flags() = runBlocking {
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.VPNGATE))
         val coordinator = FakeServerSelectionSyncCoordinator()
         val v2Coordinator = FakeServersV2SyncCoordinator()
         val interactor = DefaultSplashServerPreloadInteractor(coordinator, v2Coordinator, context)

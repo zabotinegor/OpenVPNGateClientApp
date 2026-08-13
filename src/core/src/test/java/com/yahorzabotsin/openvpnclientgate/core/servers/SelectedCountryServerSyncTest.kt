@@ -27,7 +27,7 @@ class SelectedCountryServerSyncTest {
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("user_settings", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 

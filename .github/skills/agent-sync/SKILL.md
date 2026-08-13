@@ -110,6 +110,10 @@ Also report the ClickUp setup outcome, taken from `setup-clickup.ps1`'s JSON: `a
 
 End the ClickUp section with an explicit **"what you must do yourself"** list — MCP OAuth, token creation, any ID the user has to supply — as numbered steps. A setup that is 90% done and silently missing the token behaves exactly like a working one until a flow needs it, so an unfinished item that is not spelled out is an item that does not get done.
 
+Also report the ClickUp setup outcome, taken from `setup-clickup.ps1`'s JSON: `artifactMode` (`clickup` or `local`), overall `status`, and every non-`OK` check with its remediation — at minimum `clickupMcpEntry`, `clickupConfig` (absent, scaffolded, valid, or malformed), `clickupToken` (present, missing, or tracked-by-git), `clickupIgnore`, `clickupStatusNames`, and `clickupListProbe` (per-List pass/fail for every `qa_suites_list`/`qa_cases_list`, naming any List that hit `ITEM_246` and whether it was reprovisioned).
+
+End the ClickUp section with an explicit **"what you must do yourself"** list — MCP OAuth, token creation, any ID the user has to supply — as numbered steps. A setup that is 90% done and silently missing the token behaves exactly like a working one until a flow needs it, so an unfinished item that is not spelled out is an item that does not get done.
+
 ## Constraints or rules
 
 - Never delete `agent-sync.agent.md`, `.github/scripts/sync-copilot-assets.ps1`, or any path containing `agent-sync` or `sync-copilot-assets`; update those files only when source differs.
