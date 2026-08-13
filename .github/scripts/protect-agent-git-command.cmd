@@ -24,16 +24,29 @@ rem This entrypoint relies on the hook's declared "cwd": "." like every other
 rem hook command here, but resolves the guard script from its own directory
 rem (%~dp0) rather than the caller's cwd, so it does not depend on that.
 
+rem Delayed expansion is required below: inside a parenthesized IF block,
+rem cmd.exe expands every %VAR% reference once, at parse time, using the
+rem value %VAR% held BEFORE the block started running - not the value set by
+rem a command that already executed earlier in that same block. With plain
+rem %ERRORLEVEL%, "exit /b %ERRORLEVEL%" on the line right after the launch
+rem attempt would still read the *pre-block* value (the "where" success, 0),
+rem not the launch's real exit code - so a broken/stale pwsh or powershell on
+rem PATH that fails to launch would report success, skip the fallback (or the
+rem deny below), and let the git command through unguarded. !ERRORLEVEL!
+rem (delayed expansion) is evaluated at execution time instead, so it picks
+rem up the actual launch result.
+setlocal enabledelayedexpansion
+
 where pwsh >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     pwsh -NoProfile -NonInteractive -File "%~dp0protect-agent-git-command.ps1"
-    exit /b %ERRORLEVEL%
+    exit /b !ERRORLEVEL!
 )
 
 where powershell >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     powershell -NoProfile -NonInteractive -File "%~dp0protect-agent-git-command.ps1"
-    exit /b %ERRORLEVEL%
+    exit /b !ERRORLEVEL!
 )
 
 echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: neither pwsh (PowerShell 7+) nor Windows PowerShell (powershell.exe) was found on PATH, so the protected-branch guard cannot run. Install PowerShell before running commands here - refusing to allow this command ungated rather than letting it through unguarded."}}
