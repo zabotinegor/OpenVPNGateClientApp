@@ -87,8 +87,8 @@ docs/qa-evidence
 /.github/agents/e2e-manual-tester.agent.md
 /.github/agents/github-create-pr.agent.md
 /.github/agents/github-create-release.agent.md
-/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-pr-merger.agent.md
+/.github/agents/github-pr-merger-release.agent.md
 /.github/agents/github-review-comments.agent.md
 /.github/agents/master-plan.agent.md
 /.github/agents/release-flow-orchestrator.agent.md
@@ -101,18 +101,19 @@ docs/qa-evidence
 /.github/scripts/assert-clickup-status.ps1
 /.github/scripts/assert-gate-result.ps1
 /.github/scripts/assert-reviewed-head.ps1
+/.github/scripts/audit-clickup-qa-artifacts.ps1
 /.github/scripts/bot-signal-lib.ps1
 /.github/scripts/build-merge-approval-summary.ps1
+/.github/scripts/checkpoint-session.ps1
 /.github/scripts/check-rate-limit.ps1
 /.github/scripts/check-session-before-tool.ps1
 /.github/scripts/check-tracking-preflight.ps1
-/.github/scripts/checkpoint-session.ps1
 /.github/scripts/chrome-extension/background.js
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js
 /.github/scripts/chrome-extension/manifest.json
-/.github/scripts/clickup-lib.ps1
 /.github/scripts/clickup.ps1
+/.github/scripts/clickup-lib.ps1
 /.github/scripts/detect-ui-changes.ps1
 /.github/scripts/ensure-account-trackers.ps1
 /.github/scripts/ensure-cdp-chrome.ps1
@@ -133,6 +134,7 @@ docs/qa-evidence
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/post-review-comments-round-summary.ps1
 /.github/scripts/post-round-summary.ps1
+/.github/scripts/push-clickup-qa-status.ps1
 /.github/scripts/push-clickup-status.ps1
 /.github/scripts/rate-limit-server.js
 /.github/scripts/record-scheduler-evidence.ps1
@@ -163,8 +165,8 @@ docs/qa-evidence
 /.github/scripts/test-merge-approval.ps1
 /.github/scripts/test-release-notes-lint.ps1
 /.github/scripts/test-reset-recovery.ps1
-/.github/scripts/test-review-loop-dedup.ps1
 /.github/scripts/test-reviewed-head-assert.ps1
+/.github/scripts/test-review-loop-dedup.ps1
 /.github/scripts/test-sdlc-lease.ps1
 /.github/scripts/test-session-tracking.ps1
 /.github/scripts/test-tracking-preflight.ps1
@@ -249,6 +251,10 @@ CODE_REVIEW_HANDOFF_*.md
 **/.sdlc/clickup-token
 /.sdlc/clickup-migration-map.json
 **/.sdlc/clickup-migration-map.json
+/.sdlc/copilottools-source.json
+**/.sdlc/copilottools-source.json
+/.sdlc/tools-fix.json
+**/.sdlc/tools-fix.json
 /.claude/settings.local.json
 **/.claude/settings.local.json
 # END transient-copilot-artifacts

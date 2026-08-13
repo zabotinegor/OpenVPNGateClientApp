@@ -5,7 +5,7 @@
       {
         "type": "command",
         "matcher": "bash|powershell",
-        "bash": "pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1",
+        "bash": "sh .github/scripts/protect-agent-git-command.sh",
         "powershell": "pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1",
         "cwd": ".",
         "timeoutSec": 10

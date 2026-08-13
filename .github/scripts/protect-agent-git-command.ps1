@@ -72,7 +72,20 @@ function Get-GitTargetPath {
                 $value = if ($null -ne $inlineValue) { $inlineValue }
                          elseif ($i + 1 -lt $tokens.Count) { $tokens[++$i] }
                          else { $null }
-                if (-not [string]::IsNullOrWhiteSpace($value)) { $target = ($value -replace '["'']', '') }
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    $clean = ($value -replace '["'']', '')
+                    # A relative -C/--git-dir/--work-tree target is relative to the
+                    # command's own cwd ($FallbackPath, from the payload), not to this
+                    # hook subprocess's cwd (fixed to the repo root by
+                    # protected-branches.json's "cwd": "."). Resolve it against
+                    # $FallbackPath before use, or 'git -C $Path ...' below evaluates
+                    # the wrong repository entirely. An already-absolute target is
+                    # left unchanged.
+                    if (-not [System.IO.Path]::IsPathRooted($clean) -and -not [string]::IsNullOrWhiteSpace($FallbackPath)) {
+                        $clean = [System.IO.Path]::GetFullPath((Join-Path $FallbackPath $clean))
+                    }
+                    $target = $clean
+                }
             }
             elseif ($null -eq $inlineValue -and $valueFlags -ccontains $name) {
                 $i++
