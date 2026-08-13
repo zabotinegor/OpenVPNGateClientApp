@@ -166,6 +166,39 @@ Assert-Denied  "git --paginate commit on main is blocked"      "git --paginate c
 Assert-Denied  "git --bare push origin dev is blocked"         "git --bare push origin dev"     'feature/x'
 Assert-Allowed "git --no-pager commit on feature/x is allowed" "git --no-pager commit -m ok"    'feature/x'
 
+Write-Host "== A quoted -C/--git-dir path with an embedded space cannot shield a mutation from detection (round 7) =="
+
+# Round 7 P1: $gitPrefixPattern used a bare \S+ for -C/--git-dir/etc. values,
+# which stops at the first embedded space. 'git -C "<path with a space>"
+# commit' would then only consume the quoted value up to that space, leaving
+# the closing quote plus 'commit' unmatched by the prefix pattern - so the
+# mutation regexes built from $gitPrefixPattern (commit/push/reset/branch
+# -f/update-ref) never lined up with the real 'commit' token and silently
+# returned an allow even though the resolved checkout (via Get-GitTargetPath,
+# whose tokenizer already handled quoted paths correctly) is genuinely on a
+# protected branch. Fixture path deliberately contains a space so a
+# regression here reproduces the exact bug shape.
+$spacedRepoRoot = Join-Path $sandbox 'Protected Repo'
+New-Item -ItemType Directory -Path $spacedRepoRoot -Force | Out-Null
+git -c init.defaultBranch=main init $spacedRepoRoot 2>$null | Out-Null
+Set-Content -LiteralPath (Join-Path $spacedRepoRoot 'README.md') -Value 'fixture' -Encoding utf8
+git -C $spacedRepoRoot add -A 2>$null | Out-Null
+git -C $spacedRepoRoot -c user.email='t@example.com' -c user.name='T' commit -m 'fixture' 2>$null | Out-Null
+git -C $spacedRepoRoot checkout main 2>$null | Out-Null
+
+Assert-Denied  "commit via a double-quoted -C path with a space, targeting a repo on main, is blocked" `
+    "git -C `"$spacedRepoRoot`" commit -m bad" 'feature/x'
+Assert-Denied  "push to origin main via a double-quoted -C path with a space is blocked" `
+    "git -C `"$spacedRepoRoot`" push origin main" 'feature/x'
+Assert-Denied  "hard reset via a double-quoted --git-dir path with a space, targeting a repo on main, is blocked" `
+    "git --git-dir=`"$spacedRepoRoot/.git`" reset --hard HEAD^" 'feature/x'
+Assert-Denied  "branch -f main via a double-quoted -C path with a space is blocked" `
+    "git -C `"$spacedRepoRoot`" branch -f main HEAD^" 'feature/x'
+
+git -C $spacedRepoRoot checkout -b feature/spaced 2>$null | Out-Null
+Assert-Allowed "commit via a double-quoted -C path with a space, targeting a repo on a non-protected branch, is allowed" `
+    "git -C `"$spacedRepoRoot`" commit -m ok" 'main'
+
 Write-Host ""
 Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
 if ($fail -eq 0) { Write-Host "Results: $pass passed, 0 failed" -ForegroundColor Green; exit 0 }

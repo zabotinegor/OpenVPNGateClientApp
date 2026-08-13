@@ -79,7 +79,41 @@ if [ -n "$command_text" ]; then
     # command - e.g. "X=1 git commit" still invokes git - so skip leading
     # assignment-word tokens (matching `^[A-Za-z_][A-Za-z0-9_]*=`) before
     # treating a token as the command.
+    #
+    # The assignment value itself may be a shell-quoted string containing
+    # spaces - 'X="a b" git commit' is valid POSIX shell and still invokes
+    # git. Splitting on bare whitespace (as a naive `split(seg, toks, /[
+    # \t]+/)` does) breaks that quoted value into two separate tokens
+    # ('X="a' and 'b"'); the assignment-prefix check only recognizes the
+    # FIRST of those as an assignment word, so the second ('b"', a fragment
+    # of the quoted value, not the real command) gets treated as the command
+    # token and "git" is never found - exactly this fallback silently
+    # allowing a protected-branch mutation through. Mask whitespace that
+    # falls INSIDE a quoted run before splitting, so a quoted value survives
+    # as one token, mirroring the quoted-value handling already added to the
+    # PowerShell guard (protect-agent-git-command.ps1, $asgnPrefixPattern).
     is_git="$(printf '%s' "$command_text" | awk '
+        function mask_quotes(s,    n, i, c, out, inq, qch) {
+            n = length(s)
+            out = ""
+            inq = 0
+            qch = ""
+            for (i = 1; i <= n; i++) {
+                c = substr(s, i, 1)
+                if (inq) {
+                    if (c == qch) {
+                        inq = 0
+                    } else if (c == " " || c == "\t") {
+                        c = "\001"
+                    }
+                } else if (c ~ /^["\x27]$/) {
+                    inq = 1
+                    qch = c
+                }
+                out = out c
+            }
+            return out
+        }
         {
             n = split($0, segs, /[;&|]+/)
             found = 0
@@ -87,7 +121,8 @@ if [ -n "$command_text" ]; then
                 seg = segs[i]
                 gsub(/^[ \t]+/, "", seg)
                 if (seg == "") continue
-                m = split(seg, toks, /[ \t]+/)
+                masked = mask_quotes(seg)
+                m = split(masked, toks, /[ \t]+/)
                 tok = ""
                 for (j = 1; j <= m; j++) {
                     cand = toks[j]
@@ -95,6 +130,7 @@ if [ -n "$command_text" ]; then
                     tok = cand
                     break
                 }
+                gsub(/\001/, " ", tok)
                 gsub(/^["\x27]+|["\x27]+$/, "", tok)
                 if (tok == "git") { found = 1; break }
             }

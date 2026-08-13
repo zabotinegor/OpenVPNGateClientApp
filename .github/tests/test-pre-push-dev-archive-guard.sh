@@ -132,6 +132,66 @@ git -C "$repo" update-ref refs/remotes/origin/archive/archive-dev-2026-07-01 "$d
 assert_blocked "recreate dev is still blocked when local tip != origin/main, even with an archive present" \
   "refs/heads/dev $dev_other_sha refs/heads/dev $zero"
 
+echo "== Round 7 fix: dev-deletion archive check uses the stdin remote_sha, not a stale local tracking ref =="
+
+# Round 7 P1: the archive-existence check for deleting dev used to read the
+# LOCAL refs/remotes/origin/dev tracking ref (only refreshed on fetch) to
+# find "the current dev tip", instead of the remote_sha the hook actually
+# receives on stdin for the ref being deleted (per githooks(5): "<local ref>
+# <local sha> <remote ref> <remote sha>"). Reproduce the exact bug shape: the
+# local origin/dev tracking ref is stale and still points at an OLD commit
+# that IS archived, while stdin reports the REAL current remote dev tip is a
+# NEWER commit that has NO archive - deleting that newer, unarchived tip must
+# still be blocked even though the stale local ref alone would look archived.
+reset_dev_and_archive_refs
+git -C "$repo" checkout -q dev-old
+git -C "$repo" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m dev-newer-unarchived
+dev_newer_sha=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" checkout -q main
+# Stale local tracking ref: still points at the OLD (archived) commit, not
+# the newer unarchived tip the "remote" actually has.
+git -C "$repo" update-ref refs/remotes/origin/dev "$dev_old_sha"
+git -C "$repo" update-ref refs/remotes/origin/archive/archive-dev-2026-08-01 "$dev_old_sha"
+assert_blocked "deleting dev is blocked when stdin's remote_sha (newer, unarchived) has no archive, even though the stale local origin/dev tracking ref (older) does" \
+  "refs/heads/dev $zero refs/heads/dev $dev_newer_sha"
+
+echo "== Round 7 fix: dev-deletion archive check still allows deletion when remote_sha itself is archived =="
+reset_dev_and_archive_refs
+# Local tracking ref deliberately left stale/absent (never updated) to prove
+# the decision now comes from stdin's remote_sha alone, not the local cache.
+git -C "$repo" update-ref refs/remotes/origin/archive/archive-dev-2026-08-01 "$dev_old_sha"
+assert_allowed "deleting dev is allowed when stdin's remote_sha matches an archive ref, independent of the (absent/stale) local origin/dev tracking ref" \
+  "refs/heads/dev $zero refs/heads/dev $dev_old_sha"
+
+echo "== Round 7 fix: dev-related remote lookups use the actual remote argument, not a hardcoded origin assumption =="
+reset_dev_and_archive_refs
+git -C "$repo" update-ref "refs/remotes/upstream/main" "$main_sha"
+git -C "$repo" update-ref "refs/remotes/upstream/archive/archive-dev-2026-08-01" "$dev_old_sha"
+run_hook_remote() {
+  # Same as run_hook but passes $1/$2 (remote name/URL) the way git actually
+  # invokes pre-push, so remote_name resolves to "upstream" instead of the
+  # "${1:-origin}" default.
+  rc=0
+  printf '%s\n' "$2" | sh "$hook" "$1" "https://example.invalid/upstream.git" >"$sandbox/out" 2>&1 || rc=$?
+  echo "$rc"
+}
+rc=$(cd "$repo" && run_hook_remote "upstream" "refs/heads/dev $zero refs/heads/dev $dev_old_sha")
+if [ "$rc" = "0" ]; then
+  echo "  PASS  delete dev against remote 'upstream' is allowed using upstream/archive/* refs, not origin/*"
+  pass=$((pass + 1))
+else
+  echo "  FAIL  delete dev against remote 'upstream' is allowed using upstream/archive/* refs, not origin/* (expected allow, hook blocked it: $(cat "$sandbox/out"))"
+  fail=$((fail + 1))
+fi
+rc=$(cd "$repo" && run_hook_remote "upstream" "refs/heads/dev $main_sha refs/heads/dev $zero")
+if [ "$rc" = "0" ]; then
+  echo "  PASS  recreate dev against remote 'upstream' is allowed using upstream/main and upstream/archive/*"
+  pass=$((pass + 1))
+else
+  echo "  FAIL  recreate dev against remote 'upstream' is allowed using upstream/main and upstream/archive/* (expected allow, hook blocked it: $(cat "$sandbox/out"))"
+  fail=$((fail + 1))
+fi
+
 echo ""
 if [ "$fail" -eq 0 ]; then
   echo "Results: $pass passed, 0 failed"

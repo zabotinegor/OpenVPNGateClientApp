@@ -2,7 +2,20 @@ $ErrorActionPreference = 'Stop'
 
 $protected = @('main', 'dev', 'master', 'develop')
 $protectedPattern = '(?:main|dev|master|develop)'
-$gitPrefixPattern = '\bgit(?:\s+-C\s+\S+|\s+--git-dir(?:=\S+|\s+\S+)|\s+--work-tree(?:=\S+|\s+\S+)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+\S+|\s+--exec-path(?:=\S+|\s+\S+)|\s+--namespace=\S+|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*'
+# Value pattern for the global options below that take a value: match a
+# quoted string (with embedded whitespace) as one unit before falling back
+# to a bare non-whitespace run - mirrors the token-glue tokenizer already
+# used by Get-GitTargetPath ('(?:[^\s"'']+|"[^"]*"|''[^'']*'')+') so a
+# quoted path like -C "C:/protected repo" is consumed whole here too. A bare
+# \S+ stops at the first embedded space, e.g. 'git -C "/workspace/protected
+# repo" commit' would only consume '"/workspace/protected' and leave 'repo"
+# commit' behind - text this prefix pattern never expects next, so the whole
+# $gitPrefixPattern match (and therefore every mutation regex built from it
+# below: commit/push/reset/update-ref/branch-force) silently fails to line
+# up with the real 'commit' token and returns an incorrect allow even when
+# the resolved checkout is genuinely on a protected branch.
+$qval = '(?:"[^"]*"|''[^'']*''|\S+)'
+$gitPrefixPattern = "\bgit(?:\s+-C\s+$qval|\s+--git-dir(?:=$qval|\s+$qval)|\s+--work-tree(?:=$qval|\s+$qval)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+$qval|\s+--exec-path(?:=$qval|\s+$qval)|\s+--namespace=$qval|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*"
 # A valid shell segment may open with one or more environment-assignment
 # words (NAME=value ...) before the actual command - e.g. 'X=1 git commit'
 # still invokes git. Every start-of-segment anchor below ('(?:^|[;&|]\s*)'
