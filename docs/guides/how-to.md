@@ -14,6 +14,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)](#serve-a-local-mock-backend-to-drive-availability-driven-qa-list-churn-favorites-hiderestore)
 - [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
 - [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
+- [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
 
 ---
 
@@ -624,3 +625,82 @@ in `OpenVpnService.applyStatusSnapshot()` as the root cause.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
 - `docs/features/logging.md` ("Anti-spam" section)
 - `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")
+
+---
+
+## Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)
+
+**When to use**
+
+A `:core:testDebugUnitTest` (or the aggregate `testDebugUnitTestApp`) run fails with:
+
+```
+Execution failed for task ':core:testDebugUnitTest'.
+> Process 'Gradle Test Executor N' finished with non-zero exit value 1
+```
+
+and the results table shows `0` total (or a partial count far below the known full suite size,
+e.g. 131 instead of 800+) — i.e. the failure happened mid-run, not from an actual assertion
+failure. This is a JVM-level crash of the test worker process, not a test regression, and no
+`FAILED` test names appear anywhere in the log.
+
+**Root cause on this machine**
+
+The dev box this was diagnosed on is memory-constrained (4 cores, ~12 GB RAM, frequently well
+under 500 MB free per `wmic OS get FreePhysicalMemory`) — this project's Robolectric-heavy
+`:core` suite (800+ tests spread across many `@RunWith(RobolectricTestRunner)` classes, each
+spinning up an Android runtime shadow) is memory-hungry, and Gradle's default worker parallelism
+(one JVM per available core) plus any leftover Gradle daemons from a prior run can push the
+system past available native memory. The crash lands as a HotSpot fatal error
+(`src/core/hs_err_pid<N>.log` + a `replay_pid<N>.log`), typically `Native memory allocation
+(malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler thread failing to
+allocate, not a Java heap `OutOfMemoryError` a test could catch.
+
+**Steps**
+
+1. Stop any lingering Gradle daemons, which hold onto JVM memory between invocations:
+   ```bash
+   ./gradlew.bat --stop
+   ```
+2. Delete the stray crash-dump files so they don't get mistaken for source changes or bloat the
+   next `git status`:
+   ```bash
+   rm -f src/core/hs_err_pid*.log src/core/replay_pid*.log
+   ```
+3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
+   ```bash
+   rm -rf src/core/build/test-results/testDebugUnitTest
+   ```
+4. Re-run with reduced worker parallelism. `--max-workers=2` was enough for a scoped
+   `--tests "*SomeTest"` run; the full `testDebugUnitTestApp` aggregate (core + mobile + tv, 800+
+   tests) needed `--max-workers=1 --no-daemon` on this machine to avoid a repeat crash:
+   ```bash
+   ./gradlew.bat testDebugUnitTestApp --max-workers=1 --no-daemon --rerun-tasks
+   ```
+   `--no-daemon` avoids leaving a new daemon behind that competes with the next invocation;
+   `--rerun-tasks` is only needed if you want a genuine fresh run rather than relying on
+   Gradle's up-to-date checks after a partial/crashed prior attempt.
+
+**Limitation**
+
+This is a machine-resource issue, not a code issue — do not spend time trying to "fix" it in the
+test code itself. If the crash recurs even at `--max-workers=1 --no-daemon`, the system is likely
+under memory pressure from unrelated processes (browser tabs, IDEs, etc.); free memory elsewhere
+before retrying, or run the suite from a less loaded machine/CI.
+
+**First demonstrated**
+
+Fix-cycle 7 of bug `86cb35fbt` (`fix/86cb35fbt-vpn-foreground-service-crash`) — the same
+class of crash was independently seen once during fix-cycle 7's own code review (per its
+evidence file: *"an initial MUT-A run aborted with `Process 'Gradle Test Executor 3' finished
+with non-zero exit value 1` and a stray `src/core/replay_pid*.log`"*) and again three times
+during this cycle's implementation validation (once on the initial scoped-suite restore-check,
+twice on the full `testDebugUnitTestApp` aggregate) before landing on the
+`--max-workers=1 --no-daemon` combination that completed cleanly (845/845 core, 2/2 mobile, 17/17
+tv, `BUILD SUCCESSFUL` in ~24 min).
+
+**References**
+
+- `docs/guides/how-to.md` ("Run the OpenVPN engine's own unit tests" — a related aggregate-task
+  scoping gotcha, different cause)
+- `.sdlc/status.json` → flow `fix/86cb35fbt-vpn-foreground-service-crash` (fix-cycle 7 evidence)

@@ -28,6 +28,7 @@ class OpenVpnServiceNotificationTest {
     fun resetState() {
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        VpnManager.resetActionStartDispatchTrackingForTest()
     }
 
     @Test
@@ -369,6 +370,97 @@ class OpenVpnServiceNotificationTest {
             "Buffered re-check must abort stopSelf() when a genuine ACTION_START set " +
                 "userInitiatedStart=true during the confirm buffer, even if the cancellation " +
                 "call itself lost its race against the already-fired stage-1 runnable",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression tests for the QA-reproduced FATAL RemoteServiceException crash (fix-cycle 7,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md, "2026-08-14 continuation
+    // 2"): device logs showed a fresh ACTION_START dispatch (VpnManager.startVpn(), a reconnect
+    // tap) landing just 3ms before the buffered stopAfterOneShotSyncConfirmedRunnable re-check
+    // fired -- well under real AMS/Binder Intent-delivery latency, so userInitiatedStart (set
+    // inside onStartCommand) was still false when the re-check ran. This is a DISTINCT root cause
+    // from review-7's R7-1 (ConnectionStateManager staleness): ConnectionStateManager.state is
+    // genuinely DISCONNECTED throughout these tests, not stale -- the race is purely that AMS's
+    // FGS-start obligation begins the instant startForegroundService() is CALLED, before this
+    // process can possibly observe the Intent. The fix records the dispatch attempt synchronously
+    // in VpnManager (hasRecentActionStartDispatch()) and checks it alongside userInitiatedStart.
+    //
+    // This models the gap directly: VpnManager.startVpn() is called (recording the dispatch) WITHOUT
+    // driving the resulting Intent through onStartCommand() at all, isolating the new guard from
+    // userInitiatedStart and from the real end-to-end ACTION_START path already covered by
+    // oneShotSync_realActionStartThroughOnStartCommand_abortsBufferedStop below.
+    @Test
+    fun oneShotSync_abortsBufferedStop_whenActionStartDispatchIsStillInFlight() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Stage 1 fires and schedules the buffered confirmation, exactly like the control case.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // A fresh ACTION_START dispatch attempt lands (e.g. a reconnect tap), but its Intent is
+        // deliberately NOT driven through onStartCommand() here -- modeling the still-in-flight
+        // AMS/Binder gap the device crash exposed.
+        val app = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+        val userInitiatedStartField = OpenVpnService::class.java.getDeclaredField("userInitiatedStart")
+        userInitiatedStartField.isAccessible = true
+        assertFalse(
+            "Precondition: the dispatched ACTION_START must not have reached onStartCommand() yet",
+            userInitiatedStartField.getBoolean(service)
+        )
+
+        // The confirm buffer elapses; the re-check must see the recent dispatch and abort even
+        // though userInitiatedStart is still false.
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "Buffered re-check must abort stopSelf() when an ACTION_START dispatch was recently " +
+                "issued via VpnManager, even before its Intent reaches onStartCommand() -- " +
+                "otherwise stopSelf() races AMS's FGS-start obligation, which begins at dispatch " +
+                "time, not at Intent-delivery time",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Falsifiability control for the test above: with no ACTION_START dispatch recorded at all,
+    // the confirm buffer must still stop the service normally -- proves the new guard is a real
+    // condition, not an always-true short-circuit.
+    @Test
+    fun oneShotSync_stopsAfterConfirmBuffer_whenNoRecentActionStartDispatch() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        VpnManager.resetActionStartDispatchTrackingForTest()
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue(
+            "Legitimate idle one-shot-sync cleanup must still stop the service when no " +
+                "ACTION_START dispatch is in flight",
             shadowOf(service).isStoppedBySelf
         )
     }

@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +24,7 @@ class VpnManagerTest {
     fun resetState() {
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        VpnManager.resetActionStartDispatchTrackingForTest()
     }
 
     @Test
@@ -248,6 +250,64 @@ class VpnManagerTest {
 
         assertFalse(result)
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    // Regression tests for VpnManager.hasRecentActionStartDispatch() (fix-cycle 7,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md, "2026-08-14 continuation
+    // 2"): records an ACTION_START dispatch attempt synchronously, immediately before the actual
+    // startForegroundService() call, so OpenVpnService's one-shot idle-teardown stop can detect a
+    // fresh start still in AMS/Binder transit -- see the field's declaration comment for the
+    // FGS-obligation-timing race this closes.
+
+    @Test
+    fun hasRecentActionStartDispatch_falseWhenNoneRecorded() {
+        assertFalse(VpnManager.hasRecentActionStartDispatch())
+    }
+
+    @Test
+    fun startVpn_recordsRecentActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+
+        assertTrue(VpnManager.hasRecentActionStartDispatch())
+    }
+
+    @Test
+    fun hasRecentActionStartDispatch_falseAfterWindowElapses() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+
+        val farFuture = android.os.SystemClock.elapsedRealtime() + 10_000L
+        assertFalse(
+            "The dispatch marker must not stay set forever -- it only needs to bridge the brief " +
+                "AMS/Binder delivery gap, not survive indefinitely",
+            VpnManager.hasRecentActionStartDispatch(nowElapsedRealtimeMs = farFuture)
+        )
+    }
+
+    @Test
+    fun stopVpn_doesNotRecordActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.stopVpn(app)
+
+        assertFalse(
+            "Only ACTION_START dispatches should arm the recent-dispatch marker",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+    }
+
+    @Test
+    fun pauseVpn_doesNotRecordActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        VpnManager.pauseVpn(app)
+
+        assertFalse(VpnManager.hasRecentActionStartDispatch())
     }
 
     private class ThrowingServiceContext(base: Context) : ContextWrapper(base) {

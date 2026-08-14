@@ -24,6 +24,61 @@ object VpnManager {
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
+    // Fix-cycle 7 QA finding (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md,
+    // "2026-08-14 continuation 2"): a genuine FATAL RemoteServiceException
+    // $ForegroundServiceDidNotStartInTimeException was reproduced when OpenVpnService's one-shot
+    // idle-teardown stopSelf() decision (stopAfterOneShotSyncConfirmedRunnable) fired only 3ms
+    // before a fresh ACTION_START dispatched via startControllerService() below. Android's
+    // ActivityManagerService begins its "waiting for startForeground()" obligation the instant
+    // ContextCompat.startForegroundService() is CALLED, not once the Intent is actually delivered
+    // to onStartCommand() -- so a Handler-scheduled stopSelf() decision that only recognizes a
+    // fresh start via OpenVpnService's own userInitiatedStart flag (set inside onStartCommand)
+    // cannot see it in time when the AMS/Binder round-trip delivering the Intent takes longer than
+    // the few milliseconds separating the two events. This is a distinct root cause from review-7's
+    // R7-1 (ConnectionStateManager staleness): here ConnectionStateManager's DISCONNECTED state is
+    // genuinely correct at the moment stopSelf() is decided -- the race is purely about AMS's FGS
+    // obligation clock starting before this app process can possibly know a new start intent even
+    // exists.
+    //
+    // Fix: record when an ACTION_START dispatch is attempted, synchronously, on the SAME thread
+    // that calls startControllerService() -- immediately BEFORE the actual
+    // startForegroundService() call. Both this write and OpenVpnService's read
+    // (hasRecentActionStartDispatch()) happen on the app's main thread (VpnManager.startVpn()'s
+    // callers -- MainActivityCore's Connect tap and ServerAutoSwitcher's retry-timer starter --
+    // and OpenVpnService's statusHandler all run on Looper.getMainLooper()), so as long as the
+    // write happens-before the read in main-thread execution order, this closes the gap
+    // deterministically: no AMS/Binder IPC latency can beat a same-thread, synchronous field
+    // write that already completed before the write's own function call returned.
+    @Volatile
+    private var lastActionStartDispatchElapsedRealtimeMs: Long = 0L
+
+    // Generous upper bound on the AMS/Binder round-trip between this call and OpenVpnService
+    // .onStartCommand() actually running and setting its own userInitiatedStart=true (typically
+    // single-digit milliseconds; kept far larger to tolerate scheduling pressure, cold starts, or
+    // Doze/App-Standby deferral). Once onStartCommand() runs, userInitiatedStart is the
+    // authoritative, longer-lived signal -- this flag only needs to bridge the brief pre-delivery
+    // gap, and a stale flag left set for up to this long after a start that never actually landed
+    // is an acceptable, bounded cost (mirrors the existing ONE_SHOT_STOP_CONFIRM_DELAY_MS /
+    // STOP_RETRY_TIMEOUT_MS style of bounded safety windows elsewhere in this bug's fix history).
+    private const val RECENT_ACTION_START_DISPATCH_WINDOW_MS = 2_000L
+
+    /**
+     * True if an `ACTION_START` dispatch via [startVpn] was attempted within the last
+     * [RECENT_ACTION_START_DISPATCH_WINDOW_MS]. See [lastActionStartDispatchElapsedRealtimeMs]'s
+     * declaration comment for the FGS-obligation-timing race this closes.
+     */
+    internal fun hasRecentActionStartDispatch(
+        nowElapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime()
+    ): Boolean {
+        val last = lastActionStartDispatchElapsedRealtimeMs
+        return last > 0L && (nowElapsedRealtimeMs - last) <= RECENT_ACTION_START_DISPATCH_WINDOW_MS
+    }
+
+    @JvmStatic
+    internal fun resetActionStartDispatchTrackingForTest() {
+        lastActionStartDispatchElapsedRealtimeMs = 0L
+    }
+
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
         AppLog.d(TAG, "startVpn")
         val decodedConfig = try {
@@ -119,6 +174,13 @@ object VpnManager {
     private fun startControllerService(context: Context, intent: Intent, action: String): Boolean {
         return try {
             if (action == ACTION_START) {
+                // Record the dispatch attempt BEFORE the actual call -- see
+                // lastActionStartDispatchElapsedRealtimeMs's declaration comment. Recorded even if
+                // the call below throws: a failed dispatch still means AMS may have registered the
+                // FGS-start obligation before raising the exception, and the flag's cost if a start
+                // never truly lands is only a bounded RECENT_ACTION_START_DISPATCH_WINDOW_MS delay
+                // to the idle-teardown path, not a correctness issue.
+                lastActionStartDispatchElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 ContextCompat.startForegroundService(context, intent)
             } else {
                 context.startService(intent)

@@ -275,6 +275,73 @@ class ServerAutoSwitcherTest {
         assertEquals(true, calls.first().reconnect)
     }
 
+    // Fix-cycle 7 review (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-7.md,
+    // R7-1/R7-4): the cycle-6 guard above stops ServerAutoSwitcher from silently dropping the
+    // pending retry, but ServerAutoSwitcher is not the only consumer of an engine level --
+    // OpenVpnService.syncEngineState() also forwards every level to
+    // ConnectionStateManager.updateFromEngine(), unconditionally. Before the R7-1 fix, the same
+    // stale LEVEL_CONNECTED this guard ignores still reached updateFromEngine() and cleared
+    // reconnectingHint / flipped state CONNECTING -> CONNECTED, so by the time this retry's
+    // ACTION_START fired, ConnectionStateManager read state=DISCONNECTED / hint=false -- exactly
+    // the condition that defeats OpenVpnService's stopAfterOneShotSyncConfirmedRunnable,
+    // VpnManager.stopControllerIfIdle, and syncEngineState's reconnectPending FGS guard (see the
+    // review file's Verification section, PROBE detail, for the exact assertion this test
+    // inverts: REVIEW-PROBE calls=1 stateAtStart=DISCONNECTED hintAtStart=false / expected
+    // CONNECTING but was DISCONNECTED). This test interleaves updateFromEngine() after each
+    // onEngineLevel() call, matching OpenVpnService.syncEngineState()'s real production ordering,
+    // and asserts the invariant holds AT THE MOMENT starter() is invoked -- the only place R7-1 is
+    // observable. Falsifiability: reverting the two ConnectionStateManager re-assertion calls
+    // added at both retry-commit sites in ServerAutoSwitcher.kt must make this fail with
+    // expected:<CONNECTING> but was:<DISCONNECTED>.
+    @Test
+    fun staleLevelDuringStopForRetry_reconnectInvariantHoldsAtRetryDispatch() {
+        var stateAtDispatch: ConnectionState? = null
+        var hintAtDispatch: Boolean? = null
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect ->
+            stateAtDispatch = ConnectionStateManager.state.value
+            hintAtDispatch = ConnectionStateManager.reconnectingHint.value
+            calls.add(Call(ctx, config, title, reconnect))
+        }
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+        // Cross threshold (2s) -> requests stop, arms waitingStopForRetry with pendingConfig=conf2.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // Spurious/stale LEVEL_CONNECTED, interleaved with updateFromEngine() exactly as
+        // OpenVpnService.syncEngineState() does in production -- this is what corrupts
+        // ConnectionStateManager's state/hint if the R7-1 fix is absent or reverted.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, "AIDL")
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, null)
+        assertEquals(
+            "precondition: ServerAutoSwitcher itself must still ignore the stale level (cycle 6)",
+            0,
+            calls.size
+        )
+
+        // The real NOTCONNECTED confirmation resolves the pending retry and fires starter().
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(1, calls.size)
+        assertEquals(
+            "the retry's ACTION_START must be dispatched with the reconnect invariant intact " +
+                "(state != DISCONNECTED), otherwise it defeats OpenVpnService's " +
+                "stopAfterOneShotSyncConfirmedRunnable/stopControllerIfIdle/reconnectPending FGS " +
+                "guards (review-7 R7-1)",
+            ConnectionState.CONNECTING,
+            stateAtDispatch
+        )
+        assertEquals(
+            "reconnectingHint must also be re-asserted at retry-commit time",
+            true,
+            hintAtDispatch
+        )
+    }
+
     @Test
     fun noAlternativeServersDoesNotSwitch() {
         val single = listOf(
@@ -349,6 +416,48 @@ class ServerAutoSwitcherTest {
         assertEquals(true, calls.first().reconnect)
     }
 
+    // Fix-cycle 7 review R7-1/R7-4: the same reconnect-invariant re-assertion is required at the
+    // SECOND retry-commit site -- the STOP_RETRY_TIMEOUT_MS fallback runnable, reached when the
+    // real NOTCONNECTED confirmation never arrives at all within the 5s window. Mirrors
+    // staleLevelDuringStopForRetry_reconnectInvariantHoldsAtRetryDispatch above but drives the
+    // stale-level corruption via a stale LEVEL_CONNECTED with no NOTCONNECTED follow-up, letting
+    // the timeout path itself fire the retry.
+    @Test
+    fun stopRetryTimeout_reconnectInvariantHoldsAtRetryDispatch() {
+        var stateAtDispatch: ConnectionState? = null
+        var hintAtDispatch: Boolean? = null
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect ->
+            stateAtDispatch = ConnectionStateManager.state.value
+            hintAtDispatch = ConnectionStateManager.reconnectingHint.value
+            calls.add(Call(ctx, config, title, reconnect))
+        }
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // Stale LEVEL_CONNECTED corrupts ConnectionStateManager exactly as in the sibling test --
+        // but no NOTCONNECTED ever follows, so only the STOP_RETRY_TIMEOUT_MS fallback resolves it.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, "AIDL")
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, null)
+
+        // No NOTCONNECTED is emitted; the 5s STOP_RETRY_TIMEOUT_MS fallback must still trigger a
+        // start, with the invariant re-asserted.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(1, calls.size)
+        assertEquals(
+            "the timeout-path retry's ACTION_START must also be dispatched with the reconnect " +
+                "invariant intact (review-7 R7-1)",
+            ConnectionState.CONNECTING,
+            stateAtDispatch
+        )
+        assertEquals(true, hintAtDispatch)
+    }
+
     @Test
     fun idleToleranceWaitsBeforeStartingTimer() {
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, source)
@@ -357,6 +466,37 @@ class ServerAutoSwitcherTest {
 
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         assertEquals(2, ServerAutoSwitcher.remainingSeconds.value)
+    }
+
+    // R7-3 (fix-cycle 7 review): beginChainedSwitch() must cancel any idle-tolerance runnable
+    // armed just before it runs. requestSwitchNow()'s equivalent transition into
+    // waitingStopForRetry=true goes through cancel(resetCycle=false), which already cancels idle
+    // tolerance as a side effect; beginChainedSwitch() did not, so an idleToleranceRunnable armed
+    // within UNKNOWN_PAUSED_GRACE_MS before a beginChainedSwitch() call (its production callers:
+    // OpenVpnService's VPN_STATUS auto-switch path and the watchdog-recovery starter) could still
+    // fire mid-window via start(appContext, level) called directly -- not through onEngineLevel()
+    // -- bypassing the waitingStopForRetry guard and starting a competing timer (B24's mechanism
+    // through a different door).
+    @Test
+    fun beginChainedSwitch_cancelsPendingIdleTolerance() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, source)
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+
+        val begun = ServerAutoSwitcher.beginChainedSwitch(appContext, "client\n", "RU")
+        assertTrue(begun)
+
+        // Advance well past UNKNOWN_PAUSED_GRACE_MS (3s) but under STOP_RETRY_TIMEOUT_MS (5s). If
+        // idle tolerance were not cancelled, it would fire start(appContext, UNKNOWN_LEVEL) here,
+        // directly bypassing onEngineLevel()'s waitingStopForRetry guard, and remainingSeconds
+        // would become non-null.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+
+        assertEquals(
+            "an idle-tolerance runnable armed before beginChainedSwitch() must not survive to " +
+                "start a competing timer mid-window",
+            null,
+            ServerAutoSwitcher.remainingSeconds.value
+        )
     }
 
     // US-12 AC-2: DEFAULT_V2 hydration gap — hydration callback is triggered and probe code is reachable.

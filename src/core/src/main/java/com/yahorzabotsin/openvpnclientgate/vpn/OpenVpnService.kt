@@ -502,6 +502,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.i(TAG, "One-shot sync stop aborted by buffered re-check (userInitiatedStart/Stop set)")
             return@Runnable
         }
+        // Fix-cycle 7 QA finding (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md,
+        // "2026-08-14 continuation 2"): userInitiatedStart above is only set once ACTION_START's
+        // Intent has actually been delivered to onStartCommand(). A fresh ACTION_START dispatch can
+        // be issued by VpnManager.startVpn() (Connect tap, or ServerAutoSwitcher's retry timer) and
+        // still be in AMS/Binder transit when this runnable's re-check runs -- observed with a gap
+        // as small as 3ms between this stopSelf() decision and the following ACTION_START, well
+        // under the AMS round-trip latency. Android's FGS-start obligation begins the instant
+        // startForegroundService() is CALLED, not once delivered, so stopSelf() here can still race
+        // an outstanding obligation this app process cannot yet see via userInitiatedStart. See
+        // VpnManager.hasRecentActionStartDispatch()'s declaration comment for why checking it here
+        // closes this gap deterministically. Distinct mechanism from review-7's R7-1
+        // (ConnectionStateManager staleness): state is genuinely DISCONNECTED here, not stale.
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "One-shot sync stop aborted: recent ACTION_START dispatch still in flight")
+            return@Runnable
+        }
         if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
             // Excludes ServerAutoSwitcher's background retry-timer ACTION_START dispatcher
             // (review-4 F1): reconnectingHint holds state at CONNECTING for the whole auto-switch

@@ -85,6 +85,27 @@ object ServerAutoSwitcher {
                 stopRetryTimeoutRunnable = null
                 if (cfg != null) {
                     AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
+                    // R7-1 (fix-cycle 7, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-7.md):
+                    // re-assert the reconnect invariant at retry-commit time, not only at
+                    // switch-decision time. ServerAutoSwitcher is not the only consumer of an
+                    // engine level -- OpenVpnService.syncEngineState() also forwards every level to
+                    // ConnectionStateManager.updateFromEngine(), which cycle 6's stale-level guard
+                    // above does not touch. A stale/re-delivered level arriving during the wait
+                    // window (e.g. a spurious LEVEL_CONNECTED) could already have flipped
+                    // ConnectionStateManager to state=DISCONNECTED / reconnectingHint=false before
+                    // this retry fires. Dispatching ACTION_START with that broken invariant defeats
+                    // three guards this branch depends on: OpenVpnService
+                    // .stopAfterOneShotSyncConfirmedRunnable's and VpnManager.stopControllerIfIdle's
+                    // `state != DISCONNECTED` exclusion, and syncEngineState's reconnectPending
+                    // FGS-notification guard. Re-asserting both here, immediately before the retry
+                    // is posted, restores the invariant regardless of what happened to it during the
+                    // wait.
+                    try {
+                        ConnectionStateManager.setReconnectingHint(true)
+                        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (NOTCONNECTED path)", e)
+                    }
                     handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
                     return
                 }
@@ -121,7 +142,11 @@ object ServerAutoSwitcher {
                 // this wait window (B23: neither the NOTCONNECTED-observed log nor the stop-retry
                 // timeout log ever appears, because the timeout callback that would have logged
                 // it was itself removed by the same cancel() call).
-                AppLog.d(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
+                // R7-2 (fix-cycle 7 review): AppLog.i, not .d -- AppReleaseTree drops DEBUG in
+                // release builds, and this is the one field-visible proof that the stale-level
+                // guard actually engaged (mirrors the same reasoning applied to the stopSelf()/abort
+                // lines in OpenVpnService's one-shot-sync stop, review-4 F6).
+                AppLog.i(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
                 return
             }
         }
@@ -195,6 +220,14 @@ object ServerAutoSwitcher {
         }
         try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
+        // R7-3 (fix-cycle 7 review): cancel any idle-tolerance runnable armed just before this
+        // call. requestSwitchNow()'s equivalent transition into waitingStopForRetry=true goes
+        // through cancel(resetCycle=false), which already cancels idle tolerance as a side effect;
+        // beginChainedSwitch() did not, so an idleToleranceRunnable armed within
+        // UNKNOWN_PAUSED_GRACE_MS before this call could still fire mid-window via
+        // start(appContext, level) -- called directly, not through onEngineLevel() -- bypassing the
+        // waitingStopForRetry guard above and starting a competing timer.
+        cancelIdleTolerance()
         pendingConfig = config
         pendingTitle = title
         waitingStopForRetry = true
@@ -257,8 +290,14 @@ object ServerAutoSwitcher {
     private fun cancel(resetCycle: Boolean) {
         runnable?.let { handler.removeCallbacks(it) }
         runnable = null
-        if (timerActive || seconds > 0) {
-            AppLog.d(TAG, "Switch timer stopped at ${seconds}s (level=${timerLevel})")
+        // R7-2 (fix-cycle 7 review): also log when a pending stop-before-retry wait
+        // (waitingStopForRetry) is discarded by this cancel() -- read BEFORE it is reset to false
+        // below. Previously this condition only covered an active countdown timer, so a cancel()
+        // reaching this object during the stop-before-retry wait window (e.g. via
+        // cancelForUserStop()) silently discarded a pending retry with zero log evidence, since
+        // timerActive/seconds are already false/0 for the whole window.
+        if (timerActive || seconds > 0 || waitingStopForRetry) {
+            AppLog.d(TAG, "Switch timer stopped at ${seconds}s (level=${timerLevel}, waitingStopForRetry=${waitingStopForRetry})")
         }
         timerActive = false
         timerLevel = null
@@ -483,6 +522,15 @@ object ServerAutoSwitcher {
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
             if (cfg != null) {
+                // R7-1 (fix-cycle 7): same re-assertion as the NOTCONNECTED-observed retry-commit
+                // path above -- see that site's comment for the full rationale. This timeout path
+                // is the second of the two retry-commit sites the review identified.
+                try {
+                    ConnectionStateManager.setReconnectingHint(true)
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                } catch (e: Exception) {
+                    AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (timeout path)", e)
+                }
                 handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
