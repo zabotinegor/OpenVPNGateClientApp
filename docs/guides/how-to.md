@@ -14,6 +14,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)](#serve-a-local-mock-backend-to-drive-availability-driven-qa-list-churn-favorites-hiderestore)
 - [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
 - [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
+- [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 
 ---
 
@@ -624,3 +625,62 @@ in `OpenVpnService.applyStatusSnapshot()` as the root cause.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
 - `docs/features/logging.md` ("Anti-spam" section)
 - `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")
+
+---
+
+## How to safely change `SpeedometerView`'s needle/label geometry ratios
+
+**When needed**
+
+Before touching any of `SpeedometerView.kt`'s private geometry `const val`s —
+`NEEDLE_OUTER_RADIUS_RATIO`, `NEEDLE_OUTER_HALF_WIDTH_RATIO`, `LABEL_RADIUS_RATIO`,
+`LABEL_TEXT_SIZE_RATIO`, or `LABEL_HALO_PADDING_RATIO` — for example to change the dial's visual
+proportions, add a scale stop, or resize the needle.
+
+**The invariant these constants must jointly satisfy**
+
+The needle's outer tip must never enter any scale label's legibility halo. This was a real,
+user-reported defect (needle tip overlapping the "0" label at rest) fixed during
+`us-21-speedometer-redesign` by dropping `NEEDLE_OUTER_RADIUS_RATIO` from `0.66` to `0.45`. The
+binding constraint is not the narrowest label ("0") but the *widest* one ("1000", 4 digits) at
+`LABEL_RADIUS_RATIO` (0.61): its halo radius pushes its own inner edge — the closest any halo gets
+to the dial center — down to roughly `0.483 * outerRadius`, while the needle tip corner sits at
+roughly `0.451 * outerRadius`, leaving only ~0.032 of the outer radius as margin. See the full
+worked derivation in `SpeedometerView.kt`'s KDoc directly above `NEEDLE_OUTER_RADIUS_RATIO`
+(`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/SpeedometerView.kt`).
+
+**Steps**
+
+1. Before changing any of the ratios above, re-read the KDoc block on `NEEDLE_OUTER_RADIUS_RATIO`
+   and redo its arithmetic with your new values (label text width/height scale linearly with
+   `LABEL_TEXT_SIZE_RATIO`; halo radius is `hypot(width, height) / 2 + LABEL_HALO_PADDING_RATIO`).
+   Confirm the clearance (`labelInnerEdge - needleTipCorner`) stays positive with headroom, not
+   just non-negative — font metrics shift slightly across devices/densities/locales.
+2. **No unit or component test currently pins this invariant.** All of
+   `NEEDLE_OUTER_RADIUS_RATIO`/`LABEL_RADIUS_RATIO`/`LABEL_HALO_PADDING_RATIO`/
+   `LABEL_TEXT_SIZE_RATIO` are `private const val`, invisible to `SpeedometerViewTest`, which only
+   imports the pure companion functions. Reverting `NEEDLE_OUTER_RADIUS_RATIO` to its old `0.66`
+   value (i.e. silently reintroducing the original defect) still leaves the full test suite green.
+   Do not treat "tests pass" as confirmation that this specific invariant holds — verify it by hand
+   (step 1) or visually, per step 3.
+3. After changing the constants, take an on-device screenshot in the CONNECTED state at a value
+   near each scale stop the needle can realistically point through, in **both** light and dark
+   theme, and visually confirm no tip/halo overlap — mirroring the manual QA evidence at
+   `docs/qa-evidence/feature-us-21-speedometer-redesign-ui/phone-v9-manualqa-light-connected.png`.
+4. A component-layer regression test (bitmap comparison or geometry assertion against a
+   constructed `SpeedometerView`) is not currently possible in this module — see the Robolectric
+   limitation entry in `docs/guides/troubleshooting.md` ("Custom `core` Views with resource-reading
+   `init` blocks cannot get Robolectric component tests at all"). If that module-wide gap is ever
+   closed, pinning this invariant with a real test is the first thing that should be added for
+   this view.
+
+**Notes**
+
+- This is a documentation-only invariant today (KDoc, not code) — it is easy to weaken by accident
+  when tuning visuals, and the test suite will not catch it.
+- Tracked as non-blocking follow-up QG2-02 in
+  `docs/qa-evidence/feature-us-21-speedometer-redesign-qualitygate-2.md`.
+
+**First encountered**
+
+`us-21-speedometer-redesign`, fix cycle 2 (commit `3cb9ba9`, `NEEDLE_OUTER_RADIUS_RATIO` 0.66 -> 0.45).

@@ -75,6 +75,7 @@ docs/qa-evidence
 /.claude/commands/release-flow-orchestrator.md
 /.claude/commands/review-comments.md
 /.claude/commands/sdlc-status.md
+/.claude/commands/tools-fix.md
 /.claude/commands/update-engine.md
 /.claude/commands/user-story.md
 /.claude/settings.json
@@ -92,6 +93,7 @@ docs/qa-evidence
 /.github/agents/master-plan.agent.md
 /.github/agents/release-flow-orchestrator.agent.md
 /.github/agents/scope-quality-gate.agent.md
+/.github/agents/tools-fix.agent.md
 /.github/agents/update-engine.agent.md
 /.github/agents/user-story-spec.agent.md
 /.github/scripts/account-context.ps1
@@ -99,6 +101,7 @@ docs/qa-evidence
 /.github/scripts/assert-clickup-status.ps1
 /.github/scripts/assert-gate-result.ps1
 /.github/scripts/assert-reviewed-head.ps1
+/.github/scripts/audit-clickup-qa-artifacts.ps1
 /.github/scripts/bot-signal-lib.ps1
 /.github/scripts/build-merge-approval-summary.ps1
 /.github/scripts/check-rate-limit.ps1
@@ -118,6 +121,7 @@ docs/qa-evidence
 /.github/scripts/fetch-usage-api.ps1
 /.github/scripts/flow-log-lib.ps1
 /.github/scripts/get-pr-bot-comments.ps1
+/.github/scripts/get-pr-review-threads.ps1
 /.github/scripts/get-session-recovery-diagnostics.ps1
 /.github/scripts/gh-invoke-lib.ps1
 /.github/scripts/init-session.ps1
@@ -130,6 +134,7 @@ docs/qa-evidence
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/post-review-comments-round-summary.ps1
 /.github/scripts/post-round-summary.ps1
+/.github/scripts/push-clickup-qa-status.ps1
 /.github/scripts/push-clickup-status.ps1
 /.github/scripts/rate-limit-server.js
 /.github/scripts/record-scheduler-evidence.ps1
@@ -155,10 +160,12 @@ docs/qa-evidence
 /.github/scripts/test-clickup-status-assert.ps1
 /.github/scripts/test-flow-log.ps1
 /.github/scripts/test-gate-reentry.ps1
+/.github/scripts/test-git-guard.ps1
 /.github/scripts/test-knowledge-catalog.ps1
 /.github/scripts/test-merge-approval.ps1
 /.github/scripts/test-release-notes-lint.ps1
 /.github/scripts/test-reset-recovery.ps1
+/.github/scripts/test-review-loop-dedup.ps1
 /.github/scripts/test-reviewed-head-assert.ps1
 /.github/scripts/test-sdlc-lease.ps1
 /.github/scripts/test-session-tracking.ps1
@@ -211,6 +218,8 @@ docs/qa-evidence
 /.github/skills/shared/sdlc-shared-flow-patterns.md
 /.github/skills/shared/sdlc-status-gate.md
 /.github/skills/shared/user-interaction-contract.md
+/.github/skills/tools-fix/references/issue-intake-template.md
+/.github/skills/tools-fix/SKILL.md
 /.github/skills/update-engine/references/engine-update-checklist.md
 /.github/skills/update-engine/SKILL.md
 /.github/skills/user-story-spec/references/user-story-spec-template.md
@@ -242,6 +251,10 @@ CODE_REVIEW_HANDOFF_*.md
 **/.sdlc/clickup-token
 /.sdlc/clickup-migration-map.json
 **/.sdlc/clickup-migration-map.json
+/.sdlc/copilottools-source.json
+**/.sdlc/copilottools-source.json
+/.sdlc/tools-fix.json
+**/.sdlc/tools-fix.json
 /.claude/settings.local.json
 **/.claude/settings.local.json
 # END transient-copilot-artifacts

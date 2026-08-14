@@ -60,6 +60,35 @@ adb -s <your-device-serial> shell am force-stop com.yahorzabotsin.openvpnclientg
 adb -s <your-device-serial> shell pm clear com.yahorzabotsin.openvpnclientgate
 ```
 
+### App theme and language are in-app settings, NOT tied to system dark mode / system locale
+`adb shell cmd uimode night yes|no` and changing the device system locale have **no effect** on this
+app's rendered theme or language. The app has its own independent settings:
+- Drawer menu -> Ustawienia/Настройки/Settings -> **Motyw/Тема/Theme** (`Motyw systemu`/`Jasny`/`Ciemny` —
+  System/Light/Dark)
+- Drawer menu -> Ustawienia/Настройки/Settings -> **Język/Язык/Language** (`Język systemu`, `English`,
+  `Русский`, `Polski`, …)
+Both must be toggled from inside the app's own Settings screen to reliably test light/dark theme or
+locale-formatting behavior. Number formatting (decimal separator) was independently verified to stay
+period-based (`0.09`, not `0,09`) under both `pl` and `ru` in-app language selection, confirming the
+formatter is locale-independent regardless of the in-app language setting.
+
+### Tap coordinates for evidence screenshots — always compute from the real device resolution, not the chat-displayed image size
+`adb exec-out screencap -p` captures at native resolution (e.g. 1080x2400, confirm with
+`adb shell wm size`). When a screenshot is shown back in chat it is often *displayed* scaled down (e.g.
+900x2000), and picking tap coordinates directly off the displayed image lands on the wrong element. Two
+reliable options:
+1. Multiply displayed-image pixel coordinates by the stated scale factor (e.g. x1.2 for 900->1080) before
+   calling `adb shell input tap`.
+2. More robust: pull a `uiautomator dump` and read the exact `bounds="[x1,y1][x2,y2]"` for the target
+   `resource-id`, then tap the bounds' center in native-resolution coordinates:
+```
+adb -s <your-device-serial> shell uiautomator dump //sdcard/window_dump.xml
+adb -s <your-device-serial> pull //sdcard/window_dump.xml ./window_dump.xml
+grep -o 'resource-id="[^"]*button[^"]*"[^>]*bounds="[^"]*"' window_dump.xml
+```
+Note the `//sdcard/...` double-slash form — a single `/sdcard/...` path gets mangled by Git Bash/MSYS
+path translation on Windows into something like `C:\Program Files\Git\sdcard\...`.
+
 ### Favorites state inspection/reset (debug builds only)
 Favorites persist in `shared_prefs/favorites_prefs.xml` (`favorite_server_ids`, `favorite_country_codes`).
 Inspect without root via run-as (works on debug builds):
