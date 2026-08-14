@@ -529,6 +529,103 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Guard-isolating regression tests for review-5 R5-1 (docs/qa-evidence/
+    // 86cb35fbt-vpn-foreground-service-crash-review-5.md): the test above proves at least ONE of
+    // stage 1's and stage 2's != DISCONNECTED guards is tightened, but with state held constant
+    // at CONNECTING across both deadlines, either guard alone reaches the same outcome as the
+    // other -- reverting stage 1 alone still passes (stage 2 catches it) and reverting stage 2
+    // alone also still passes (stage 1 already aborted before stage 2 could ever run), so neither
+    // mutation is independently caught. These two tests change state BETWEEN stage 1's and stage
+    // 2's deadlines instead of holding it constant, so each guard is evaluated against a state its
+    // sibling guard never sees, and only the guard actually under test can prevent the wrong
+    // outcome.
+
+    // Isolates stage 1: state is CONNECTING when stage 1 runs (an intact guard aborts here,
+    // meaning stage 2 is never even scheduled), then state changes to DISCONNECTED before stage
+    // 2's deadline would arrive. If stage 1 failed to abort (its guard reverted), stage 2 WAS
+    // scheduled and observes the now-genuinely-DISCONNECTED state, which even the fixed stage-2
+    // guard does not block -- stopSelf() fires. Only stage 1's own guard can prevent that.
+    @Test
+    fun oneShotSync_stage1GuardAlone_preventsStage2FromActingOnLaterDisconnectedState() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // State is CONNECTING when stage 1's 1000ms deadline arrives.
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "Precondition: stage 1 must not have called stopSelf() directly",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // The auto-switch gap resolves into a genuine disconnect before stage 2's deadline. A
+        // stage-2 confirmation that was never scheduled (because stage 1's own guard aborted)
+        // cannot act on this -- there is nothing left pending to fire.
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+        assertFalse(
+            "stage 1's != DISCONNECTED guard must independently prevent scheduling stage 2 while " +
+                "state is CONNECTING -- if it does not, a stage-2 confirmation left pending from " +
+                "that moment can later act on a state it never actually observed during the " +
+                "auto-switch gap (review-5 R5-1)",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Isolates stage 2: state is DISCONNECTED when stage 1 runs (an intact stage-1 guard passes
+    // through normally and schedules stage 2, exactly like the ordinary idle-teardown path), then
+    // the auto-switch gap begins -- state moves to CONNECTING -- during the confirmation buffer.
+    // Only stage 2's own guard, re-evaluated immediately before stopSelf(), can catch this.
+    @Test
+    fun oneShotSync_stage2GuardAlone_abortsStopWhenAutoSwitchStartsDuringConfirmBuffer() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // State is genuinely DISCONNECTED when stage 1 runs -- it schedules stage 2 normally.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+
+        // The auto-switch gap begins inside the confirmation buffer, before stage 2's deadline.
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+        assertFalse(
+            "stage 2's != DISCONNECTED guard must independently abort stopSelf() when the " +
+                "auto-switch gap begins during the confirmation buffer, after stage 1 already " +
+                "scheduled it against an earlier, genuinely-disconnected observation (review-5 " +
+                "R5-1)",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
     @Test
     fun appLifecycleObserver_onStop_dispatchesActionStopIfIdle() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
