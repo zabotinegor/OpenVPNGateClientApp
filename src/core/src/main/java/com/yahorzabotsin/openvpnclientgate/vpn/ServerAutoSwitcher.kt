@@ -73,6 +73,59 @@ object ServerAutoSwitcher {
         wasConnectingAtDispatch: Boolean? = null
     ) {
         logEngineLevel(level, source)
+
+        if (waitingStopForRetry) {
+            if (level == ConnectionStatus.LEVEL_NOTCONNECTED) {
+                val cfg = pendingConfig
+                val title = pendingTitle
+                pendingConfig = null
+                pendingTitle = null
+                waitingStopForRetry = false
+                stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                stopRetryTimeoutRunnable = null
+                if (cfg != null) {
+                    AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
+                    handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+                    return
+                }
+                // cfg == null is an unexpected/defensive edge case (beginChainedSwitch and
+                // requestSwitchNow always set pendingConfig before setting waitingStopForRetry).
+                // Fall through to normal processing below with waitingStopForRetry already
+                // cleared, matching pre-existing behavior.
+            } else {
+                // A stop-before-retry is in flight: this object explicitly requested the engine
+                // stop above (beginChainedSwitch / requestSwitchNow) and is waiting ONLY for the
+                // LEVEL_NOTCONNECTED confirmation handled above -- or the STOP_RETRY_TIMEOUT_MS
+                // fallback in scheduleStopRetryTimeout() -- to resolve it. Any OTHER level
+                // arriving in this window must be treated as noise, not a real signal: it can be
+                // a duplicate re-delivery of an already-actioned immediate-failure level (PR #126
+                // round 13, Codex P1, comment 3734974189: the poll loop can re-deliver the SAME
+                // cached terminal snapshot on every ~2s cycle without it ever going stale, since
+                // applyStatusSnapshot() restores lastStatusSnapshotMs to the snapshot's own
+                // timestamp rather than "now"), or a stale/re-delivered AIDL snapshot surfaced by
+                // an unrelated stop path racing this one -- e.g. OpenVpnService's own idle
+                // one-shot-sync stop tearing down and recreating the Service instance at nearly
+                // the same moment as this object's own stop-before-retry (see
+                // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md, "Secondary
+                // finding" section, B23/B24).
+                //
+                // Before this guard, such a level fell through to the generic timeoutLevels/else
+                // handling below: a timeoutLevels level (e.g. a re-delivered
+                // LEVEL_CONNECTING_NO_SERVER_REPLY_YET) would start a competing timer via
+                // start(...) since timerActive is false during this window (B24: the timer
+                // appears to "restart" from a stale snapshot with no real intervening retry);
+                // any other level (e.g. a stale LEVEL_CONNECTED) would hit the unconditional
+                // `else -> cancel(...)` branch, silently discarding the pending retry -- and
+                // almost without a trace, since cancel()'s only log line is gated on
+                // `timerActive || seconds > 0`, both already reset to false/0 for the duration of
+                // this wait window (B23: neither the NOTCONNECTED-observed log nor the stop-retry
+                // timeout log ever appears, because the timeout callback that would have logged
+                // it was itself removed by the same cancel() call).
+                AppLog.d(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
+                return
+            }
+        }
+
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
             return
@@ -80,39 +133,10 @@ object ServerAutoSwitcher {
             cancelIdleTolerance()
         }
 
-        if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
-            val cfg = pendingConfig
-            val title = pendingTitle
-            pendingConfig = null
-            pendingTitle = null
-            waitingStopForRetry = false
-            stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
-            stopRetryTimeoutRunnable = null
-            if (cfg != null) {
-                AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
-                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
-                return
-            }
-        }
-
         val shouldSwitchImmediately =
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
         if (shouldSwitchImmediately) {
-            // A switch for this exact immediate-failure condition is already in progress
-            // (waitingStopForRetry == true). The poll loop (trafficPollRunnable /
-            // applyStatusSnapshot) can re-deliver the SAME cached terminal snapshot on every
-            // ~2s poll cycle without it ever going stale, since applyStatusSnapshot() restores
-            // lastStatusSnapshotMs to the snapshot's own timestamp rather than "now" -- so this
-            // is reached again and again for one underlying failure. It must be a no-op: falling
-            // through to the timeoutLevels/else block below would hit the `else -> cancel(...)`
-            // branch for LEVEL_NONETWORK (not in timeoutLevels), cancelling the switch that was
-            // already correctly kicked off by the FIRST dispatch and silently dropping the
-            // pending server change. See PR #126 round 13 (Codex P1, comment 3734974189).
-            if (waitingStopForRetry) {
-                AppLog.d(TAG, "Duplicate $level dispatch while switch already in progress; ignoring")
-                return
-            }
             // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
             // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
             // posting from a binder thread to the main looper), and by the time this deferred

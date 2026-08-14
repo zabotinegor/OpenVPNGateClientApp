@@ -200,6 +200,81 @@ class ServerAutoSwitcherTest {
         assertEquals(true, calls.first().reconnect)
     }
 
+    // Bug 86cb35fbt, fix-cycle 6 (manual QA B23, docs/qa-evidence/86cb35fbt-vpn-foreground-
+    // service-crash-qa-2.md "Secondary finding" section): a stale/re-delivered engine level
+    // (e.g. a spurious LEVEL_CONNECTED flash from a Service instance racing an unrelated stop
+    // path) arriving WHILE waitingStopForRetry is true used to fall through to the generic
+    // `else -> cancel(...)` branch, silently discarding the pending retry -- with almost no log
+    // trace, since cancel()'s only log line requires timerActive/seconds, both already reset to
+    // false/0 during this wait window. The real, later LEVEL_NOTCONNECTED confirmation then had
+    // no pending retry left to act on, so the promised switch to the next server was silently
+    // dropped. Verify the spurious level is ignored and the real NOTCONNECTED still completes
+    // the retry.
+    @Test
+    fun staleLevelDuringStopForRetryDoesNotSilentlyDropPendingRetry() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        // Cross threshold (2s) -> requests stop, arms waitingStopForRetry with pendingConfig=conf2.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // Spurious/stale level (e.g. a stray AIDL snapshot) arrives before the real NOTCONNECTED.
+        // Before the fix this reached the unconditional else-branch cancel(...), wiping the
+        // pending retry.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, "AIDL")
+        assertEquals(
+            "a stale level while waiting for the stop-before-retry confirmation must not start a switch itself",
+            0,
+            calls.size
+        )
+
+        // The real NOTCONNECTED confirmation must still resolve the pending retry.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "the pending retry must not be silently dropped by a stale intervening level",
+            1,
+            calls.size
+        )
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
+    }
+
+    // Bug 86cb35fbt, fix-cycle 6 (manual QA B24, same evidence file): a stale/re-delivered
+    // timeoutLevels level (e.g. a re-delivered LEVEL_CONNECTING_NO_SERVER_REPLY_YET snapshot)
+    // arriving WHILE waitingStopForRetry is true used to reach the timeoutLevels branch and
+    // start(...) a brand-new competing timer, since timerActive is false during this wait
+    // window. Verify no competing timer is started and the real NOTCONNECTED confirmation still
+    // drives exactly one retry.
+    @Test
+    fun staleTimeoutLevelDuringStopForRetryDoesNotStartCompetingTimer() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+        assertEquals(null, ServerAutoSwitcher.remainingSeconds.value)
+
+        // Stale re-delivered timeoutLevels snapshot while waiting for the stop-before-retry
+        // confirmation. Before the fix this would call start(...), reporting a fresh
+        // remainingSeconds value and racing the pending retry.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertEquals(
+            "a stale timeoutLevels snapshot must not start a competing timer while waiting for stop-before-retry confirmation",
+            null,
+            ServerAutoSwitcher.remainingSeconds.value
+        )
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "exactly one retry must fire, driven only by the real NOTCONNECTED confirmation",
+            1,
+            calls.size
+        )
+        assertEquals("conf2", calls.first().cfg)
+        assertEquals(true, calls.first().reconnect)
+    }
+
     @Test
     fun noAlternativeServersDoesNotSwitch() {
         val single = listOf(
