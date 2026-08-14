@@ -223,10 +223,13 @@ function Get-GitTargetPath {
         # original cwd - 'git -C /workspace -C OpenVPNGateClientApp commit'
         # must resolve the second -C against /workspace, not against
         # $FallbackPath. Track that effective directory as options are parsed
-        # left to right and only -C ever advances it (--git-dir/--work-tree
-        # do not chdir, so a relative value on either still resolves against
-        # whatever -C has established so far, but never becomes the base for
-        # a later -C itself).
+        # left to right and only -C ever advances it (--git-dir/--work-tree do
+        # not chdir, so neither becomes the base for a later -C itself). A
+        # relative --git-dir resolves against the FINAL effective directory
+        # once every -C in the segment has been applied - not against
+        # whatever -C had been established at the point --git-dir happened to
+        # appear - so its resolution is deferred until after this loop; see
+        # $gitDirRaw below.
         $effectiveDir = $FallbackPath
         # --git-dir and -C are orthogonal per git(1): -C changes the effective
         # WORKING directory, while --git-dir independently selects the
@@ -238,6 +241,11 @@ function Get-GitTargetPath {
         # whenever it was supplied at all, regardless of its position
         # relative to any -C.
         $gitDirValue = $null
+        # Raw (quote-stripped but NOT yet path-resolved) value of the last
+        # --git-dir seen in this segment. Resolution is deferred until every
+        # -C in the segment has been applied - see the comment where it is
+        # set, below.
+        $gitDirRaw = $null
         $cOnlyValue = $null
         for ($i = $cmdIndex + 1; $i -lt $tokens.Count; $i++) {
             $token = $tokens[$i]
@@ -257,30 +265,44 @@ function Get-GitTargetPath {
                          else { $null }
                 if (-not [string]::IsNullOrWhiteSpace($value)) {
                     $clean = ($value -replace '["'']', '')
-                    # A relative -C/--git-dir target is relative to the
-                    # effective directory established so far by any preceding
-                    # -C (or the command's own cwd, $FallbackPath, if none has
-                    # been seen yet) - not to this hook subprocess's cwd
-                    # (fixed to the repo root by protected-branches.json's
-                    # "cwd": "."). An already-absolute target is left
-                    # unchanged (GetFullPath still normalizes it).
-                    if (-not [System.IO.Path]::IsPathRooted($clean)) {
-                        if (-not [string]::IsNullOrWhiteSpace($effectiveDir)) {
-                            $clean = [System.IO.Path]::GetFullPath((Join-Path $effectiveDir $clean))
-                        }
-                    }
-                    else {
-                        $clean = [System.IO.Path]::GetFullPath($clean)
-                    }
                     if ($name -eq '--git-dir') {
-                        # Only -C itself chdir's; --git-dir merely names the
-                        # metadata directory without moving the effective
-                        # directory, so it must not touch $effectiveDir and
-                        # must not be overwritten by a -C that appears later.
-                        $gitDirValue = $clean
+                        # Per git(1), -C changes the effective working
+                        # directory before Git does anything else, and a
+                        # RELATIVE --git-dir is then resolved against that
+                        # resulting directory - regardless of whether
+                        # --git-dir appears before or after -C on the command
+                        # line. 'git --git-dir=../protected/.git -C /base/work
+                        # commit' must resolve to /base/protected/.git, not
+                        # against whatever $effectiveDir happened to be at
+                        # this point in the left-to-right token scan (which,
+                        # for a --git-dir seen before a later -C, would still
+                        # be $FallbackPath - the wrong base). Only -C itself
+                        # chdir's, so --git-dir must not touch $effectiveDir
+                        # and must not be overwritten by a -C that appears
+                        # later; keep just the raw value here and resolve it
+                        # once, after the loop, against the FINAL
+                        # $effectiveDir once every -C in this segment has been
+                        # applied.
+                        $gitDirRaw = $clean
                     }
                     else {
-                        # $name -eq '-C'
+                        # $name -eq '-C': resolves immediately and
+                        # cumulatively. A relative -C target is relative to
+                        # the effective directory established so far by any
+                        # preceding -C (or the command's own cwd,
+                        # $FallbackPath, if none has been seen yet) - not to
+                        # this hook subprocess's cwd (fixed to the repo root
+                        # by protected-branches.json's "cwd": "."). An
+                        # already-absolute target is left unchanged
+                        # (GetFullPath still normalizes it).
+                        if (-not [System.IO.Path]::IsPathRooted($clean)) {
+                            if (-not [string]::IsNullOrWhiteSpace($effectiveDir)) {
+                                $clean = [System.IO.Path]::GetFullPath((Join-Path $effectiveDir $clean))
+                            }
+                        }
+                        else {
+                            $clean = [System.IO.Path]::GetFullPath($clean)
+                        }
                         $cOnlyValue = $clean
                         $effectiveDir = $clean
                     }
@@ -288,6 +310,23 @@ function Get-GitTargetPath {
             }
             elseif ($null -eq $inlineValue -and $valueFlags -ccontains $name) {
                 $i++
+            }
+        }
+        # Resolve the deferred --git-dir now that every -C in this segment has
+        # been applied and $effectiveDir reflects its final, cumulative value -
+        # see the comment where $gitDirRaw is set, above. Mirrors the same
+        # rooted/relative handling used for -C itself.
+        if ($null -ne $gitDirRaw) {
+            if (-not [System.IO.Path]::IsPathRooted($gitDirRaw)) {
+                if (-not [string]::IsNullOrWhiteSpace($effectiveDir)) {
+                    $gitDirValue = [System.IO.Path]::GetFullPath((Join-Path $effectiveDir $gitDirRaw))
+                }
+                else {
+                    $gitDirValue = $gitDirRaw
+                }
+            }
+            else {
+                $gitDirValue = [System.IO.Path]::GetFullPath($gitDirRaw)
             }
         }
         # --git-dir always wins the "which repository" question once supplied
