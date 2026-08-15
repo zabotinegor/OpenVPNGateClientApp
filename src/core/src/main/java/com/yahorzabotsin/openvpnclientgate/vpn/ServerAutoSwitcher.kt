@@ -52,9 +52,30 @@ object ServerAutoSwitcher {
     // Runnable in a field -- exactly like stopRetryTimeoutRunnable/runnable above -- lets cancel()
     // remove it deterministically, closing both the functional and crash-adjacent routes at once.
     // Both retry-commit call sites (NOTCONNECTED-observed and stop-retry-timeout) share this single
-    // field: only one of the two can ever be in flight at a time (waitingStopForRetry is false
-    // whenever neither has fired yet, and each site clears it before posting this Runnable).
+    // field: only one of the two can ever be in flight at a time (waitingStopForRetry is true
+    // until whichever site fires first, and each site clears it before posting this Runnable --
+    // R9-4, fix-cycle 9: the prior wording of this parenthetical had the polarity backwards).
     private var retryStartRunnable: Runnable? = null
+    // R9-1 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md): QG4-2
+    // made retryStartRunnable trackable so cancel() could remove it for a genuine user Disconnect --
+    // but cancel() is also reached from onEngineLevel()'s own generic `else -> cancel(...)` branch
+    // for every level outside timeoutLevels. waitingStopForRetry is cleared the instant this
+    // Runnable is posted (both retry-commit sites clear it first), so the cycle-6 stale-level guard
+    // above -- the thing that normally shields this object from duplicate/re-delivered levels -- no
+    // longer covers the START_AFTER_STOP_DELAY_MS window between "retry committed" and "retry
+    // fired". A stray re-delivered level landing in that window (this file's own comments document
+    // exactly this: the poll loop re-delivering a cached terminal snapshot, or the engine emitting
+    // LEVEL_NOTCONNECTED twice back-to-back for EXITING then NOPROCESS during the same teardown)
+    // reached the else-branch cancel() and silently discarded the pending retry, leaving the app
+    // stuck on "Connecting" with no VPN process and no pending reconnect -- the exact symptom fixed
+    // once already in e8fa60e (bug 86cb21563), reintroduced by QG4-2. This flag re-extends stale-
+    // level coverage over that window: onEngineLevel() ignores every level while it is true, exactly
+    // as it already ignores stray levels while waitingStopForRetry is true. It is NOT checked by
+    // cancelForUserStop(), which calls cancel() directly and bypasses onEngineLevel() entirely, so a
+    // genuine user Disconnect inside the window still cancels the retry (QG4-2's original fix).
+    // Cleared in the same two places retryStartRunnable is: when the Runnable fires, and inside
+    // cancel() when it removes the Runnable.
+    @Volatile private var retryCommitInFlight: Boolean = false
     private var idleToleranceRunnable: Runnable? = null
     private var idleToleranceLevel: ConnectionStatus? = null
     private var lastEngineLevel: ConnectionStatus? = null
@@ -123,9 +144,11 @@ object ServerAutoSwitcher {
                     retryStartRunnable?.let { handler.removeCallbacks(it) }
                     val r = Runnable {
                         retryStartRunnable = null
+                        retryCommitInFlight = false
                         starter(appContext, cfg, title, true)
                     }
                     retryStartRunnable = r
+                    retryCommitInFlight = true
                     handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
                     return
                 }
@@ -169,6 +192,15 @@ object ServerAutoSwitcher {
                 AppLog.i(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
                 return
             }
+        }
+
+        // R9-1 (fix-cycle 9): see retryCommitInFlight's declaration comment above. waitingStopForRetry
+        // is already false by the time this is reached (both retry-commit sites clear it before
+        // arming this flag), so without this check a stray level here would fall through to the
+        // timeoutLevels/else handling below exactly like the bug it re-guards against.
+        if (retryCommitInFlight) {
+            AppLog.i(TAG, "Ignoring level=$level (source=$source) while retry-commit dispatch is in flight")
+            return
         }
 
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
@@ -333,6 +365,7 @@ object ServerAutoSwitcher {
         // this Runnable armed even though every other piece of retry state was just cleared above.
         retryStartRunnable?.let { handler.removeCallbacks(it) }
         retryStartRunnable = null
+        retryCommitInFlight = false
         cancelIdleTolerance()
         _remainingSeconds.value = null
         v2HydrationPending = false
@@ -560,9 +593,11 @@ object ServerAutoSwitcher {
                 retryStartRunnable?.let { handler.removeCallbacks(it) }
                 val startR = Runnable {
                     retryStartRunnable = null
+                    retryCommitInFlight = false
                     starter(appContext, cfg, title, true)
                 }
                 retryStartRunnable = startR
+                retryCommitInFlight = true
                 handler.postDelayed(startR, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")

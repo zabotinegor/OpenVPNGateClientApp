@@ -679,11 +679,16 @@ The crash lands as a HotSpot fatal error (`hs_err_pid<N>.log` + a `replay_pid<N>
 `Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler
 thread failing to allocate, not a Java heap `OutOfMemoryError` a test could catch.
 
-**Dump path correction (QG4-4):** these dumps land at **`src/hs_err_pid*.log`** (repo-root-relative
-under `src/`, i.e. the Gradle root — NOT `src/core/`). A gate-4 OOM produced 9 dumps, all at
-`src/hs_err_pid*.log`, with none under `src/core/`. A cleanup command scoped to `src/core/` is a
-silent no-op — the dumps accumulate exactly as this runbook otherwise warns against. Use the path
-in the **Steps** section below, not `src/core/hs_err_pid*.log`.
+**Dump path correction (QG4-4, corrected R9-5):** HotSpot writes `hs_err_pid*.log` /
+`replay_pid*.log` into the **crashing JVM worker's own working directory**, which differs by form:
+Form 2's Kotlin compile workers run with the Gradle root (`src/`) as their working directory, so
+that form's dumps legitimately land at **`src/hs_err_pid*.log`** — a gate-4 OOM produced 9 dumps
+there. Form 1's `:core:testDebugUnitTest` test executor workers run with the `:core` project
+directory as their working directory, so that form's dumps legitimately land at
+**`src/core/hs_err_pid*.log`** — this is what fix-cycle 7's own code review captured (see **First
+demonstrated** below). Neither path is wrong; they are two different crash sites. A cleanup command
+scoped to only one of the two paths silently misses dumps from the other form — clean up both (see
+the **Steps** section below).
 
 **Steps**
 
@@ -692,9 +697,11 @@ in the **Steps** section below, not `src/core/hs_err_pid*.log`.
    ./gradlew.bat --stop
    ```
 2. Delete the stray crash-dump files so they don't get mistaken for source changes or bloat the
-   next `git status`. They land at the Gradle root (`src/`), not `src/core/`:
+   next `git status`. Check **both** dump locations (Form 2 lands at the Gradle root, Form 1 lands
+   under `src/core/` — see the dump-path correction above); `hs_err_pid*.log` is already covered by
+   `.gitignore`, so the `git status` concern applies mainly to `replay_pid*.log`:
    ```bash
-   rm -f src/hs_err_pid*.log src/replay_pid*.log
+   rm -f src/hs_err_pid*.log src/replay_pid*.log src/core/hs_err_pid*.log src/core/replay_pid*.log
    ```
 3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
    ```bash

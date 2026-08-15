@@ -310,6 +310,34 @@ class VpnManagerTest {
         assertFalse(VpnManager.hasRecentActionStartDispatch())
     }
 
+    // Regression test for R9-3 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-9.md): lastActionStartDispatchElapsedRealtimeMs's own declaration comment says
+    // "Once onStartCommand() runs, userInitiatedStart is the authoritative, longer-lived signal --
+    // this flag only needs to bridge the brief pre-delivery gap", but before this fix nothing
+    // outside tests ever cleared it, so it stayed "recent" for the full
+    // RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) even after the start fully landed -- every
+    // hasRecentActionStartDispatch() guard (cycle-7's original site plus fix-cycle 8's two
+    // additions) then DROPPED an intervening stop decision instead of merely deferring it. See
+    // OpenVpnServiceNotificationTest.startAction_clearsRecentActionStartDispatchMarker for the
+    // integration-level test that onStartCommand()'s ACTION_START handler actually calls this.
+    @Test
+    fun clearRecentActionStartDispatch_clearsMarker() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+        assertTrue(
+            "Precondition: startVpn() must record the dispatch marker",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+
+        VpnManager.clearRecentActionStartDispatch()
+
+        assertFalse(
+            "clearRecentActionStartDispatch() must clear the marker so a later hasRecentAction" +
+                "StartDispatch() check does not keep treating a fully-landed start as still in flight",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+    }
+
     private class ThrowingServiceContext(base: Context) : ContextWrapper(base) {
         override fun getApplicationContext(): Context = this
 

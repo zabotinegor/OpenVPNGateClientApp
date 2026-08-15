@@ -1026,6 +1026,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
+                // R9-3 (fix-cycle 9): hand the dispatch-marker's authority over to
+                // userInitiatedStart now that ACTION_START has actually landed and been processed
+                // -- see VpnManager.clearRecentActionStartDispatch()'s declaration comment. Without
+                // this, hasRecentActionStartDispatch() stayed "recent" for the full bridge window
+                // even after this start fully landed, causing every guarded stopSelf() site to drop
+                // (not defer) an intervening stop decision.
+                VpnManager.clearRecentActionStartDispatch()
                 if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTING) {
                     ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
                 }

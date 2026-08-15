@@ -79,6 +79,25 @@ object VpnManager {
         lastActionStartDispatchElapsedRealtimeMs = 0L
     }
 
+    /**
+     * R9-3 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md):
+     * hand authority back from this bridge marker to [OpenVpnService]'s own `userInitiatedStart`
+     * flag once `ACTION_START` has actually been delivered and processed -- exactly as
+     * [lastActionStartDispatchElapsedRealtimeMs]'s declaration comment already says should happen
+     * ("Once onStartCommand() runs, userInitiatedStart is the authoritative, longer-lived signal").
+     * Before this fix nothing ever called this outside of tests, so the marker stayed "recent" for
+     * the full [RECENT_ACTION_START_DISPATCH_WINDOW_MS] even after the start had fully landed --
+     * every `hasRecentActionStartDispatch()` guard (cycle 7's original site plus fix-cycle 8's two
+     * additions) then DROPPED an intervening stop decision outright instead of merely deferring it,
+     * for up to that whole window. Call this from `onStartCommand()`'s `ACTION_START` branch right
+     * after `userInitiatedStart = true` is set, so the two signals hand off at the same point the
+     * comment already documents.
+     */
+    @JvmStatic
+    internal fun clearRecentActionStartDispatch() {
+        lastActionStartDispatchElapsedRealtimeMs = 0L
+    }
+
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
         AppLog.d(TAG, "startVpn")
         val decodedConfig = try {

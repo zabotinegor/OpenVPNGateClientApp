@@ -462,6 +462,99 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // Regression tests for R9-1 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-9.md): QG4-2's fix above made retryStartRunnable trackable so cancel() could
+    // remove it for a genuine cancelForUserStop() -- but onEngineLevel()'s own generic
+    // `else -> cancel(...)` branch is ALSO reached by any stray/re-delivered engine level landing
+    // inside the same START_AFTER_STOP_DELAY_MS (350ms) retry-commit window, since
+    // waitingStopForRetry is already cleared by the time the window opens and no longer shields it
+    // (see the cycle-6 stale-level guard just above in onEngineLevel(), and retryCommitInFlight's
+    // declaration comment in ServerAutoSwitcher.kt). Before the R9-1 fix, either stray level below
+    // silently discarded the pending retry -- no VPN process, no pending reconnect, UI stuck on
+    // "Connecting" forever, the exact symptom fixed once already in e8fa60e (bug 86cb21563).
+    // Falsifiability: these must fail (retry does not fire, calls.size stays 0) if
+    // retryCommitInFlight is removed or its onEngineLevel() check is removed, while the two
+    // cancelForUserStop_withinRetryDelayWindow_* tests above must keep passing (a genuine user
+    // Disconnect must still cancel the retry).
+
+    @Test
+    fun strayDuplicateNotConnectedInRetryCommitWindow_doesNotCancelPendingRetry() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // Real NOTCONNECTED confirmation arms the retry-commit dispatch for
+        // START_AFTER_STOP_DELAY_MS (350ms) from here; waitingStopForRetry is cleared immediately.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+
+        // A stray duplicate NOTCONNECTED lands inside the 350ms window -- e.g. the engine emitting
+        // LEVEL_NOTCONNECTED twice back-to-back for EXITING then NOPROCESS during the same
+        // teardown. This is not a user Disconnect; the pending retry must survive it.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "a stray duplicate NOTCONNECTED landing inside the retry-commit window must not " +
+                "cancel the pending retry -- doing so leaves the app stuck on Connecting with no " +
+                "VPN process and no pending reconnect",
+            1,
+            calls.size
+        )
+        assertEquals(true, calls.first().reconnect)
+    }
+
+    @Test
+    fun strayConnectedInRetryCommitWindow_doesNotCancelPendingRetry() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+
+        // A stray/stale LEVEL_CONNECTED lands inside the 350ms window -- e.g. a re-delivered cached
+        // terminal snapshot from the poll loop. This is not a user Disconnect; the pending retry
+        // must survive it.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, source)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "a stray LEVEL_CONNECTED landing inside the retry-commit window must not cancel the " +
+                "pending retry -- doing so leaves the app stuck on Connecting with no VPN process " +
+                "and no pending reconnect",
+            1,
+            calls.size
+        )
+        assertEquals(true, calls.first().reconnect)
+    }
+
+    // Sibling coverage: the same stray-level protection must also apply to the retry armed by the
+    // STOP_RETRY_TIMEOUT_MS fallback path (no NOTCONNECTED ever observed), not just the
+    // NOTCONNECTED-observed path above.
+    @Test
+    fun strayConnectedInRetryCommitWindow_afterTimeoutPath_doesNotCancelPendingRetry() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // No NOTCONNECTED ever arrives; the STOP_RETRY_TIMEOUT_MS (5s) fallback commits the retry
+        // and arms the same 350ms retry-commit dispatch.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, source)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "a stray LEVEL_CONNECTED landing inside the timeout-path retry-commit window must not " +
+                "cancel the pending retry",
+            1,
+            calls.size
+        )
+        assertEquals(true, calls.first().reconnect)
+    }
+
     @Test
     fun stopRetryTimeoutStartsNextServerWithoutNotConnected() {
         ShadowLog.clear()

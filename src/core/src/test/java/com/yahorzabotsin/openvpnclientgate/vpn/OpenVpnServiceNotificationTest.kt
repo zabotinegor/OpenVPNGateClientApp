@@ -952,6 +952,27 @@ class OpenVpnServiceNotificationTest {
         }
         val result = service.onStartCommand(startIntent, 0, 1)
 
+        // R9-6 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md):
+        // assert the induced fault actually happened BEFORE asserting the reaction to it. Without
+        // this, a future Robolectric/AndroidX version bump that stops NotificationCompat.Builder
+        // from throwing NoSuchMethodError on the default SDK would make enterControllerForeground()
+        // succeed instead -- no stopSelf() would be called either way, so assertFalse(isStoppedBySelf)
+        // below would keep passing for entirely the wrong reason, and the START_NOT_STICKY assertion
+        // is vacuous on its own (onStartCommand() returns START_NOT_STICKY on every path). Checking
+        // controllerForegroundActive == false via the same reflection idiom the sibling tests above
+        // already use (see simulateEnteredControllerForeground()/controllerForegroundActive_isVolatile)
+        // pins the test to the catch block having actually run: enterControllerForeground() only sets
+        // this false inside that catch, and true on the success path.
+        val activeField = OpenVpnService::class.java.getDeclaredField("controllerForegroundActive")
+        activeField.isAccessible = true
+        assertFalse(
+            "Precondition: enterControllerForeground() must have actually thrown and hit its catch " +
+                "block (controllerForegroundActive left false) for this test to be exercising the " +
+                "QG4-1 fault path at all -- if this fails, the induced NoSuchMethodError fault no " +
+                "longer occurs on the default Robolectric SDK and this test needs a real fault " +
+                "injection instead of relying on an incidental throw",
+            activeField.getBoolean(service)
+        )
         assertEquals(
             "ACTION_START must report START_NOT_STICKY when enterControllerForeground() fails, " +
                 "exactly like onCreate()'s pre-existing stopOnFailure=false treatment of the same " +
@@ -1054,6 +1075,54 @@ class OpenVpnServiceNotificationTest {
             "QG4-3: ACTION_STOP_IF_IDLE's stopSelf() must be aborted while a recent ACTION_START " +
                 "dispatch is still in flight, exactly like the cycle-7 and QG4-2 sites",
             shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression test for R9-3 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-9.md): onStartCommand()'s ACTION_START handler must clear
+    // VpnManager's dispatch-marker once the start has actually landed and userInitiatedStart is
+    // set -- see VpnManager.clearRecentActionStartDispatch()'s declaration comment and
+    // VpnManagerTest.clearRecentActionStartDispatch_clearsMarker for the unit-level test of the
+    // cleared function itself. Before this fix, the marker stayed "recent" for the full 2s bridge
+    // window even after ACTION_START fully landed, so an ordinary Connect-then-Disconnect gesture
+    // within that window suppressed finishStopFlowConfirmed()'s stopSelf() (QG4-2(b)) and left the
+    // controller service lingering as a background service after an explicit Disconnect.
+    //
+    // sdk = [27]: this test needs onStartCommand()'s ACTION_START branch to run PAST
+    // enterControllerForeground() (userInitiatedStart = true and the marker-clear both sit after
+    // that call and are skipped via the early `return START_NOT_STICKY` if it fails). On the
+    // project's default Robolectric SDK, enterControllerForeground() throws NoSuchMethodError (see
+    // startAction_enterForegroundThrows_doesNotStopSelf above), which would make this test fail for
+    // the wrong reason. Pinning sdk=27 lets the real notification path succeed, matching
+    // startActionCallsStartForegroundAgainEvenWhenControllerForegroundAlreadyActive's use of the
+    // same pin for the same reason.
+    @Config(sdk = [27])
+    @Test
+    fun startAction_clearsRecentActionStartDispatchMarker() {
+        val app = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+        assertTrue(
+            "Precondition: startVpn() must record the dispatch marker before ACTION_START is " +
+                "delivered to onStartCommand()",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val startIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(service), "client\n")
+            putExtra(VpnManager.extraTitleKey(service), "RU")
+        }
+        service.onStartCommand(startIntent, 0, 1)
+
+        assertFalse(
+            "R9-3: once ACTION_START has been delivered and processed (userInitiatedStart set), " +
+                "the bridge marker must be cleared so it hands authority back to userInitiatedStart " +
+                "instead of staying 'recent' for the rest of its 2s window",
+            VpnManager.hasRecentActionStartDispatch()
         )
     }
 }
