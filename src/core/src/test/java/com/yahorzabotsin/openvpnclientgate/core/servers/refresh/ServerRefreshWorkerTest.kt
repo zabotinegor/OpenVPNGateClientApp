@@ -92,7 +92,9 @@ class ServerRefreshWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals((ServerRefreshWorker.DEFAULT_ADDITIONAL_RETRY_COUNT + 1) * 2, api.callCount)
+        // VPNGATE resolves to a single URL (ApiConstants.FALLBACK_SERVERS_URL), so each attempt
+        // makes exactly one request (no secondary-URL retry within an attempt).
+        assertEquals(ServerRefreshWorker.DEFAULT_ADDITIONAL_RETRY_COUNT + 1, api.callCount)
     }
 
     @Test
@@ -117,7 +119,8 @@ class ServerRefreshWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals(2, api.callCount)
+        // additionalRetryCount=0 -> 1 attempt; VPNGATE resolves to a single URL per attempt.
+        assertEquals(1, api.callCount)
     }
 
     @Test
@@ -201,7 +204,7 @@ class ServerRefreshWorkerTest {
         context.getSharedPreferences("server_cache", Context.MODE_PRIVATE).edit().clear().apply()
         context.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().apply()
         context.cacheDir.listFiles()?.filter { it.name.startsWith("servers_") }?.forEach { it.delete() }
-        UserSettingsStore.saveServerSource(context, ServerSource.LEGACY)
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
         UserSettingsStore.saveCacheTtlMs(context, UserSettingsStore.DEFAULT_CACHE_TTL_MS)
     }
 

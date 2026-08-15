@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Section: Speedometer -->
+    <!-- Alpha of the two halo passes drawn under the gauge's progress fill, outer (widest,
+         faintest) first. Kept low in the light theme: against a near-white dial face a strong
+         halo bleeds into the background and blurs the filled/unfilled boundary instead of
+         adding depth, which is what it does against the dark face. -->
+    <integer name="speedometer_glow_alpha_outer">12</integer>
+    <integer name="speedometer_glow_alpha_inner">28</integer>
+</resources>

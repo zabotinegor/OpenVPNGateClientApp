@@ -1,7 +1,9 @@
 package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Context
+import android.os.Handler
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import org.junit.After
@@ -36,6 +38,10 @@ class OpenVpnServiceWatchdogTest {
     @Before
     fun setUp() {
         ShadowLog.clear()
+        // autoSwitchDisabled_failsSafeInsteadOfConsumingBudget writes this pref, and the default
+        // watchdogRecoveryStarter reads it. Reset so no test depends on execution order.
+        appContext.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+            .edit().clear().commit()
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, null)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
@@ -56,7 +62,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -79,7 +85,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 1)
@@ -181,7 +187,8 @@ class OpenVpnServiceWatchdogTest {
             ({ _: Context, config: String, _: String? ->
                 recoveryDispatches += 1
                 recoveryConfig = config
-            } as (Context, String, String?) -> Unit)
+                true
+            } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -208,7 +215,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1 } as (Context, String, String?) -> Unit)
+            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -467,6 +474,262 @@ class OpenVpnServiceWatchdogTest {
         assertTrue(calledHosts.contains(secondHost))
         assertEquals(0, ReflectionHelpers.getField<Int>(watchdogState, "consecutiveFailures"))
         assertFalse(ReflectionHelpers.getField<Boolean>(watchdogState, "degraded"))
+    }
+
+    // --- Recovery budget across watchdog-driven reconnects -------------------------------------
+    //
+    // A recovery attempt reconnects, and trafficPollRunnable zeroes watchdogState on every
+    // connection-state transition. Without the carry-over, the watchdog reset its own budget every
+    // time it spent some of it: recoveryAttempts never exceeded 1, the attempt limit was
+    // unreachable, and a server that connects cleanly but carries no traffic was retried forever.
+
+    @Test
+    fun watchdogDrivenReconnect_preservesRecoveryAttempts() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        var dispatches = 0
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertEquals(1, recoveryAttempts(service))
+        assertEquals(1, dispatches)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+
+        simulateReconnect(service)
+
+        assertEquals(
+            "the attempt count must survive the reconnect the watchdog itself caused",
+            1,
+            recoveryAttempts(service)
+        )
+        assertEquals(
+            "timing fields are deliberately not carried: the new tunnel gets a fresh warmup",
+            0L,
+            ReflectionHelpers.getField<Long>(
+                ReflectionHelpers.getField<Any>(service, "watchdogState"),
+                "lastRecoveryTimestamp"
+            )
+        )
+    }
+
+    @Test
+    fun repeatedUnhealthyReconnects_reachAttemptLimitAndFailSafe() {
+        var now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        var dispatches = 0
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
+        )
+        ReflectionHelpers.setField(
+            service,
+            "engineBinder",
+            object : IOpenVPNServiceInternal.Stub() {
+                override fun protect(fd: Int) = false
+                override fun userPause(b: Boolean) {}
+                override fun stopVPN(replaceConnection: Boolean) = true
+                override fun addAllowedExternalApp(packagename: String?) {}
+                override fun isAllowedExternalApp(packagename: String?) = false
+                override fun challengeResponse(repsonse: String?) {}
+            }
+        )
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        // Three unhealthy episodes, each followed by the reconnect that recovery triggers.
+        for (expectedAttempt in 1..3) {
+            setConsecutiveFailures(service, 2)
+            invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+            assertEquals(expectedAttempt, recoveryAttempts(service))
+            assertEquals(expectedAttempt, dispatches)
+            simulateReconnect(service)
+            now += 20_000L
+        }
+
+        // The fourth unhealthy episode must give up rather than dispatch a fourth recovery.
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        assertEquals("no fourth recovery may be dispatched", 3, dispatches)
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(logs.any { it.contains("Watchdog: fail-safe disconnect reason=attempt_limit_reached") })
+    }
+
+    @Test
+    fun transitionOutsideRecovery_stillResetsAttempts() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        ReflectionHelpers.setField(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "recoveryAttempts",
+            2
+        )
+
+        // watchdogRecoveryInFlight is false: this is a user- or network-driven transition.
+        simulateReconnect(service)
+
+        assertEquals(
+            "the counter must not become sticky in general -- only across the watchdog's own reconnects",
+            0,
+            recoveryAttempts(service)
+        )
+    }
+
+    @Test
+    fun healthyTraffic_endsCarryOverSoNextTransitionResets() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+
+        // Traffic flows again: the recovery chain succeeded.
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 4096L)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+        assertEquals(0, recoveryAttempts(service))
+    }
+
+    @Test
+    fun autoSwitchDisabled_failsSafeInsteadOfConsumingBudget() {
+        val now = 70_000L
+        // Deliberately uses the real default watchdogRecoveryStarter so that
+        // ServerAutoSwitcher.beginChainedSwitch's own false return is actually exercised. A stubbed
+        // starter would prove nothing about the wiring this test exists to cover.
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, false)
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "engineBinder",
+            object : IOpenVPNServiceInternal.Stub() {
+                override fun protect(fd: Int) = false
+                override fun userPause(b: Boolean) {}
+                override fun stopVPN(replaceConnection: Boolean) = true
+                override fun addAllowedExternalApp(packagename: String?) {}
+                override fun isAllowedExternalApp(packagename: String?) = false
+                override fun challengeResponse(repsonse: String?) {}
+            }
+        )
+        ReflectionHelpers.setField(service, "boundToEngine", true)
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+
+        val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+        assertTrue(
+            "a switch that cannot happen must not be reported as a recovery attempt",
+            logs.any { it.contains("Watchdog: fail-safe disconnect reason=recovery_unavailable") }
+        )
+        assertEquals(ConnectionState.DISCONNECTING, ConnectionStateManager.state.value)
+        assertEquals(
+            "the fail-safe path must not leave budget spent on a no-op dispatch",
+            0,
+            recoveryAttempts(service)
+        )
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight"))
+    }
+
+    @Test
+    fun probeOnlySuccess_clearsFailureStreakButKeepsRecoveryBudget() {
+        val now = 70_000L
+        val service = buildConnectedService(nowMs = now)
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", "client\n", null)
+        ReflectionHelpers.setField(service, "watchdogProbe", ({ _: String, _: Int, _: Int -> false } as (String, Int, Int) -> Boolean))
+        ReflectionHelpers.setField(
+            service,
+            "watchdogRecoveryStarter",
+            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
+        )
+
+        setConsecutiveFailures(service, 2)
+        invokeEvaluateConnectedHealth(service, sampleAdvanced = true, trafficDeltaBytes = 0L)
+        assertEquals(1, recoveryAttempts(service))
+
+        // The peer answers a TCP probe, but the tunnel still carries nothing.
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "handleConnectedProbeResult",
+            ClassParameter.from(Boolean::class.javaPrimitiveType!!, true),
+            ClassParameter.from(Long::class.javaPrimitiveType!!, 0L)
+        )
+
+        assertEquals(
+            "reachability is not traffic: a probe-only success must not refill the recovery budget",
+            1,
+            recoveryAttempts(service)
+        )
+        assertTrue(
+            "the recovery chain is still open until real traffic is seen",
+            ReflectionHelpers.getField<Boolean>(service, "watchdogRecoveryInFlight")
+        )
+        assertEquals(
+            "the failure streak should still be cleared -- the peer did answer",
+            0,
+            ReflectionHelpers.getField<Int>(
+                ReflectionHelpers.getField<Any>(service, "watchdogState"),
+                "consecutiveFailures"
+            )
+        )
+    }
+
+    /** watchdogState is replaced wholesale on every transition, so always re-read it. */
+    private fun recoveryAttempts(service: OpenVpnService): Int =
+        ReflectionHelpers.getField<Int>(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "recoveryAttempts"
+        )
+
+    private fun setConsecutiveFailures(service: OpenVpnService, value: Int) {
+        ReflectionHelpers.setField(
+            ReflectionHelpers.getField<Any>(service, "watchdogState"),
+            "consecutiveFailures",
+            value
+        )
+    }
+
+    /** CONNECTED -> CONNECTING -> CONNECTED, with the poller observing each transition. */
+    private fun simulateReconnect(service: OpenVpnService) {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        pollOnce(service)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        pollOnce(service)
+    }
+
+    /**
+     * trafficPollRunnable re-posts itself, so drop the pending callback rather than letting the
+     * looper spin forever.
+     */
+    private fun pollOnce(service: OpenVpnService) {
+        val runnable = ReflectionHelpers.getField<Runnable>(service, "trafficPollRunnable")
+        runnable.run()
+        ReflectionHelpers.getField<Handler>(service, "trafficHandler").removeCallbacks(runnable)
     }
 
     private fun buildConnectedService(nowMs: Long): OpenVpnService {

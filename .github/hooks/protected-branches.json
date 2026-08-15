@@ -5,8 +5,8 @@
       {
         "type": "command",
         "matcher": "bash|powershell",
-        "bash": "python3 .github/scripts/protect-agent-git-command.py",
-        "powershell": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/protect-agent-git-command.ps1",
+        "bash": "sh .github/scripts/protect-agent-git-command.sh",
+        "powershell": "cmd /c .github/scripts/protect-agent-git-command.cmd",
         "cwd": ".",
         "timeoutSec": 10
       }

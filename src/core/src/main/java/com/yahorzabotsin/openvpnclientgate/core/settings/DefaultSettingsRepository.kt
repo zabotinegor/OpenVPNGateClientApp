@@ -23,10 +23,6 @@ class DefaultSettingsRepository(
         store.saveServerSource(appContext, source)
     }
 
-    override fun saveCustomServerUrl(url: String) {
-        store.saveCustomServerUrl(appContext, url)
-    }
-
     override fun saveCacheTtlMs(ttlMs: Long) {
         store.saveCacheTtlMs(appContext, ttlMs)
     }
