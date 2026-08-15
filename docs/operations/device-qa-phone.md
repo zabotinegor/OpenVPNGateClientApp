@@ -125,8 +125,8 @@ device's actual pre-test values first, then restore those captured values afterw
 hard-code `1`/`0`, since a tester's device may already have auto-rotate off or a non-zero
 `user_rotation`, and hard-coded restores would leave it in a different state than before the test:
 ```
-adb shell settings get system accelerometer_rotation   # note the returned value, e.g. ORIG_ACCEL
-adb shell settings get system user_rotation             # note the returned value, e.g. ORIG_ROT
+ORIG_ACCEL=$(adb shell settings get system accelerometer_rotation)
+ORIG_ROT=$(adb shell settings get system user_rotation)
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 1
 adb shell dumpsys window displays | grep -o "mRotation=[A-Z0-9_]*"
