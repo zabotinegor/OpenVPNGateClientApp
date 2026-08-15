@@ -120,17 +120,22 @@ auto-conversion rewrites the device-side path as if it were a local one. Fix: se
 `MSYS_NO_PATHCONV=1 adb ...`).
 
 ### Forcing landscape to prove a portrait lock (phone, API 26+)
-To verify an activity is portrait-locked without physically rotating the device:
+To verify an activity is portrait-locked without physically rotating the device, capture the
+device's actual pre-test values first, then restore those captured values afterward — do not
+hard-code `1`/`0`, since a tester's device may already have auto-rotate off or a non-zero
+`user_rotation`, and hard-coded restores would leave it in a different state than before the test:
 ```
+adb shell settings get system accelerometer_rotation   # note the returned value, e.g. ORIG_ACCEL
+adb shell settings get system user_rotation             # note the returned value, e.g. ORIG_ROT
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 1
 adb shell dumpsys window displays | grep -o "mRotation=[A-Z0-9_]*"
-adb shell settings put system user_rotation 0
-adb shell settings put system accelerometer_rotation 1
+adb shell settings put system user_rotation $ORIG_ROT
+adb shell settings put system accelerometer_rotation $ORIG_ACCEL
 ```
 If the activity's `requestedOrientation` is portrait, `mRotation` stays `ROTATION_0`/`0` despite the
-forced `user_rotation=1`. Always restore both settings after each screen (auto-rotate back to `1`,
-`user_rotation` back to `0`) to leave the device in its original state.
+forced `user_rotation=1`. Always restore both settings to the values captured before the test (not
+hard-coded `1`/`0`) after each screen, to leave the device in its actual original state.
 
 ### Simulating a tablet (`smallestScreenWidthDp`) on a real phone
 `adb shell wm density <n>` changes the effective `smallestScreenWidthDp` without a different device:
