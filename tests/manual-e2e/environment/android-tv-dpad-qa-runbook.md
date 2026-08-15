@@ -69,6 +69,25 @@ input handling).
 - Focus tracking: the focused row is the `CardView` with `focused="true"`; correlate with child
   `country_name`/`server_title` bounds.
 
+## Verifying landscape lock on TV (no `mRotation=` field on Android 9)
+
+Unlike phone/API 26+ devices, MIBOX4's Android 9 `adb shell dumpsys window displays` output has no
+`mRotation=` field at all (its `Display:` block only shows `init=1920x1080 ... cur=1920x1080`, a
+fixed physical landscape resolution — TV hardware doesn't rotate). Forcing `user_rotation`/
+`accelerometer_rotation` the way you would on a phone is meaningless here. To verify a secondary
+activity is landscape-locked (and not accidentally requesting portrait, which would letterbox/rotate
+its content sideways within the fixed landscape frame), take a screenshot
+(`adb shell screencap -p /sdcard/x.png && adb pull /sdcard/x.png`, remember `MSYS_NO_PATHCONV=1` in
+Git Bash) and visually confirm normal upright landscape rendering — this is the same method already
+used for the pre-existing MainActivity/ServerListActivity TV evidence.
+
+## Navigation drawer open/closed state persists across activity back-navigation
+
+Same behavior as the mobile runbook: opening the drawer, launching a secondary activity from it, then
+pressing D-pad Back returns to `MainActivity` with the drawer already open and focus on the just-used
+nav item (content-desc reads "Закрыть панель навигации" = "close"). Dump the UI to check before
+sending more D-pad presses aimed at "opening" it again.
+
 ## Favorites prefs inspection (debug builds)
 
 Same as mobile: `run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml`
