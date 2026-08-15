@@ -1,7 +1,9 @@
 package com.yahorzabotsin.openvpnclientgate.core
 
 import android.app.ActivityManager
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import com.yahorzabotsin.openvpnclientgate.core.di.coreModule
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppDebugTree
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppFileLogStore
@@ -11,6 +13,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshScheduler
 import com.yahorzabotsin.openvpnclientgate.core.servers.sse.SseServerEventsClient
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.OrientationPolicy
+import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.TvUtils
 import de.blinkt.openvpn.core.GlobalPreferences
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
@@ -35,10 +39,38 @@ class CoreApp : Application() {
         installGlobalExceptionHandler()
         GlobalPreferences.setInstance(false, false, false)
         UserSettingsStore.applyThemeAndLocale(this)
+        registerOrientationPolicy()
         if (isMainProcess()) {
             schedulePeriodicServerRefresh()
             registerSseLifecycleObserver()
             AppLog.d(TAG, "Skipping OpenVpnService auto-start in Application")
+        }
+    }
+
+    private fun registerOrientationPolicy() {
+        runCatching {
+            registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                    runCatching {
+                        val isTvDevice = TvUtils.isTvDevice(activity)
+                        val isTablet = OrientationPolicy.isTablet(activity)
+                        activity.requestedOrientation =
+                            OrientationPolicy.resolveRequestedOrientation(isTvDevice, isTablet)
+                    }.onFailure {
+                        AppLog.w(TAG, "Failed to apply orientation policy for ${activity.javaClass.simpleName}", it)
+                    }
+                }
+
+                override fun onActivityStarted(activity: Activity) = Unit
+                override fun onActivityResumed(activity: Activity) = Unit
+                override fun onActivityPaused(activity: Activity) = Unit
+                override fun onActivityStopped(activity: Activity) = Unit
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+                override fun onActivityDestroyed(activity: Activity) = Unit
+            })
+            AppLog.i(TAG, "Orientation policy lifecycle observer registered")
+        }.onFailure {
+            AppLog.w(TAG, "Failed to register orientation policy lifecycle observer", it)
         }
     }
 
