@@ -141,8 +141,27 @@ hard-coded `1`/`0`) after each screen, to leave the device in its actual origina
 `adb shell wm density <n>` changes the effective `smallestScreenWidthDp` without a different device:
 for a 1080px-wide physical display, `wm density 240` yields `sw720dp` (`1080 * 160 / 240 = 720`),
 confirmable via `adb shell dumpsys activity activities | grep -o "sw[0-9]*dp"`. Relaunch the app after
-changing density so activities re-evaluate the new configuration. Always
-`adb shell wm density reset && adb shell wm size reset` afterward.
+changing density so activities re-evaluate the new configuration.
+
+Capture any pre-existing density override before simulating, then restore exactly that state
+afterward — a reusable QA device may already have a tester's own override active, and `adb shell wm
+density` only prints an `Override density: <n>` line when an override is actually set (confirmed live:
+with no override it prints just `Physical density: 420`; after `adb shell wm density 240` it prints
+both `Physical density: 420` and `Override density: 240`). Hard-coding `wm density reset` would discard
+that pre-existing override instead of restoring it:
+```
+ORIG_DENSITY_LINE=$(adb shell wm density | grep "Override density:")
+adb shell wm density 240
+# ... run the test ...
+if [ -n "$ORIG_DENSITY_LINE" ]; then
+  ORIG_DENSITY=$(echo "$ORIG_DENSITY_LINE" | grep -o "[0-9]*")
+  adb shell wm density $ORIG_DENSITY
+else
+  adb shell wm density reset
+fi
+```
+This procedure never sets a `wm size` override — nothing above calls `wm size <WxH>` — so there is
+nothing to restore there. Do not run `wm size reset` after this test; leave `wm size` untouched.
 
 ### Navigation drawer open/closed state persists across activity back-navigation
 On both phone and TV, if the nav drawer is opened from `MainActivity`, then a secondary activity is
