@@ -41,6 +41,20 @@ object ServerAutoSwitcher {
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
+    // QG4-2 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): the
+    // retry-commit dispatch used to be posted as an anonymous `handler.postDelayed({ ... }, ...)`
+    // lambda, which cancel() could not reference and therefore could never remove. A user
+    // Disconnect landing inside the START_AFTER_STOP_DELAY_MS window (cancelForUserStop() ->
+    // cancel(resetCycle = true)) cleared waitingStopForRetry/pendingConfig but left that lambda
+    // armed, so it still fired ~350ms later and (a) auto-reconnected the app despite the explicit
+    // Disconnect, and (b) armed a fresh FGS-start obligation while the user-stop teardown was still
+    // running toward OpenVpnService.finishStopFlowConfirmed()'s stopSelf(). Tracking the posted
+    // Runnable in a field -- exactly like stopRetryTimeoutRunnable/runnable above -- lets cancel()
+    // remove it deterministically, closing both the functional and crash-adjacent routes at once.
+    // Both retry-commit call sites (NOTCONNECTED-observed and stop-retry-timeout) share this single
+    // field: only one of the two can ever be in flight at a time (waitingStopForRetry is false
+    // whenever neither has fired yet, and each site clears it before posting this Runnable).
+    private var retryStartRunnable: Runnable? = null
     private var idleToleranceRunnable: Runnable? = null
     private var idleToleranceLevel: ConnectionStatus? = null
     private var lastEngineLevel: ConnectionStatus? = null
@@ -106,7 +120,13 @@ object ServerAutoSwitcher {
                     } catch (e: Exception) {
                         AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (NOTCONNECTED path)", e)
                     }
-                    handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+                    retryStartRunnable?.let { handler.removeCallbacks(it) }
+                    val r = Runnable {
+                        retryStartRunnable = null
+                        starter(appContext, cfg, title, true)
+                    }
+                    retryStartRunnable = r
+                    handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
                     return
                 }
                 // cfg == null is an unexpected/defensive edge case (beginChainedSwitch and
@@ -307,6 +327,12 @@ object ServerAutoSwitcher {
         pendingTitle = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
+        // QG4-2: cancel the tracked retry-commit dispatch too -- see retryStartRunnable's
+        // declaration comment. Without this, a cancel() landing inside the
+        // START_AFTER_STOP_DELAY_MS window (e.g. a user Disconnect via cancelForUserStop()) left
+        // this Runnable armed even though every other piece of retry state was just cleared above.
+        retryStartRunnable?.let { handler.removeCallbacks(it) }
+        retryStartRunnable = null
         cancelIdleTolerance()
         _remainingSeconds.value = null
         v2HydrationPending = false
@@ -531,7 +557,13 @@ object ServerAutoSwitcher {
                 } catch (e: Exception) {
                     AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (timeout path)", e)
                 }
-                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+                retryStartRunnable?.let { handler.removeCallbacks(it) }
+                val startR = Runnable {
+                    retryStartRunnable = null
+                    starter(appContext, cfg, title, true)
+                }
+                retryStartRunnable = startR
+                handler.postDelayed(startR, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
             }

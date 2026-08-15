@@ -632,7 +632,11 @@ in `OpenVpnService.applyStatusSnapshot()` as the root cause.
 
 **When to use**
 
-A `:core:testDebugUnitTest` (or the aggregate `testDebugUnitTestApp`) run fails with:
+This OOM class has now been observed in **two** distinct forms on this machine — check for both
+before assuming a build failure is a genuine source break.
+
+Form 1 — test executor crash: a `:core:testDebugUnitTest` (or the aggregate `testDebugUnitTestApp`)
+run fails with:
 
 ```
 Execution failed for task ':core:testDebugUnitTest'.
@@ -641,20 +645,45 @@ Execution failed for task ':core:testDebugUnitTest'.
 
 and the results table shows `0` total (or a partial count far below the known full suite size,
 e.g. 131 instead of 800+) — i.e. the failure happened mid-run, not from an actual assertion
-failure. This is a JVM-level crash of the test worker process, not a test regression, and no
-`FAILED` test names appear anywhere in the log.
+failure. No `FAILED` test names appear anywhere in the log.
+
+Form 2 — Kotlin compile worker crash (QG4-4, gate-4 of `86cb35fbt`, fix-cycle 8): a `compile*Kotlin`
+task (observed on `:mobile:compileDebugKotlin` and `:tv:compileDebugKotlin`) fails with:
+
+```
+Execution failed for task ':mobile:compileDebugKotlin'.
+> Compilation error. See log for more details
+```
+
+with **zero `e:` error lines** anywhere in the log. This reads exactly like a genuine source break
+and is far easier to misdiagnose than Form 1 for that reason. The tell: `BUILD FAILED` on a
+`compile*Kotlin` task, no `e:` lines, and a fresh `hs_err_pid*.log` (see path below) whose header
+says `Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp:79)`. Before
+concluding a `compile*Kotlin` failure with no `e:` lines is a real code error, check for a fresh
+crash dump first.
+
+Both forms are a JVM-level crash of a Gradle worker process, not a code regression.
 
 **Root cause on this machine**
 
 The dev box this was diagnosed on is memory-constrained (4 cores, ~12 GB RAM, frequently well
-under 500 MB free per `wmic OS get FreePhysicalMemory`) — this project's Robolectric-heavy
-`:core` suite (800+ tests spread across many `@RunWith(RobolectricTestRunner)` classes, each
-spinning up an Android runtime shadow) is memory-hungry, and Gradle's default worker parallelism
-(one JVM per available core) plus any leftover Gradle daemons from a prior run can push the
-system past available native memory. The crash lands as a HotSpot fatal error
-(`src/core/hs_err_pid<N>.log` + a `replay_pid<N>.log`), typically `Native memory allocation
-(malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler thread failing to
-allocate, not a Java heap `OutOfMemoryError` a test could catch.
+under 500 MB free — one gate-4 capture showed 1.16 GB free of 11.91 GB) — this project's
+Robolectric-heavy `:core` suite (800+ tests spread across many `@RunWith(RobolectricTestRunner)`
+classes, each spinning up an Android runtime shadow) is memory-hungry, and Gradle's default worker
+parallelism (one JVM per available core) plus any leftover Gradle daemons from a prior run can
+push the system past available native memory. The same memory pressure can starve a Kotlin compile
+worker instead of a test executor (Form 2), depending on which Gradle workers happen to be
+scheduled concurrently.
+
+The crash lands as a HotSpot fatal error (`hs_err_pid<N>.log` + a `replay_pid<N>.log`), typically
+`Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler
+thread failing to allocate, not a Java heap `OutOfMemoryError` a test could catch.
+
+**Dump path correction (QG4-4):** these dumps land at **`src/hs_err_pid*.log`** (repo-root-relative
+under `src/`, i.e. the Gradle root — NOT `src/core/`). A gate-4 OOM produced 9 dumps, all at
+`src/hs_err_pid*.log`, with none under `src/core/`. A cleanup command scoped to `src/core/` is a
+silent no-op — the dumps accumulate exactly as this runbook otherwise warns against. Use the path
+in the **Steps** section below, not `src/core/hs_err_pid*.log`.
 
 **Steps**
 
@@ -663,30 +692,48 @@ allocate, not a Java heap `OutOfMemoryError` a test could catch.
    ./gradlew.bat --stop
    ```
 2. Delete the stray crash-dump files so they don't get mistaken for source changes or bloat the
-   next `git status`:
+   next `git status`. They land at the Gradle root (`src/`), not `src/core/`:
    ```bash
-   rm -f src/core/hs_err_pid*.log src/core/replay_pid*.log
+   rm -f src/hs_err_pid*.log src/replay_pid*.log
    ```
 3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
    ```bash
-   rm -rf src/core/build/test-results/testDebugUnitTest
+   rm -rf src/core/build/test-results/testDebugUnitTest src/core/build/reports/tests
+   rm -rf src/mobile/build/test-results/testDebugUnitTest src/mobile/build/reports/tests
+   rm -rf src/tv/build/test-results/testDebugUnitTest src/tv/build/reports/tests
    ```
 4. Re-run with reduced worker parallelism. `--max-workers=2` was enough for a scoped
    `--tests "*SomeTest"` run; the full `testDebugUnitTestApp` aggregate (core + mobile + tv, 800+
    tests) needed `--max-workers=1 --no-daemon` on this machine to avoid a repeat crash:
    ```bash
-   ./gradlew.bat testDebugUnitTestApp --max-workers=1 --no-daemon --rerun-tasks
+   ./gradlew.bat testDebugUnitTestApp --max-workers=1 --no-daemon --no-build-cache
    ```
    `--no-daemon` avoids leaving a new daemon behind that competes with the next invocation;
-   `--rerun-tasks` is only needed if you want a genuine fresh run rather than relying on
-   Gradle's up-to-date checks after a partial/crashed prior attempt.
+   `--no-build-cache` (QG4-4) is the important flag here, not `--rerun-tasks` alone — see the
+   **`FROM-CACHE` trap** note below for why.
+
+**`FROM-CACHE` trap (QG4-4, carried forward from review-8's R8 note on stale/cached "successes")**
+
+A run can print `BUILD SUCCESSFUL` while silently serving cached/stale task outputs, with **zero
+tests actually executed** in that invocation — Gradle's build cache can satisfy
+`:core:testDebugUnitTest` (etc.) from a prior run's cached output without re-running anything.
+`--rerun-tasks` alone does not fully prevent this composing with other caches; when validating a
+fix fresh (e.g. after a code change, or after recovering from an OOM), always add
+`--no-build-cache` and verify genuine execution independently of the exit code:
+
+- Grep the log for `testDebugUnitTest.*(FROM-CACHE|UP-TO-DATE)` — it must return **nothing**.
+- Delete the module `test-results`/`reports/tests` directories *before* the run (step 3 above), then
+  confirm the JUnit XML files under
+  `src/{core,mobile,tv}/build/test-results/testDebugUnitTest/` are freshly timestamped *after* the
+  run started, and tally their actual test/failure/error/skipped counts — do not trust the console
+  summary alone.
 
 **Limitation**
 
 This is a machine-resource issue, not a code issue — do not spend time trying to "fix" it in the
-test code itself. If the crash recurs even at `--max-workers=1 --no-daemon`, the system is likely
-under memory pressure from unrelated processes (browser tabs, IDEs, etc.); free memory elsewhere
-before retrying, or run the suite from a less loaded machine/CI.
+test or production code itself. If the crash recurs even at `--max-workers=1 --no-daemon`, the
+system is likely under memory pressure from unrelated processes (browser tabs, IDEs, etc.); free
+memory elsewhere before retrying, or run the suite from a less loaded machine/CI.
 
 **First demonstrated**
 
@@ -699,8 +746,19 @@ twice on the full `testDebugUnitTestApp` aggregate) before landing on the
 `--max-workers=1 --no-daemon` combination that completed cleanly (845/845 core, 2/2 mobile, 17/17
 tv, `BUILD SUCCESSFUL` in ~24 min).
 
+**Form 2 (Kotlin compile worker) first demonstrated:** quality gate 4 of `86cb35fbt` (fix-cycles 6
++ 7, `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5): a
+`testDebugUnitTestApp --rerun-tasks --no-build-cache` run failed at 19m19s with
+`:mobile:compileDebugKotlin` + `:tv:compileDebugKotlin` "Compilation error" and zero `e:` lines;
+9 fresh `src/hs_err_pid*.log` dumps confirmed the OOM class. Recovered via `./gradlew --stop` plus
+the dump/result cleanup above, then re-run clean at `--max-workers=1 --no-daemon --no-build-cache`
+(`BUILD SUCCESSFUL` in 11m41s, 864 tests passed / 0 failed, genuine-execution verified per the
+`FROM-CACHE` trap check above).
+
 **References**
 
 - `docs/guides/how-to.md` ("Run the OpenVPN engine's own unit tests" — a related aggregate-task
   scoping gotcha, different cause)
 - `.sdlc/status.json` → flow `fix/86cb35fbt-vpn-foreground-service-crash` (fix-cycle 7 evidence)
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5 (Form 2 first
+  demonstrated, `FROM-CACHE` trap verification detail)

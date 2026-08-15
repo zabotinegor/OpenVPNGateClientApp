@@ -2,12 +2,14 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.app.Application
 import android.app.NotificationManager
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.Before
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -917,6 +919,140 @@ class OpenVpnServiceNotificationTest {
         assertFalse(
             "The buffered re-check must abort stopSelf() once the VPN is CONNECTED, even without " +
                 "userInitiatedStart/Stop being set",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression test for QG4-1 (fix-cycle 8,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): enterControllerForeground()'s
+    // catch block used to call stopSelf() when startForeground() threw during ACTION_START's own
+    // call (stopOnFailure defaulted to true there) -- converting a recoverable "could not show the
+    // notification" failure into exactly the RemoteServiceException
+    // $ForegroundServiceDidNotStartInTimeException crash class this bug's fix-flow exists to
+    // eliminate. ACTION_START's startForegroundService() dispatch (VpnManager.startVpn()) has
+    // already armed the FGS-start obligation by the time this catch block runs, so stopSelf() there
+    // tore the obligation down before it could ever be discharged.
+    //
+    // Deliberately NOT pinned to @Config(sdk = [27]): on the project's DEFAULT Robolectric SDK,
+    // NotificationCompat.Builder(...).build() inside enterControllerForeground() already throws
+    // NoSuchMethodError (see the sdk=27 tests above, which pin away from this exact throw so their
+    // own assertions about a successfully-posted notification aren't masked by it). That default
+    // throw is precisely the fault this test needs, so no synthetic fault injection is required --
+    // driving a real ACTION_START through onStartCommand() on the default SDK exercises it directly.
+    @Test
+    fun startAction_enterForegroundThrows_doesNotStopSelf() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val startIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(service), "client\n")
+            putExtra(VpnManager.extraTitleKey(service), "RU")
+        }
+        val result = service.onStartCommand(startIntent, 0, 1)
+
+        assertEquals(
+            "ACTION_START must report START_NOT_STICKY when enterControllerForeground() fails, " +
+                "exactly like onCreate()'s pre-existing stopOnFailure=false treatment of the same " +
+                "failure",
+            Service.START_NOT_STICKY,
+            result
+        )
+        assertFalse(
+            "QG4-1: a startForeground() throw during ACTION_START's enterControllerForeground() " +
+                "call must NOT call stopSelf() -- the FGS-start obligation registered by this " +
+                "ACTION_START's own startForegroundService() dispatch is still undischarged at this " +
+                "point, and stopSelf() here reproduces the exact crash this fix removes. " +
+                "START_NOT_STICKY at the ACTION_START call site already handles the failure " +
+                "correctly, matching the sibling onCreate() call which never stops on failure.",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression tests for QG4-2(b) (fix-cycle 8,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): finishStopFlowConfirmed()'s
+    // stopSelf() call must respect the same VpnManager.hasRecentActionStartDispatch() marker as the
+    // cycle-7 one-shot-sync site and QG4-3's ACTION_STOP_IF_IDLE site. ServerAutoSwitcher's
+    // previously-untracked retry lambda (QG4-2(a), see ServerAutoSwitcherTest's
+    // cancelForUserStop_withinRetryDelayWindow_preventsOrphanedReconnect for that half of the fix)
+    // could dispatch a fresh ACTION_START while a user-stop teardown was still resolving toward this
+    // exact stopSelf() call -- arming a fresh FGS obligation this stopSelf() would tear down before
+    // it is discharged.
+    @Test
+    fun finishStopFlowConfirmed_abortsStopSelf_whenRecentActionStartDispatchInFlight() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val userInitiatedStopField = OpenVpnService::class.java.getDeclaredField("userInitiatedStop")
+        userInitiatedStopField.isAccessible = true
+        userInitiatedStopField.setBoolean(service, true)
+
+        // A fresh ACTION_START dispatch attempt lands (e.g. the orphaned retry lambda QG4-2(a)
+        // fixes), arming the recent-dispatch marker, while the user-stop confirmation below is
+        // still in flight.
+        VpnManager.startVpn(RuntimeEnvironment.getApplication(), "client\n", displayName = "RU")
+
+        service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, Intent())
+
+        assertFalse(
+            "QG4-2(b): finishStopFlowConfirmed()'s stopSelf() must be aborted while a recent " +
+                "ACTION_START dispatch is still in flight, exactly like the cycle-7 one-shot-sync " +
+                "site",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Falsifiability control for the test above: with no recent ACTION_START dispatch recorded,
+    // a genuine confirmed user-stop must still call stopSelf() normally -- proves the guard only
+    // suppresses the crash-adjacent case, not the ordinary teardown path.
+    @Test
+    fun finishStopFlowConfirmed_callsStopSelf_whenNoRecentActionStartDispatch() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val userInitiatedStopField = OpenVpnService::class.java.getDeclaredField("userInitiatedStop")
+        userInitiatedStopField.isAccessible = true
+        userInitiatedStopField.setBoolean(service, true)
+
+        service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, Intent())
+
+        assertTrue(
+            "A genuine confirmed user-stop with no in-flight ACTION_START dispatch must still stop " +
+                "the controller normally",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
+    // Regression test for QG4-3 (fix-cycle 8,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): ACTION_STOP_IF_IDLE's
+    // stopSelf() must also respect hasRecentActionStartDispatch(). review-8's "FIFO ordering makes
+    // this safe" argument only covers dispatch order (a STOP_IF_IDLE dispatched AFTER an
+    // ACTION_START is always delivered after it); it misses the unsafe inverse, which is the QA
+    // reproduction gesture itself: background the app (dispatches ACTION_STOP_IF_IDLE), then
+    // immediately return and tap Connect -- a fresh ACTION_START can arm a new FGS obligation BEFORE
+    // the already-in-flight ACTION_STOP_IF_IDLE is actually delivered here, so `state` above can
+    // still read stale DISCONNECTED. The pre-existing stopIfIdleActionStopsService test above is
+    // this test's falsifiability control: with no marker recorded, ACTION_STOP_IF_IDLE must still
+    // stop normally.
+    @Test
+    fun stopIfIdleAction_abortsStopSelf_whenRecentActionStartDispatchInFlight() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        VpnManager.startVpn(RuntimeEnvironment.getApplication(), "client\n", displayName = "RU")
+
+        val intent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP_IF_IDLE)
+        }
+        service.onStartCommand(intent, 0, 1)
+
+        assertFalse(
+            "QG4-3: ACTION_STOP_IF_IDLE's stopSelf() must be aborted while a recent ACTION_START " +
+                "dispatch is still in flight, exactly like the cycle-7 and QG4-2 sites",
             shadowOf(service).isStoppedBySelf
         )
     }

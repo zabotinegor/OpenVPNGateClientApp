@@ -737,6 +737,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             boundToEngine = false
         }
+        // QG4-2(b) (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md):
+        // same hasRecentActionStartDispatch() marker guard as cycle 7's
+        // stopAfterOneShotSyncConfirmedRunnable site (see that Runnable's declaration comment for
+        // the full rationale). ServerAutoSwitcher's orphaned retry lambda (QG4-2(a)) can dispatch a
+        // fresh ACTION_START while a user-stop teardown is still running toward this stopSelf() --
+        // that dispatch arms a fresh FGS-start obligation this stopSelf() would tear down before it
+        // is discharged, reproducing the same crash class this bug's fix-flow removes.
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "Confirmed-stop stopSelf() aborted: recent ACTION_START dispatch still in flight")
+            return
+        }
         stopSelf()
     }
 
@@ -791,11 +802,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
-        // Satisfy Android's startForegroundService() 5-second requirement immediately in onCreate(),
+        // Satisfy Android's startForegroundService() obligation immediately in onCreate(),
         // eliminating the race between stopAfterOneShotSyncRunnable (stopSelf) and startForeground()
         // delivery when startForegroundService() is called while a sync-started service is stopping.
-        // stopOnFailure=false: intent not yet delivered here, so don't stop — ACTION_START will retry.
-        enterControllerForeground(stopOnFailure = false)
+        // R8-4/QG4-5 (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): this is
+        // NOT a 5-second timer expiring -- bringDownServiceLocked() fires immediately (3-11ms
+        // observed on-device) once AMS decides the obligation went unsatisfied. The understated
+        // "5-second" framing is what made the QG4-1/QG4-2/QG4-3 stopSelf() sites look safe by
+        // inspection when they were not.
+        // enterControllerForeground() never calls stopSelf() on failure (QG4-1): a startForeground()
+        // throw here just leaves controllerForegroundActive=false; the intent has not even been
+        // delivered yet, so there is nothing to stop -- a subsequent ACTION_START will retry.
+        enterControllerForeground()
         registerAppLifecycleObserver()
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
@@ -1092,6 +1110,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.d(TAG, "ACTION_STOP_IF_IDLE")
                 if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
                     AppLog.d(TAG, "Ignoring stop-if-idle while VPN is active")
+                    return START_NOT_STICKY
+                }
+                // QG4-3 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md):
+                // same hasRecentActionStartDispatch() marker guard as the cycle-7 site and QG4-2's
+                // finishStopFlowConfirmed() site. review-8's "FIFO ordering makes this safe" argument
+                // only covers dispatch order (STOP_IF_IDLE issued after ACTION_START is always
+                // delivered after it); it does not cover a fast Connect tap that arms a fresh FGS
+                // obligation AFTER STOP_IF_IDLE was dispatched but BEFORE it is actually delivered
+                // here -- this exact interleaving is the QA reproduction gesture (background, then
+                // fast reconnect tap). state above can still read stale DISCONNECTED in that case.
+                if (VpnManager.hasRecentActionStartDispatch()) {
+                    AppLog.i(TAG, "Stop-if-idle stopSelf() aborted: recent ACTION_START dispatch still in flight")
                     return START_NOT_STICKY
                 }
                 exitControllerForeground()
@@ -1408,7 +1438,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
+    private fun enterControllerForeground(): Boolean {
         // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
         // already true. A genuine ACTION_START must get a fresh startForeground() call to satisfy
         // Android's foreground-service-start timing requirement, regardless of any prior
@@ -1434,9 +1464,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to enter controller foreground${if (stopOnFailure) "; stopping service" else ""}", t)
+            // QG4-1 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md):
+            // do NOT call stopSelf() here. ACTION_START calls this method AFTER its own
+            // startForegroundService() has already been dispatched (VpnManager.startVpn()), so the
+            // resulting FGS-start obligation is still undischarged at this point -- calling
+            // stopSelf() here reproduces exactly the bringDownServiceLocked()+fgRequired shape this
+            // whole fix-flow exists to eliminate, converting a recoverable "could not show the
+            // notification" failure into RemoteServiceException$ForegroundServiceDidNotStartInTimeException.
+            // Not needed for correctness either: ACTION_START's own dispatcher (":998") already
+            // returns START_NOT_STICKY when this returns false, and onCreate()'s call ignores the
+            // return value entirely -- both callers already treat "false" as sufficient signal.
+            AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
-            if (stopOnFailure) stopSelf()
             return false
         }
     }
@@ -2352,12 +2391,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
         // We must NOT exit the FGS notification in two situations:
         // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
-        //    before the next server start — dropping the notification here reopens the 5-second
-        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
+        //    before the next server start — dropping the notification here reopens the AMS
+        //    FGS-obligation race (RemoteServiceException crash, 2026-06-25). R8-4/QG4-5: this is
+        //    not a 5-second timer expiring -- bringDownServiceLocked() fires immediately (3-11ms
+        //    observed on-device) once the obligation goes unsatisfied.
         // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
         //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
         //    on the binder thread; dropping the FGS notification here removes the safety net
-        //    started by ACTION_START and reopens the same 5-second race window.
+        //    started by ACTION_START and reopens the same immediate-obligation race window.
         // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
         // explicitly, so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK

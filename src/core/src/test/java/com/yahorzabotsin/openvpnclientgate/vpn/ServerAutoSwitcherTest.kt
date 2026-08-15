@@ -401,6 +401,67 @@ class ServerAutoSwitcherTest {
         assertEquals(1, stopCalls)
     }
 
+    // Regression test for QG4-2(a) (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-gate-4.md): the retry-commit dispatch used to be posted as an anonymous, untracked
+    // handler.postDelayed lambda that cancel() could not reference, let alone remove. A user
+    // Disconnect landing inside the START_AFTER_STOP_DELAY_MS (350ms) window used to leave that
+    // lambda armed, so the app auto-reconnected ~350ms after an explicit Disconnect despite
+    // cancelForUserStop() having already run (ACTION_START unconditionally clears
+    // userInitiatedStop, so nothing downstream re-blocked it either). See
+    // OpenVpnServiceNotificationTest's finishStopFlowConfirmed_abortsStopSelf_... tests for the
+    // crash-adjacent half of this same finding (QG4-2(b)).
+    // Falsifiability: this must fail if the shared retryStartRunnable tracking field is reverted
+    // back to an untracked postDelayed lambda.
+    @Test
+    fun cancelForUserStop_withinRetryDelayWindow_preventsOrphanedReconnect() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // Real NOTCONNECTED confirmation arms the retry-commit dispatch for
+        // START_AFTER_STOP_DELAY_MS (350ms) from here.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+
+        // A user Disconnect lands inside the 350ms window.
+        ServerAutoSwitcher.cancelForUserStop()
+
+        // Advance well past the retry-commit delay.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "cancelForUserStop() landing inside the retry-commit delay window must prevent the " +
+                "previously-untracked posted lambda from firing an orphaned reconnect after an " +
+                "explicit user Disconnect",
+            0,
+            calls.size
+        )
+    }
+
+    // Sibling coverage: the STOP_RETRY_TIMEOUT_MS fallback path (no NOTCONNECTED ever observed)
+    // posts its own retry-commit dispatch through the same shared retryStartRunnable field --
+    // verify cancel() reaches that one too.
+    @Test
+    fun cancelForUserStop_withinRetryDelayWindow_afterTimeoutPath_preventsOrphanedReconnect() {
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // No NOTCONNECTED ever arrives; the STOP_RETRY_TIMEOUT_MS (5s) fallback commits the retry
+        // and arms the same 350ms retry-commit dispatch.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+
+        // A user Disconnect lands inside the resulting 350ms window.
+        ServerAutoSwitcher.cancelForUserStop()
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "cancelForUserStop() must also prevent the timeout-path retry-commit dispatch from firing",
+            0,
+            calls.size
+        )
+    }
+
     @Test
     fun stopRetryTimeoutStartsNextServerWithoutNotConnected() {
         ShadowLog.clear()
