@@ -18,10 +18,16 @@ object OrientationPolicy {
         return context.resources.configuration.smallestScreenWidthDp >= TABLET_SMALLEST_WIDTH_DP
     }
 
-    fun resolveRequestedOrientation(isTvDevice: Boolean, isTablet: Boolean): Int {
+    /**
+     * Returns the orientation to force, or `null` when the tablet branch should defer to
+     * whatever orientation is already in effect (manifest-declared or OS default) instead of
+     * writing [ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED], which would override a static
+     * `android:screenOrientation` the manifest already declared for that activity.
+     */
+    fun resolveRequestedOrientation(isTvDevice: Boolean, isTablet: Boolean): Int? {
         return when {
             isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            isTablet -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            isTablet -> null
             else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }

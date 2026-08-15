@@ -2,8 +2,15 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.common.utils
 
 import android.content.pm.ActivityInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class OrientationPolicyTest {
     @Test
     fun `resolveRequestedOrientation locks phone to portrait`() {
@@ -12,9 +19,11 @@ class OrientationPolicyTest {
     }
 
     @Test
-    fun `resolveRequestedOrientation leaves tablet unspecified`() {
+    fun `resolveRequestedOrientation defers to manifest for tablet`() {
+        // null means "don't touch requestedOrientation" so any static manifest
+        // android:screenOrientation on the activity is left intact (see CoreApp).
         val orientation = OrientationPolicy.resolveRequestedOrientation(isTvDevice = false, isTablet = true)
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, orientation)
+        assertNull(orientation)
     }
 
     @Test
@@ -29,5 +38,19 @@ class OrientationPolicyTest {
         // isTablet is ever true for a TV UI mode (e.g. a Google TV with a large screen).
         val orientation = OrientationPolicy.resolveRequestedOrientation(isTvDevice = true, isTablet = true)
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, orientation)
+    }
+
+    @Test
+    @Config(qualifiers = "sw600dp")
+    fun `isTablet returns true at 600dp boundary`() {
+        val isTablet = OrientationPolicy.isTablet(RuntimeEnvironment.getApplication())
+        assertEquals(true, isTablet)
+    }
+
+    @Test
+    @Config(qualifiers = "sw599dp")
+    fun `isTablet returns false just below 600dp boundary`() {
+        val isTablet = OrientationPolicy.isTablet(RuntimeEnvironment.getApplication())
+        assertEquals(false, isTablet)
     }
 }

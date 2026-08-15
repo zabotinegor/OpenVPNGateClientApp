@@ -54,8 +54,11 @@ class CoreApp : Application() {
                     runCatching {
                         val isTvDevice = TvUtils.isTvDevice(activity)
                         val isTablet = OrientationPolicy.isTablet(activity)
-                        activity.requestedOrientation =
+                        val resolvedOrientation =
                             OrientationPolicy.resolveRequestedOrientation(isTvDevice, isTablet)
+                        if (resolvedOrientation != null) {
+                            activity.requestedOrientation = resolvedOrientation
+                        }
                     }.onFailure {
                         AppLog.w(TAG, "Failed to apply orientation policy for ${activity.javaClass.simpleName}", it)
                     }
