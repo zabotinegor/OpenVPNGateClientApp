@@ -462,6 +462,93 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // R12-1 (fix-cycle 12, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-12.md):
+    // review-12 proved rollBackFailedRetryDispatch() itself was never executed by any test --
+    // deleting both `if (!starter(...)) rollBackFailedRetryDispatch()` call sites (leaving a bare
+    // `starter(...)`) still left the scoped vpn suite 244/244 green, because every starter test
+    // double in this suite returns true. These two tests drive a starter failure through each of
+    // the two independently-edited retry-commit sites (NOTCONNECTED-observed and
+    // stop-retry-timeout) and assert the rollback actually lands: ConnectionStateManager must
+    // return to DISCONNECTED with reconnectingHint=false rather than being stranded on the
+    // CONNECTING re-assertion R7-1 makes just ahead of the dispatch. Falsifiability: each must
+    // fail (state stays CONNECTING) if its site's `if (!starter(...)) rollBackFailedRetryDispatch()`
+    // is reverted to a bare `starter(...)`.
+
+    @Test
+    fun retryCommitDispatchFailure_notConnectedPath_rollsBackToDisconnected() {
+        ServerAutoSwitcher.starter = { _, _, _, _ -> false }
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // Real NOTCONNECTED confirmation arms the retry-commit dispatch (350ms from here) and
+        // re-asserts CONNECTING/reconnectingHint=true (R7-1) just ahead of it.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        assertEquals(
+            "precondition: the NOTCONNECTED-observed retry-commit site must re-assert CONNECTING " +
+                "before dispatching",
+            ConnectionState.CONNECTING,
+            ConnectionStateManager.state.value
+        )
+        assertTrue(
+            "precondition: reconnectingHint must be re-asserted before the retry-commit dispatch",
+            ConnectionStateManager.reconnectingHint.value
+        )
+
+        // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
+        // returns false, and rollBackFailedRetryDispatch() must run.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "a failed retry-commit dispatch on the NOTCONNECTED-observed path must roll " +
+                "ConnectionStateManager back to DISCONNECTED, not strand it on CONNECTING with no " +
+                "ACTION_START ever delivered to move it off",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertFalse(
+            "reconnectingHint must be cleared by the rollback",
+            ConnectionStateManager.reconnectingHint.value
+        )
+    }
+
+    @Test
+    fun retryCommitDispatchFailure_timeoutPath_rollsBackToDisconnected() {
+        ServerAutoSwitcher.starter = { _, _, _, _ -> false }
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        // No NOTCONNECTED ever arrives; the STOP_RETRY_TIMEOUT_MS (5s) fallback commits the retry,
+        // re-asserting CONNECTING/reconnectingHint=true (R7-1) just ahead of its own dispatch.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertEquals(
+            "precondition: the stop-retry-timeout site must re-assert CONNECTING before dispatching",
+            ConnectionState.CONNECTING,
+            ConnectionStateManager.state.value
+        )
+        assertTrue(
+            "precondition: reconnectingHint must be re-asserted before the retry-commit dispatch",
+            ConnectionStateManager.reconnectingHint.value
+        )
+
+        // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
+        // returns false, and rollBackFailedRetryDispatch() must run.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "a failed retry-commit dispatch on the stop-retry-timeout path must roll " +
+                "ConnectionStateManager back to DISCONNECTED, not strand it on CONNECTING with no " +
+                "ACTION_START ever delivered to move it off",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertFalse(
+            "reconnectingHint must be cleared by the rollback",
+            ConnectionStateManager.reconnectingHint.value
+        )
+    }
+
     // Regression tests for R9-1 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
     // crash-review-9.md): QG4-2's fix above made retryStartRunnable trackable so cancel() could
     // remove it for a genuine cancelForUserStop() -- but onEngineLevel()'s own generic

@@ -407,6 +407,54 @@ class VpnManagerTest {
         )
     }
 
+    // R12-1 (fix-cycle 12, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-12.md):
+    // review-12 proved the R11-1 isInstanceAlive gate itself was unpinned -- deleting
+    // `if (OpenVpnService.isInstanceAlive) { stopControllerIfIdle(appContext) }` at
+    // VpnManager.kt:155 (leaving the unconditional call) still left the scoped vpn suite
+    // 244/244 green, because every existing test that reaches this branch sets
+    // isInstanceAlive = true, which makes the gate transparent rather than pinning it. This test
+    // is the mirror of startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck with the one field
+    // that matters flipped to false: no controller instance is alive, so the self-heal re-check
+    // must NOT call stopControllerIfIdle()/startService() at all -- doing so would create a
+    // phantom OpenVpnService just to tear it down, and that instance's onCreate()
+    // unconditionally issues startForeground() (see OpenVpnService.isInstanceAlive's declaration
+    // comment). Falsifiability: this must fail (shadowApp.nextStartedService becomes non-null)
+    // if the isInstanceAlive gate is removed or bypassed.
+    @Test
+    fun startVpn_failedDispatch_idleRecheckNoOpsWhenNoInstanceAlive() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // The defining condition for this test: no controller instance is alive when the failed
+        // ACTION_START dispatch happens, and none becomes alive before the self-heal re-check
+        // fires.
+        OpenVpnService.isInstanceAlive = false
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        val shadowApp = Shadows.shadowOf(app)
+        assertNull(
+            "No teardown should be dispatched yet -- still inside the safety window",
+            shadowApp.nextStartedService
+        )
+
+        // Advance past RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) plus the fix's small buffer --
+        // the same window startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck uses to prove the
+        // re-check DOES fire when an instance is alive.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "The self-heal re-check must be a no-op when OpenVpnService.isInstanceAlive is false " +
+                "-- with no live controller instance, calling stopControllerIfIdle() would create " +
+                "a brand-new OpenVpnService just to immediately tear it down, and that instance's " +
+                "onCreate() unconditionally issues startForeground(), reopening the phantom-FGS " +
+                "gap R11-1 closed",
+            shadowApp.nextStartedService
+        )
+    }
+
     // R11-4 test 1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
     // review-11.md): scheduleIdleRecheckAfterFailedStartDispatch() is only ever called from the
     // `if (action == ACTION_START)` branches of startControllerService()'s catch blocks -- that
