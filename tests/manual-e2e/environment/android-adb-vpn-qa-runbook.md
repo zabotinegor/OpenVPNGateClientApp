@@ -122,5 +122,56 @@ unit-test coverage, which does not depend on wall-clock adb round-trips at all.
 (Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 3, 2026-08-16, trying
 to force a genuine user-Disconnect tap inside the 350ms retry-commit window on real hardware.)
 
+## Airplane-mode churn campaigns must reconnect before every cycle, not just the first
+
+A backgrounded, fully-disconnected app does **not** auto-reconnect: no `ConnectivityManager` network
+callback or similar exists to restart a connection when network is restored while backgrounded (see
+`docs/features/connection-recovery.md` — `"completed full server cycle"` is a genuine terminal state
+with no automatic follow-up). A multi-cycle airplane-mode churn campaign that blindly toggles
+airplane mode on a fixed schedule will silently degrade into a series of no-ops after the auto-switcher
+first reaches a terminal disconnected state (as few as 1 cycle in) — later cycles have nothing to
+disrupt. **Fix:** reconnect (foreground + tap Connect + wait for `CONNECTED` + background again)
+**before every single cycle**, not just the first. Verify a campaign actually churned by checking
+`ACTION_START` timestamp density across the *whole* campaign window (`grep "ACTION_START" session.log`)
+before trusting a "clean, no crash" result — a clean result from a campaign that only churned once is
+much weaker evidence than the trial count suggests.
+(Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 5, 2026-08-16: a first
+30-cycle attempt showed genuine churn only in cycle 1; a corrected 20-cycle campaign with per-cycle
+reconnect produced 111 `ACTION_START`/107 switch-decisions/26 full-cycle-exhaustions.)
+
+## This device can OS-kill the whole app process while backgrounded with an active FGS
+
+Observed once on Samsung Galaxy A71 SM-A715F (Android 13, One UI): the entire app process — not just
+the VPN session — was killed and restarted by the OS while merely backgrounded (`KEYCODE_HOME`), even
+though it held an active foreground service. Signature: a fresh `CoreApp` onCreate log line with a new
+PID, the new controller instance immediately reporting `LEVEL_NOTCONNECTED`/`NOPROCESS`, and
+self-reaping via `ACTION_STOP_IF_IDLE` within ~1s. This is **not** a crash (no exception, no
+`dumpsys dropbox` record) — it is this device's aggressive One UI background-process management, and
+the controller's own idle-reap design handles it correctly. It does, however, starve an airplane-mode
+churn campaign of a live session to disrupt on later cycles. **Mitigation for QA sessions:**
+```
+adb shell dumpsys deviceidle whitelist +com.yahorzabotsin.openvpnclientgate
+adb shell dumpsys deviceidle disable
+```
+reduces (does not guarantee eliminating) this during a long campaign.
+
+## `am start-service` cannot deliver ACTION_STOP to `.vpn.OpenVpnService` from adb shell
+
+Attempted as a way to get deterministic (non-UI-tap-timed) delivery of an explicit user-disconnect
+intent, to avoid racing a flickering connect/disconnect button label during an active internal retry
+chain:
+```
+adb shell am start-service -n com.yahorzabotsin.openvpnclientgate/com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService -a stop --ez com.yahorzabotsin.openvpnclientgate.vpn.PRESERVE_RECONNECT false
+```
+Result: `Error: Requires permission not exported from uid 10813` — the service is correctly not
+shell-invokable (it is not exported). Any future need for deterministic intent delivery to this service
+for QA purposes requires an in-app debug-build-only hook (e.g. a guarded broadcast receiver), not a
+shell workaround. The connect/disconnect toggle button's own UI label was also confirmed (via
+`uiautomator dump` mid-retry) to flicker rapidly between Start/Stop during an active internal
+auto-switch retry chain, making blind-coordinate `input tap` timing unreliable for distinguishing a
+genuine user stop from the chain's own internal preserve-reconnect stop.
+(Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 5, 2026-08-16, trying
+to force a genuine user-Disconnect tap during an active auto-switch retry on real hardware.)
+
 ## Last validated
-2026-08-16, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `6d8be07`.
+2026-08-16, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `dcec48a`.
