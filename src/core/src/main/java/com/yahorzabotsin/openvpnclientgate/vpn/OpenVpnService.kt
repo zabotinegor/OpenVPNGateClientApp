@@ -113,6 +113,43 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // clearly longer than realistic same-tick IPC/looper jitter but short enough not to
         // meaningfully delay legitimate idle cleanup.
         private const val ONE_SHOT_STOP_CONFIRM_DELAY_MS = 400L
+        // Fix-cycle 13 (86cb35fbt, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md
+        // section 2): manual QA round 4 device-reproduced a genuine, previously-undiscovered
+        // RemoteServiceException$ForegroundServiceDidNotStartInTimeException in the ENGINE's OWN
+        // de.blinkt.openvpn.core.OpenVPNService (a different class, process (:openvpn), and
+        // manifest from this controller -- not the crash class this flow's prior 12 fix cycles
+        // addressed). Repro: connect to a live multi-server country, background the app, toggle
+        // airplane mode ON ~10s then OFF while backgrounded, with status_stall_timeout_seconds set
+        // low -- the resulting rapid auto-switch stop/retry churn crashed the engine's own service.
+        //
+        // Root cause: VPNLaunchHelper.startOpenVpn() calls Context.startForegroundService()
+        // directly against the engine's OpenVPNService on every ACTION_START this controller
+        // forwards to it (see startIcsOpenVpn() below). The engine's own onStartCommand() only
+        // calls Service.startForeground() when !foregroundNotificationVisible() -- i.e. it assumes
+        // an already-visible notification means the fresh startForegroundService() obligation this
+        // NEW call just registered with AMS is already satisfied. Android does not actually work
+        // that way: the FGS-start deadline is armed per startForegroundService() call, not
+        // satisfied merely by some notification happening to still be on screen. That assumption
+        // breaks when the PREVIOUS session's own teardown (OpenVPNThread's exit path ->
+        // OpenVPNService.openvpnStopped() -> endVpnService() -> stopForeground()+stopSelf(), which
+        // runs off the engine's main thread) is still landing at AMS at the moment this fresh
+        // startForegroundService() call is made -- e.g. under the extra scheduling pressure of
+        // airplane-mode-driven connectivity churn. ServerAutoSwitcher's own START_AFTER_STOP_DELAY_MS
+        // (350ms) already spaces the ACTION_START dispatch to THIS controller after observing the
+        // engine's NOTCONNECTED confirmation; this buffer adds further headroom at the boundary
+        // closest to the actual fault -- immediately before the call that reaches into the engine
+        // process -- giving that async teardown materially more real time to land before the next
+        // FGS obligation is armed. Applied ONLY to reconnect dispatches (isReconnect == true, i.e.
+        // auto-switch retries, which are the only ACTION_START callers that could possibly be
+        // racing a stop they themselves just issued): a fresh user-initiated Connect tap has no
+        // preceding stop to race, so it is dispatched immediately as before -- this buffer must not
+        // add latency to that path. See the ACTION_START handler below for the guarded dispatch
+        // (re-checks userInitiatedStop/serviceDestroyed/connectionAttemptGeneration immediately
+        // before firing, mirroring dispatchAutoSwitcherOnEngineLevel's established pattern, so a
+        // genuine stop or a newer attempt landing inside this window supersedes it cleanly instead
+        // of racing ServerAutoSwitcher's own retryCommitInFlight/rollBackFailedRetryDispatch
+        // machinery).
+        private const val ENGINE_RECONNECT_DISPATCH_BUFFER_MS = 500L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
@@ -1108,7 +1145,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
-                startIcsOpenVpn(config, title)
+                if (isReconnect) {
+                    // See ENGINE_RECONNECT_DISPATCH_BUFFER_MS's declaration comment (fix-cycle 13,
+                    // 86cb35fbt). Only auto-switch retries (isReconnect == true) can possibly be
+                    // racing a stop they themselves just issued against the engine's own async
+                    // teardown -- delay just the engine-facing dispatch, not any of the
+                    // bookkeeping/state work above, which must stay synchronous with this
+                    // onStartCommand() invocation exactly as before.
+                    val dispatchGeneration = connectionAttemptGeneration
+                    statusHandler.postDelayed(Runnable {
+                        // Mirrors dispatchAutoSwitcherOnEngineLevel's guard: a genuine user/system
+                        // stop landing inside this buffer window, or a newer ACTION_START having
+                        // already superseded this one, must make this a no-op rather than reaching
+                        // into the engine for an attempt that is no longer current.
+                        if (userInitiatedStop || serviceDestroyed) {
+                            AppLog.d(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
+                            return@Runnable
+                        }
+                        if (connectionAttemptGeneration != dispatchGeneration) {
+                            AppLog.d(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
+                            return@Runnable
+                        }
+                        startIcsOpenVpn(config, title)
+                    }, ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
+                } else {
+                    startIcsOpenVpn(config, title)
+                }
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
