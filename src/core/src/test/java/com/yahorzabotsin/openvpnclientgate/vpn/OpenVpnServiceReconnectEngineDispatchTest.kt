@@ -2,6 +2,13 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Intent
 import android.os.Looper
+import com.yahorzabotsin.openvpnclientgate.core.servers.Country
+import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.Server
+import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import de.blinkt.openvpn.core.ConnectionStatus
+import de.blinkt.openvpn.core.IStatusCallbacks
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +21,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import org.robolectric.util.ReflectionHelpers
 import java.time.Duration
 
 // Fix-cycle 13 (86cb35fbt, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md
@@ -51,6 +59,17 @@ import java.time.Duration
 // `connectionAttemptGeneration += 1` to the ACTION_STOP preserveReconnect branch) and pass after.
 // reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce covers the generation-
 // supersession branch (R14-5(ii)).
+//
+// Fix-cycle 16 (PR #127 review round 3, Codex P1, thread 3792922991, OpenVpnService.kt:1199):
+// strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer below is the acceptance test for
+// that finding. R14-1/R14-2 only guard the deferred dispatch's OWN Runnable against a genuine
+// stop/newer-attempt; neither closes the separate gap where a late AIDL terminal level
+// (LEVEL_AUTH_FAILED/LEVEL_NONETWORK) from the just-stopped engine is forwarded to
+// ServerAutoSwitcher during the buffer window, re-triggering requestSwitchNow() and cancelling
+// the deferred dispatch via its own preserveReconnect stop -- skipping the selected server
+// without ever trying it. The fix suppresses such levels at dispatchAutoSwitcherOnEngineLevel()
+// via reconnectDispatchPendingGeneration, before they ever reach ServerAutoSwitcher. This test
+// must fail if that suppression check is reverted and pass with it in place.
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServiceReconnectEngineDispatchTest {
@@ -70,6 +89,10 @@ class OpenVpnServiceReconnectEngineDispatchTest {
     @After
     fun tearDown() {
         ShadowLog.clear()
+        // Hygiene for strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer, which is the
+        // only test in this file that touches the ServerAutoSwitcher singleton's static state.
+        // Harmless no-op for every other test in this class.
+        ServerAutoSwitcher.resetForTest()
     }
 
     private fun reconnectStartIntent(startId: Int = 2) = Intent(appContext, OpenVpnService::class.java).apply {
@@ -224,6 +247,76 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "stale engine start alongside the current one",
             1,
             engineStartCount
+        )
+    }
+
+    // PR #127 review round 3 (Codex P1, thread 3792922991, OpenVpnService.kt:1199): acceptance
+    // test for the finding described in this file's header comment above (fix-cycle 16).
+    //
+    // Exercises the REAL production chain end to end, not a mocked stand-in: ServerAutoSwitcher's
+    // default `starter`/`stopper` are left untouched (still real VpnManager calls), and
+    // requestSwitchNow()'s own preserveReconnect stop dispatch (VpnManager.stopVpn(appContext,
+    // preserveReconnectHint = true), issued directly, not through the overridable `stopper` field)
+    // is manually drained from the shadow Application's started-service queue and re-delivered
+    // into THIS SAME service instance's onStartCommand() -- exactly what Android's singleton
+    // service dispatch does in production, and the step that actually exercises R14-1's
+    // generation-bump / R14-2's token-sweep machinery. Without this forwarding step the bug's
+    // downstream effect could never be observed under Robolectric (context.startService() does not
+    // auto-invoke onStartCommand on a live instance), which would make the test pass vacuously
+    // regardless of whether the fix under test is present.
+    @Test
+    fun strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        // Drain any started-service intents queued by setup above (e.g. the store save path),
+        // so the drain loop below only picks up what ServerAutoSwitcher itself dispatches.
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).clearStartedServices()
+
+        // The auto-switch reconnect ACTION_START whose engine-facing dispatch is deferred by
+        // ENGINE_RECONNECT_DISPATCH_BUFFER_MS -- this is "the selected server" the finding says
+        // gets skipped.
+        service.onStartCommand(reconnectStartIntent(), 0, 2)
+        assertFalse("precondition: no synchronous dispatch", hasEngineStartLog())
+
+        // A late/stray AIDL LEVEL_AUTH_FAILED from the just-stopped (previous) engine lands mid-
+        // buffer -- the new engine process for this attempt has not been asked to start yet, so
+        // this level can only be a residual delivery from the old session (this codebase's own
+        // comments document this exact re-delivery hazard class repeatedly: R9-1, R7-1's callers,
+        // PR #126 round 13 comment 3734974189).
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("AUTH_FAILED", null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        // Forward whatever ServerAutoSwitcher's requestSwitchNow() may have dispatched via
+        // VpnManager.stopVpn(preserveReconnectHint = true) back into this same service instance --
+        // see the class-level comment above for why this step is required for falsifiability.
+        val shadowApp = Shadows.shadowOf(RuntimeEnvironment.getApplication())
+        var nextId = 4
+        var forwarded = shadowApp.nextStartedService
+        while (forwarded != null) {
+            service.onStartCommand(forwarded, 0, nextId++)
+            forwarded = shadowApp.nextStartedService
+        }
+
+        // Advance well past the buffer.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertTrue(
+            "A stray/late AIDL terminal level (LEVEL_AUTH_FAILED) from the just-stopped engine, " +
+                "landing during the reconnect engine-dispatch buffer window, must not be forwarded " +
+                "to ServerAutoSwitcher -- doing so re-triggers requestSwitchNow(), whose " +
+                "preserveReconnect stop bumps connectionAttemptGeneration and sweeps " +
+                "reconnectEngineDispatchToken, cancelling the still-pending deferred dispatch and " +
+                "skipping the originally selected server without ever trying it",
+            hasEngineStartLog()
         )
     }
 }

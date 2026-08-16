@@ -313,6 +313,33 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // (round 12, Codex P2, comment 3734663965).
     @Volatile private var connectionAttemptGeneration: Int = 0
 
+    // PR #127 review round 3 (Codex P1, thread 3792922991, OpenVpnService.kt:1199): during the
+    // ENGINE_RECONNECT_DISPATCH_BUFFER_MS window, the just-stopped (previous) engine can still
+    // deliver a late terminal AIDL level (LEVEL_NONETWORK/LEVEL_AUTH_FAILED) for the CURRENT
+    // generation -- the buffer only delays startIcsOpenVpn(), so no new engine process exists yet
+    // to have produced that level, meaning any level received before the buffer fires is
+    // necessarily stale. connectionAttemptGeneration alone does not catch this: it is bumped by
+    // ACTION_START itself (:1146 below) BEFORE the stray level arrives, so
+    // dispatchAutoSwitcherOnEngineLevel()'s existing dispatchedForGeneration != connectionAttemptGeneration
+    // check (which guards against a dispatch queued for an OLDER generation) captures the level
+    // under the already-current generation and forwards it to ServerAutoSwitcher.onEngineLevel()
+    // unfiltered. That stray delivery can re-trigger requestSwitchNow(), whose preserveReconnect
+    // stop then sweeps reconnectEngineDispatchToken and cancels the still-pending deferred
+    // dispatch -- skipping the selected server entirely without ever trying it.
+    // Holds the generation for which a reconnect engine-dispatch buffer is currently pending (i.e.
+    // the deferred Runnable posted below has not yet run or been swept), or -1 when none is
+    // pending. Set right before postAtTime() and cleared unconditionally as the very first
+    // statement inside that Runnable, so it self-invalidates the moment the buffer resolves either
+    // way (fires or is skipped). Any subsequent event that bumps connectionAttemptGeneration (a
+    // fresh ACTION_START, the preserveReconnect ACTION_STOP bump, finishStopFlowConfirmed()) also
+    // implicitly invalidates a still-pending value here, since the equality check in
+    // dispatchAutoSwitcherOnEngineLevel() below compares against the LIVE counter -- no separate
+    // sweep site is needed for those paths.
+    // @Volatile for the same cross-thread reason as connectionAttemptGeneration: written on the
+    // main thread (ACTION_START / the deferred Runnable), read on the AIDL binder thread inside
+    // dispatchAutoSwitcherOnEngineLevel().
+    @Volatile private var reconnectDispatchPendingGeneration: Int = -1
+
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
     // Written and read on the AIDL binder thread only (updateByteCount(inBytes, outBytes)),
@@ -1174,12 +1201,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // bookkeeping/state work above, which must stay synchronous with this
                     // onStartCommand() invocation exactly as before.
                     val dispatchGeneration = connectionAttemptGeneration
+                    // PR #127 review round 3 (thread 3792922991): mark this generation's reconnect
+                    // engine-dispatch as pending so dispatchAutoSwitcherOnEngineLevel() can suppress
+                    // any AIDL level from the just-stopped engine that arrives before this Runnable
+                    // actually runs -- see reconnectDispatchPendingGeneration's declaration comment.
+                    reconnectDispatchPendingGeneration = dispatchGeneration
                     // Tagged with reconnectEngineDispatchToken (R14-2) instead of a bare
                     // postDelayed() so teardown can cancel this specific dispatch -- see the
                     // token's declaration comment. This is the second line of defence for R14-1:
                     // even where the guard below is defeated (as the preserveReconnect ACTION_STOP
                     // branch was), the sweep at that same branch now removes this dispatch outright.
                     statusHandler.postAtTime(Runnable {
+                        // Clear unconditionally, first: the buffer is resolving right now, one way
+                        // or another (fires below, or is skipped by either guard) -- see
+                        // reconnectDispatchPendingGeneration's declaration comment.
+                        reconnectDispatchPendingGeneration = -1
                         // Mirrors dispatchAutoSwitcherOnEngineLevel's guard: a genuine user/system
                         // stop landing inside this buffer window, or a newer ACTION_START having
                         // already superseded this one, must make this a no-op rather than reaching
@@ -2641,6 +2677,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // userInitiatedStop stays false because the user never asked to disconnect. See PR #126
         // review thread (round 7, Codex P2).
         if (serviceDestroyed) return
+        // PR #127 review round 3 (Codex P1, thread 3792922991): while a reconnect engine-dispatch
+        // buffer is pending for the CURRENT generation, no new engine process has been asked to
+        // start yet (that is exactly what the buffer defers), so any level received right now is
+        // necessarily a late/stray delivery from the just-stopped previous engine. Forwarding it to
+        // ServerAutoSwitcher would let it re-trigger requestSwitchNow(), whose preserveReconnect
+        // stop then cancels the still-pending deferred dispatch -- skipping the selected server
+        // without ever trying it. See reconnectDispatchPendingGeneration's declaration comment.
+        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration) {
+            AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
+            return
+        }
         // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now
         // -- before returning to syncEngineState(), which calls ConnectionStateManager
         // .updateFromEngine(level, detail) immediately afterward on the CALLING thread (the AIDL
