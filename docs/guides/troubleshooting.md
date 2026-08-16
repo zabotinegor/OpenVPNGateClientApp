@@ -36,6 +36,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
 - [Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563](#auto-switch-never-fires-when-the-live-aidl-push-status-callback-stalls--bug-86cb21563)
 - [OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt](#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt)
+- [Engine's own `de.blinkt.openvpn.core.OpenVPNService` FGS-timeout crash under rapid stop/retry churn — mitigated, root cause open (bug 86cb35fbt, fix-cycles 13-14)](#engines-own-deblinktopenvpncoreopenvpnservice-fgs-timeout-crash-under-rapid-stopretry-churn--mitigated-root-cause-open-bug-86cb35fbt-fix-cycles-13-14)
 
 ---
 
@@ -1046,12 +1047,31 @@ release-build logcat").
 
 ## OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt
 
-**Status: FIX IMPLEMENTED — pending device QA (fix-cycle 4)**. Two distinct races; race 1 is
-closed. Race 2 had two dispatchers, closed in two separate fix cycles (see below) — believed
-complete, not yet device-verified against this cycle. ClickUp
-[86cb35fbt](https://app.clickup.com/t/86cb35fbt); commits `ce2f952` (race 1), `20e7512` (partial
-narrowing of race 2), the fix-cycle-3 structural closure of race 2's UI dispatcher, and the
-fix-cycle-4 closure of race 2's second, non-UI dispatcher (this fix).
+**Status: RESOLVED (controller service; fix-cycles 1-12), device-verified.** Both races described
+below are closed and confirmed on-device. Race 1: `ce2f952`. Race 2: `20e7512` (partial) →
+fix-cycle 3 (`fbd9b5b`, structural closure of the UI dispatcher) → fix-cycle 4 (`fb67a5e`, closes
+the second, `ServerAutoSwitcher` dispatcher). ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt).
+
+Fix-cycles 5-12 are not narrated in prose here (per this catalog's "describe current behaviour, not
+change history" rule) — they hardened the same auto-switch retry path against further edge cases
+that iterative code review and manual QA kept surfacing: `retryCommitInFlight`,
+`OpenVpnService.isInstanceAlive`, `VpnManager.scheduleIdleRecheckAfterFailedStartDispatch`, and
+`ServerAutoSwitcher.rollBackFailedRetryDispatch` among them. Quality gate 6 passed clean at that
+state (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-6.md`) and manual QA confirmed
+no regression of either race described in this entry
+(`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md`, checks MQ-A/MQ-C).
+
+**A separate, previously-undiscovered defect surfaced during fix-cycle 12's manual QA pass** — a
+`ForegroundServiceDidNotStartInTimeException` in the OpenVPN **engine's own** service
+(`de.blinkt.openvpn.core.OpenVPNService`), a different class, process and manifest from the
+controller service this entry is about. That defect, its probabilistic client-side mitigation
+(fix-cycles 13-14), and its still-open engine-side root cause are documented in the entry directly
+below this one — see [Engine's own `de.blinkt.openvpn.core.OpenVPNService` FGS-timeout crash under
+rapid stop/retry churn — mitigated, root cause open (bug 86cb35fbt, fix-cycles
+13-14)](#engines-own-deblinktopenvpncoreopenvpnservice-fgs-timeout-crash-under-rapid-stopretry-churn--mitigated-root-cause-open-bug-86cb35fbt-fix-cycles-13-14).
+**Do not conflate the two:** the races in this entry are in the app's own controller service and are
+deterministically fixed; the defect in the entry below is in the engine submodule's service and is
+not.
 
 **Symptom**
 
@@ -1228,3 +1248,161 @@ exact sequence, did reproduce the crash (the ~1058ms gap described above). Do no
 - See also the earlier, related crash above: [`RemoteServiceException`: `startForegroundService()`
   did not call `startForeground()` — crash on first VPN connect after APK
   update](#remoteserviceexception-startforegroundservice-did-not-call-startforeground--crash-on-first-vpn-connect-after-apk-update)
+
+---
+
+## Engine's own `de.blinkt.openvpn.core.OpenVPNService` FGS-timeout crash under rapid stop/retry churn — mitigated, root cause open (bug 86cb35fbt, fix-cycles 13-14)
+
+**Status: MITIGATED, not fixed.** The client-side mitigation (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`)
+is a **probabilistic timing buffer**, explicitly not a deterministic fix. The engine-side root cause
+remains open. Do not close this out as "resolved" in ClickUp or elsewhere without either (a) an
+engine-fork fix, or (b) replacing the buffer with the deterministic alternative described below.
+
+**This is a different defect from the entry directly above.** The crash above is in this app's own
+controller service, `com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService` (main process). This
+entry is about `de.blinkt.openvpn.core.OpenVPNService` — the OpenVPN **engine's own** `VpnService`,
+from the `src/external/OpenVPNEngine` submodule, running in a separate `:openvpn` process with its
+own manifest entry and its own independent Android foreground-service (FGS) obligation. Same
+exception class, unrelated code paths, first ever device-reproduced against the engine's service in
+this bug's 14-cycle history.
+
+### Symptom
+
+```
+android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException: Context.startForegroundService() did not then call Service.startForeground(): ServiceRecord{... com.yahorzabotsin.openvpnclientgate/de.blinkt.openvpn.core.OpenVPNService}
+```
+
+logged against `Process: com.yahorzabotsin.openvpnclientgate:openvpn`, killing the engine subprocess.
+The app's own controller service survives this (see "Blast radius" below).
+
+### Discovery
+
+First reproduced during fix-cycle 12's manual QA (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md`
+§2), while deliberately forcing background auto-switch churn (airplane-mode toggle while
+backgrounded, connected to a live multi-server country, `status_stall_timeout_seconds=1`) to test an
+unrelated fix. It had been theorized but never confirmed two review rounds earlier
+(`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md`, finding R9-2).
+
+### Root cause
+
+Confirmed by reading the engine source directly
+(`src/external/OpenVPNEngine/main/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java`):
+
+- `onStartCommand()` (line 609) conditionally **skips** the call chain that reaches
+  `startForeground()` (line 653): `if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M ||
+  (!foregroundNotificationVisible()))` — only calls `showNotification()` (which calls
+  `startForeground()` at line 350) when this condition is true.
+- `foregroundNotificationVisible()` (line 666) is `mNotificationManager.getActiveNotifications().length
+  > 0` — i.e. "does the system currently show *any* active notification from this package," not "has
+  *this specific* `Service` instance already satisfied *its own* `startForegroundService()` call's
+  `fgRequired` obligation."
+- Android arms a fresh 5-second `fgRequired` deadline **per `startForegroundService()` call**, against
+  the specific resulting service instance — not per package, and not satisfied by a notification left
+  over from a different (even if still-technically-alive) instance.
+- Under rapid `ACTION_STOP`→`ACTION_START` churn (exactly what airplane-mode-style network flapping
+  combined with a short `status_stall_timeout_seconds` produces), a fresh engine service instance can
+  be created and receive `startForegroundService()` while the *previous* instance's notification is
+  still showing (teardown not yet complete). `foregroundNotificationVisible()` sees that stale
+  notification, evaluates true, and the new instance's `onStartCommand()` skips its own
+  `startForeground()` call — leaving that instance's fresh 5-second obligation unsatisfied until AMS
+  kills it.
+
+This is structurally the same shape of bug as the controller-side races in the entry above (a
+notification/flag surviving across an instance boundary and being mistaken for proof that *this*
+instance's own FGS obligation is satisfied) — but it lives entirely inside the engine submodule, which
+`AGENTS.md` says to avoid incidentally editing.
+
+### Why the fix is a mitigation, not a fix
+
+`OpenVpnService.kt`'s `ACTION_START` handler defers the engine-facing `startIcsOpenVpn()` dispatch by
+`ENGINE_RECONNECT_DISPATCH_BUFFER_MS = 500L` (declared and guarded around
+`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt:168`), for reconnect
+dispatches only (`isReconnect == true`, i.e. auto-switch retries — a fresh user-initiated Connect is
+unaffected and dispatches synchronously). This widens the timing gap before the client asks the engine
+to start again, giving the previous instance's teardown (and its notification) more real time to clear
+before `foregroundNotificationVisible()` is evaluated by the next `onStartCommand()`.
+
+**`500ms` is explicitly unvalidated and arbitrary — record this clearly so nobody later assumes it
+was empirically tuned.** No measurement of the engine's actual teardown duration
+(`openvpnStopped()` → `endVpnService()` → `stopForeground()`+`stopSelf()` landing at AMS) exists
+anywhere in this flow's evidence. The only timing measurement this flow ever produced
+(`.sdlc/status.json` defect entry, 2026-08-11: "5/5 short-gap (300-460ms) trials ... passed", "only
+the ~1000ms+ region is dangerous") describes a **different** mechanism — the controller's own
+`stopAfterOneShotSyncRunnable` race from the entry above — and does not transfer to the engine's
+teardown timing. Manual QA re-testing at fix-cycle 14
+(`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-5.md`, Item 1) ran 26 airplane-mode churn
+cycles (20 of them a clean methodological match to the original repro) with zero repeat of the crash
+— reported explicitly as **"not observed in N trials," not "fixed"**, since a single crash in a full
+session was also all fix-cycle 12's QA round produced. Absence of a second crash in 26 more trials is
+consistent with the mitigation helping and equally consistent with the failure rate simply being low
+enough that this many trials didn't hit it either way; no rate has been established in either
+direction.
+
+The mitigation is deliberately defended in depth on the client side even though the timing itself is
+unvalidated: a dedicated `reconnectEngineDispatchToken` (declared at
+`OpenVpnService.kt:2616`) makes the deferred dispatch cancellable and cancels it at every stop/destroy
+site, and `connectionAttemptGeneration` is bumped in the `preserveReconnect` `ACTION_STOP` branch so a
+stop landing inside the 500ms window supersedes a stale deferred dispatch instead of letting it fire
+into a torn-down state. Both mechanisms were closed after code review caught them missing
+(`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-14.md`, findings R14-1/R14-2) and
+independently confirmed load-bearing by mutation testing in the next round
+(`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-15.md`). **This defence-in-depth
+protects the client's own dispatch logic from re-arming the race; it does nothing to shorten or bound
+the engine's actual teardown time**, which is the one variable that actually determines whether 500ms
+is enough.
+
+### Recommended follow-up (deterministic alternative — not yet implemented)
+
+Replace the fixed-timer buffer with a genuine completion signal: observe the engine service's real
+death via the `ServiceConnection` the controller already holds for the engine bind
+(`engineConnection`, used in `requestStopIcsOpenVpn()` around
+`OpenVpnService.kt:1410-1427`) — either its `onServiceDisconnected` callback, or a binder
+`DeathRecipient` registered against the engine's `IBinder`. Because the controller already binds to
+the engine, this signal is reachable without any engine-submodule edit; it only requires client-side
+wiring in `OpenVpnService.kt`. This was assessed in code review
+(`review-14.md`, finding R14-4) and named again in QA (`qa-5.md`) as the recommended follow-up — it
+was deferred as a separate, appropriately-sized story rather than folded into this already 14-cycle
+flow, not because it is blocked by the no-engine-edits constraint. **File it as its own ClickUp
+story** rather than a fix-cycle-15 addition to 86cb35fbt.
+
+A fix in the engine fork itself (correcting `foregroundNotificationVisible()`'s package-wide check to
+something instance-scoped, or simply always calling `startForeground()` unconditionally in
+`onStartCommand()` — mirroring this app's own controller-side fix for the structurally identical bug,
+`enterControllerForeground()` always reissuing `startForeground()` regardless of prior state) would be
+the most direct fix, but is out of scope per `AGENTS.md`'s guidance to avoid incidental edits to
+`src/external/OpenVPNEngine`; it would need to go through the `update-engine` workflow as a deliberate,
+reviewed upstream-facing change, not as a drive-by edit.
+
+### Blast radius / what does NOT need fixing
+
+- The app's **own controller service never crashes** from this — `enterControllerForeground()` runs
+  synchronously, long before any of this deferral, so the controller's own FGS deadline is unaffected
+  by the engine's failure. When the engine subprocess dies, the controller observes it via its status
+  binder dying and recovers with an exponential-backoff rebind (`"Status binder died; scheduling
+  rebind"`), which is working as designed — this is not a bug in itself.
+- A fresh, non-reconnect Connect tap is unaffected — the buffer applies only to `isReconnect == true`
+  dispatches.
+
+### Evidence
+
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
+  full stack trace, root-cause scoping.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-14.md` — findings R14-1 through
+  R14-4 (the mitigation's initial gaps and the deterministic-alternative assessment).
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-15.md` — mutation-tested proof the
+  fix-cycle-14 remediation (R14-1/R14-2) closes cleanly; R15-1/R15-2 residual, non-blocking findings.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-7.md` — quality gate PASS at the
+  fix-cycle-14 commit.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-5.md` — fix-cycle-14 device retest, the
+  probabilistic framing, and the 26-trial non-observation result.
+
+### References
+
+- `src/external/OpenVPNEngine/main/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java`
+  (`onStartCommand`, `foregroundNotificationVisible`, `showNotification`) — read-only; do not edit
+  incidentally, see `docs/conventions/engine-submodule.md`.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
+  (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`,
+  `connectionAttemptGeneration`, `engineConnection`, `requestStopIcsOpenVpn`)
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
+- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-14
