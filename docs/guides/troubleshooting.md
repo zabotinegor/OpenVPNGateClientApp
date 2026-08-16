@@ -35,6 +35,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed](#engine-update-build-fails-with-failed-to-find-target-with-hash-string-android-37--sdk-platform-37-not-yet-installed)
 - [CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can](#cis-bundled-sdkmanager-cannot-resolve-platformsandroid-37-even-though-gradle-can)
 - [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
+- [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
 
 ---
 
@@ -787,6 +788,8 @@ Force-stop and relaunch the app after setting the override. See `docs/operations
 **Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.
 **First encountered:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 title-color coverage attempt, gate-2, commit range `3550da6`..`e426147`).
 
+**Correction/refinement (US-22):** the limitation above is specific to *resource lookups* (`R.color`, `R.drawable`, `@ColorRes`/`@DrawableRes` ids). Plain `Configuration` field reads — e.g. `context.resources.configuration.smallestScreenWidthDp` — are **not** affected and work fine in this module's Robolectric setup, including with `@Config(qualifiers = "sw600dp")` / `"sw599dp"` device-bucket overrides. Do not over-generalize "Robolectric can't resolve resources in `core`" to "Robolectric doesn't work in `core`" — verify with a throwaway test targeting the specific API before assuming it's blocked. See `OrientationPolicyTest.kt` (`isTablet()` boundary tests) for a working example.
+
 ---
 
 ## Custom `core` Views with resource-reading `init` blocks cannot get Robolectric component tests at all — root cause of the prior `@ColorRes` gap
@@ -1041,3 +1044,15 @@ release-build logcat").
 - `docs/qa-evidence/bug-autoswitch-stale-push-stall-gate-1.md` -- **not committed** (path is
   gitignored, local-only quality-gate evidence); see ClickUp task
   [86cb21563](https://app.clickup.com/t/86cb21563) for the actual evidence
+
+---
+
+## `./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed
+
+**Context:** Quality gate for `US-22` (orientation-lock), gate iteration 1.
+
+**Problem:** Running `testDebugUnitTestApp` when all test tasks are already up-to-date from a prior run (e.g. one just run by Code Implementator or Code Review moments earlier, same commit) reports `BUILD SUCCESSFUL` in a few seconds with every test task shown as `FROM-CACHE`/`UP-TO-DATE`. Gradle's build-cache/incremental-task machinery considers this a legitimate success — the test *results* are still valid and unchanged — but treating that console output alone as "tests ran and passed" is a false confidence signal for a gate whose job is independent re-verification, not trusting a prior run's cache hit.
+
+**Solution:** For any validation run whose entire purpose is independent proof (quality gate, merge gate), force real execution: `./gradlew testDebugUnitTestApp assembleDebugApp --rerun-tasks`. Confirm genuine execution from the task summary line (e.g. `150 actionable tasks: 150 executed`, not `150 up-to-date`), and parse actual pass/fail counts from `build/test-results/**/*.xml` rather than trusting the human-readable console summary alone.
+
+**First encountered:** Quality gate for `US-22` (orientation-lock), gate-1 → gate-2, commit `0eef2ae`.

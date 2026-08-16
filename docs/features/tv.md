@@ -84,7 +84,7 @@ The TV launcher is a genuinely different surface, not a resized phone build.
 | Required feature | — | `android.software.leanback` |
 | Touchscreen | required | **not** required |
 | Launcher category | `LAUNCHER` | `LEANBACK_LAUNCHER` |
-| Orientation | unrestricted | `landscape`, both activities |
+| Orientation | `portrait` (phone) / unrestricted (tablet) | `landscape`, all activities |
 | `allowBackup` | `true` | `false` |
 | Banner drawable | — | present |
 | `MainActivity` size | ~6 lines | ~212 lines (drawer + D-pad focus handling) |
