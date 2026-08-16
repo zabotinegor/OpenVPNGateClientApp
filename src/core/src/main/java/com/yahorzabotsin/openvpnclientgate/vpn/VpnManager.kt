@@ -2,6 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import androidx.annotation.MainThread
 import androidx.core.content.ContextCompat
@@ -62,6 +64,27 @@ object VpnManager {
     // STOP_RETRY_TIMEOUT_MS style of bounded safety windows elsewhere in this bug's fix history).
     private const val RECENT_ACTION_START_DISPATCH_WINDOW_MS = 2_000L
 
+    // PR #127 round-2 Codex finding (thread 3791559721, comment 3791559721): when
+    // ContextCompat.startForegroundService() below THROWS for an ACTION_START dispatch (e.g. a
+    // background auto-switch retry rejected by Android's FGS-start-from-background restriction),
+    // lastActionStartDispatchElapsedRealtimeMs is still armed -- deliberately, per that field's own
+    // declaration comment, since AMS may already have registered the FGS-start obligation before
+    // raising the exception, and clearing it here would reopen the exact crash this bug's fix-flow
+    // closes. But every current hasRecentActionStartDispatch() guard site (OpenVpnService's
+    // one-shot-sync-confirmed runnable, finishStopFlowConfirmed(), and the ACTION_STOP_IF_IDLE
+    // handler) is a single-shot check with no self-retry: if one of them happens to run inside the
+    // window it aborts once and nothing re-triggers it afterward. A start that never truly landed
+    // would then leave a pre-existing idle controller running until some unrelated later event
+    // (next app foreground/background cycle, a settings change, etc.) happens to re-issue a
+    // teardown -- which may not happen soon, or at all, contradicting the "only a bounded delay"
+    // characterization in lastActionStartDispatchElapsedRealtimeMs's declaration comment. Re-run the
+    // idle teardown ourselves, once, safely after the marker window has definitely elapsed (see
+    // scheduleIdleRecheckAfterFailedStartDispatch()) so a failed dispatch is bounded in practice, not
+    // just in theory.
+    private const val IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS = RECENT_ACTION_START_DISPATCH_WINDOW_MS + 250L
+
+    private val recheckHandler = Handler(Looper.getMainLooper())
+
     /**
      * True if an `ACTION_START` dispatch via [startVpn] was attempted within the last
      * [RECENT_ACTION_START_DISPATCH_WINDOW_MS]. See [lastActionStartDispatchElapsedRealtimeMs]'s
@@ -96,6 +119,25 @@ object VpnManager {
     @JvmStatic
     internal fun clearRecentActionStartDispatch() {
         lastActionStartDispatchElapsedRealtimeMs = 0L
+    }
+
+    /**
+     * See [IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS]'s declaration comment. Called only from
+     * [startControllerService]'s catch blocks, only for a failed `ACTION_START` dispatch. Posts a
+     * single delayed [stopControllerIfIdle] re-check timed to run after
+     * [RECENT_ACTION_START_DISPATCH_WINDOW_MS] has definitely elapsed, so
+     * `hasRecentActionStartDispatch()` is guaranteed false by the time it runs and cannot itself
+     * re-suppress the very teardown it exists to unblock. [stopControllerIfIdle] already no-ops
+     * whenever [ConnectionStateManager] is not `DISCONNECTED` by then (a later retry succeeded, or
+     * the user reconnected some other way), so this is safe to fire unconditionally on every failed
+     * `ACTION_START` dispatch.
+     */
+    private fun scheduleIdleRecheckAfterFailedStartDispatch(context: Context) {
+        val appContext = context.applicationContext
+        recheckHandler.postDelayed(
+            { stopControllerIfIdle(appContext) },
+            IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS
+        )
     }
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
@@ -196,9 +238,12 @@ object VpnManager {
                 // Record the dispatch attempt BEFORE the actual call -- see
                 // lastActionStartDispatchElapsedRealtimeMs's declaration comment. Recorded even if
                 // the call below throws: a failed dispatch still means AMS may have registered the
-                // FGS-start obligation before raising the exception, and the flag's cost if a start
-                // never truly lands is only a bounded RECENT_ACTION_START_DISPATCH_WINDOW_MS delay
-                // to the idle-teardown path, not a correctness issue.
+                // FGS-start obligation before raising the exception, so it is deliberately NOT
+                // cleared in the catch blocks below either. The flag's cost if a start never truly
+                // lands is bounded to RECENT_ACTION_START_DISPATCH_WINDOW_MS -- each catch block
+                // below additionally schedules scheduleIdleRecheckAfterFailedStartDispatch() so that
+                // bound is actually enforced (PR #127 round-2 Codex thread 3791559721) instead of
+                // relying on some unrelated later event to re-issue a teardown.
                 lastActionStartDispatchElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 ContextCompat.startForegroundService(context, intent)
             } else {
@@ -207,12 +252,15 @@ object VpnManager {
             true
         } catch (e: IllegalStateException) {
             AppLog.w(TAG, "Failed to start controller service for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         } catch (e: SecurityException) {
             AppLog.w(TAG, "Security error while starting controller for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         } catch (e: RuntimeException) {
             AppLog.w(TAG, "Runtime error while starting controller for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         }
     }

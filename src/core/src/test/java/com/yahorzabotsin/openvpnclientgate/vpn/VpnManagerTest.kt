@@ -4,7 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Looper
 import android.util.Base64
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -338,11 +340,82 @@ class VpnManagerTest {
         )
     }
 
+    // Regression test for PR #127 round-2 Codex finding (thread 3791559721,
+    // src/core/.../vpn/VpnManager.kt:202): when the dispatch call underlying an ACTION_START
+    // request throws (e.g. a background auto-switch retry rejected by Android's
+    // FGS-start-from-background restriction), lastActionStartDispatchElapsedRealtimeMs stayed
+    // armed with nothing to unarm it. Every hasRecentActionStartDispatch() guard site in
+    // OpenVpnService (one-shot-sync-confirmed, finishStopFlowConfirmed(), ACTION_STOP_IF_IDLE) is a
+    // single-shot check with no self-retry, so a teardown that happened to race the marker inside
+    // its window aborted once and nothing re-triggered it -- a pre-existing idle controller could
+    // stay running until some unrelated later event (next app foreground/background cycle, etc.)
+    // happened to re-issue a teardown, which is not actually bounded in practice. The fix schedules
+    // a single delayed stopControllerIfIdle() re-check timed to run once the marker window has
+    // definitely elapsed, closing the gap without clearing the marker early (which would reopen the
+    // AMS-obligation race lastActionStartDispatchElapsedRealtimeMs's declaration comment already
+    // guards against). Uses a startService()-throwing fault (matching this file's pre-existing
+    // ThrowingServiceContext convention) rather than overriding startForegroundService(): on this
+    // project's default Robolectric SDK (16, well below the API 26 startForegroundService cutoff),
+    // ContextCompat.startForegroundService() itself falls back to context.startService() -- the
+    // exact same call VpnManager.startControllerService()'s non-ACTION_START branch already uses,
+    // so this is the fault-injection point that is actually exercised here.
+    @Test
+    fun startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+        assertTrue(
+            "The recent-dispatch marker must stay armed on a failed dispatch -- AMS may already " +
+                "have registered the FGS-start obligation before raising the exception, so clearing " +
+                "it here would reopen the crash this bug's fix-flow closes",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+
+        val shadowApp = Shadows.shadowOf(app)
+        assertNull(
+            "No teardown should be dispatched yet -- still inside the safety window",
+            shadowApp.nextStartedService
+        )
+
+        // Advance past RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) plus the fix's small buffer.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        val started = shadowApp.nextStartedService
+        assertNotNull(
+            "A failed ACTION_START dispatch must self-heal by re-running stopControllerIfIdle() " +
+                "once the recent-dispatch marker window has elapsed, so a pre-existing idle " +
+                "controller is not left running indefinitely",
+            started
+        )
+        assertEquals(
+            VpnManager.ACTION_STOP_IF_IDLE,
+            started?.getStringExtra(VpnManager.actionKey(app))
+        )
+    }
+
     private class ThrowingServiceContext(base: Context) : ContextWrapper(base) {
         override fun getApplicationContext(): Context = this
 
         override fun startService(service: Intent?): android.content.ComponentName {
             throw RuntimeException("startService failed")
+        }
+    }
+
+    private class FailOnceStartServiceContext(base: Context) : ContextWrapper(base) {
+        private var startServiceCallCount = 0
+
+        override fun getApplicationContext(): Context = this
+
+        override fun startService(service: Intent?): android.content.ComponentName? {
+            startServiceCallCount++
+            if (startServiceCallCount == 1) {
+                throw RuntimeException("startService failed")
+            }
+            return super.startService(service)
         }
     }
 }
