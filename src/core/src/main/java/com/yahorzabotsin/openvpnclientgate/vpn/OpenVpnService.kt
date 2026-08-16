@@ -149,6 +149,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // genuine stop or a newer attempt landing inside this window supersedes it cleanly instead
         // of racing ServerAutoSwitcher's own retryCommitInFlight/rollBackFailedRetryDispatch
         // machinery).
+        //
+        // R14-4 (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-14.md): this value
+        // is an explicitly UNVALIDATED, probabilistic constant, not a measured or provable bound.
+        // No measurement of the engine's actual teardown duration (openvpnStopped() ->
+        // endVpnService() -> stopForeground()+stopSelf() landing at AMS) exists anywhere in this
+        // flow's evidence. The only measured timing this flow ever captured (.sdlc/status.json
+        // defect entry, 2026-08-11: "5/5 short-gap (300-460 ms) trials ... passed", "only the
+        // ~1000 ms+ region is dangerous") describes a DIFFERENT mechanism -- the controller's own
+        // stopAfterOneShotSyncRunnable race -- and does not transfer to the engine's teardown. 500ms
+        // widens the timing margin but cannot provably eliminate the race. The deterministic
+        // alternative -- observing the engine service's actual death via the existing
+        // engineConnection ServiceConnection.onServiceDisconnected callback (or a binder
+        // DeathRecipient), which the controller already binds to in requestStopIcsOpenVpn() -- was
+        // assessed and deferred as a larger, legitimate follow-up rather than implemented here. If
+        // the target crash recurs in the field, prefer that deterministic signal over further
+        // tuning this constant.
         private const val ENGINE_RECONNECT_DISPATCH_BUFFER_MS = 500L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
@@ -698,6 +714,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // explicit cancel here, that timer fires a few seconds after an explicit disconnect and
         // silently reconnects. See PR #126 round 18 (Codex P1, comment 3736956722).
         statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // R14-2: sweep the reconnect engine-dispatch token here too -- see its declaration
+        // comment. A plain user Disconnect (ACTION_STOP, preserveReconnect=false) reaches this
+        // function and must cancel any reconnect dispatch still queued from a prior auto-switch
+        // retry exactly as it already cancels the auto-switch reaction dispatches above.
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
         // startUserStopTeardown() can be reached synchronously from the AIDL binder thread via
         // maybeStartStaleStopReconciliation() -> syncEngineState() -> updateStateString() (the
         // "stale_relaunch" path) -- it is NOT guaranteed to run on the main thread the way the
@@ -1153,21 +1174,29 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // bookkeeping/state work above, which must stay synchronous with this
                     // onStartCommand() invocation exactly as before.
                     val dispatchGeneration = connectionAttemptGeneration
-                    statusHandler.postDelayed(Runnable {
+                    // Tagged with reconnectEngineDispatchToken (R14-2) instead of a bare
+                    // postDelayed() so teardown can cancel this specific dispatch -- see the
+                    // token's declaration comment. This is the second line of defence for R14-1:
+                    // even where the guard below is defeated (as the preserveReconnect ACTION_STOP
+                    // branch was), the sweep at that same branch now removes this dispatch outright.
+                    statusHandler.postAtTime(Runnable {
                         // Mirrors dispatchAutoSwitcherOnEngineLevel's guard: a genuine user/system
                         // stop landing inside this buffer window, or a newer ACTION_START having
                         // already superseded this one, must make this a no-op rather than reaching
                         // into the engine for an attempt that is no longer current.
                         if (userInitiatedStop || serviceDestroyed) {
-                            AppLog.d(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
+                            // AppLog.i, not .d -- AppReleaseTree drops DEBUG in release builds, and
+                            // this is the one field-visible proof that the guard actually engaged
+                            // (R14-3, same reasoning as ServerAutoSwitcher.kt:197's R7-2 fix).
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
                             return@Runnable
                         }
                         if (connectionAttemptGeneration != dispatchGeneration) {
-                            AppLog.d(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
                             return@Runnable
                         }
                         startIcsOpenVpn(config, title)
-                    }, ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
+                    }, reconnectEngineDispatchToken, SystemClock.uptimeMillis() + ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
                 } else {
                     startIcsOpenVpn(config, title)
                 }
@@ -1190,6 +1219,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
+                    // R14-1 (fix-cycle 14, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+                    // review-14.md): bump here too, mirroring finishStopFlowConfirmed()'s round-12
+                    // precedent (see that function's declaration comment above for the full
+                    // rationale). This is the ONLY stop ServerAutoSwitcher's retry path ever issues
+                    // (VpnManager.stopVpn(preserveReconnectHint = true) at ServerAutoSwitcher.kt:293
+                    // and :509) -- and it sets userInitiatedStop=false (just above) and leaves
+                    // serviceDestroyed false, so without this bump it would pass all three checks
+                    // in the ENGINE_RECONNECT_DISPATCH_BUFFER_MS deferred dispatch's guard
+                    // unchanged, letting that dispatch fire mid-stop with a superseded config and
+                    // re-arm a fresh engine FGS obligation -- structurally recreating the crash this
+                    // buffer exists to widen. Bumping here closes that window with the same
+                    // mechanism round 12 already introduced.
+                    connectionAttemptGeneration += 1
+                    // R14-2: sweep the reconnect engine-dispatch token here too (defence in depth
+                    // alongside the generation bump above) -- see reconnectEngineDispatchToken's
+                    // declaration comment.
+                    statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
                     statusHandler.removeCallbacks(stopRetryRunnable)
                     statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
@@ -1515,6 +1561,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // R14-2: sweep the reconnect engine-dispatch token here too -- see its declaration
+        // comment. Without this, a deferred dispatch queued before onDestroy() would retain a
+        // strong reference to this Service for up to ENGINE_RECONNECT_DISPATCH_BUFFER_MS after
+        // destroy (the serviceDestroyed guard inside it still makes it a no-op, but the reference
+        // leak and the missing-from-cleanup asymmetry with every other deferred dispatch in this
+        // class were both flagged findings).
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -2548,6 +2601,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // @Volatile question either). See PR #126 review thread (round 6, Codex P2 + Copilot,
     // follow-up to the CONNECTING-preservation fix below).
     private val autoSwitchDispatchToken = Any()
+
+    // R14-2 (fix-cycle 14, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-14.md):
+    // dedicated token for the ENGINE_RECONNECT_DISPATCH_BUFFER_MS deferred dispatch (the
+    // ACTION_START isReconnect==true branch below). Every other deferred action in this class is
+    // cancellable -- 9 named runnable fields swept in onDestroy()/the stop sites, plus
+    // autoSwitchDispatchToken above -- but the fix-cycle-13 dispatch was originally posted as a
+    // bare, untagged Runnable with no cancellation site anywhere, which is why its own
+    // userInitiatedStop/serviceDestroyed/connectionAttemptGeneration guard had no defence in depth
+    // (R14-1: the preserveReconnect ACTION_STOP branch defeated all three checks). Tagging with
+    // this token and sweeping it at the same three sites as autoSwitchDispatchToken (onDestroy(),
+    // the preserveReconnect stop branch, startUserStopTeardown()) restores that second line of
+    // defence, matching this class's established convention.
+    private val reconnectEngineDispatchToken = Any()
 
     // syncEngineState() is reachable both from the AIDL binder-thread callback
     // (updateStateString) and from the main thread (applyStatusSnapshot, via

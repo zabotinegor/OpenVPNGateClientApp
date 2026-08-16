@@ -34,10 +34,23 @@ import java.time.Duration
 // presence/absence at specific points on the Robolectric virtual clock is what each test below
 // observes.
 //
-// Falsifiability: every test in this file must fail if OpenVpnService.kt's ACTION_START handler
-// is reverted to unconditionally call startIcsOpenVpn(config, title) synchronously (removing the
+// Falsifiability: 3 of the 4 original tests (reconnectStart_doesNotDispatchToEngineSynchronously,
+// reconnectStart_dispatchesToEngineAfterBuffer, userDisconnectDuringBufferWindow_
+// suppressesDeferredEngineDispatch) must fail if OpenVpnService.kt's ACTION_START handler is
+// reverted to unconditionally call startIcsOpenVpn(config, title) synchronously (removing the
 // `if (isReconnect) { ... postDelayed ... } else { startIcsOpenVpn(...) }` branch and the
-// ENGINE_RECONNECT_DISPATCH_BUFFER_MS constant it uses).
+// ENGINE_RECONNECT_DISPATCH_BUFFER_MS constant it uses). freshUserStart_dispatchesToEngineImmediately
+// is the one exception: it covers the untouched isReconnect==false synchronous path and is
+// expected to keep passing on that revert -- it exists to prove the reconnect-only buffer adds no
+// latency to a fresh Connect tap, not to detect the revert itself. (R14-5: this comment previously
+// overclaimed "every test in this file must fail if reverted"; corrected per fix-cycle 14.)
+//
+// Fix-cycle 14 (R14-1/R14-2, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-14.md):
+// preserveReconnectStop_duringBufferWindow_suppressesDeferredEngineDispatch below is the
+// acceptance test for R14-1 -- it must fail at commit dbc8583 (before the fix, which adds
+// `connectionAttemptGeneration += 1` to the ACTION_STOP preserveReconnect branch) and pass after.
+// reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce covers the generation-
+// supersession branch (R14-5(ii)).
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServiceReconnectEngineDispatchTest {
@@ -144,6 +157,73 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "merely delay it -- otherwise the app would reconnect to the engine moments after " +
                 "an explicit Disconnect",
             hasEngineStartLog()
+        )
+    }
+
+    // R14-1 acceptance test (fix-cycle 14, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // review-14.md): the auto-switch retry stop path is ACTION_STOP with preserveReconnect=true --
+    // the ONLY stop ServerAutoSwitcher's retry machinery ever issues (VpnManager.stopVpn(
+    // preserveReconnectHint = true) at ServerAutoSwitcher.kt:293 and :509). Before the fix, that
+    // branch set userInitiatedStop=false and never bumped connectionAttemptGeneration, so the
+    // deferred dispatch's guard (userInitiatedStop || serviceDestroyed || generation mismatch)
+    // caught nothing and the engine start fired anyway. This test must FAIL at commit dbc8583
+    // (before `connectionAttemptGeneration += 1` was added to that branch) and PASS after.
+    @Test
+    fun preserveReconnectStop_duringBufferWindow_suppressesDeferredEngineDispatch() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        service.onStartCommand(reconnectStartIntent(), 0, 2)
+        assertFalse("precondition: no synchronous dispatch", hasEngineStartLog())
+
+        // The auto-switch retry stop: ACTION_STOP with preserveReconnect=true, exactly what
+        // ServerAutoSwitcher issues via VpnManager.stopVpn(preserveReconnectHint = true) when an
+        // engine level or stall-timer fire lands mid-retry -- as opposed to a plain user Disconnect
+        // (already covered by userDisconnectDuringBufferWindow_suppressesDeferredEngineDispatch).
+        val preserveReconnectStopIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP)
+            putExtra(VpnManager.extraPreserveReconnectKey(appContext), true)
+        }
+        service.onStartCommand(preserveReconnectStopIntent, 0, 3)
+
+        // Advance well past the buffer.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertFalse(
+            "The auto-switch retry stop (ACTION_STOP, preserveReconnect=true) landing inside the " +
+                "reconnect-dispatch buffer window must suppress the deferred engine dispatch, just " +
+                "like a plain user Disconnect does -- otherwise the deferred dispatch fires mid-stop " +
+                "with a superseded config and re-arms a fresh engine FGS obligation, structurally " +
+                "recreating the crash ENGINE_RECONNECT_DISPATCH_BUFFER_MS exists to widen (R14-1)",
+            hasEngineStartLog()
+        )
+    }
+
+    // R14-5(ii): the connectionAttemptGeneration supersession branch (lines 1165-1168 at the time
+    // of review round 14) was asserted by the declaration comment but exercised by no test. Two
+    // reconnect starts issued back-to-back within the same buffer window -- the second start
+    // (e.g. a fresh auto-switch retry to a different server) must supersede the first, so exactly
+    // one engine start fires, not two and not zero.
+    @Test
+    fun reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        service.onStartCommand(reconnectStartIntent(startId = 2), 0, 2)
+        service.onStartCommand(reconnectStartIntent(startId = 3), 0, 3)
+        assertFalse("precondition: no synchronous dispatch", hasEngineStartLog())
+
+        // Advance well past the buffer.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        val engineStartCount = ShadowLog.getLogs().count { it.tag == logTag && it.msg.contains(engineStartLog) }
+        org.junit.Assert.assertEquals(
+            "Exactly one engine start must fire when a second reconnect ACTION_START supersedes " +
+                "the first inside the same buffer window -- the superseded (first) dispatch must be " +
+                "skipped via the connectionAttemptGeneration mismatch guard, not fire a second, " +
+                "stale engine start alongside the current one",
+            1,
+            engineStartCount
         )
     }
 }
