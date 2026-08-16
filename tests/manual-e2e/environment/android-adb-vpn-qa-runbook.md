@@ -97,5 +97,30 @@ specific country as "always dead". Two reliable techniques instead:
   least one bracket shows that exact order; brackets showing `ACTION_START` before
   `ACTION_SYNC_STATUS`, or a `Service destroyed` between the two, do not count as evidence of it.
 
+## Reactive log-polling loops are too slow to hit sub-500ms race windows
+
+A Bash loop that repeatedly does `tail -n N "$LOG" | grep -q "<trigger line>"` against a live
+`adb logcat -v time > file` capture, then fires an `adb shell input tap` reaction, looks like it should
+give ~10-50ms reaction latency (the `sleep` interval) but does not on this Windows/Git-Bash toolchain:
+each loop iteration forks two subprocesses (`tail`, `grep`) plus the reaction's own `adb shell` call, and
+that subprocess-spawn overhead was measured at 300-700ms+ per detected reaction in practice (confirmed
+via wall-clock timestamps against the log's own timestamps), sometimes bad enough that a
+300-400-iteration loop blew past this session's own Bash-tool command timeout before ever finding the
+trigger line. This makes reactive polling unusable for windows narrower than roughly 500ms-1s (e.g.
+`ServerAutoSwitcher`'s 350ms `retryCommitInFlight` retry-commit window,
+`START_AFTER_STOP_DELAY_MS = 350` in `ServerAutoSwitcher.kt`).
+**Workaround:** for windows that narrow, do NOT try to close the loop over logcat. Instead (a) run several
+back-to-back real connection attempts to learn the session's own empirical event timing (e.g. "switch
+decision fires ~2.4-2.5s after `ACTION_START`" against a `status_stall_timeout_seconds=1` server), then
+(b) fire the reaction as a single blind `sleep <precomputed offset>` after the initiating tap, with a
+handful of trials spanning a small offset sweep to cover jitter. Accept that live third-party server
+response-time variability (VPN Gate community servers) means not every blind-timed trial will actually
+land inside an open window — some will simply complete a normal connect with no window ever opening,
+which is not a failure, just inapplicable data for that trial. For windows this narrow, on-device timing
+should be treated as supporting/directional evidence alongside (not a replacement for) deterministic
+unit-test coverage, which does not depend on wall-clock adb round-trips at all.
+(Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 3, 2026-08-16, trying
+to force a genuine user-Disconnect tap inside the 350ms retry-commit window on real hardware.)
+
 ## Last validated
-2026-08-10, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `9032cf9`.
+2026-08-16, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `6d8be07`.
