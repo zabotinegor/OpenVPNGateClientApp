@@ -70,6 +70,15 @@ import java.time.Duration
 // without ever trying it. The fix suppresses such levels at dispatchAutoSwitcherOnEngineLevel()
 // via reconnectDispatchPendingGeneration, before they ever reach ServerAutoSwitcher. This test
 // must fail if that suppression check is reverted and pass with it in place.
+//
+// Fix-cycle 17 (R16-1, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-16.md):
+// review-16 proved with a falsifying probe that reconnectDispatchPendingGeneration's clear site
+// was unconditional, so a superseded (earlier) buffer's Runnable could wipe a still-pending newer
+// buffer's marker out from under it, reopening the fix-cycle-16 suppression window.
+// overlappingReconnectBuffers_earlierBufferResolutionDoesNotClearNewerBuffersGuard below is the
+// acceptance test for that finding; it must fail if the clear site's
+// `if (reconnectDispatchPendingGeneration == dispatchGeneration)` guard is reverted to an
+// unconditional clear, and pass with the guard in place.
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServiceReconnectEngineDispatchTest {
@@ -316,6 +325,88 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "preserveReconnect stop bumps connectionAttemptGeneration and sweeps " +
                 "reconnectEngineDispatchToken, cancelling the still-pending deferred dispatch and " +
                 "skipping the originally selected server without ever trying it",
+            hasEngineStartLog()
+        )
+    }
+
+    // R16-1 acceptance test (fix-cycle 17, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-16.md): review-16 proved with a falsifying probe that the deferred Runnable's
+    // unconditional `reconnectDispatchPendingGeneration = -1` clear is wrong when TWO reconnect
+    // buffers overlap. Sequence: buffer A (generation G, due T+500) is superseded by buffer B
+    // (generation G+1, due T+700) before A's Runnable runs. At T+500, A's Runnable still executes
+    // (it is not swept -- only the token-tagged dispatch itself would be swept, and neither
+    // ACTION_START nor this scenario sweeps it) and, pre-fix, clears the marker to -1 even though
+    // it currently holds G+1 (buffer B's own, still-pending marker) -- reopening
+    // dispatchAutoSwitcherOnEngineLevel()'s stray-level suppression window for buffer B until
+    // T+700. A stray AIDL level landing in that reopened window then reaches ServerAutoSwitcher,
+    // whose requestSwitchNow() issues a preserveReconnect stop that cancels buffer B's still-
+    // pending deferred dispatch -- skipping the selected server without ever trying it, the exact
+    // defect this whole guard exists to close. This test must FAIL (no engine start log, because
+    // buffer B gets cancelled) if the `if (reconnectDispatchPendingGeneration == dispatchGeneration)`
+    // guard at the top of the deferred Runnable is reverted to an unconditional clear, and PASS
+    // with the guard in place.
+    @Test
+    fun overlappingReconnectBuffers_earlierBufferResolutionDoesNotClearNewerBuffersGuard() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).clearStartedServices()
+
+        // Buffer A: reconnect ACTION_START at t=0, due at t=500, generation G.
+        service.onStartCommand(reconnectStartIntent(startId = 2), 0, 2)
+        assertFalse("precondition: no synchronous dispatch", hasEngineStartLog())
+
+        // Buffer B: a newer reconnect ACTION_START at t=200, due at t=700, generation G+1 --
+        // supersedes buffer A (see reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce)
+        // but buffer A's own deferred Runnable remains scheduled and will still run at t=500.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+        service.onStartCommand(reconnectStartIntent(startId = 3), 0, 3)
+
+        // Advance to just past buffer A's expiry (t=550) but well before buffer B's (t=700).
+        // Buffer A's Runnable now runs and takes the "newer attempt has begun" skip branch
+        // (connectionAttemptGeneration == G+1 != dispatchGeneration == G) -- but R16-1 is about
+        // the unconditional clear that used to precede that check, not the check itself.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+        assertFalse(
+            "neither buffer should have produced an engine start yet at t=550",
+            hasEngineStartLog()
+        )
+
+        // A late/stray AIDL LEVEL_AUTH_FAILED from the original (pre-buffer-A) engine lands in the
+        // gap between buffer A's expiry and buffer B's -- exactly the window R16-1 identifies. If
+        // reconnectDispatchPendingGeneration was wiped by buffer A's Runnable, this level is no
+        // longer suppressed and reaches ServerAutoSwitcher.
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString("AUTH_FAILED", null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        // Forward whatever ServerAutoSwitcher's requestSwitchNow() may have dispatched back into
+        // this same service instance -- see strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer
+        // above for why this forwarding step is required for falsifiability under Robolectric.
+        val shadowApp = Shadows.shadowOf(RuntimeEnvironment.getApplication())
+        var nextId = 4
+        var forwarded = shadowApp.nextStartedService
+        while (forwarded != null) {
+            service.onStartCommand(forwarded, 0, nextId++)
+            forwarded = shadowApp.nextStartedService
+        }
+
+        // Advance well past buffer B's expiry (t=950 total, comfortably clear of t=700).
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+
+        assertTrue(
+            "A stray AIDL level landing in the gap between an earlier, superseded reconnect " +
+                "buffer's expiry and a later, still-pending buffer's expiry must not be able to " +
+                "cancel the later buffer -- reconnectDispatchPendingGeneration must only be cleared " +
+                "by the Runnable that owns that generation's marker (R16-1), not unconditionally by " +
+                "whichever Runnable happens to resolve first",
             hasEngineStartLog()
         )
     }

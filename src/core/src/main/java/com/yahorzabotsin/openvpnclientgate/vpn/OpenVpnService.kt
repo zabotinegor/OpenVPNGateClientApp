@@ -326,15 +326,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // unfiltered. That stray delivery can re-trigger requestSwitchNow(), whose preserveReconnect
     // stop then sweeps reconnectEngineDispatchToken and cancels the still-pending deferred
     // dispatch -- skipping the selected server entirely without ever trying it.
-    // Holds the generation for which a reconnect engine-dispatch buffer is currently pending (i.e.
-    // the deferred Runnable posted below has not yet run or been swept), or -1 when none is
-    // pending. Set right before postAtTime() and cleared unconditionally as the very first
-    // statement inside that Runnable, so it self-invalidates the moment the buffer resolves either
-    // way (fires or is skipped). Any subsequent event that bumps connectionAttemptGeneration (a
-    // fresh ACTION_START, the preserveReconnect ACTION_STOP bump, finishStopFlowConfirmed()) also
-    // implicitly invalidates a still-pending value here, since the equality check in
-    // dispatchAutoSwitcherOnEngineLevel() below compares against the LIVE counter -- no separate
-    // sweep site is needed for those paths.
+    // Holds the generation of the MOST RECENTLY posted reconnect engine-dispatch buffer that is
+    // still pending (i.e. its deferred Runnable posted below has not yet run or been swept), or -1
+    // when none is pending. Set right before postAtTime() for each buffer.
+    // R16-1 (fix-cycle 17, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-16.md):
+    // a single Int field cannot represent more than one pending buffer at a time, so when two
+    // buffers are in flight (an earlier one superseded by a newer ACTION_START before it ran --
+    // see reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce), this field holds
+    // only the NEWER buffer's generation from the moment the newer ACTION_START is processed. The
+    // Runnable clears the marker as its first statement, but ONLY if the marker still equals that
+    // Runnable's own captured dispatchGeneration -- guarding against the earlier, superseded
+    // buffer's Runnable wiping the newer buffer's still-live marker when it resolves first. A
+    // Runnable therefore self-invalidates the moment its OWN buffer resolves (fires or is skipped);
+    // it never touches a different generation's marker. Any subsequent event that bumps
+    // connectionAttemptGeneration (a fresh ACTION_START, the preserveReconnect ACTION_STOP bump,
+    // finishStopFlowConfirmed()) also implicitly invalidates a still-pending value here, since the
+    // equality check in dispatchAutoSwitcherOnEngineLevel() below compares against the LIVE
+    // counter -- no separate sweep site is needed for those three paths. startUserStopTeardown()
+    // (R16-2) IS a fourth sweep site (it removes the pending Runnable via
+    // reconnectEngineDispatchToken without running it) but does NOT bump connectionAttemptGeneration,
+    // so it can leave this marker latched at a stale generation. That is benign today only because
+    // userInitiatedStop is true throughout the latched interval, which independently discards any
+    // level at the deferred dispatch's own inner guard (:2726 at the time of writing), and because
+    // the latch cannot outlive the next generation bump (finishStopFlowConfirmed() or a fresh
+    // ACTION_START, both of which occur before any new attempt can begin).
     // @Volatile for the same cross-thread reason as connectionAttemptGeneration: written on the
     // main thread (ACTION_START / the deferred Runnable), read on the AIDL binder thread inside
     // dispatchAutoSwitcherOnEngineLevel().
@@ -1212,10 +1227,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // even where the guard below is defeated (as the preserveReconnect ACTION_STOP
                     // branch was), the sweep at that same branch now removes this dispatch outright.
                     statusHandler.postAtTime(Runnable {
-                        // Clear unconditionally, first: the buffer is resolving right now, one way
-                        // or another (fires below, or is skipped by either guard) -- see
-                        // reconnectDispatchPendingGeneration's declaration comment.
-                        reconnectDispatchPendingGeneration = -1
+                        // R16-1 (fix-cycle 17, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+                        // crash-review-16.md): clear ONLY if the marker still belongs to THIS
+                        // Runnable's own generation. Two reconnect buffers can be pending at once
+                        // (an earlier one superseded by a newer ACTION_START, but not yet run --
+                        // see reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce),
+                        // and reconnectDispatchPendingGeneration always holds only the MOST RECENT
+                        // buffer's generation. An unconditional clear here would let the earlier,
+                        // superseded buffer's Runnable wipe the newer, still-pending buffer's
+                        // marker out from under it the moment the earlier one resolves -- reopening
+                        // dispatchAutoSwitcherOnEngineLevel()'s stray-level suppression window for
+                        // the newer buffer until IT resolves. See reconnectDispatchPendingGeneration's
+                        // declaration comment.
+                        if (reconnectDispatchPendingGeneration == dispatchGeneration) {
+                            reconnectDispatchPendingGeneration = -1
+                        }
                         // Mirrors dispatchAutoSwitcherOnEngineLevel's guard: a genuine user/system
                         // stop landing inside this buffer window, or a newer ACTION_START having
                         // already superseded this one, must make this a no-op rather than reaching
