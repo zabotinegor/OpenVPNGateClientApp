@@ -27,6 +27,11 @@ class VpnManagerTest {
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         VpnManager.resetActionStartDispatchTrackingForTest()
+        // R11-1: static/companion state, so it can leak across test methods within this class
+        // (Robolectric's classloader isolation is per test class, not per test method) unless
+        // explicitly reset -- mirrors the existing resetActionStartDispatchTrackingForTest() call
+        // above.
+        OpenVpnService.isInstanceAlive = false
     }
 
     @Test
@@ -364,6 +369,11 @@ class VpnManagerTest {
         val app: Application = RuntimeEnvironment.getApplication()
         val failOnceContext = FailOnceStartServiceContext(app)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // R11-1: the self-heal re-check only re-runs stopControllerIfIdle() against an
+        // ALREADY-running controller instance (see OpenVpnService.isInstanceAlive's declaration
+        // comment) -- exactly the scenario this test models: a controller instance exists but a
+        // background auto-switch retry's ACTION_START dispatch to it failed.
+        OpenVpnService.isInstanceAlive = true
 
         val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
 
@@ -394,6 +404,97 @@ class VpnManagerTest {
         assertEquals(
             VpnManager.ACTION_STOP_IF_IDLE,
             started?.getStringExtra(VpnManager.actionKey(app))
+        )
+    }
+
+    // R11-4 test 1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // review-11.md): scheduleIdleRecheckAfterFailedStartDispatch() is only ever called from the
+    // `if (action == ACTION_START)` branches of startControllerService()'s catch blocks -- that
+    // gate was previously unpinned by any test (removing it fails no test). A failed ACTION_STOP
+    // dispatch must not arm any self-heal re-check at all.
+    @Test
+    fun stopVpn_failedDispatch_doesNotScheduleIdleRecheck() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val result = VpnManager.stopVpn(failOnceContext)
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        val shadowApp = Shadows.shadowOf(app)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "scheduleIdleRecheckAfterFailedStartDispatch() must only run for a failed ACTION_START " +
+                "dispatch (the action == ACTION_START gate) -- a failed ACTION_STOP dispatch must " +
+                "not schedule any self-heal re-check",
+            shadowApp.nextStartedService
+        )
+    }
+
+    // R11-4 test 2: the self-heal re-check must still respect stopControllerIfIdle()'s own
+    // state != DISCONNECTED guard even while OpenVpnService.isInstanceAlive is true -- a live
+    // instance that is no longer idle by the time the re-check fires (a later, unrelated dispatch
+    // moved it to CONNECTING) must not be torn down.
+    @Test
+    fun startVpn_failedDispatch_idleRecheckNoOpsWhenNotDisconnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        OpenVpnService.isInstanceAlive = true
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        // A later, unrelated transition moves the app off DISCONNECTED before the recheck window
+        // elapses.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        val shadowApp = Shadows.shadowOf(app)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "stopControllerIfIdle()'s own state != DISCONNECTED guard must still apply to the " +
+                "self-heal re-check, even while OpenVpnService.isInstanceAlive is true",
+            shadowApp.nextStartedService
+        )
+    }
+
+    // R11-4 test 3: a successful ACTION_START landing within the self-heal recheck window (e.g. a
+    // manual retry after the earlier failure) must not be torn down by the delayed re-check that
+    // was armed for the earlier failed dispatch.
+    @Test
+    fun startVpn_failedThenSuccessfulRetryWithinRecheckWindow_idleRecheckDoesNotTearDownNewStart() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        OpenVpnService.isInstanceAlive = true
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val firstResult = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertFalse("Precondition: the first attempt must fail", firstResult)
+
+        // A fresh retry lands successfully before the self-heal window elapses (e.g. a later
+        // auto-switch attempt succeeded), moving the app back toward CONNECTING.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        val secondResult = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertTrue(
+            "Precondition: the second attempt must succeed (FailOnceStartServiceContext only " +
+                "throws on its first call)",
+            secondResult
+        )
+
+        val shadowApp = Shadows.shadowOf(app)
+        // Drain the legitimate ACTION_START from the successful retry before asserting on the
+        // self-heal recheck below.
+        assertNotNull(shadowApp.nextStartedService)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "A successful ACTION_START landing within the self-heal recheck window must not be " +
+                "torn down by the delayed re-check scheduled for the earlier failed dispatch",
+            shadowApp.nextStartedService
         )
     }
 

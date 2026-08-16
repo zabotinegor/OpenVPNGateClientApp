@@ -28,7 +28,12 @@ object ServerAutoSwitcher {
     private var seconds: Int = 0
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
-    internal var starter: (Context, String, String?, Boolean) -> Unit = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
+    // R11-2 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
+    // returns Boolean (VpnManager.startVpn()'s own dispatch-success result), not Unit -- the two
+    // retry-commit sites below need to observe a failed dispatch to roll back the CONNECTING
+    // re-assertion they make just ahead of calling this. See rollBackFailedRetryDispatch()'s
+    // declaration comment.
+    internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
     // selected-country server list is empty. The callback must hydrate the list and then
@@ -145,7 +150,7 @@ object ServerAutoSwitcher {
                     val r = Runnable {
                         retryStartRunnable = null
                         retryCommitInFlight = false
-                        starter(appContext, cfg, title, true)
+                        if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
                     }
                     retryStartRunnable = r
                     retryCommitInFlight = true
@@ -568,6 +573,29 @@ object ServerAutoSwitcher {
         )
     }
 
+    // R11-2 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
+    // both retry-commit sites re-assert ConnectionStateManager CONNECTING/reconnectingHint=true
+    // ahead of their delayed starter(...) dispatch (R7-1, fix-cycle 7). If that dispatch fails --
+    // starter == VpnManager.startVpn(), which returns false when ContextCompat
+    // .startForegroundService() throws, e.g. Android's FGS-start-from-background restriction
+    // rejecting a background auto-switch retry -- no engine level will EVER arrive to move
+    // ConnectionStateManager off CONNECTING: the ACTION_START that would normally produce one was
+    // never delivered. Left uncorrected this both (a) strands the UI on a permanent false
+    // "Connecting" state, and (b) permanently blocks VpnManager.stopControllerIfIdle()'s
+    // state != DISCONNECTED guard -- including the very re-check
+    // VpnManager.scheduleIdleRecheckAfterFailedStartDispatch() schedules specifically to recover
+    // from this exact failure, making that self-heal a guaranteed no-op on its own stated
+    // motivating scenario. Roll the re-assertion back so both are corrected.
+    private fun rollBackFailedRetryDispatch() {
+        AppLog.w(TAG, "Retry-commit ACTION_START dispatch failed; rolling back CONNECTING re-assertion")
+        try {
+            ConnectionStateManager.setReconnectingHint(false)
+            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to roll back reconnect invariant after failed retry dispatch", e)
+        }
+    }
+
     private fun scheduleStopRetryTimeout(appContext: Context) {
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         val hasPending = pendingConfig != null
@@ -594,7 +622,7 @@ object ServerAutoSwitcher {
                 val startR = Runnable {
                     retryStartRunnable = null
                     retryCommitInFlight = false
-                    starter(appContext, cfg, title, true)
+                    if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
                 }
                 retryStartRunnable = startR
                 retryCommitInFlight = true

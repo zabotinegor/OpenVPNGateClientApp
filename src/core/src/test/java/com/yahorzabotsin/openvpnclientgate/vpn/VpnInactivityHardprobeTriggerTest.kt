@@ -41,7 +41,7 @@ import java.time.Duration
 class VpnInactivityHardprobeTriggerTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Unit)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Unit)? = null
 
     private class FakeProbeRequestQueue : ProbeRequestQueue {
@@ -65,7 +65,7 @@ class VpnInactivityHardprobeTriggerTest {
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
 
         originalStarter = ServerAutoSwitcher.starter
-        ServerAutoSwitcher.starter = { _, _, _, _ -> }
+        ServerAutoSwitcher.starter = { _, _, _, _ -> true }
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> }
 

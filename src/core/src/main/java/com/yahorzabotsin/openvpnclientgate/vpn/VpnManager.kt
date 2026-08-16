@@ -85,6 +85,15 @@ object VpnManager {
 
     private val recheckHandler = Handler(Looper.getMainLooper())
 
+    // R11-3 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
+    // hoisted to a stored property so scheduleIdleRecheckAfterFailedStartDispatch() can cancel any
+    // still-pending re-check before arming a new one. Previously each failed ACTION_START dispatch
+    // posted an independent, anonymous lambda that neither this object nor
+    // ServerAutoSwitcher.cancel()/cancelForUserStop() could ever reference or remove -- so repeated
+    // failures piled up multiple independent, uncancellable pending re-checks instead of at most
+    // one.
+    private var idleRecheckRunnable: Runnable? = null
+
     /**
      * True if an `ACTION_START` dispatch via [startVpn] was attempted within the last
      * [RECENT_ACTION_START_DISPATCH_WINDOW_MS]. See [lastActionStartDispatchElapsedRealtimeMs]'s
@@ -134,10 +143,21 @@ object VpnManager {
      */
     private fun scheduleIdleRecheckAfterFailedStartDispatch(context: Context) {
         val appContext = context.applicationContext
-        recheckHandler.postDelayed(
-            { stopControllerIfIdle(appContext) },
-            IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS
-        )
+        idleRecheckRunnable?.let { recheckHandler.removeCallbacks(it) }
+        val recheck = Runnable {
+            idleRecheckRunnable = null
+            // R11-1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
+            // only re-run stopControllerIfIdle() against an ALREADY-running controller instance.
+            // stopControllerIfIdle() ends in context.startService(); called with no live instance
+            // it CREATES a brand-new OpenVpnService just to immediately tear it down, and that
+            // instance's onCreate() unconditionally issues startForeground() -- see
+            // OpenVpnService.isInstanceAlive's declaration comment for the full rationale.
+            if (OpenVpnService.isInstanceAlive) {
+                stopControllerIfIdle(appContext)
+            }
+        }
+        idleRecheckRunnable = recheck
+        recheckHandler.postDelayed(recheck, IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS)
     }
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {

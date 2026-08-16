@@ -63,7 +63,7 @@ import java.util.UUID
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
-    private companion object {
+    internal companion object {
         private const val ENGINE_ACTION_PAUSE_VPN = "de.blinkt.openvpn.PAUSE_VPN"
         private const val ENGINE_ACTION_RESUME_VPN = "de.blinkt.openvpn.RESUME_VPN"
 
@@ -134,6 +134,26 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
         private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
         private const val WATCHDOG_DEFAULT_OPENVPN_PORT = 1194
+
+        // R11-1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
+        // whether ANY OpenVpnService instance is currently alive (there is only ever one at a
+        // time; Android guarantees onDestroy() of a prior instance completes before a new one's
+        // onCreate() begins). Set true as the first statement of onCreate() and false as the
+        // first statement of onDestroy(), mirroring serviceDestroyed's own "set before anything
+        // else" placement. Exists so VpnManager.scheduleIdleRecheckAfterFailedStartDispatch()'s
+        // delayed re-check can tell "no controller currently exists" apart from "a controller
+        // exists and might be idle" BEFORE calling stopControllerIfIdle() -- which, called with
+        // no live instance, ends in context.startService() and therefore CREATES a brand-new
+        // OpenVpnService just to immediately tear it down. That brand-new instance's onCreate()
+        // unconditionally calls enterControllerForeground() (load-bearing for the genuine
+        // ACTION_START FGS obligation -- see that method's own declaration comment below), so the
+        // phantom instance issues a real, user-visible "Establishing secure connection..."
+        // notification for a start that never actually landed. This restores, for the new
+        // VpnManager caller, the same invariant appLifecycleObserver already documents for the
+        // pre-existing stopControllerIfIdle() caller: "never spins up a new instance just to
+        // immediately stop it" (see that field's declaration comment a few hundred lines below).
+        @Volatile
+        internal var isInstanceAlive: Boolean = false
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -798,6 +818,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     override fun onCreate() {
+        // R11-1: set before anything else, mirroring onDestroy()'s serviceDestroyed placement --
+        // see isInstanceAlive's declaration comment above.
+        isInstanceAlive = true
         super.onCreate()
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
@@ -1412,6 +1435,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // binder thread reading this flag observes a stale false. See the field's doc comment
         // for why this is distinct from userInitiatedStop.
         serviceDestroyed = true
+        // R11-1: see isInstanceAlive's declaration comment above.
+        isInstanceAlive = false
         exitControllerForeground()
         unregisterAppLifecycleObserver()
         super.onDestroy()

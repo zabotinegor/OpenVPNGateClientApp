@@ -28,7 +28,7 @@ class ServerAutoSwitcherTest {
     private val appContext = RuntimeEnvironment.getApplication()
     private val logTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ":" + "ServerAutoSwitcher"
     private val source = "VPN_STATUS"
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Unit)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Unit)? = null
     private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
     private val calls = mutableListOf<Call>()
