@@ -15,6 +15,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [V2 Server Source (DEFAULT_V2)](#v2-server-source-default_v2)
 - [Source-Independent App Metadata Calls](#source-independent-app-metadata-calls)
 - [Hardprobe Trigger Points](#hardprobe-trigger-points)
+- [Status Sync: Live AIDL Push vs. Snapshot-Poll Fallback](#status-sync-live-aidl-push-vs-snapshot-poll-fallback)
 - [Foreground Service Lifecycle Guard in `syncEngineState()`](#foreground-service-lifecycle-guard-in-syncenginestate)
 - [SSE Server-Push Sync (SUB-02)](#sse-server-push-sync-sub-02)
 

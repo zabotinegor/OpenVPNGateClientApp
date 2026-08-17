@@ -16,9 +16,42 @@
     <color name="splash_background_color">#F7F9FC</color>
 
     <!-- Section: Speedometer -->
-    <color name="speedometer_arc_color">#C9D4E2</color>
+    <!-- Hairline color for the connection-detail dividers. Not the gauge's unfilled track -
+         that is speedometer_track_color below. -->
+    <color name="speedometer_arc_color">#E7EBF0</color>
     <color name="speedometer_progress_color">#7F93A8</color>
-    <color name="speedometer_text_color">@color/text_color_primary</color>
+    <!-- Unfilled part of the dial band. Reads as a quiet groove so only the gradient fill,
+         the needle and the value carry visual weight (as on the speedtest.net dial). -->
+    <color name="speedometer_track_color">#DCE3ED</color>
+    <!-- Dial face: radial gradient from the hub outwards, filling the disc inside the band. -->
+    <color name="speedometer_face_center_color">#FFFFFF</color>
+    <color name="speedometer_face_edge_color">#EAEFF6</color>
+    <!-- Progress fill: blue -> cyan -> mint, remapped across whatever share of the arc is
+         currently filled, so the leading edge always lands on the bright mint end. Deeper than
+         the night-theme stops: the same bright tones that carry against #121212 wash out against
+         a near-white face, leaving the filled/unfilled boundary hard to place. -->
+    <color name="speedometer_gradient_start">#0F62D6</color>
+    <color name="speedometer_gradient_mid">#0090B4</color>
+    <color name="speedometer_gradient_end">#0E9E77</color>
+    <!-- Scale labels: bright up to the needle, muted past it. The muted tone is held at roughly
+         the same contrast against the face as its night-theme counterpart (~4:1); the previous
+         #A7B2C0 measured 2.15:1 on white and read as barely-there. -->
+    <color name="speedometer_label_active_color">@color/text_color_primary</color>
+    <color name="speedometer_label_inactive_color">#6F7E90</color>
+    <!-- Needle: tapered wedge shaded along its length, wide end at the rim. Inner (hub-side)
+         stop narrowed from #C4CDDA: that tone measured ~1.6:1 contrast against
+         speedometer_face_center_color, far below the ~3:1 WCAG non-text minimum, so the needle's
+         hub half visually disappeared against the face in light theme (reported as "gray on
+         gray" even while connected). #66738A measures ~4.8:1 against the white face center, in
+         the same range as the ~5.8:1 the outer stop already achieves, so the wedge now reads as
+         solid along its full length while keeping a slight taper towards the rim. (The needle's
+         radius range, 0.09-0.45 * outerRadius, never reaches the track band at
+         0.875-1.0 * outerRadius, so a track-color comparison doesn't apply here.) -->
+    <color name="speedometer_needle_outer_color">#59667A</color>
+    <color name="speedometer_needle_inner_color">#66738A</color>
+    <!-- Value readout inside the dial and the unit caption under it. -->
+    <color name="speedometer_value_color">@color/text_color_primary</color>
+    <color name="speedometer_unit_color">@color/text_color_secondary</color>
 
     <!-- Section: Ping -->
     <color name="ping_strong_color">#00FF00</color>

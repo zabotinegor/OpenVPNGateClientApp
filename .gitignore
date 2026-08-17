@@ -165,6 +165,7 @@ docs/qa-evidence
 /.github/scripts/test-merge-approval.ps1
 /.github/scripts/test-release-notes-lint.ps1
 /.github/scripts/test-reset-recovery.ps1
+/.github/scripts/test-review-loop-dedup.ps1
 /.github/scripts/test-reviewed-head-assert.ps1
 /.github/scripts/test-review-loop-dedup.ps1
 /.github/scripts/test-sdlc-lease.ps1

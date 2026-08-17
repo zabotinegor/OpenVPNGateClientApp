@@ -119,6 +119,9 @@
     <string name="speed_unit_mbps">MB/s</string>
     <string name="speed_unit_gbps">GB/s</string>
 
+    <!-- Section: Speedometer gauge unit (bits per second - distinct from the byte-rate units above) -->
+    <string name="speedometer_unit_mbps">Mb/s</string>
+
     <!-- Section: Traffic units (total bytes) -->
     <string name="traffic_unit_b">B</string>
     <string name="traffic_unit_kb">KB</string>

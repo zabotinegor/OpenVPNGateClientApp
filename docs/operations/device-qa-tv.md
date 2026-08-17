@@ -81,6 +81,55 @@ input handling).
 - Focus tracking: the focused row is the `CardView` with `focused="true"`; correlate with child
   `country_name`/`server_title` bounds.
 
+## Verifying landscape lock on TV (no `mRotation=` field on Android 9)
+
+Unlike phone/API 26+ devices, MIBOX4's Android 9 `adb shell dumpsys window displays` output has no
+`mRotation=` field at all (its `Display:` block only shows `init=1920x1080 ... cur=1920x1080`, a
+fixed physical landscape resolution — TV hardware doesn't rotate). Forcing `user_rotation`/
+`accelerometer_rotation` the way you would on a phone is meaningless here. A pure screenshot check
+also has a blind spot: on a physically-fixed-landscape panel, an activity with no orientation
+request at all renders identically to one explicitly locked to landscape, so a screenshot alone
+can't distinguish "the lock is working" from "the lock silently failed and the hardware just
+happens to always be landscape anyway."
+
+`adb shell dumpsys activity activities` does **not** help here either — confirmed live against this
+MIBOX4 (API 28): its output contains no `mOrientation=`/`requestedOrientation` field anywhere, for
+any app, in any format.
+
+`adb shell dumpsys window` **does** expose a genuine per-activity requested-orientation signal,
+confirmed live on this hardware. Each app window's entry contains a `task={... ActivityRecord{...
+<package>/<Activity> ...}}}` line immediately followed by `mOrientation=<int>`, using the standard
+`ActivityInfo.SCREEN_ORIENTATION_*` integer codes (`-1` = `UNSPECIFIED`, `0` = `LANDSCAPE`, `1` =
+`PORTRAIT`, `6` = `SENSOR_LANDSCAPE`, etc.). This reflects the actual `requestedOrientation` in
+effect — including CoreApp's runtime `registerOrientationPolicy()` override, not just the manifest's
+static `android:screenOrientation` — verified by cross-checking `.tv.MainActivity` (manifest:
+`android:screenOrientation="landscape"`) and getting back `mOrientation=0` (`LANDSCAPE`):
+
+```
+adb shell dumpsys window | grep -A1 "task={.*ActivityRecord{.*<package>/<Activity>" | grep -o "mOrientation=[0-9-]*"
+```
+
+Expect `mOrientation=0` (or another landscape-family code such as `6`/`8`/`11`) for a landscape-locked
+screen. This is the authoritative check — run it for each screen under test. Note it reads the
+window's last-known state, so launch/navigate to the activity under test immediately before running
+it.
+
+Follow up with a screenshot (`adb shell screencap -p /sdcard/x.png && adb pull /sdcard/x.png`,
+remember `MSYS_NO_PATHCONV=1` in Git Bash) as a complementary visual sanity check — the same method
+already used for the pre-existing MainActivity/ServerListActivity TV evidence — and, optionally,
+`adb logcat | grep -i "orientation policy"` to confirm CoreApp's lifecycle callback executed without
+exception (`Orientation policy lifecycle observer registered`, no `Failed to apply orientation
+policy for <ActivityName>` warning). That logcat signal only proves the callback ran without
+throwing, not that the OS applied the value — the `dumpsys window` check above is what actually
+proves the requested-orientation state.
+
+## Navigation drawer open/closed state persists across activity back-navigation
+
+Same behavior as the mobile runbook: opening the drawer, launching a secondary activity from it, then
+pressing D-pad Back returns to `MainActivity` with the drawer already open and focus on the just-used
+nav item (content-desc reads "Закрыть панель навигации" = "close"). Dump the UI to check before
+sending more D-pad presses aimed at "opening" it again.
+
 ## Favorites prefs inspection (debug builds)
 
 Same as mobile: `run-as com.yahorzabotsin.openvpnclientgate cat shared_prefs/favorites_prefs.xml`

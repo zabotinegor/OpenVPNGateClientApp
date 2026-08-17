@@ -31,12 +31,14 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Restyling stock `PopupMenu`/`AlertDialog` via theme attributes only — no code/behavior diff](#restyling-stock-popupmenualertdialog-via-theme-attributes-only--no-codebehavior-diff)
 - [`ServerRepositoryTest.parallel_force_refresh_same_key_does_not_fail_cache_write` is flaky under a full-suite run on Windows](#serverrepositorytestparallel_force_refresh_same_key_does_not_fail_cache_write-is-flaky-under-a-full-suite-run-on-windows)
 - [`core` module Robolectric tests can't resolve even plain `@ColorRes` lookups, not just AppCompat/Material theme attributes](#core-module-robolectric-tests-cant-resolve-even-plain-colorres-lookups-not-just-appcompatmaterial-theme-attributes)
+- [Custom `core` Views with resource-reading `init` blocks cannot get Robolectric component tests at all — root cause of the prior `@ColorRes` gap](#custom-core-views-with-resource-reading-init-blocks-cannot-get-robolectric-component-tests-at-all--root-cause-of-the-prior-colorres-gap)
 - [Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed](#engine-update-build-fails-with-failed-to-find-target-with-hash-string-android-37--sdk-platform-37-not-yet-installed)
 - [CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can](#cis-bundled-sdkmanager-cannot-resolve-platformsandroid-37-even-though-gradle-can)
 - [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
 - [Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563](#auto-switch-never-fires-when-the-live-aidl-push-status-callback-stalls--bug-86cb21563)
 - [OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt](#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt)
 - [Engine's own `de.blinkt.openvpn.core.OpenVPNService` FGS-timeout crash under rapid stop/retry churn — mitigated, root cause open (bug 86cb35fbt, fix-cycles 13-14)](#engines-own-deblinktopenvpncoreopenvpnservice-fgs-timeout-crash-under-rapid-stopretry-churn--mitigated-root-cause-open-bug-86cb35fbt-fix-cycles-13-14)
+- [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
 
 ---
 
@@ -797,6 +799,17 @@ Force-stop and relaunch the app after setting the override. See `docs/operations
 **Solution:** No fix applied — this is a genuine test-environment gap, not a code defect. When a defect fix in `core` needs a resolved-resource-value assertion (color, dimension, drawable) and a full themed Activity/dialog can't be launched either, do not assume a "resolve just the raw resource, skip the theme" workaround will succeed — verify with a throwaway test run first. If it fails the same way, keep the production seam (still useful, harmless, and testable once the module's Robolectric config is fixed) but document coverage as resting on on-device manual verification instead, same as this repo's `FavoritesSectionCardDecoration`/`FavoritesSectionFrameDecoration` precedent.
 **First encountered:** Quality gate for `favorites-section-and-dialog-redesign` (DEF-2 title-color coverage attempt, gate-2, commit range `3550da6`..`e426147`).
 
+**Correction/refinement (US-22):** the limitation above is specific to *resource lookups* (`R.color`, `R.drawable`, `@ColorRes`/`@DrawableRes` ids). Plain `Configuration` field reads — e.g. `context.resources.configuration.smallestScreenWidthDp` — are **not** affected and work fine in this module's Robolectric setup, including with `@Config(qualifiers = "sw600dp")` / `"sw599dp"` device-bucket overrides. Do not over-generalize "Robolectric can't resolve resources in `core`" to "Robolectric doesn't work in `core`" — verify with a throwaway test targeting the specific API before assuming it's blocked. See `OrientationPolicyTest.kt` (`isTablet()` boundary tests) for a working example.
+
+---
+
+## Custom `core` Views with resource-reading `init` blocks cannot get Robolectric component tests at all — root cause of the prior `@ColorRes` gap
+
+**Context:** Quality gate for `us-21-speedometer-redesign` needed to assess whether `SpeedometerView` (a custom `View` whose `init` block calls `ContextCompat.getColor`, `resources.getInteger`, and `resources.getString` directly to resolve 11+ theme-dependent values) could get a Robolectric component test. Confirmed independently across two separate quality-gate passes on this flow, not just asserted once.
+**Problem:** No `build.gradle.kts` in the project (`src/core`, `src/mobile`, `src/tv`, or root) declares `testOptions { unitTests { isIncludeAndroidResources = true } }`. Without that flag, AGP never generates the module's `com.android.tools.test_config.properties`, and without that file Robolectric has no resource table to resolve *any* app resource against — not a specific-attribute gap, not a legacy-shadow quirk, but a total absence of the resource-loading config Robolectric component tests require. This is the actual mechanism behind the previous `core` module Robolectric entry above ("even plain `@ColorRes` lookups... fail"): that entry observed the symptom (`ShadowLegacyAssetManager.getResName` throwing `Resources$NotFoundException`) without tracing it to the missing `testOptions` block. Any custom `View`/component whose constructor or `init` block reads a color/dimension/integer/string resource will fail to construct under Robolectric in this module, full stop — there is no per-test or per-resource workaround.
+**Solution:** No fix applied — out of scope for a single feature branch, since enabling `isIncludeAndroidResources` is a module-wide build change affecting the runtime of all unit tests in that module (not merely additive). It unblocks Robolectric component/bitmap-level tests once applied. Until then: cover pure logic by extracting resource-free companion functions (as `SpeedometerView` does — see `docs/guides/how-to.md`'s SpeedometerView geometry entry) and rely on manual QA screenshots for anything that depends on an actually-resolved resource value. Treat "add `isIncludeAndroidResources = true` to the relevant module(s)" as a standing tech-debt candidate rather than re-investigating this limitation on the next component that hits it.
+**First encountered:** Quality gate for `us-21-speedometer-redesign` (`docs/qa-evidence/feature-us-21-speedometer-redesign-qualitygate-2.md`, section 4); re-confirmed independently in the same flow's first quality-gate pass (`feature-us-21-speedometer-redesign-qualitygate.md`).
+
 ---
 
 ## Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed
@@ -1453,3 +1466,15 @@ exception; close the remaining sub-10ms enqueue-point window).
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
 - ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-17; tech-debt follow-up
   [86cb5y61z](https://app.clickup.com/t/86cb5y61z)
+
+---
+
+## `./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed
+
+**Context:** Quality gate for `US-22` (orientation-lock), gate iteration 1.
+
+**Problem:** Running `testDebugUnitTestApp` when all test tasks are already up-to-date from a prior run (e.g. one just run by Code Implementator or Code Review moments earlier, same commit) reports `BUILD SUCCESSFUL` in a few seconds with every test task shown as `FROM-CACHE`/`UP-TO-DATE`. Gradle's build-cache/incremental-task machinery considers this a legitimate success — the test *results* are still valid and unchanged — but treating that console output alone as "tests ran and passed" is a false confidence signal for a gate whose job is independent re-verification, not trusting a prior run's cache hit.
+
+**Solution:** For any validation run whose entire purpose is independent proof (quality gate, merge gate), force real execution: `./gradlew testDebugUnitTestApp assembleDebugApp --rerun-tasks`. Confirm genuine execution from the task summary line (e.g. `150 actionable tasks: 150 executed`, not `150 up-to-date`), and parse actual pass/fail counts from `build/test-results/**/*.xml` rather than trusting the human-readable console summary alone.
+
+**First encountered:** Quality gate for `US-22` (orientation-lock), gate-1 → gate-2, commit `0eef2ae`.
