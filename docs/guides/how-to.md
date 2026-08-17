@@ -14,6 +14,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)](#serve-a-local-mock-backend-to-drive-availability-driven-qa-list-churn-favorites-hiderestore)
 - [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
 - [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
+- [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 
 ---
