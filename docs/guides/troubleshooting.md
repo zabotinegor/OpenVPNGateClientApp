@@ -1383,6 +1383,44 @@ reviewed upstream-facing change, not as a drive-by edit.
 - A fresh, non-reconnect Connect tap is unaffected — the buffer applies only to `isReconnect == true`
   dispatches.
 
+### Addendum (fix-cycles 16-17): a third, narrower defect in the same buffer window — stray level could skip the selected auto-switch server
+
+**Status: CLOSED.** This is a separate, smaller defect from the crash documented above — found by PR
+bot review (Codex, round 3) on top of the fix-cycle 13-14 mitigation, not a crash and not something
+that reopens the "mitigated, not fixed" status above.
+
+**Symptom:** during the `ENGINE_RECONNECT_DISPATCH_BUFFER_MS` window (the same 500ms buffer described
+above), no new engine process exists yet, so any AIDL level observed in that window is necessarily
+stale output from the just-stopped engine. A stray terminal level (e.g. `LEVEL_AUTH_FAILED`,
+`LEVEL_NONETWORK`) could still slip past the existing generation guard — `connectionAttemptGeneration`
+alone doesn't filter it, because `ACTION_START` bumps the generation *before* the stray level arrives,
+so it arrives already stamped with the current generation — and reach `ServerAutoSwitcher`, triggering
+an unwanted stop that skipped the server the auto-switch had just selected. Not a crash: a
+missed-server-in-the-retry-chain defect.
+
+**Fix-cycle 16** added a suppression guard, `reconnectDispatchPendingGeneration`
+(`OpenVpnService.kt:2713`), set to the buffer's generation just before `postAtTime()` and compared for
+equality against the live generation counter in `dispatchAutoSwitcherOnEngineLevel()`; while a buffer
+is pending for the current generation, levels are dropped with a log line.
+
+**Fix-cycle 17** closed a gap in that guard found by code review (R16-1): the deferred Runnable
+cleared the marker *unconditionally*, so when two reconnect buffers overlapped, an earlier
+(superseded) buffer's Runnable resolving first would wipe the marker for a still-pending *newer*
+buffer — reopening the stray-level window it was meant to close. The fix makes the clear conditional
+on the marker still matching that Runnable's own captured generation, so a superseded buffer's
+Runnable can no longer disable a newer buffer's still-live guard.
+
+**Quality gate 8** passed (0 blocking, 4 non-blocking) at the fix-cycle 16-17 commit, with
+falsifiability established by mutation testing (reverting the R16-1 fix reproduces exactly the
+predicted test failure). It also surfaced that the reconnect-dispatch subsystem now carries six
+interacting guards layered on since fix-cycle 9, at roughly one new defect discovered per guard added
+— flagged as a maintainability risk independent of any single guard's correctness. Filed as a
+dedicated tech-debt follow-up: ClickUp
+[86cb5y61z](https://app.clickup.com/t/86cb5y61z) (extract the guards into one testable state-machine
+class with an explicit state enum; re-anchor the fix-cycle-16/17 acceptance tests on the suppression
+log line rather than outcome alone; correct the guard comment's `LEVEL_VPNPAUSED` decoupling
+exception; close the remaining sub-10ms enqueue-point window).
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
@@ -1395,6 +1433,13 @@ reviewed upstream-facing change, not as a drive-by edit.
   fix-cycle-14 commit.
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-5.md` — fix-cycle-14 device retest, the
   probabilistic framing, and the 26-trial non-observation result.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-16.md` — finding R16-1 (blocking,
+  the overlapping-buffer guard gap) and R16-2 (the `startUserStopTeardown()` sweep-site note).
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-17.md` — PASS confirming R16-1's fix
+  generalizes to arbitrarily many overlapping buffers.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-8.md` — quality gate PASS at the
+  fix-cycle 16-17 commit; QG8-1 through QG8-4 (the tech-debt follow-up items) and the mutation-probe
+  evidence for test-vacuity risk.
 
 ### References
 
@@ -1403,6 +1448,8 @@ reviewed upstream-facing change, not as a drive-by edit.
   incidentally, see `docs/conventions/engine-submodule.md`.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
   (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`,
-  `connectionAttemptGeneration`, `engineConnection`, `requestStopIcsOpenVpn`)
+  `connectionAttemptGeneration`, `reconnectDispatchPendingGeneration`, `engineConnection`,
+  `requestStopIcsOpenVpn`)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
-- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-14
+- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-17; tech-debt follow-up
+  [86cb5y61z](https://app.clickup.com/t/86cb5y61z)
