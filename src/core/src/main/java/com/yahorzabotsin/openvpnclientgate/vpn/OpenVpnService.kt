@@ -334,11 +334,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // buffers are in flight (an earlier one superseded by a newer ACTION_START before it ran --
     // see reconnectStart_supersededByNewerReconnectStart_dispatchesOnlyOnce), this field holds
     // only the NEWER buffer's generation from the moment the newer ACTION_START is processed. The
-    // Runnable clears the marker as its first statement, but ONLY if the marker still equals that
-    // Runnable's own captured dispatchGeneration -- guarding against the earlier, superseded
-    // buffer's Runnable wiping the newer buffer's still-live marker when it resolves first. A
-    // Runnable therefore self-invalidates the moment its OWN buffer resolves (fires or is skipped);
-    // it never touches a different generation's marker. Any subsequent event that bumps
+    // Runnable clears the marker ONLY if the marker still equals that Runnable's own captured
+    // dispatchGeneration -- guarding against the earlier, superseded buffer's Runnable wiping the
+    // newer buffer's still-live marker when it resolves first. A Runnable therefore self-invalidates
+    // the moment its OWN buffer resolves (fires or is skipped); it never touches a different
+    // generation's marker.
+    // R5-1 (fix-cycle 18, PR #127 review round 5, thread 3793613337): the clear is NOT the
+    // Runnable's first statement -- on the success path it happens right AFTER startIcsOpenVpn(),
+    // not before. This field is read directly (no handler hop) on the AIDL binder thread inside
+    // dispatchAutoSwitcherOnEngineLevel(), so clearing before the engine dispatch call actually
+    // fires left a real cross-thread window where a late binder callback could observe -1, evade
+    // suppression, and cancel/skip the server this very Runnable was in the middle of starting. The
+    // guard-failure branches (stop/destroy, generation mismatch) never reach the engine, so they
+    // still clear immediately -- only the dispatch path defers the clear, and only to the far side
+    // of the one call it guards, still inside the same synchronous Runnable execution.
+    // Any subsequent event that bumps
     // connectionAttemptGeneration (a fresh ACTION_START, the preserveReconnect ACTION_STOP bump,
     // finishStopFlowConfirmed()) also implicitly invalidates a still-pending value here, since the
     // equality check in dispatchAutoSwitcherOnEngineLevel() below compares against the LIVE
@@ -1239,14 +1249,33 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                         // dispatchAutoSwitcherOnEngineLevel()'s stray-level suppression window for
                         // the newer buffer until IT resolves. See reconnectDispatchPendingGeneration's
                         // declaration comment.
-                        if (reconnectDispatchPendingGeneration == dispatchGeneration) {
-                            reconnectDispatchPendingGeneration = -1
+                        //
+                        // R5-1 (fix-cycle 18, PR #127 review round 5, thread 3793613337): WHERE this
+                        // clear happens matters as much as the generation guard above. reconnectDispatchPendingGeneration
+                        // is read directly (not via statusHandler) on the AIDL binder thread inside
+                        // dispatchAutoSwitcherOnEngineLevel() -- so clearing it before startIcsOpenVpn()
+                        // has actually asked the new engine to start left a genuine cross-thread window:
+                        // a late binder callback landing in that gap observes -1 (already cleared),
+                        // falls straight through the stale-level suppression guard, and queues an
+                        // auto-switch dispatch that runs right after this Runnable with every generation
+                        // guard already satisfied -- stopping and skipping the server this very Runnable
+                        // just started, without it ever getting to run. The guard-failure branches below
+                        // do not dispatch to the engine at all, so they still self-invalidate immediately
+                        // (nothing pending to protect); only the success path defers the clear to
+                        // immediately after startIcsOpenVpn() returns -- still synchronously inside this
+                        // same Runnable execution, so no new window opens, the old one is simply moved to
+                        // the far side of the one call it exists to guard.
+                        fun clearMarkerIfOwn() {
+                            if (reconnectDispatchPendingGeneration == dispatchGeneration) {
+                                reconnectDispatchPendingGeneration = -1
+                            }
                         }
                         // Mirrors dispatchAutoSwitcherOnEngineLevel's guard: a genuine user/system
                         // stop landing inside this buffer window, or a newer ACTION_START having
                         // already superseded this one, must make this a no-op rather than reaching
                         // into the engine for an attempt that is no longer current.
                         if (userInitiatedStop || serviceDestroyed) {
+                            clearMarkerIfOwn()
                             // AppLog.i, not .d -- AppReleaseTree drops DEBUG in release builds, and
                             // this is the one field-visible proof that the guard actually engaged
                             // (R14-3, same reasoning as ServerAutoSwitcher.kt:197's R7-2 fix).
@@ -1254,10 +1283,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                             return@Runnable
                         }
                         if (connectionAttemptGeneration != dispatchGeneration) {
+                            clearMarkerIfOwn()
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
                             return@Runnable
                         }
                         startIcsOpenVpn(config, title)
+                        clearMarkerIfOwn()
                     }, reconnectEngineDispatchToken, SystemClock.uptimeMillis() + ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
                 } else {
                     startIcsOpenVpn(config, title)
