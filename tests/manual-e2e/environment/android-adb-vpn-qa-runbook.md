@@ -173,5 +173,20 @@ genuine user stop from the chain's own internal preserve-reconnect stop.
 (Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 5, 2026-08-16, trying
 to force a genuine user-Disconnect tap during an active auto-switch retry on real hardware.)
 
+## `am broadcast -a android.intent.action.AIRPLANE_MODE` is blocked from adb shell; use `cmd connectivity airplane-mode` instead
+
+Attempted `adb shell settings put global airplane_mode_on 1` followed by `adb shell am broadcast -a
+android.intent.action.AIRPLANE_MODE --ez state true` to toggle airplane mode for an auto-switch
+regression trigger — the `settings put` succeeds (silently) but the broadcast fails with
+`java.lang.SecurityException: Permission Denial: not allowed to send broadcast
+android.intent.action.AIRPLANE_MODE from pid=<n>, uid=2000` (shell UID is not allowed to send that
+system broadcast on this device's Android 13 build), so the actual network state never toggles despite
+no visible error until you look at the command output. The already-documented-elsewhere reliable command
+is `adb shell cmd connectivity airplane-mode enable` / `disable` (see
+`docs/operations/device-qa-phone.md`) — it performs the toggle *and* fires the broadcast/settings update
+together, with no separate `settings put` step needed. Use `cmd connectivity airplane-mode`, not the
+`settings put` + `am broadcast` combination, for any future scripted airplane-mode toggle.
+(Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 6, 2026-08-17.)
+
 ## Last validated
-2026-08-16, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `dcec48a`.
+2026-08-17, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `877f145`.
