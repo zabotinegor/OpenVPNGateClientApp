@@ -701,13 +701,13 @@ the **Steps** section below).
    under `src/core/` — see the dump-path correction above); `hs_err_pid*.log` is already covered by
    `.gitignore`, so the `git status` concern applies mainly to `replay_pid*.log`:
    ```bash
-   rm -f src/hs_err_pid*.log src/replay_pid*.log src/core/hs_err_pid*.log src/core/replay_pid*.log
+   rm -f hs_err_pid*.log replay_pid*.log core/hs_err_pid*.log core/replay_pid*.log
    ```
 3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
    ```bash
-   rm -rf src/core/build/test-results/testDebugUnitTest src/core/build/reports/tests
-   rm -rf src/mobile/build/test-results/testDebugUnitTest src/mobile/build/reports/tests
-   rm -rf src/tv/build/test-results/testDebugUnitTest src/tv/build/reports/tests
+   rm -rf core/build/test-results/testDebugUnitTest core/build/reports/tests
+   rm -rf mobile/build/test-results/testDebugUnitTest mobile/build/reports/tests
+   rm -rf tv/build/test-results/testDebugUnitTest tv/build/reports/tests
    ```
 4. Re-run with reduced worker parallelism. `--max-workers=2` was enough for a scoped
    `--tests "*SomeTest"` run; the full `testDebugUnitTestApp` aggregate (core + mobile + tv, 800+
