@@ -1229,7 +1229,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // Bump alongside currentAttemptStartMs: see connectionAttemptGeneration's
                 // declaration comment for the stop-then-restart race this closes (round 12), and
                 // for why this is incrementAndGet() rather than `+= 1` (R20-1, fix-cycle 21).
-                connectionAttemptGeneration.incrementAndGet()
+                // R21-1 (fix-cycle 22, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+                // review-21.md): the increment's result is captured into this local and reused at
+                // BOTH downstream sites below -- the reconnectDispatchPendingGeneration marker arm
+                // and the dispatchGeneration capture -- instead of each calling .get() again
+                // independently. A concurrent binder-thread bump (finishStopFlowConfirmed(), which
+                // can be mid-flight from an earlier stop this very retry is racing) can land
+                // between two separate .get() calls, and the two reads then observe it
+                // inconsistently -- one before, one after -- tagging the marker and
+                // dispatchGeneration with two DIFFERENT generation numbers for what must be one
+                // attempt. See the fix note at the dispatchGeneration capture below for the full
+                // consequence and why capturing once (rather than re-reading) closes it.
+                val attemptGeneration = connectionAttemptGeneration.incrementAndGet()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 if (isReconnect) {
                     // R18-1 (fix-cycle 19, QG9-1/QG9-2, docs/qa-evidence/86cb35fbt-vpn-foreground-
@@ -1247,7 +1258,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // stays == connectionAttemptGeneration forever, suppressing every subsequent
                     // AIDL level until a later ACTION_START. See
                     // reconnectDispatchPendingGeneration's declaration comment.
-                    reconnectDispatchPendingGeneration = connectionAttemptGeneration.get()
+                    // R21-1 (fix-cycle 22): armed from the SAME attemptGeneration local captured
+                    // at the incrementAndGet() call above, not from a fresh .get() -- see that
+                    // capture site's comment and the dispatchGeneration capture below for why.
+                    reconnectDispatchPendingGeneration = attemptGeneration
                 }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -1277,17 +1291,41 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // teardown -- delay just the engine-facing dispatch, not any of the
                     // bookkeeping/state work above, which must stay synchronous with this
                     // onStartCommand() invocation exactly as before.
-                    val dispatchGeneration = connectionAttemptGeneration.get()
+                    val dispatchGeneration = attemptGeneration
                     // reconnectDispatchPendingGeneration is already armed to this same generation
                     // above (R18-1, fix-cycle 19) so dispatchAutoSwitcherOnEngineLevel() can
                     // suppress any AIDL level from the just-stopped engine that arrives before this
                     // Runnable actually runs -- see reconnectDispatchPendingGeneration's declaration
-                    // comment. No statement between that arm and this capture can rebump
-                    // connectionAttemptGeneration, so dispatchGeneration is guaranteed equal to what
-                    // was armed; re-assigning here would be redundant, not incorrect, but every
-                    // extra writer to this field is itself part of the acknowledged root cause of
-                    // this defect family (see the field's declaration comment), so this fix
-                    // intentionally does not add a third one.
+                    // comment.
+                    // CORRECTED (R21-1, fix-cycle 22, docs/qa-evidence/86cb35fbt-vpn-foreground-
+                    // service-crash-review-21.md): the previous version of this comment claimed "No
+                    // statement between that arm and this capture can rebump connectionAttemptGeneration,
+                    // so dispatchGeneration is guaranteed equal to what was armed" -- that is false,
+                    // for the same reason R20-2 was false: it only accounts for main-thread
+                    // statements. finishStopFlowConfirmed() rebumps the counter from the AIDL
+                    // binder thread and is not excluded by anything between the marker arm above
+                    // and this line, so a rebump CAN land in that window. When it used to do so
+                    // with two independent .get() reads (one for the marker, one for
+                    // dispatchGeneration), the marker and dispatchGeneration ended up holding two
+                    // DIFFERENT generation numbers for the one attempt this onStartCommand()
+                    // invocation represents -- desynchronizing them from each other and disarming
+                    // both the :2802 R18-1 capture-time guard and the :2871 R19-1 execution-time
+                    // guard at once (neither could suppress a stray level, because both compare the
+                    // marker against the LIVE counter, and the marker no longer matched what this
+                    // attempt's own dispatchGeneration was tagged with).
+                    // dispatchGeneration is instead assigned from `attemptGeneration`, the SAME
+                    // local frozen once at the incrementAndGet() call above and already used to arm
+                    // the marker. This makes the code safe not because the counter is guaranteed
+                    // static across this span -- it is NOT, and CAN still be bumped concurrently by
+                    // finishStopFlowConfirmed() -- but because the marker and dispatchGeneration
+                    // now both reference that one frozen value instead of two independent live
+                    // reads, so they can never diverge from each other regardless of what the live
+                    // counter does in between. A concurrent bump is still correctly observable
+                    // where it matters: the execution-time checks below (:1342 here, and :2802/
+                    // :2871) compare this frozen dispatchGeneration/marker against a FRESH
+                    // connectionAttemptGeneration.get() at the moment they run, so a genuine newer
+                    // attempt (or the racing finishStopFlowConfirmed() bump) is still detected and
+                    // this dispatch is correctly skipped rather than started -- see :1342 below.
                     // Tagged with reconnectEngineDispatchToken (R14-2) instead of a bare
                     // postDelayed() so teardown can cancel this specific dispatch -- see the
                     // token's declaration comment. This is the second line of defence for R14-1:

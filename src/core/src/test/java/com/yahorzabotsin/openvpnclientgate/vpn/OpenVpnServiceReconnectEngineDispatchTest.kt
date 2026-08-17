@@ -860,12 +860,24 @@ class OpenVpnServiceReconnectEngineDispatchTest {
     // Falsifiability: reverting connectionAttemptGeneration's declaration back to
     // `@Volatile private var connectionAttemptGeneration: Int = 0` makes
     // `ReflectionHelpers.getField<AtomicInteger>(...)` throw a ClassCastException at runtime,
-    // failing this test immediately. Independently confirmed at fix-cycle-21 implementation time
-    // by temporarily reverting the declaration AND all three call sites back to `Int`/`+= 1` (so
-    // the field type itself no longer forces a compile break) and re-running this exact test: the
-    // final count came in below the expected total (a genuine lost-update failure, not a
-    // ClassCastException), reproducing the predicted symptom. Restored afterwards; working tree
-    // verified clean.
+    // failing this test immediately -- confirmed by mutation (review-21, M-1): reverting the
+    // production file to its pre-R20-1 content (declaration AND all three call sites back to
+    // `Int`/`+= 1`) and re-running this exact test produces exactly that ClassCastException at
+    // this test's own getField<AtomicInteger>(...) line, NOT a below-expected count.
+    // CORRECTED (R21-3, fix-cycle 22, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // review-21.md): the previous version of this comment claimed the opposite -- that a full
+    // revert reproduces "a genuine lost-update failure, not a ClassCastException". Review-21's
+    // mutation testing (M-1) disproved that claim empirically: a full revert throws
+    // ClassCastException (3 failures), never a below-expected count, because reverting the
+    // declaration's type is exactly what breaks this test's own reflective field lookup before
+    // its concurrency assertion ever runs. This test therefore pins only the field's TYPE
+    // (AtomicInteger vs plain Int), not the atomicity of any specific production writer in
+    // isolation -- see reconnectRetryRacingBinderThreadStopConfirmation_doesNotStartWithAStaleDispatchGeneration
+    // below for a test that drives a real production writer (finishStopFlowConfirmed()) from a
+    // genuine background thread and is provably sensitive to a single writer's atomicity, closing
+    // the gap review-21 (R21-2) found in this test (mutation M-2: reverting ONLY the binder-thread
+    // writer at finishStopFlowConfirmed() to `set(get() + 1)` left this test fully green, because
+    // this test's own threads bypass every production writer and increment the field directly).
     @Test
     fun connectionAttemptGeneration_concurrentBumpsFromMultipleThreads_loseNoIncrement() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
@@ -902,5 +914,129 @@ class OpenVpnServiceReconnectEngineDispatchTest {
             expectedTotal,
             generation.get()
         )
+    }
+
+    // R21-1 acceptance test (fix-cycle 22, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-21.md): review-21 found that R20-1's fix (connectionAttemptGeneration ->
+    // AtomicInteger) made the counter itself atomic but left its COMPOUND use non-atomic --
+    // onStartCommand()'s reconnect branch bumps the counter once (incrementAndGet(), whose result
+    // used to be discarded), then read it back TWICE independently via two separate .get() calls:
+    // once to arm reconnectDispatchPendingGeneration (the marker), once to capture the local
+    // dispatchGeneration used by the deferred engine-dispatch Runnable. A binder-thread
+    // finishStopFlowConfirmed() bump landing between those two reads was observed by only the
+    // SECOND one, desynchronizing the marker (stale) from dispatchGeneration (live) for what must
+    // be treated as the SAME attempt -- disarming both the :2802 R18-1 capture-time guard and the
+    // :2871 R19-1 execution-time guard at once (both compare the marker against a fresh live
+    // read, and the marker no longer matched what this attempt's own dispatchGeneration was).
+    //
+    // Unlike connectionAttemptGeneration_concurrentBumpsFromMultipleThreads_loseNoIncrement above
+    // (which increments the raw field from its OWN threads, bypassing every production writer --
+    // see that test's corrected KDoc, R21-2/R21-3), this test drives a REAL production writer for
+    // real: a genuine, reflective invocation of the private finishStopFlowConfirmed() method --
+    // the exact function the AIDL binder thread reaches in production via updateStateString ->
+    // syncEngineState -> handleEngineLevelForStop -- on a genuine background java.lang.Thread,
+    // racing a real ACTION_START (isReconnect=true) running through service.onStartCommand() on
+    // this test's own main-looper thread. userInitiatedStop is set true immediately before
+    // starting that thread, to satisfy finishStopFlowConfirmed()'s own `if (!userInitiatedStop)
+    // return` guard -- modeling review-21's interleaving table step 2 (the binder thread having
+    // already validated that guard) before ACTION_START's own :1172 statement clears the flag on
+    // the main thread moments later. Thread.join() is used only to pin WHERE in onStartCommand()'s
+    // execution the bump lands -- strictly between the marker arm and the dispatchGeneration
+    // capture -- not to fake the bump itself; the increment is performed for real, on a real
+    // second thread, by the real production method. The re-entry point is the "Session attempt"
+    // log line, which sits in exactly that window on the current (R18-1-fixed) code path -- see
+    // strayLevelDuringPreArmWindow_doesNotSkipSelectedServer above, which independently confirms
+    // this same log line now falls after the marker arm, not before it.
+    //
+    // Falsifiability: this test must FAIL (the engine (re)starts for this attempt, and the marker
+    // leaks at a stale generation instead of clearing to -1) if OpenVpnService.kt's fix is
+    // reverted to the pre-fix double-.get() pattern (dispatchGeneration re-read independently of
+    // the marker's own .get(), instead of both being derived from one captured local), and PASS
+    // with the R21-1 fix in place. Verified by mutation at fix-cycle-22 implementation time: the
+    // revert was applied, this test was confirmed to fail with exactly the predicted symptom
+    // (hasEngineStartLog() true, marker left at a stale generation instead of -1), and the fix was
+    // restored and reconfirmed green -- see the implementation report for the exact evidence.
+    @Test
+    fun reconnectRetryRacingBinderThreadStopConfirmation_doesNotStartWithAStaleDispatchGeneration() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+
+        val finishStopFlowConfirmedMethod = OpenVpnService::class.java.getDeclaredMethod(
+            "finishStopFlowConfirmed", ConnectionStatus::class.java, String::class.java
+        )
+        finishStopFlowConfirmedMethod.isAccessible = true
+
+        var reentered = false
+        val probeTree = object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                // Forward to android.util.Log so ShadowLog-based helpers (hasEngineStartLog())
+                // keep working exactly as in every other test in this file that plants a Tree.
+                android.util.Log.println(priority, tag ?: "", message)
+                if (!reentered && message.contains("Session attempt")) {
+                    reentered = true
+                    // Satisfy finishStopFlowConfirmed()'s own `if (!userInitiatedStop) return`
+                    // guard right before racing it -- see this test's class-level comment above
+                    // for why this models step 2 of review-21's interleaving table rather than
+                    // bypassing the guard.
+                    ReflectionHelpers.setField(service, "userInitiatedStop", true)
+                    val thread = Thread {
+                        finishStopFlowConfirmedMethod.invoke(
+                            service, ConnectionStatus.LEVEL_NONETWORK, "test-binder-race"
+                        )
+                    }
+                    thread.isDaemon = true
+                    thread.start()
+                    thread.join(5_000)
+                    if (thread.isAlive) thread.interrupt()
+                }
+            }
+        }
+        Timber.plant(probeTree)
+        try {
+            service.onStartCommand(reconnectStartIntent(), 0, 2)
+
+            assertTrue("precondition: the probe must have re-entered", reentered)
+
+            val markerAtCaptureTime = ReflectionHelpers.getField<Int>(service, "reconnectDispatchPendingGeneration")
+            val liveGenerationAfterRace = ReflectionHelpers.getField<AtomicInteger>(
+                service, "connectionAttemptGeneration"
+            ).get()
+            org.junit.Assert.assertEquals(
+                "precondition: finishStopFlowConfirmed() must have bumped the live counter to " +
+                    "exactly one past this attempt's own marker, or the race this test models " +
+                    "against the marker-arm/dispatchGeneration-capture window did not occur",
+                markerAtCaptureTime + 1,
+                liveGenerationAfterRace
+            )
+
+            // Advance well past the buffer so the deferred Runnable resolves.
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+            assertFalse(
+                "A confirmed stop (finishStopFlowConfirmed(), landing on a genuine background " +
+                    "thread strictly between reconnectDispatchPendingGeneration's arm and this " +
+                    "attempt's own dispatchGeneration capture) must be recognized as superseding " +
+                    "this reconnect attempt, so the deferred engine dispatch must be skipped, not " +
+                    "started. R21-1 (fix-cycle 22): before the fix, dispatchGeneration was " +
+                    "re-read via a SECOND, independent .get() call after this race, silently " +
+                    "picking up the binder-thread bump -- making it equal the (also re-read) live " +
+                    "counter at the deferred Runnable's execution-time check and incorrectly " +
+                    "letting the start proceed",
+                hasEngineStartLog()
+            )
+
+            val markerAfter = ReflectionHelpers.getField<Int>(service, "reconnectDispatchPendingGeneration")
+            org.junit.Assert.assertEquals(
+                "reconnectDispatchPendingGeneration must be cleared back to -1, not left latched " +
+                    "at a stale generation, once the newer-attempt guard recognizes the concurrent " +
+                    "bump and skips the start -- clearMarkerIfOwn() only clears when marker == " +
+                    "dispatchGeneration, which now holds because both are the SAME frozen " +
+                    "attemptGeneration local rather than two independent live reads (R21-1)",
+                -1,
+                markerAfter
+            )
+        } finally {
+            Timber.uproot(probeTree)
+        }
     }
 }
