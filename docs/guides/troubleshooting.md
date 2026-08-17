@@ -1434,6 +1434,125 @@ class with an explicit state enum; re-anchor the fix-cycle-16/17 acceptance test
 log line rather than outcome alone; correct the guard comment's `LEVEL_VPNPAUSED` decoupling
 exception; close the remaining sub-10ms enqueue-point window).
 
+### Addendum (fix-cycles 18-22): the same guard family produced five more variants — eighth found, ninth searched for and not found
+
+**Status: this specific defect family (the reconnect-dispatch-suppression guards' own internal
+consistency) is CLOSED, at high confidence for the exact mechanism fixed and moderate confidence
+that no further variant remains.** This does not reopen the "mitigated, not fixed" status above —
+that status is about the *engine's* teardown timing, which none of fix-cycles 18-22 touch. These
+five cycles are entirely about `OpenVpnService.kt`'s own bookkeeping for the buffer window: three
+more variants of "does the suppression guard see a consistent value" surfaced, one per review round,
+each a different mechanism from the ones before it.
+
+**R18-1 / R19-1 — the suppression predicate was evaluated only at capture time, never re-checked at
+execution time.** The guard added in fix-cycle 16 (`reconnectDispatchPendingGeneration`, see the
+addendum above) is armed on the main thread and then read on the AIDL binder thread when a stray
+level arrives — but only *once*, at the moment the level is captured. Between the generation bump
+(`connectionAttemptGeneration += 1`) and the marker being armed to that same value, there was a
+narrow gap in which the generation already read the new value but the marker still held the old one.
+A stray level from the just-stopped engine landing in that exact gap read "marker != live
+generation" and concluded, wrongly, that no buffer was pending — so it was not suppressed, and
+because the deferred Runnable that actually forwards levels to `ServerAutoSwitcher` only fires after
+`onStartCommand()` returns (by which point the marker had caught up), the stray level went through
+and stopped/skipped the newly selected server. Fix-cycles 17-19 each moved *where* the marker was
+armed to shrink this gap, and each shrink made the reproduction narrower but did not close it — the
+underlying problem was structural, not positional: the (marker, generation) pair was read on a
+different thread than the one that writes it, so every capture-time read was a potentially torn read
+of a two-field value. **Fix-cycle 20** closed the class instead of narrowing the window again: it
+re-evaluates the identical suppression predicate a second time, at *execution* time, inside the
+deferred Runnable immediately before it would forward a level to `ServerAutoSwitcher`. By execution
+time the main thread has necessarily finished arming the marker for the current attempt (the two run
+on the same serial looper), so a stray level that slipped past the capture-time check is still caught
+by the execution-time re-check. This is additive, not a replacement — the original capture-time guard
+is kept as a cheap first filter, and the new check is what actually closes the gap.
+
+**R20-1 — `connectionAttemptGeneration` was a plain `@Volatile Int`, and `+= 1` is not atomic.** The
+counter has three writers: two on the main thread (`ACTION_START`, the `preserveReconnect`
+`ACTION_STOP` branch) and — easy to miss — one on the **AIDL binder thread**, inside
+`finishStopFlowConfirmed()`, reached via `updateStateString → syncEngineState →
+handleEngineLevelForStop` whenever the OpenVPN engine (which runs in its own `:openvpn` process)
+confirms a teardown. `@Volatile` only guarantees that a write becomes visible to other threads — it
+does not make a read-modify-write like `+= 1` atomic. When a user taps Disconnect and then Connect
+again quickly enough that the engine's teardown confirmation and the new `ACTION_START` land at
+nearly the same time, the main-thread bump and the binder-thread bump can both read the same starting
+value and both write back the same incremented result: one increment is silently lost. A lost
+increment leaves the live generation one lower than it should be, which lets a stray dispatch that
+should have been tagged as superseded still match the (now stale) live generation at the guard check
+and get forwarded — the same server-skip outcome as every other variant in this family. This is
+exactly the "rapid Stop→Connect churn" scenario manual QA had already reproduced on-device in an
+earlier round of this flow, so it was not theoretical. **Fix:** `connectionAttemptGeneration` was
+converted from `@Volatile private var Int` to `private val connectionAttemptGeneration =
+AtomicInteger(0)`, with every writer changed to `incrementAndGet()` and every reader to `.get()`.
+
+**R21-1 — making the counter atomic did not make *using* it atomic.** This is the subtlest of the
+three, and exactly the kind of thing a later "simplification" could reintroduce. After the R20-1 fix,
+`onStartCommand()` called `connectionAttemptGeneration.incrementAndGet()` to bump the counter, but
+**discarded its return value** and then called `.get()` on the same field twice more, separately —
+once immediately, to arm the marker (`reconnectDispatchPendingGeneration = ...get()`), and again
+later, after some `SharedPreferences` I/O, to compute the value the deferred Runnable would compare
+against (`dispatchGeneration = ...get()`). Each individual `.get()` is atomic — that part of the
+R20-1 fix was correct — but the *pair* of them is not: if the binder-thread writer
+(`finishStopFlowConfirmed()`) lands between those two reads, the two `.get()` calls observe different
+values of the *same logical attempt*. The marker gets armed to the generation from the first read,
+while `dispatchGeneration` is captured from the second, already-bumped read. Both the R18-1
+capture-time guard and the R19-1 execution-time guard compare the marker against a **fresh** `.get()`
+at the time they run — and by then that fresh read matches `dispatchGeneration`, not the marker — so
+both guards conclude the pair still agrees when it does not, and are disarmed simultaneously. The
+counter itself was never wrong; the code just treated two independent reads of one field as if they
+were guaranteed to return the same thing. **Fix:** capture `incrementAndGet()`'s return value once,
+into a local `val attemptGeneration`, and use that same local for both the marker arm and the
+`dispatchGeneration` capture, so the two can never diverge regardless of what the binder thread does
+in between. A future edit that "simplifies" this back to two separate `.get()` calls — on the
+reasoning that the field is atomic so any read should do — would silently reopen this exact gap.
+
+**Why fix-cycle 22 is believed to close the class, not just this instance.** After the R21-1 fix,
+there is exactly **one** place left in the file where two stored values derived from
+`connectionAttemptGeneration` must agree with each other, and it is now fed by a single read; every
+other surviving `.get()` call site is a deliberate live comparison against the current value, not a
+member of a frozen pair. For this specific desync mechanism to recur, someone would have to write new
+code that stores two independently-derived values from the counter — it cannot recur in the code as
+it stands today.
+
+**Defect-family summary.** This is the eighth variant of the same reconnect-dispatch-suppression
+family across nine consecutive review rounds (R7-1 → R9-1 → R18-1 → R19-1 → R20-1 → R21-1, plus two
+more found independently by the PR's own bot reviewer on earlier rounds). The ninth review round
+(fix-cycle 22's review) ran a deliberate, skeptical hunt for a ninth variant and did not find one —
+its one candidate traced back to a pre-existing end state reachable even before the fix, not a new
+gap. Quality gate 11 (the eleventh quality gate on this flow) concurred with a **PASS** and gave an
+explicit, split confidence judgement rather than a single number: **high confidence (~85%)** that
+this specific mechanism — a stored pair derived from the generation counter desyncing — is closed,
+because the argument is structural (exactly one such pair-consistency construct remains, fed by one
+read) rather than another positional narrowing; but only **moderate confidence (~60%)** that the
+*broader* class — "the suppression protocol can be defeated by some interleaving" — is closed,
+because the protocol is still six guards spread across fourteen call sites in one large file with no
+explicit state machine, its correctness is documented only in prose comments, and three of those
+comments have now been proven wrong or imprecise in three consecutive review rounds. When the
+specification of correctness lives in prose and the prose keeps turning out to be wrong, "no variant
+found this round" is a statement about how hard this round looked, not a guarantee about the code.
+Per the flow's standing instruction once a ninth variant search came back empty, this residual risk
+is **not** being chased with a tenth single-variant fix cycle. It is tracked on the same tech-debt
+follow-up as the fix-cycle 16-17 addendum above, ClickUp
+[86cb5y61z](https://app.clickup.com/t/86cb5y61z) — ideally with a harness that drives the real
+`onStartCommand()` / `finishStopFlowConfirmed()` / `preserveReconnect`-`ACTION_STOP` /
+`dispatchAutoSwitcherOnEngineLevel()` entry points against randomized or exhaustively enumerated
+thread interleavings and asserts the guard family's actual invariant directly, rather than continuing
+to add one line-pinning test per newly discovered variant.
+
+**Why this residual risk is acceptable to ship against.** Quality gate 11 independently verified the
+bound on how bad any variant of this family — past, present, or a hypothetical undiscovered one — can
+be: `ConnectionState.CONNECTED` has exactly two direct writers outside the engine's own state-update
+path, and both are gated on an actual engine `LEVEL_CONNECTED`, so there is no path by which any
+variant in this family can make the app report a healthy/protected tunnel when one does not exist.
+The worst realistic outcome across the entire family, all nine rounds included, is a server skipped
+without ever being tried, or a transient wrong "Connecting"/"Reconnecting" label that self-heals on
+the next status sync — an availability/UX risk, never a confidentiality or false-safety one. Manual
+QA round 7 (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-7.md`) exercised this
+directly on real hardware at the fix-cycle-22 commit: both synthetic rapid Connect/Disconnect taps
+(down to ~150ms intervals) and a real network-loss-driven auto-switch churn (via airplane-mode
+toggling while connected, producing four genuine stop-then-restart cycles in ~4.4 seconds) — every
+server in the test country was genuinely attempted, none was silently skipped, no stuck-Connecting
+state was observed, and no crash or ANR occurred anywhere in a 238k-line logcat sweep.
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
@@ -1453,6 +1572,28 @@ exception; close the remaining sub-10ms enqueue-point window).
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-8.md` — quality gate PASS at the
   fix-cycle 16-17 commit; QG8-1 through QG8-4 (the tech-debt follow-up items) and the mutation-probe
   evidence for test-vacuity risk.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-18.md`,
+  `...-gate-9.md` — R18-1 found; QG9-1 (blocking, pre-arm suppression window) plus QG9-2 through
+  QG9-5.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-19.md` — R19-1, the sixth variant
+  (residual pre-arm window; capture-time-only evaluation) and its structural remediation proposal.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-10.md` — adjudicated R19-1 and
+  accepted fix-cycle 20's execution-time re-check as the class-closing remediation.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-20.md` — confirms the R19-1 fix is
+  correct and mutation-proven; finds R20-1, the seventh variant (`connectionAttemptGeneration`'s
+  non-atomic `+= 1` with a binder-thread writer).
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-21.md` — confirms the R20-1
+  `AtomicInteger` conversion is mechanically correct; finds R21-1, the eighth variant (the
+  compound-read desync).
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-22.md` — PASS; confirms the R21-1
+  fix is structurally complete and independently proven falsifiable by mutation; deliberate ninth-
+  variant hunt finds none.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-11.md` — quality gate PASS across the
+  cumulative fix-cycle 20-22 diff plus the merged `dev` tree; the split (~85% / ~60%) confidence
+  judgement and the fail-open bound this addendum's closing paragraph draws from.
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-6.md`,
+  `...-qa-7.md` — device re-verification of fix-cycles 20-22 on real hardware; qa-7 is the final
+  on-device pass at the fix-cycle-22 commit (see above).
 
 ### References
 
@@ -1462,10 +1603,12 @@ exception; close the remaining sub-10ms enqueue-point window).
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
   (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`,
   `connectionAttemptGeneration`, `reconnectDispatchPendingGeneration`, `engineConnection`,
-  `requestStopIcsOpenVpn`)
+  `requestStopIcsOpenVpn`, `finishStopFlowConfirmed`)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
-- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-17; tech-debt follow-up
-  [86cb5y61z](https://app.clickup.com/t/86cb5y61z)
+- ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-22; tech-debt follow-up
+  [86cb5y61z](https://app.clickup.com/t/86cb5y61z) (guard extraction into an explicit, testable
+  state machine; an interleaving-driven test harness; the remaining minor/deferred findings from
+  reviews 19-22 and quality gate 11)
 
 ---
 
