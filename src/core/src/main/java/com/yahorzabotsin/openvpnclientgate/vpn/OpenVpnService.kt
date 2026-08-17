@@ -313,13 +313,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // (round 12, Codex P2, comment 3734663965).
     @Volatile private var connectionAttemptGeneration: Int = 0
 
-    // PR #127 review round 3 (Codex P1, thread 3792922991, OpenVpnService.kt:1199): during the
-    // ENGINE_RECONNECT_DISPATCH_BUFFER_MS window, the just-stopped (previous) engine can still
-    // deliver a late terminal AIDL level (LEVEL_NONETWORK/LEVEL_AUTH_FAILED) for the CURRENT
-    // generation -- the buffer only delays startIcsOpenVpn(), so no new engine process exists yet
-    // to have produced that level, meaning any level received before the buffer fires is
-    // necessarily stale. connectionAttemptGeneration alone does not catch this: it is bumped by
-    // ACTION_START itself (:1146 below) BEFORE the stray level arrives, so
+    // PR #127 review round 3 (Codex P1, thread 3792922991, on the ACTION_START branch's
+    // blank-config isNullOrBlank() early return): during the ENGINE_RECONNECT_DISPATCH_BUFFER_MS
+    // window, the just-stopped (previous) engine can still deliver a late terminal AIDL level
+    // (LEVEL_NONETWORK/LEVEL_AUTH_FAILED) for the CURRENT generation -- the buffer only delays
+    // startIcsOpenVpn(), so no new engine process exists yet to have produced that level, meaning
+    // any level received before the buffer fires is necessarily stale. connectionAttemptGeneration
+    // alone does not catch this: it is bumped by ACTION_START itself (the `connectionAttemptGeneration
+    // += 1` statement earlier in this same branch) BEFORE the stray level arrives, so
     // dispatchAutoSwitcherOnEngineLevel()'s existing dispatchedForGeneration != connectionAttemptGeneration
     // check (which guards against a dispatch queued for an OLDER generation) captures the level
     // under the already-current generation and forwards it to ServerAutoSwitcher.onEngineLevel()
@@ -328,7 +329,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // dispatch -- skipping the selected server entirely without ever trying it.
     // Holds the generation of the MOST RECENTLY posted reconnect engine-dispatch buffer that is
     // still pending (i.e. its deferred Runnable posted below has not yet run or been swept), or -1
-    // when none is pending. Set right before postAtTime() for each buffer.
+    // when none is pending.
+    // R18-1 (fix-cycle 19, QG9-1/QG9-2, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // gate-9.md): set right after the ACTION_START branch's blank-config isNullOrBlank() early
+    // return, NOT right before postAtTime() (where it originally sat) -- the several statements in
+    // between (SharedPreferences reads/write, an AppLog.i call) were a real suppression-window gap
+    // on the normal retry path. Also deliberately NOT set before that early return: doing so would
+    // latch this marker permanently on a reachable blank-config reconnect, because the deferred
+    // Runnable that clears it is never posted on that path. This is the ONLY site that arms this
+    // field; the (former) second site right before postAtTime() was removed rather than kept as a
+    // redundant second writer -- see that call site's comment.
     // R16-1 (fix-cycle 17, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-16.md):
     // a single Int field cannot represent more than one pending buffer at a time, so when two
     // buffers are in flight (an earlier one superseded by a newer ACTION_START before it ran --
@@ -357,8 +367,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // reconnectEngineDispatchToken without running it) but does NOT bump connectionAttemptGeneration,
     // so it can leave this marker latched at a stale generation. That is benign today only because
     // userInitiatedStop is true throughout the latched interval, which independently discards any
-    // level at the deferred dispatch's own inner guard (:2726 at the time of writing), and because
-    // the latch cannot outlive the next generation bump (finishStopFlowConfirmed() or a fresh
+    // level at the deferred dispatch's own inner `userInitiatedStop || serviceDestroyed` guard, and
+    // because the latch cannot outlive the next generation bump (finishStopFlowConfirmed() or a fresh
     // ACTION_START, both of which occur before any new attempt can begin).
     // @Volatile for the same cross-thread reason as connectionAttemptGeneration: written on the
     // main thread (ACTION_START / the deferred Runnable), read on the AIDL binder thread inside
@@ -1197,6 +1207,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // declaration comment for the stop-then-restart race this closes (round 12).
                 connectionAttemptGeneration += 1
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                if (isReconnect) {
+                    // R18-1 (fix-cycle 19, QG9-1/QG9-2, docs/qa-evidence/86cb35fbt-vpn-foreground-
+                    // service-crash-gate-9.md): arm reconnectDispatchPendingGeneration HERE, right
+                    // after the blank-config early return immediately above, not further down right
+                    // before postAtTime() (where it used to sit). That lower placement left a
+                    // several-statement window -- SharedPreferences reads and a write, an AppLog.i
+                    // call -- during which dispatchAutoSwitcherOnEngineLevel()'s suppression
+                    // predicate was structurally false, letting a stray AIDL level from the
+                    // just-stopped engine reach ServerAutoSwitcher and skip the newly selected
+                    // server. Deliberately does NOT sit BEFORE the isNullOrBlank()/stopSelf() early
+                    // return directly above: gate-9 proved by mutation that placement creates a
+                    // reachable permanent latch -- a blank-config reconnect never reaches the
+                    // deferred Runnable below, so clearMarkerIfOwn() never runs and this marker
+                    // stays == connectionAttemptGeneration forever, suppressing every subsequent
+                    // AIDL level until a later ACTION_START. See
+                    // reconnectDispatchPendingGeneration's declaration comment.
+                    reconnectDispatchPendingGeneration = connectionAttemptGeneration
+                }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
@@ -1226,11 +1254,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // bookkeeping/state work above, which must stay synchronous with this
                     // onStartCommand() invocation exactly as before.
                     val dispatchGeneration = connectionAttemptGeneration
-                    // PR #127 review round 3 (thread 3792922991): mark this generation's reconnect
-                    // engine-dispatch as pending so dispatchAutoSwitcherOnEngineLevel() can suppress
-                    // any AIDL level from the just-stopped engine that arrives before this Runnable
-                    // actually runs -- see reconnectDispatchPendingGeneration's declaration comment.
-                    reconnectDispatchPendingGeneration = dispatchGeneration
+                    // reconnectDispatchPendingGeneration is already armed to this same generation
+                    // above (R18-1, fix-cycle 19) so dispatchAutoSwitcherOnEngineLevel() can
+                    // suppress any AIDL level from the just-stopped engine that arrives before this
+                    // Runnable actually runs -- see reconnectDispatchPendingGeneration's declaration
+                    // comment. No statement between that arm and this capture can rebump
+                    // connectionAttemptGeneration, so dispatchGeneration is guaranteed equal to what
+                    // was armed; re-assigning here would be redundant, not incorrect, but every
+                    // extra writer to this field is itself part of the acknowledged root cause of
+                    // this defect family (see the field's declaration comment), so this fix
+                    // intentionally does not add a third one.
                     // Tagged with reconnectEngineDispatchToken (R14-2) instead of a bare
                     // postDelayed() so teardown can cancel this specific dispatch -- see the
                     // token's declaration comment. This is the second line of defence for R14-1:

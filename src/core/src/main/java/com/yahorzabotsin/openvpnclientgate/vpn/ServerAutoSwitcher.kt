@@ -123,7 +123,11 @@ object ServerAutoSwitcher {
                 waitingStopForRetry = false
                 stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
                 stopRetryTimeoutRunnable = null
-                if (cfg != null) {
+                // QG9-3: !cfg.isNullOrBlank(), not just cfg != null -- pendingConfig is now
+                // rejected blank at its source assignment (see the comment there), but this guard
+                // stays tightened too as a second, independent line of defence rather than relying
+                // solely on the source assignment never regressing.
+                if (!cfg.isNullOrBlank()) {
                     AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
                     // R7-1 (fix-cycle 7, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-7.md):
                     // re-assert the reconnect invariant at retry-commit time, not only at
@@ -502,7 +506,15 @@ object ServerAutoSwitcher {
             try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for switch", e) }
             try {
                 AppLog.d(TAG, "Requesting explicit engine stop before retry")
-                pendingConfig = next.config
+                // QG9-3 (fix-cycle 19, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+                // gate-9.md): next.config is a non-null String but can be blank (StoredServer is
+                // hydrated from JSONObject.optString, which defaults a missing/null key to "").
+                // Reject a blank config HERE, at the source, rather than only at the two retry-
+                // commit sites below that read this field back out -- defence-in-depth so a blank
+                // config can never become a dispatched ACTION_START in the first place, which is
+                // what made gate-9's reachable-latch finding (QG9-2) possible on the
+                // OpenVpnService side.
+                pendingConfig = next.config.takeIf { it.isNotBlank() }
                 pendingTitle = title
                 waitingStopForRetry = true
                 scheduleStopRetryTimeout(appContext)
@@ -608,7 +620,9 @@ object ServerAutoSwitcher {
             pendingTitle = null
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
-            if (cfg != null) {
+            // QG9-3: !cfg.isNullOrBlank() -- see the sibling retry-commit site's comment above
+            // (the NOTCONNECTED-observed branch in onEngineLevel()) for the full rationale.
+            if (!cfg.isNullOrBlank()) {
                 // R7-1 (fix-cycle 7): same re-assertion as the NOTCONNECTED-observed retry-commit
                 // path above -- see that site's comment for the full rationale. This timeout path
                 // is the second of the two retry-commit sites the review identified.

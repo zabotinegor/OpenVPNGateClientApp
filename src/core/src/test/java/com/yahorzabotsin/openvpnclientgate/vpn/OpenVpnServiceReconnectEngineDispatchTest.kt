@@ -81,7 +81,8 @@ import java.time.Duration
 // `if (reconnectDispatchPendingGeneration == dispatchGeneration)` guard is reverted to an
 // unconditional clear, and pass with the guard in place.
 //
-// Fix-cycle 18 (R5-1, PR #127 review round 5, thread 3793613337, OpenVpnService.kt:1243):
+// Fix-cycle 18 (R5-1, PR #127 review round 5, thread 3793613337, on the deferred reconnect
+// engine-dispatch Runnable's clearMarkerIfOwn()-then-startIcsOpenVpn() ordering):
 // R16-1 fixed WHICH generation the clear applies to, but not WHEN it happened relative to the
 // engine dispatch it guards. The deferred Runnable used to clear reconnectDispatchPendingGeneration
 // as its very first statement, then only afterwards call startIcsOpenVpn() -- leaving a genuine
@@ -92,10 +93,31 @@ import java.time.Duration
 // strayLevelArrivingAtEngineDispatch_doesNotSkipJustDispatchedServer below is the acceptance test
 // for that finding: it hooks the "Requested engine start" log line -- the synchronous last
 // statement inside startIcsOpenVpn() -- to re-enter with a stray AIDL terminal level at exactly
-// that point, modelling a binder-thread callback landing in the pre-fix gap between clear and
-// dispatch. It must fail (selected server's position advances to the next server) if the clear is
-// reverted to precede startIcsOpenVpn(), and pass (position stays on the originally selected
-// server) with the clear deferred to after the dispatch call.
+// that point, re-entering at the point in the call stack a binder callback would have observed
+// (Robolectric runs this test's main looper as the calling thread, so the re-entry is
+// synchronous, not a real cross-thread callback -- but it lands at the same point in the call
+// stack the pre-fix gap would have exposed to one). It must fail (selected server's position
+// advances to the next server) if the clear is reverted to precede startIcsOpenVpn(), and pass
+// (position stays on the originally selected server) with the clear deferred to after the
+// dispatch call.
+//
+// Fix-cycle 19 (R18-1/QG9-1/QG9-2, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-9.md):
+// review-18 and gate-9 reproduced a SIBLING pre-arm window, this time on the reconnect
+// ACTION_START branch's own NORMAL path rather than inside the deferred Runnable: the generation
+// counter used to be bumped several statements (SharedPreferences reads/write, an AppLog.i call)
+// before reconnectDispatchPendingGeneration was armed, so a stray AIDL level landing in that gap
+// evaded suppression entirely. strayLevelDuringPreArmWindow_doesNotSkipSelectedServer below is
+// the acceptance test: it hooks the "Session attempt" log line -- squarely inside that gap on the
+// pre-fix code path -- and must fail (position advances) if the arm is moved back down past that
+// log line, passing only when the arm happens immediately after the blank-config early return.
+// gate-9 also proved BY MUTATION that the naive one-line remediation (arming the marker
+// immediately after the generation bump, i.e. BEFORE the blank-config early return) introduces a
+// new, reachable, permanently-latching defect: a blank-config reconnect bumps the generation,
+// arms the marker to match it, then returns before the deferred Runnable that would ever clear
+// it is posted, permanently suppressing every subsequent AIDL level.
+// reconnectStartWithBlankConfig_doesNotLatchDispatchMarkerToNewGeneration below is the
+// falsifying regression test for that: it must fail if the arm is moved to precede the
+// blank-config early return, and pass with the arm placed after it (this fix's actual placement).
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
 class OpenVpnServiceReconnectEngineDispatchTest {
@@ -115,9 +137,13 @@ class OpenVpnServiceReconnectEngineDispatchTest {
     @After
     fun tearDown() {
         ShadowLog.clear()
-        // Hygiene for strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer, which is the
-        // only test in this file that touches the ServerAutoSwitcher singleton's static state.
-        // Harmless no-op for every other test in this class.
+        // Hygiene run after every test in this class. Several tests here exercise the real
+        // ServerAutoSwitcher singleton's static state -- either directly, when a stray level is
+        // deliberately let through to prove a guard is NOT suppressing it (e.g.
+        // reconnectStartWithBlankConfig_doesNotLatchDispatchMarkerToNewGeneration), or the level
+        // reaches it as an unguarded baseline the test is specifically about (fix-cycle 19,
+        // gate-9: more than one test now touches these statics, unlike when this comment
+        // originally named a single test). Harmless no-op for every test that never reaches it.
         ServerAutoSwitcher.resetForTest()
     }
 
@@ -513,5 +539,178 @@ class OpenVpnServiceReconnectEngineDispatchTest {
         } finally {
             Timber.uproot(probeTree)
         }
+    }
+
+    // R18-1 acceptance test (fix-cycle 19, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-gate-9.md, QG9-1): see this file's header comment for the finding. Uses the same
+    // log-hook re-entry technique as strayLevelArrivingAtEngineDispatch_doesNotSkipJustDispatchedServer
+    // above, but hooked to the "Session attempt" log line instead of "Requested engine start" --
+    // that line sits squarely inside the pre-arm window on the pre-fix code path (the marker used
+    // to stay armed only once the deferred Runnable's own postAtTime() branch was reached, far
+    // below this log line).
+    //
+    // Fixture note: the two candidate servers are given DISTINCT ips ("ip1"/"ip2"), matching
+    // review-18's stated intent to avoid an identical-ip fixture artifact. In practice this
+    // fixture change alone does NOT make the position observable at the end of onStartCommand()
+    // either way -- verified empirically while building this test: SelectedCountryStore
+    // .saveLastStartedConfig(), which this same onStartCommand() call reaches right after the
+    // hook fires, calls SelectedCountryStore.ensureIndexForConfig() again using THIS attempt's
+    // ORIGINAL (pre-switch) config/ip, and that unconditionally re-locates and restores the
+    // ORIGINAL server's own index whether the match lands via config, config+ip, or ip-only --
+    // identical ips are not what makes it ambiguous, since the original server's own ip always
+    // uniquely identifies IT specifically. That is why this test reads position synchronously at
+    // injection time (see positionImmediatelyAfterInjection below) rather than after
+    // onStartCommand() returns. Distinct ips are kept anyway because they are the
+    // production-realistic fixture (real candidate servers never share an ip).
+    //
+    // ConnectionStateManager is pre-set to reconnectingHint=true/CONNECTING to mirror what
+    // ServerAutoSwitcher itself re-asserts immediately before dispatching a retry ACTION_START
+    // (see the waitingStopForRetry/LEVEL_NOTCONNECTED branch's declaration comment in
+    // ServerAutoSwitcher.kt). Without this, dispatchAutoSwitcherOnEngineLevel()'s
+    // wasConnectingAtDispatch capture would read ConnectionStateManager.state synchronously at the
+    // hook point -- BEFORE this same onStartCommand() call's own
+    // ConnectionStateManager.updateState(CONNECTING), which runs later, after the "Session
+    // attempt" log -- so ServerAutoSwitcher's immediate-switch fast path would never fire and the
+    // test would be vacuous regardless of whether the fix under test is present.
+    @Test
+    fun strayLevelDuringPreArmWindow_doesNotSkipSelectedServer() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip1", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip2", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        // Model an in-flight reconnect chain: a previous attempt already had the engine
+        // CONNECTING and the reconnectingHint set -- see this test's class-level doc comment
+        // above for why this is required for falsifiability.
+        ConnectionStateManager.setReconnectingHint(true)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        var reentered = false
+        // Captured synchronously, inside the hook, immediately after the injected level has been
+        // fully processed -- NOT re-read after onStartCommand() fully returns. This same
+        // onStartCommand() call continues on, after the hook returns, to
+        // SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config, targetIp)
+        // -- and that call's own internal ensureIndexForConfig() re-sync, using THIS attempt's
+        // ORIGINAL (pre-switch) config/ip, unconditionally re-locates and restores index 0
+        // whenever a real skip happened, regardless of whether the fixture's server ips are
+        // distinct or identical (confirmed empirically while building this test: the "matched by
+        // ip"/"matched by config" fallback in SelectedCountryStore.ensureIndexForConfig()
+        // unambiguously finds the ORIGINAL server by its own unchanged config/ip either way,
+        // since those values never became stale relative to THAT server, only relative to the
+        // store's current index). A position read taken later would therefore silently mask a
+        // real skip. This is exactly the "after-inject" reading review-18's own probe used as its
+        // load-bearing evidence (see gate-9 evidence: "REVIEW_PROBE after-inject pos=(2, 2)"),
+        // documented there as more reliable than the probe's own final position read.
+        var positionImmediatelyAfterInjection: Pair<Int, Int>? = null
+        val probeTree = object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                // Forward to android.util.Log so ShadowLog-based helpers keep working exactly as
+                // in every other test in this file -- see strayLevelArrivingAtEngineDispatch_
+                // doesNotSkipJustDispatchedServer above for why this forward is required once a
+                // Tree is planted.
+                android.util.Log.println(priority, tag ?: "", message)
+                if (!reentered && message.contains("Session attempt")) {
+                    reentered = true
+                    // The stray/late AIDL terminal level from the just-stopped (previous) engine,
+                    // re-entering at the exact point where the ACTION_START handler is
+                    // synchronously logging the session attempt -- inside the pre-arm window
+                    // R18-1 identified, between connectionAttemptGeneration's bump and
+                    // reconnectDispatchPendingGeneration's arm.
+                    callbacks.updateStateString("AUTH_FAILED", null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+                    positionImmediatelyAfterInjection = SelectedCountryStore.getCurrentPosition(appContext)
+                }
+            }
+        }
+        Timber.plant(probeTree)
+        try {
+            service.onStartCommand(reconnectStartIntent(), 0, 2)
+
+            assertTrue("precondition: the probe must have re-entered", reentered)
+
+            org.junit.Assert.assertEquals(
+                "A stray AIDL terminal level landing in the pre-arm window between " +
+                    "connectionAttemptGeneration's bump and reconnectDispatchPendingGeneration's " +
+                    "arm must not be able to advance past the originally selected server -- the " +
+                    "store must stay on server 1 (position 1/2), not skip to server 2, immediately " +
+                    "after the stray level is processed, otherwise the newly selected server is " +
+                    "stopped and skipped before it was ever asked to start (R18-1)",
+                1 to 2,
+                positionImmediatelyAfterInjection
+            )
+        } finally {
+            Timber.uproot(probeTree)
+        }
+    }
+
+    // Latch regression test (fix-cycle 19, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-gate-9.md, QG9-2): gate-9 proved by mutation that review-18's own verbatim
+    // remediation for R18-1 -- arming reconnectDispatchPendingGeneration immediately after the
+    // connectionAttemptGeneration bump, i.e. BEFORE the blank-config early return -- introduces a
+    // NEW, reachable, permanently-latching defect: a blank-config reconnect ACTION_START bumps
+    // the generation, arms the marker to match it, then returns before the deferred Runnable that
+    // would ever clear the marker is posted (that Runnable is only reached past the early
+    // return). The marker then stays equal to the live generation forever, and
+    // dispatchAutoSwitcherOnEngineLevel()'s suppression check silently discards every subsequent
+    // AIDL level until some later ACTION_START bumps the generation again. This test proves the
+    // fix's ACTUAL placement (arm after the early return) does not have that problem: a
+    // blank-config reconnect must leave the marker untouched, so a subsequent AIDL level is not
+    // suppressed.
+    @Test
+    fun reconnectStartWithBlankConfig_doesNotLatchDispatchMarkerToNewGeneration() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        // suppressEngineState defaults true and is only flipped to false as a side effect of a
+        // non-blank-config ACTION_START reaching that statement. Set it explicitly so the final
+        // "Ignoring AIDL level" absence check below cannot be vacuously satisfied for an
+        // unrelated reason.
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+
+        // A valid reconnect start first, so its deferred dispatch resolves and clears the marker
+        // back to -1 -- establishing the same "no buffer pending" baseline a genuine blank-config
+        // reconnect would be dispatched from in production, rather than starting from this test's
+        // own artificial zero state.
+        service.onStartCommand(reconnectStartIntent(), 0, 2)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+        assertTrue(
+            "precondition: the valid reconnect's own deferred dispatch must have reached the " +
+                "engine and cleared its marker",
+            hasEngineStartLog()
+        )
+
+        // The blank-config reconnect start: bumps connectionAttemptGeneration, then must hit the
+        // "No config to start" early return before ever reaching the deferred dispatch's
+        // postAtTime() branch.
+        val blankConfigReconnectIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), true)
+            putExtra(VpnManager.extraConfigKey(appContext), "")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(blankConfigReconnectIntent, 0, 3)
+
+        ShadowLog.clear()
+        callbacks.updateStateString("AUTH_FAILED", null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        val suppressionLogPresent = ShadowLog.getLogs().any {
+            it.tag == logTag && it.msg.contains("Ignoring AIDL level")
+        }
+        assertFalse(
+            "A blank-config reconnect ACTION_START must not latch " +
+                "reconnectDispatchPendingGeneration to the freshly bumped " +
+                "connectionAttemptGeneration -- doing so would permanently suppress every " +
+                "subsequent AIDL level, since no deferred Runnable is ever posted on the " +
+                "blank-config early-return path to clear it. This is exactly the reachable " +
+                "defect gate-9 proved review-18's verbatim remediation would introduce (QG9-2)",
+            suppressionLogPresent
+        )
     }
 }
