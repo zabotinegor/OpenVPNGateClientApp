@@ -24,6 +24,7 @@ import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -2713,7 +2714,10 @@ class OpenVpnServiceStatusSyncTest {
             // and is infrastructure unrelated to the race under test -- the same reason the
             // existing currentAttemptStartMs-based tests above set that field directly instead of
             // going through onStartCommand.
-            ReflectionHelpers.setField(service, "connectionAttemptGeneration", 1)
+            // R20-1 (fix-cycle 21): connectionAttemptGeneration is now an AtomicInteger, not a
+            // plain Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch
+            // the existing AtomicInteger instance and mutate it in place instead.
+            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(1)
 
             // Race step 2: the main thread runs the REAL user-stop sweep via a genuine ACTION_STOP
             // intent (startUserStopTeardown()), which sets userInitiatedStop=true and cancels
@@ -2755,7 +2759,7 @@ class OpenVpnServiceStatusSyncTest {
             // ACTION_START mutates for this purpose (see onStartCommand's ACTION_START branch),
             // for the same Robolectric-FGS reason as step 0 above.
             ReflectionHelpers.setField(service, "userInitiatedStop", false)
-            ReflectionHelpers.setField(service, "connectionAttemptGeneration", 2)
+            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(2)
 
             // Prime the NEW attempt's OWN switch timer with a genuinely fresh CONNECTING callback
             // on the main/test thread (dispatched synchronously, generation 2 matches generation

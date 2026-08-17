@@ -60,6 +60,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -307,11 +308,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // (step 5) closes this gap: a mismatch means a newer attempt has started since this
     // dispatch was queued, so it is skipped unconditionally, regardless of what
     // userInitiatedStop currently reads (unreliable for this specific race, per above).
-    // @Volatile: written on the main thread (onStartCommand/ACTION_START) and read on the AIDL
-    // binder thread (dispatchAutoSwitcherOnEngineLevel's capture) for cross-thread visibility,
-    // same requirement as userInitiatedStop/serviceDestroyed above. See PR #126 review thread
-    // (round 12, Codex P2, comment 3734663965).
-    @Volatile private var connectionAttemptGeneration: Int = 0
+    // R20-1 (fix-cycle 21, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-20.md):
+    // a plain @Volatile Int is NOT enough here. @Volatile only guarantees visibility of the most
+    // recently written value, not atomicity of the read-modify-write `+= 1` below -- and this
+    // field has THREE writer sites, one of which (finishStopFlowConfirmed(), reached via
+    // updateStateString -> syncEngineState -> handleEngineLevelForStop) runs on the AIDL binder
+    // thread, not the main thread: the engine process is declared `android:process=":openvpn"`
+    // in the engine manifest, so that callback genuinely lands on a binder thread-pool thread,
+    // and nothing in that call chain marshals it to main. A concurrent binder-thread
+    // finishStopFlowConfirmed() and main-thread ACTION_START can both read the same value and
+    // both write value+1, losing an increment. A lost increment leaves the live generation one
+    // lower than it should be, letting a dispatch captured under an already-superseded attempt
+    // match the live generation at every guard built on this counter (:1318, :1256/:1226,
+    // :2777, :2804/:2816, :2834) and reach ServerAutoSwitcher -- the same skip-without-trying
+    // end-state as every other variant in this defect family. AtomicInteger's incrementAndGet()/
+    // get() close this: increments are atomic regardless of which thread calls them, and get()
+    // always returns the true, fully-visible live value. See PR #126 review thread (round 12,
+    // Codex P2, comment 3734663965) for the original stop-then-restart race this field exists to
+    // close; R20-1 only changes HOW the counter is mutated, not why it exists.
+    private val connectionAttemptGeneration = AtomicInteger(0)
 
     // PR #127 review round 3 (Codex P1, thread 3792922991, on the ACTION_START branch's
     // blank-config isNullOrBlank() early return): during the ENGINE_RECONNECT_DISPATCH_BUFFER_MS
@@ -370,9 +385,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // level at the deferred dispatch's own inner `userInitiatedStop || serviceDestroyed` guard, and
     // because the latch cannot outlive the next generation bump (finishStopFlowConfirmed() or a fresh
     // ACTION_START, both of which occur before any new attempt can begin).
-    // @Volatile for the same cross-thread reason as connectionAttemptGeneration: written on the
-    // main thread (ACTION_START / the deferred Runnable), read on the AIDL binder thread inside
-    // dispatchAutoSwitcherOnEngineLevel().
+    // @Volatile for cross-thread visibility (same requirement connectionAttemptGeneration has,
+    // though that field is now an AtomicInteger for a stronger reason -- see its declaration
+    // comment, R20-1): every write to THIS field is a plain assignment, always on the main
+    // thread (ACTION_START / the deferred Runnable's clearMarkerIfOwn()), never a read-modify-
+    // write and never from the binder thread, so @Volatile's visibility guarantee alone is
+    // sufficient here -- there is no lost-update risk to convert to AtomicInteger for. It is
+    // read on the AIDL binder thread inside dispatchAutoSwitcherOnEngineLevel().
     @Volatile private var reconnectDispatchPendingGeneration: Int = -1
 
     // Byte count tracking for local listener vs AIDL callbacks
@@ -848,7 +867,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // auto-switch from stale data after the user explicitly disconnected. Bumping here closes
         // that window with the same mechanism round 12 already introduced. See PR #126 round 13
         // (Codex P2, comment 3734974192).
-        connectionAttemptGeneration += 1
+        // R20-1 (fix-cycle 21): this call runs on the AIDL binder thread (reached via
+        // updateStateString -> syncEngineState -> handleEngineLevelForStop), so incrementAndGet()
+        // -- not a plain `+= 1` -- is required to avoid losing a concurrent bump from ACTION_START
+        // on the main thread. See connectionAttemptGeneration's declaration comment.
+        connectionAttemptGeneration.incrementAndGet()
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
@@ -1204,8 +1227,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // declaration comment for why this is captured alongside the wall-clock value.
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
                 // Bump alongside currentAttemptStartMs: see connectionAttemptGeneration's
-                // declaration comment for the stop-then-restart race this closes (round 12).
-                connectionAttemptGeneration += 1
+                // declaration comment for the stop-then-restart race this closes (round 12), and
+                // for why this is incrementAndGet() rather than `+= 1` (R20-1, fix-cycle 21).
+                connectionAttemptGeneration.incrementAndGet()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 if (isReconnect) {
                     // R18-1 (fix-cycle 19, QG9-1/QG9-2, docs/qa-evidence/86cb35fbt-vpn-foreground-
@@ -1223,7 +1247,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // stays == connectionAttemptGeneration forever, suppressing every subsequent
                     // AIDL level until a later ACTION_START. See
                     // reconnectDispatchPendingGeneration's declaration comment.
-                    reconnectDispatchPendingGeneration = connectionAttemptGeneration
+                    reconnectDispatchPendingGeneration = connectionAttemptGeneration.get()
                 }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -1253,7 +1277,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // teardown -- delay just the engine-facing dispatch, not any of the
                     // bookkeeping/state work above, which must stay synchronous with this
                     // onStartCommand() invocation exactly as before.
-                    val dispatchGeneration = connectionAttemptGeneration
+                    val dispatchGeneration = connectionAttemptGeneration.get()
                     // reconnectDispatchPendingGeneration is already armed to this same generation
                     // above (R18-1, fix-cycle 19) so dispatchAutoSwitcherOnEngineLevel() can
                     // suppress any AIDL level from the just-stopped engine that arrives before this
@@ -1315,7 +1339,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
                             return@Runnable
                         }
-                        if (connectionAttemptGeneration != dispatchGeneration) {
+                        if (connectionAttemptGeneration.get() != dispatchGeneration) {
                             clearMarkerIfOwn()
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
                             return@Runnable
@@ -1356,8 +1380,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // unchanged, letting that dispatch fire mid-stop with a superseded config and
                     // re-arm a fresh engine FGS obligation -- structurally recreating the crash this
                     // buffer exists to widen. Bumping here closes that window with the same
-                    // mechanism round 12 already introduced.
-                    connectionAttemptGeneration += 1
+                    // mechanism round 12 already introduced. incrementAndGet(), not `+= 1` --
+                    // see connectionAttemptGeneration's declaration comment (R20-1, fix-cycle 21).
+                    connectionAttemptGeneration.incrementAndGet()
                     // R14-2: sweep the reconnect engine-dispatch token here too (defence in depth
                     // alongside the generation bump above) -- see reconnectEngineDispatchToken's
                     // declaration comment.
@@ -2774,7 +2799,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // ServerAutoSwitcher would let it re-trigger requestSwitchNow(), whose preserveReconnect
         // stop then cancels the still-pending deferred dispatch -- skipping the selected server
         // without ever trying it. See reconnectDispatchPendingGeneration's declaration comment.
-        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration) {
+        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
             AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
             return
         }
@@ -2801,7 +2826,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // comment 3734663965). If a fresh ACTION_START bumps the live counter before the
         // runnable below actually executes, the mismatch proves a newer attempt has begun since
         // this dispatch was queued.
-        val dispatchedForGeneration = connectionAttemptGeneration
+        val dispatchedForGeneration = connectionAttemptGeneration.get()
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
@@ -2813,25 +2838,37 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // ACTION_START clears it back to false as part of starting the new attempt, even
             // though this dispatch was queued for a now-superseded attempt. A generation mismatch
             // means exactly that happened, so skip unconditionally regardless of the flag above.
-            if (connectionAttemptGeneration != dispatchedForGeneration) return@Runnable
+            if (connectionAttemptGeneration.get() != dispatchedForGeneration) return@Runnable
             // R19-1 (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
             // gate-10.md): re-evaluate the SAME suppression predicate already checked at :2777,
             // but here, at execution time, instead of trusting the capture-time read. The
             // capture-time check reads (reconnectDispatchPendingGeneration, connectionAttemptGeneration)
-            // as a pair; both fields are individually @Volatile but the pair itself is not, so a
-            // level captured strictly between onStartCommand()'s `connectionAttemptGeneration +=
-            // 1` bump and its `reconnectDispatchPendingGeneration = connectionAttemptGeneration`
-            // arm observes a torn (marker=stale, generation=G) snapshot and evades suppression --
-            // cycles 16-19 each relocated WHERE the marker is armed or cleared, but every one of
-            // those placements still left this predicate evaluated on a thread (the AIDL binder
-            // thread) that owns neither field. This Runnable, by contrast, always executes on
-            // statusHandler's main looper -- the SAME thread that owns every writer of both
-            // fields (ACTION_START, finishStopFlowConfirmed(), clearMarkerIfOwn(), the
-            // preserveReconnect ACTION_STOP branch) -- so re-checking here is thread-confined and
-            // therefore coherent: by the time this line runs, if onStartCommand() has since armed
-            // the marker to match the live generation, this catches it even though :2777 could
-            // not.
-            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration) {
+            // as a pair, and no single-field fix closes that: even after R20-1 made
+            // connectionAttemptGeneration an AtomicInteger (fix-cycle 21, docs/qa-evidence/86cb35fbt-
+            // vpn-foreground-service-crash-review-20.md), a level captured strictly between
+            // onStartCommand()'s `connectionAttemptGeneration.incrementAndGet()` bump and its
+            // `reconnectDispatchPendingGeneration = connectionAttemptGeneration.get()` arm still
+            // observes a torn (marker=stale, generation=G) snapshot and evades suppression -- the
+            // two fields are updated by two separate statements, so no amount of per-field
+            // atomicity makes reading them together atomic. Cycles 16-19 each relocated WHERE the
+            // marker is armed or cleared; this re-check instead moves WHEN the pair is read.
+            // CORRECTED (R20-2, fix-cycle 21): the previous version of this comment claimed this
+            // Runnable "executes on the SAME thread that owns every writer of both fields,
+            // including finishStopFlowConfirmed()" -- that is false. finishStopFlowConfirmed() is
+            // reached from the AIDL binder thread (updateStateString -> syncEngineState ->
+            // handleEngineLevelForStop), not main, and is one of connectionAttemptGeneration's
+            // three writers. What IS actually true, and is what makes this re-check coherent:
+            // (a) reconnectDispatchPendingGeneration's only writers -- ACTION_START and
+            // clearMarkerIfOwn() -- are both main-thread-only (see its declaration comment), and
+            // this Runnable always executes on statusHandler's main looper, so reading the marker
+            // here needs no extra synchronization beyond its existing @Volatile visibility; and
+            // (b) connectionAttemptGeneration.get() always returns the true, fully-visible live
+            // value regardless of which thread last incremented it, because AtomicInteger makes
+            // every increment atomic -- unlike the old plain `+= 1` Int, no writer (including the
+            // binder-thread one) can lose an update or leave a stale value visible here. Together,
+            // by the time this line runs, if onStartCommand() has since armed the marker to match
+            // the live generation, this catches it even though :2777 could not.
+            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
                 AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
                 return@Runnable
             }

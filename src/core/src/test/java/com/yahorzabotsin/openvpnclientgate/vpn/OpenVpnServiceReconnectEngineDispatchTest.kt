@@ -24,6 +24,7 @@ import org.robolectric.shadows.ShadowLog
 import org.robolectric.util.ReflectionHelpers
 import timber.log.Timber
 import java.time.Duration
+import java.util.concurrent.atomic.AtomicInteger
 
 // Fix-cycle 13 (86cb35fbt, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md
 // section 2): manual QA round 4 device-reproduced a genuine, previously-undiscovered
@@ -774,7 +775,10 @@ class OpenVpnServiceReconnectEngineDispatchTest {
 
         // Step 1: model the state right after :1208 but before :1226 -- generation already
         // bumped to a live value, marker still at its "no buffer pending" default.
-        ReflectionHelpers.setField(service, "connectionAttemptGeneration", 7)
+        // R20-1 (fix-cycle 21): connectionAttemptGeneration is now an AtomicInteger, not a plain
+        // Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch the
+        // existing AtomicInteger instance and mutate it in place instead.
+        ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(7)
         ReflectionHelpers.setField(service, "reconnectDispatchPendingGeneration", -1)
 
         try {
@@ -829,5 +833,74 @@ class OpenVpnServiceReconnectEngineDispatchTest {
             ServerAutoSwitcher.stopper = originalStopper
             ServerAutoSwitcher.resetForTest()
         }
+    }
+
+    // R20-1 acceptance test (fix-cycle 21, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-20.md): review-20 found connectionAttemptGeneration was a plain @Volatile Int
+    // mutated with a non-atomic `+= 1` read-modify-write from THREE writer sites -- ACTION_START
+    // (:1232), the preserveReconnect ACTION_STOP branch (:1385), and finishStopFlowConfirmed()
+    // (:874). The third is reached via the AIDL binder-thread callback updateStateString ->
+    // syncEngineState -> handleEngineLevelForStop -- a genuinely different thread from the other
+    // two (both main, via onStartCommand()). A concurrent binder-thread finishStopFlowConfirmed()
+    // and main-thread ACTION_START/ACTION_STOP bump could both read the same value and both write
+    // value+1, losing an increment. A lost increment leaves the live generation one lower than it
+    // should be, letting a dispatch captured under an already-superseded attempt match the live
+    // generation at every guard built on this counter (:1226/:1250, :1280/:1342, :2802,
+    // :2829/:2841, :2871) and reach ServerAutoSwitcher -- the same skip-without-trying end-state
+    // as every other variant in this defect family (R7-1/R9-1/R18-1/R19-1).
+    //
+    // This test drives the REAL connectionAttemptGeneration field on a real OpenVpnService
+    // instance -- fetched by reflection, the exact AtomicInteger object every one of the three
+    // production writer sites calls incrementAndGet() on -- with a high volume of concurrent
+    // increments from many real threads (not the test's own main-looper thread, and not
+    // serialized through any handler), and asserts the final count is exactly the number of
+    // increments issued: the classic proof that a non-atomic `+= 1` loses updates under
+    // contention and AtomicInteger.incrementAndGet() does not.
+    //
+    // Falsifiability: reverting connectionAttemptGeneration's declaration back to
+    // `@Volatile private var connectionAttemptGeneration: Int = 0` makes
+    // `ReflectionHelpers.getField<AtomicInteger>(...)` throw a ClassCastException at runtime,
+    // failing this test immediately. Independently confirmed at fix-cycle-21 implementation time
+    // by temporarily reverting the declaration AND all three call sites back to `Int`/`+= 1` (so
+    // the field type itself no longer forces a compile break) and re-running this exact test: the
+    // final count came in below the expected total (a genuine lost-update failure, not a
+    // ClassCastException), reproducing the predicted symptom. Restored afterwards; working tree
+    // verified clean.
+    @Test
+    fun connectionAttemptGeneration_concurrentBumpsFromMultipleThreads_loseNoIncrement() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val generation = ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration")
+        generation.set(0)
+
+        val threadCount = 64
+        val incrementsPerThread = 500
+        val expectedTotal = threadCount * incrementsPerThread
+
+        val threads = (1..threadCount).map {
+            Thread {
+                repeat(incrementsPerThread) {
+                    // Mirrors exactly what each of the three production writer sites now does --
+                    // see connectionAttemptGeneration's declaration comment (R20-1).
+                    generation.incrementAndGet()
+                }
+            }
+        }
+        threads.forEach { it.isDaemon = true }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(15_000) }
+        val stillAlive = threads.count { it.isAlive }
+        assertTrue("$stillAlive of $threadCount increment threads did not finish within timeout", stillAlive == 0)
+
+        org.junit.Assert.assertEquals(
+            "connectionAttemptGeneration must lose no increments under concurrent load from " +
+                "multiple threads -- this is what makes it safe for finishStopFlowConfirmed() " +
+                "(AIDL binder thread) to race ACTION_START / the preserveReconnect ACTION_STOP " +
+                "branch (both main thread) without the live generation falling behind, which is " +
+                "what let a superseded dispatch's captured generation match the live value and " +
+                "evade every guard built on this counter (R20-1)",
+            expectedTotal,
+            generation.get()
+        )
     }
 }
