@@ -1,5 +1,16 @@
 # Android ADB — Manual QA Runbook for OpenVPN Gate Client
 
+## Index
+
+Read this list first and jump to the one relevant heading — do not read the whole file.
+
+- [Device Setup](#device-setup)
+- [Known Workarounds](#known-workarounds)
+- [Useful Log Filters](#useful-log-filters)
+- [Known Environmental Behaviour](#known-environmental-behaviour)
+
+---
+
 ## Device Setup
 
 - ADB serial: <your-device-serial> (MIUI/Xiaomi device in secondary space)

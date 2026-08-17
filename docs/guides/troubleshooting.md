@@ -35,6 +35,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Engine update build fails with `Failed to find target with hash string 'android-37'` — SDK Platform 37 not yet installed](#engine-update-build-fails-with-failed-to-find-target-with-hash-string-android-37--sdk-platform-37-not-yet-installed)
 - [CI's bundled `sdkmanager` cannot resolve `platforms;android-37` even though Gradle can](#cis-bundled-sdkmanager-cannot-resolve-platformsandroid-37-even-though-gradle-can)
 - [Removing an enum constant silently deletes regression coverage that a mechanical find/replace doesn't restore](#removing-an-enum-constant-silently-deletes-regression-coverage-that-a-mechanical-findreplace-doesnt-restore)
+- [Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563](#auto-switch-never-fires-when-the-live-aidl-push-status-callback-stalls--bug-86cb21563)
 - [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
 
 ---
