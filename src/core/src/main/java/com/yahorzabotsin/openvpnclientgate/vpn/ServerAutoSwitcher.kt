@@ -161,10 +161,13 @@ object ServerAutoSwitcher {
                     handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
                     return
                 }
-                // cfg == null is an unexpected/defensive edge case (beginChainedSwitch and
-                // requestSwitchNow always set pendingConfig before setting waitingStopForRetry).
-                // Fall through to normal processing below with waitingStopForRetry already
-                // cleared, matching pre-existing behavior.
+                // cfg == null or blank is an unexpected/defensive edge case (beginChainedSwitch
+                // and requestSwitchNow always set pendingConfig before setting
+                // waitingStopForRetry, and QG9-3 now rejects a blank value at both source
+                // assignments). Fall through to normal processing below with waitingStopForRetry
+                // already cleared, matching pre-existing behavior. (R19-5: reworded from
+                // "cfg == null" -- fourth consecutive round of comment drift in this file/
+                // OpenVpnService.kt as the guard tightened from null-only to null-or-blank.)
             } else {
                 // A stop-before-retry is in flight: this object explicitly requested the engine
                 // stop above (beginChainedSwitch / requestSwitchNow) and is waiting ONLY for the
@@ -289,7 +292,14 @@ object ServerAutoSwitcher {
         // start(appContext, level) -- called directly, not through onEngineLevel() -- bypassing the
         // waitingStopForRetry guard above and starting a competing timer.
         cancelIdleTolerance()
-        pendingConfig = config
+        // R19-2 (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+        // gate-10.md): pendingConfig has two writer sites -- this one and requestSwitchNow's
+        // `next.config.takeIf { it.isNotBlank() }` below (QG9-3). Only the latter was hardened in
+        // fix-cycle 19; gate-10 found no LIVE hole (both retry-commit read sites already reject a
+        // blank cfg independently), but the source-level rejection the sibling comment below
+        // describes was true for only one of the two writers. Match it here too, at near-zero
+        // cost, rather than leaving the two writers asymmetric.
+        pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)

@@ -713,4 +713,121 @@ class OpenVpnServiceReconnectEngineDispatchTest {
             suppressionLogPresent
         )
     }
+
+    // R19-1 acceptance test (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-gate-10.md): gate-10 found the :1208-:1226 gap has NO interceptable seam -- the only
+    // log line in that stretch (AppLog.e("No config to start")) sits on the blank-config path,
+    // which returns before ever arming the marker, so the log-hook re-entry technique used by
+    // strayLevelArrivingAtEngineDispatch_doesNotSkipJustDispatchedServer and
+    // strayLevelDuringPreArmWindow_doesNotSkipSelectedServer above cannot reproduce this window.
+    // This is therefore a guard-isolating test (precedent: commit 86eb087, "Add guard-isolating
+    // regression tests for the fix-cycle-4 auto-switch guard", fix-cycle 5) that drives the fixed
+    // guard's logic directly rather than attempting to time a real race into an unhookable gap:
+    //   1. Model onStartCommand()'s :1208 statement having already run (connectionAttemptGeneration
+    //      bumped to a live value) but its :1226 statement not yet
+    //      (reconnectDispatchPendingGeneration still at its "no buffer pending" default) --
+    //      exactly the torn (marker=stale, generation=G) pair the gap exposes.
+    //   2. Deliver a stray AIDL level from a REAL background thread (not the test's own
+    //      main-looper thread), so dispatchAutoSwitcherOnEngineLevel() takes its postAtTime()
+    //      deferred branch -- the capture-time :2777 check reads the torn pair and does NOT
+    //      suppress, exactly like the real binder thread would inside the gap.
+    //   3. While that dispatch sits queued on the (Robolectric-paused) main looper, arm the
+    //      marker to the live generation -- modeling :1226 completing on the main thread while
+    //      the stray dispatch is still in flight, queued.
+    //   4. Drain the main looper. The fixed execution-time re-check (next to :2816) must catch
+    //      what the capture-time check missed; without it, ServerAutoSwitcher.onEngineLevel() is
+    //      reached and its immediate-switch fast path fires (state is CONNECTING).
+    // Falsifiability: this test must FAIL (starter() invoked) if the guard added next to :2816 in
+    // this fix cycle is removed, and PASS with it in place.
+    @Test
+    fun executionTimeGuard_suppressesStrayLevelUnsuppressedAtCaptureTimeButArmedBeforeExecution() {
+        UserSettingsStore.saveAutoSwitchWithinCountry(appContext, true)
+        val servers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip1", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip2", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val startCalls = mutableListOf<String>()
+        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.stopper = { _ -> }
+
+        // Invoke dispatchAutoSwitcherOnEngineLevel() directly, reflectively, rather than going
+        // through the real callbacks.updateStateString()/syncEngineState() entry point: this test
+        // is deliberately guard-isolating (per the gate's testability note), and syncEngineState()
+        // has several OTHER early-return guards (maybeStartStaleStopReconciliation,
+        // shouldIgnoreLevelAfterUserStop) whose own state this test does not set up and does not
+        // want to depend on -- the target under test is dispatchAutoSwitcherOnEngineLevel()'s own
+        // capture-time/execution-time predicate pair, nothing upstream of it.
+        val dispatchMethod = OpenVpnService::class.java.getDeclaredMethod(
+            "dispatchAutoSwitcherOnEngineLevel", ConnectionStatus::class.java
+        )
+        dispatchMethod.isAccessible = true
+
+        // Step 1: model the state right after :1208 but before :1226 -- generation already
+        // bumped to a live value, marker still at its "no buffer pending" default.
+        ReflectionHelpers.setField(service, "connectionAttemptGeneration", 7)
+        ReflectionHelpers.setField(service, "reconnectDispatchPendingGeneration", -1)
+
+        try {
+            // Step 2: deliver the stray level from a genuine background thread so the dispatch is
+            // deferred via postAtTime(), not run synchronously in-line the way every other test in
+            // this file (calling from the test's own main-looper thread) does.
+            val thread = Thread {
+                dispatchMethod.invoke(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+            }
+            thread.isDaemon = true
+            thread.start()
+            thread.join(5_000)
+            if (thread.isAlive) thread.interrupt()
+            assertFalse("background thread did not finish within timeout", thread.isAlive)
+
+            // Step 3: onStartCommand()'s own (main) thread reaches :1226 and arms the marker to
+            // the SAME generation the just-captured, still-queued dispatch used.
+            ReflectionHelpers.setField(service, "reconnectDispatchPendingGeneration", 7)
+
+            // Step 4: drain the main looper so the deferred Runnable runs. If the stray level is
+            // NOT suppressed, this only reaches ServerAutoSwitcher.onEngineLevel()'s
+            // shouldSwitchImmediately branch, which ARMS a two-phase switch (waitingStopForRetry
+            // = true, pendingConfig = "conf2", an engine stop requested) -- it does not invoke
+            // starter() synchronously, exactly like requestSwitchNow() never does in production
+            // (see switchesAfterThresholdUsingChainedStopStart in ServerAutoSwitcherTest.kt for
+            // the same two-phase shape).
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            // Confirm engine teardown, exactly as that same two-phase pattern requires: this is
+            // what actually invokes starter() -- if, and only if, the stray level above reached
+            // ServerAutoSwitcher and armed a pending retry. The retry-commit dispatch itself is
+            // posted with a further START_AFTER_STOP_DELAY_MS delay (see
+            // switchesAfterThresholdUsingChainedStopStart in ServerAutoSwitcherTest.kt, which
+            // advances 500ms for the same reason), so idleFor -- not a plain idle() -- is required
+            // to actually run it.
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, "AIDL")
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+            assertTrue(
+                "The execution-time re-check added next to the :2816 generation guard (R19-1) " +
+                    "must suppress a stray AIDL level whose capture-time :2777 check missed it " +
+                    "because the (marker, generation) pair was torn across onStartCommand()'s " +
+                    "connectionAttemptGeneration bump (:1208) and reconnectDispatchPendingGeneration " +
+                    "arm (:1226) -- without it, ServerAutoSwitcher.onEngineLevel() is reached, its " +
+                    "immediate-switch fast path (state was CONNECTING) arms a pending retry to " +
+                    "server 2, and the subsequent NOTCONNECTED confirmation completes it, skipping " +
+                    "the newly selected server without ever trying it",
+                startCalls.isEmpty()
+            )
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
 }

@@ -118,6 +118,43 @@ class ServerAutoSwitcherTest {
         assertEquals("conf2", current?.config)
     }
 
+    // R19-3 (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-10.md):
+    // QG9-3 (fix-cycle 19) added !cfg.isNullOrBlank() hardening at both retry-commit read sites
+    // (this test exercises the NOTCONNECTED-observed branch) plus a blank-rejecting write at
+    // requestSwitchNow()'s pendingConfig assignment -- but shipped with zero test coverage; gate-10
+    // verified by mutation that all three edits survive reversion with a green suite. Proves at
+    // least one of those guards actually rejects a blank config end to end: server 2 (the "next"
+    // server nextServerCircular() will select) has a blank config, so starting the engine with an
+    // empty profile must never happen.
+    @Test
+    fun retryCommit_doesNotStartNextServerWithBlankConfig() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        // Cross threshold (configured to 2s in setUp) -- requests a stop and arms a chained start
+        // to server 2, whose config is blank.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, calls.size)
+
+        // Engine reports teardown complete; the retry-commit guard must reject the blank pending
+        // config here instead of starting the engine with an empty profile.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals(
+            "A blank config on the server selected by the switch must never reach starter() -- " +
+                "QG9-3's !cfg.isNullOrBlank() hardening (both the requestSwitchNow() source " +
+                "assignment and the retry-commit read guards) exists precisely to prevent this",
+            0,
+            calls.size
+        )
+    }
+
     @Test
     fun startsTimerForServerRepliedAndSwitches() {
         // Trigger timer on SERVER_REPLIED

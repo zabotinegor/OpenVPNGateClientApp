@@ -2814,6 +2814,27 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // though this dispatch was queued for a now-superseded attempt. A generation mismatch
             // means exactly that happened, so skip unconditionally regardless of the flag above.
             if (connectionAttemptGeneration != dispatchedForGeneration) return@Runnable
+            // R19-1 (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+            // gate-10.md): re-evaluate the SAME suppression predicate already checked at :2777,
+            // but here, at execution time, instead of trusting the capture-time read. The
+            // capture-time check reads (reconnectDispatchPendingGeneration, connectionAttemptGeneration)
+            // as a pair; both fields are individually @Volatile but the pair itself is not, so a
+            // level captured strictly between onStartCommand()'s `connectionAttemptGeneration +=
+            // 1` bump and its `reconnectDispatchPendingGeneration = connectionAttemptGeneration`
+            // arm observes a torn (marker=stale, generation=G) snapshot and evades suppression --
+            // cycles 16-19 each relocated WHERE the marker is armed or cleared, but every one of
+            // those placements still left this predicate evaluated on a thread (the AIDL binder
+            // thread) that owns neither field. This Runnable, by contrast, always executes on
+            // statusHandler's main looper -- the SAME thread that owns every writer of both
+            // fields (ACTION_START, finishStopFlowConfirmed(), clearMarkerIfOwn(), the
+            // preserveReconnect ACTION_STOP branch) -- so re-checking here is thread-confined and
+            // therefore coherent: by the time this line runs, if onStartCommand() has since armed
+            // the marker to match the live generation, this catches it even though :2777 could
+            // not.
+            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration) {
+                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
+                return@Runnable
+            }
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
