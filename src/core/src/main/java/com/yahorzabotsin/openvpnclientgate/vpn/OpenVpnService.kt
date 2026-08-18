@@ -180,9 +180,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val aidlFreshWindowMs = 3_000L
     private val staleSnapshotMaxAgeMs = 10_000L
     private val clockJumpMinDetectableMs = 1_000L
-    // tolerance added on top of the estimated jump size when deciding whether a snapshot's
-    // predates-gap is fully explained by that jump, absorbing the same read skew.
-    private val clockJumpMinDetectableMs = 1_000L
     private val clockJumpSlackMs = 2_000L
     private val liveStatusGraceMs = 5_000L
     private val statusHandler = Handler(Looper.getMainLooper())
