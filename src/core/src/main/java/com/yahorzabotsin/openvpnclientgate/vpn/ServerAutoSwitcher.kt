@@ -28,11 +28,6 @@ object ServerAutoSwitcher {
     private var seconds: Int = 0
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
-    // R11-2 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
-    // returns Boolean (VpnManager.startVpn()'s own dispatch-success result), not Unit -- the two
-    // retry-commit sites below need to observe a failed dispatch to roll back the CONNECTING
-    // re-assertion they make just ahead of calling this. See rollBackFailedRetryDispatch()'s
-    // declaration comment.
     internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
@@ -61,25 +56,6 @@ object ServerAutoSwitcher {
     // until whichever site fires first, and each site clears it before posting this Runnable --
     // R9-4, fix-cycle 9: the prior wording of this parenthetical had the polarity backwards).
     private var retryStartRunnable: Runnable? = null
-    // R9-1 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md): QG4-2
-    // made retryStartRunnable trackable so cancel() could remove it for a genuine user Disconnect --
-    // but cancel() is also reached from onEngineLevel()'s own generic `else -> cancel(...)` branch
-    // for every level outside timeoutLevels. waitingStopForRetry is cleared the instant this
-    // Runnable is posted (both retry-commit sites clear it first), so the cycle-6 stale-level guard
-    // above -- the thing that normally shields this object from duplicate/re-delivered levels -- no
-    // longer covers the START_AFTER_STOP_DELAY_MS window between "retry committed" and "retry
-    // fired". A stray re-delivered level landing in that window (this file's own comments document
-    // exactly this: the poll loop re-delivering a cached terminal snapshot, or the engine emitting
-    // LEVEL_NOTCONNECTED twice back-to-back for EXITING then NOPROCESS during the same teardown)
-    // reached the else-branch cancel() and silently discarded the pending retry, leaving the app
-    // stuck on "Connecting" with no VPN process and no pending reconnect -- the exact symptom fixed
-    // once already in e8fa60e (bug 86cb21563), reintroduced by QG4-2. This flag re-extends stale-
-    // level coverage over that window: onEngineLevel() ignores every level while it is true, exactly
-    // as it already ignores stray levels while waitingStopForRetry is true. It is NOT checked by
-    // cancelForUserStop(), which calls cancel() directly and bypasses onEngineLevel() entirely, so a
-    // genuine user Disconnect inside the window still cancels the retry (QG4-2's original fix).
-    // Cleared in the same two places retryStartRunnable is: when the Runnable fires, and inside
-    // cancel() when it removes the Runnable.
     @Volatile private var retryCommitInFlight: Boolean = false
     private var idleToleranceRunnable: Runnable? = null
     private var idleToleranceLevel: ConnectionStatus? = null
@@ -123,27 +99,8 @@ object ServerAutoSwitcher {
                 waitingStopForRetry = false
                 stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
                 stopRetryTimeoutRunnable = null
-                // QG9-3: !cfg.isNullOrBlank(), not just cfg != null -- pendingConfig is now
-                // rejected blank at its source assignment (see the comment there), but this guard
-                // stays tightened too as a second, independent line of defence rather than relying
-                // solely on the source assignment never regressing.
                 if (!cfg.isNullOrBlank()) {
                     AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
-                    // R7-1 (fix-cycle 7, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-7.md):
-                    // re-assert the reconnect invariant at retry-commit time, not only at
-                    // switch-decision time. ServerAutoSwitcher is not the only consumer of an
-                    // engine level -- OpenVpnService.syncEngineState() also forwards every level to
-                    // ConnectionStateManager.updateFromEngine(), which cycle 6's stale-level guard
-                    // above does not touch. A stale/re-delivered level arriving during the wait
-                    // window (e.g. a spurious LEVEL_CONNECTED) could already have flipped
-                    // ConnectionStateManager to state=DISCONNECTED / reconnectingHint=false before
-                    // this retry fires. Dispatching ACTION_START with that broken invariant defeats
-                    // three guards this branch depends on: OpenVpnService
-                    // .stopAfterOneShotSyncConfirmedRunnable's and VpnManager.stopControllerIfIdle's
-                    // `state != DISCONNECTED` exclusion, and syncEngineState's reconnectPending
-                    // FGS-notification guard. Re-asserting both here, immediately before the retry
-                    // is posted, restores the invariant regardless of what happened to it during the
-                    // wait.
                     try {
                         ConnectionStateManager.setReconnectingHint(true)
                         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
@@ -161,55 +118,12 @@ object ServerAutoSwitcher {
                     handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
                     return
                 }
-                // cfg == null or blank is an unexpected/defensive edge case (beginChainedSwitch
-                // and requestSwitchNow always set pendingConfig before setting
-                // waitingStopForRetry, and QG9-3 now rejects a blank value at both source
-                // assignments). Fall through to normal processing below with waitingStopForRetry
-                // already cleared, matching pre-existing behavior. (R19-5: reworded from
-                // "cfg == null" -- fourth consecutive round of comment drift in this file/
-                // OpenVpnService.kt as the guard tightened from null-only to null-or-blank.)
             } else {
-                // A stop-before-retry is in flight: this object explicitly requested the engine
-                // stop above (beginChainedSwitch / requestSwitchNow) and is waiting ONLY for the
-                // LEVEL_NOTCONNECTED confirmation handled above -- or the STOP_RETRY_TIMEOUT_MS
-                // fallback in scheduleStopRetryTimeout() -- to resolve it. Any OTHER level
-                // arriving in this window must be treated as noise, not a real signal: it can be
-                // a duplicate re-delivery of an already-actioned immediate-failure level (PR #126
-                // round 13, Codex P1, comment 3734974189: the poll loop can re-deliver the SAME
-                // cached terminal snapshot on every ~2s cycle without it ever going stale, since
-                // applyStatusSnapshot() restores lastStatusSnapshotMs to the snapshot's own
-                // timestamp rather than "now"), or a stale/re-delivered AIDL snapshot surfaced by
-                // an unrelated stop path racing this one -- e.g. OpenVpnService's own idle
-                // one-shot-sync stop tearing down and recreating the Service instance at nearly
-                // the same moment as this object's own stop-before-retry (see
-                // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md, "Secondary
-                // finding" section, B23/B24).
-                //
-                // Before this guard, such a level fell through to the generic timeoutLevels/else
-                // handling below: a timeoutLevels level (e.g. a re-delivered
-                // LEVEL_CONNECTING_NO_SERVER_REPLY_YET) would start a competing timer via
-                // start(...) since timerActive is false during this window (B24: the timer
-                // appears to "restart" from a stale snapshot with no real intervening retry);
-                // any other level (e.g. a stale LEVEL_CONNECTED) would hit the unconditional
-                // `else -> cancel(...)` branch, silently discarding the pending retry -- and
-                // almost without a trace, since cancel()'s only log line is gated on
-                // `timerActive || seconds > 0`, both already reset to false/0 for the duration of
-                // this wait window (B23: neither the NOTCONNECTED-observed log nor the stop-retry
-                // timeout log ever appears, because the timeout callback that would have logged
-                // it was itself removed by the same cancel() call).
-                // R7-2 (fix-cycle 7 review): AppLog.i, not .d -- AppReleaseTree drops DEBUG in
-                // release builds, and this is the one field-visible proof that the stale-level
-                // guard actually engaged (mirrors the same reasoning applied to the stopSelf()/abort
-                // lines in OpenVpnService's one-shot-sync stop, review-4 F6).
                 AppLog.i(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
                 return
             }
         }
 
-        // R9-1 (fix-cycle 9): see retryCommitInFlight's declaration comment above. waitingStopForRetry
-        // is already false by the time this is reached (both retry-commit sites clear it before
-        // arming this flag), so without this check a stray level here would fall through to the
-        // timeoutLevels/else handling below exactly like the bug it re-guards against.
         if (retryCommitInFlight) {
             AppLog.i(TAG, "Ignoring level=$level (source=$source) while retry-commit dispatch is in flight")
             return
@@ -226,16 +140,6 @@ object ServerAutoSwitcher {
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
         if (shouldSwitchImmediately) {
-            // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
-            // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
-            // posting from a binder thread to the main looper), and by the time this deferred
-            // block runs, ConnectionStateManager.state may already have been mutated away from
-            // CONNECTING by ConnectionStateManager.updateFromEngine(), which the caller invokes
-            // synchronously right after dispatching this callback. Re-reading state at that later
-            // point would silently defeat the immediate-switch fast path on a fresh connection
-            // attempt (no timer running yet). Callers that already run synchronously and in-order
-            // (e.g. the VPN_STATUS/updateState main-thread path, or tests) omit the parameter and
-            // fall back to reading current state, which is safe for them.
             val isConnecting = wasConnectingAtDispatch ?: try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
             } catch (_: Exception) {
@@ -284,21 +188,7 @@ object ServerAutoSwitcher {
         }
         try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
-        // R7-3 (fix-cycle 7 review): cancel any idle-tolerance runnable armed just before this
-        // call. requestSwitchNow()'s equivalent transition into waitingStopForRetry=true goes
-        // through cancel(resetCycle=false), which already cancels idle tolerance as a side effect;
-        // beginChainedSwitch() did not, so an idleToleranceRunnable armed within
-        // UNKNOWN_PAUSED_GRACE_MS before this call could still fire mid-window via
-        // start(appContext, level) -- called directly, not through onEngineLevel() -- bypassing the
-        // waitingStopForRetry guard above and starting a competing timer.
         cancelIdleTolerance()
-        // R19-2 (fix-cycle 20, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
-        // gate-10.md): pendingConfig has two writer sites -- this one and requestSwitchNow's
-        // `next.config.takeIf { it.isNotBlank() }` below (QG9-3). Only the latter was hardened in
-        // fix-cycle 19; gate-10 found no LIVE hole (both retry-commit read sites already reject a
-        // blank cfg independently), but the source-level rejection the sibling comment below
-        // describes was true for only one of the two writers. Match it here too, at near-zero
-        // cost, rather than leaving the two writers asymmetric.
         pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
         waitingStopForRetry = true
@@ -361,12 +251,6 @@ object ServerAutoSwitcher {
     private fun cancel(resetCycle: Boolean) {
         runnable?.let { handler.removeCallbacks(it) }
         runnable = null
-        // R7-2 (fix-cycle 7 review): also log when a pending stop-before-retry wait
-        // (waitingStopForRetry) is discarded by this cancel() -- read BEFORE it is reset to false
-        // below. Previously this condition only covered an active countdown timer, so a cancel()
-        // reaching this object during the stop-before-retry wait window (e.g. via
-        // cancelForUserStop()) silently discarded a pending retry with zero log evidence, since
-        // timerActive/seconds are already false/0 for the whole window.
         if (timerActive || seconds > 0 || waitingStopForRetry) {
             AppLog.d(TAG, "Switch timer stopped at ${seconds}s (level=${timerLevel}, waitingStopForRetry=${waitingStopForRetry})")
         }
@@ -378,10 +262,6 @@ object ServerAutoSwitcher {
         pendingTitle = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
-        // QG4-2: cancel the tracked retry-commit dispatch too -- see retryStartRunnable's
-        // declaration comment. Without this, a cancel() landing inside the
-        // START_AFTER_STOP_DELAY_MS window (e.g. a user Disconnect via cancelForUserStop()) left
-        // this Runnable armed even though every other piece of retry state was just cleared above.
         retryStartRunnable?.let { handler.removeCallbacks(it) }
         retryStartRunnable = null
         retryCommitInFlight = false
@@ -430,9 +310,6 @@ object ServerAutoSwitcher {
 
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
-        // Capture the failing server id before nextServerCircular advances the index.
-        // Guard: only probe if the currently selected server config matches the last-started config,
-        // preventing spurious probes when the user changes server selection in the UI while connected.
         val failingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
             SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
         } else 0
@@ -516,14 +393,6 @@ object ServerAutoSwitcher {
             try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for switch", e) }
             try {
                 AppLog.d(TAG, "Requesting explicit engine stop before retry")
-                // QG9-3 (fix-cycle 19, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
-                // gate-9.md): next.config is a non-null String but can be blank (StoredServer is
-                // hydrated from JSONObject.optString, which defaults a missing/null key to "").
-                // Reject a blank config HERE, at the source, rather than only at the two retry-
-                // commit sites below that read this field back out -- defence-in-depth so a blank
-                // config can never become a dispatched ACTION_START in the first place, which is
-                // what made gate-9's reachable-latch finding (QG9-2) possible on the
-                // OpenVpnService side.
                 pendingConfig = next.config.takeIf { it.isNotBlank() }
                 pendingTitle = title
                 waitingStopForRetry = true
@@ -595,19 +464,7 @@ object ServerAutoSwitcher {
         )
     }
 
-    // R11-2 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
-    // both retry-commit sites re-assert ConnectionStateManager CONNECTING/reconnectingHint=true
-    // ahead of their delayed starter(...) dispatch (R7-1, fix-cycle 7). If that dispatch fails --
-    // starter == VpnManager.startVpn(), which returns false when ContextCompat
-    // .startForegroundService() throws, e.g. Android's FGS-start-from-background restriction
-    // rejecting a background auto-switch retry -- no engine level will EVER arrive to move
-    // ConnectionStateManager off CONNECTING: the ACTION_START that would normally produce one was
-    // never delivered. Left uncorrected this both (a) strands the UI on a permanent false
-    // "Connecting" state, and (b) permanently blocks VpnManager.stopControllerIfIdle()'s
-    // state != DISCONNECTED guard -- including the very re-check
-    // VpnManager.scheduleIdleRecheckAfterFailedStartDispatch() schedules specifically to recover
-    // from this exact failure, making that self-heal a guaranteed no-op on its own stated
-    // motivating scenario. Roll the re-assertion back so both are corrected.
+    // Rolls back CONNECTING re-assertion when a retry dispatch fails (e.g. FGS-from-background restriction).
     private fun rollBackFailedRetryDispatch() {
         AppLog.w(TAG, "Retry-commit ACTION_START dispatch failed; rolling back CONNECTING re-assertion")
         try {
@@ -630,12 +487,7 @@ object ServerAutoSwitcher {
             pendingTitle = null
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
-            // QG9-3: !cfg.isNullOrBlank() -- see the sibling retry-commit site's comment above
-            // (the NOTCONNECTED-observed branch in onEngineLevel()) for the full rationale.
             if (!cfg.isNullOrBlank()) {
-                // R7-1 (fix-cycle 7): same re-assertion as the NOTCONNECTED-observed retry-commit
-                // path above -- see that site's comment for the full rationale. This timeout path
-                // is the second of the two retry-commit sites the review identified.
                 try {
                     ConnectionStateManager.setReconnectingHint(true)
                     ConnectionStateManager.updateState(ConnectionState.CONNECTING)

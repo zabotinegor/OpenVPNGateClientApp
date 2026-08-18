@@ -26,72 +26,15 @@ object VpnManager {
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
-    // Fix-cycle 7 QA finding (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md,
-    // "2026-08-14 continuation 2"): a genuine FATAL RemoteServiceException
-    // $ForegroundServiceDidNotStartInTimeException was reproduced when OpenVpnService's one-shot
-    // idle-teardown stopSelf() decision (stopAfterOneShotSyncConfirmedRunnable) fired only 3ms
-    // before a fresh ACTION_START dispatched via startControllerService() below. Android's
-    // ActivityManagerService begins its "waiting for startForeground()" obligation the instant
-    // ContextCompat.startForegroundService() is CALLED, not once the Intent is actually delivered
-    // to onStartCommand() -- so a Handler-scheduled stopSelf() decision that only recognizes a
-    // fresh start via OpenVpnService's own userInitiatedStart flag (set inside onStartCommand)
-    // cannot see it in time when the AMS/Binder round-trip delivering the Intent takes longer than
-    // the few milliseconds separating the two events. This is a distinct root cause from review-7's
-    // R7-1 (ConnectionStateManager staleness): here ConnectionStateManager's DISCONNECTED state is
-    // genuinely correct at the moment stopSelf() is decided -- the race is purely about AMS's FGS
-    // obligation clock starting before this app process can possibly know a new start intent even
-    // exists.
-    //
-    // Fix: record when an ACTION_START dispatch is attempted, synchronously, on the SAME thread
-    // that calls startControllerService() -- immediately BEFORE the actual
-    // startForegroundService() call. Both this write and OpenVpnService's read
-    // (hasRecentActionStartDispatch()) happen on the app's main thread (VpnManager.startVpn()'s
-    // callers -- MainActivityCore's Connect tap and ServerAutoSwitcher's retry-timer starter --
-    // and OpenVpnService's statusHandler all run on Looper.getMainLooper()), so as long as the
-    // write happens-before the read in main-thread execution order, this closes the gap
-    // deterministically: no AMS/Binder IPC latency can beat a same-thread, synchronous field
-    // write that already completed before the write's own function call returned.
     @Volatile
     private var lastActionStartDispatchElapsedRealtimeMs: Long = 0L
 
-    // Generous upper bound on the AMS/Binder round-trip between this call and OpenVpnService
-    // .onStartCommand() actually running and setting its own userInitiatedStart=true (typically
-    // single-digit milliseconds; kept far larger to tolerate scheduling pressure, cold starts, or
-    // Doze/App-Standby deferral). Once onStartCommand() runs, userInitiatedStart is the
-    // authoritative, longer-lived signal -- this flag only needs to bridge the brief pre-delivery
-    // gap, and a stale flag left set for up to this long after a start that never actually landed
-    // is an acceptable, bounded cost (mirrors the existing ONE_SHOT_STOP_CONFIRM_DELAY_MS /
-    // STOP_RETRY_TIMEOUT_MS style of bounded safety windows elsewhere in this bug's fix history).
     private const val RECENT_ACTION_START_DISPATCH_WINDOW_MS = 2_000L
 
-    // PR #127 round-2 Codex finding (thread 3791559721, comment 3791559721): when
-    // ContextCompat.startForegroundService() below THROWS for an ACTION_START dispatch (e.g. a
-    // background auto-switch retry rejected by Android's FGS-start-from-background restriction),
-    // lastActionStartDispatchElapsedRealtimeMs is still armed -- deliberately, per that field's own
-    // declaration comment, since AMS may already have registered the FGS-start obligation before
-    // raising the exception, and clearing it here would reopen the exact crash this bug's fix-flow
-    // closes. But every current hasRecentActionStartDispatch() guard site (OpenVpnService's
-    // one-shot-sync-confirmed runnable, finishStopFlowConfirmed(), and the ACTION_STOP_IF_IDLE
-    // handler) is a single-shot check with no self-retry: if one of them happens to run inside the
-    // window it aborts once and nothing re-triggers it afterward. A start that never truly landed
-    // would then leave a pre-existing idle controller running until some unrelated later event
-    // (next app foreground/background cycle, a settings change, etc.) happens to re-issue a
-    // teardown -- which may not happen soon, or at all, contradicting the "only a bounded delay"
-    // characterization in lastActionStartDispatchElapsedRealtimeMs's declaration comment. Re-run the
-    // idle teardown ourselves, once, safely after the marker window has definitely elapsed (see
-    // scheduleIdleRecheckAfterFailedStartDispatch()) so a failed dispatch is bounded in practice, not
-    // just in theory.
     private const val IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS = RECENT_ACTION_START_DISPATCH_WINDOW_MS + 250L
 
     private val recheckHandler = Handler(Looper.getMainLooper())
 
-    // R11-3 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
-    // hoisted to a stored property so scheduleIdleRecheckAfterFailedStartDispatch() can cancel any
-    // still-pending re-check before arming a new one. Previously each failed ACTION_START dispatch
-    // posted an independent, anonymous lambda that neither this object nor
-    // ServerAutoSwitcher.cancel()/cancelForUserStop() could ever reference or remove -- so repeated
-    // failures piled up multiple independent, uncancellable pending re-checks instead of at most
-    // one.
     private var idleRecheckRunnable: Runnable? = null
 
     /**
@@ -146,12 +89,6 @@ object VpnManager {
         idleRecheckRunnable?.let { recheckHandler.removeCallbacks(it) }
         val recheck = Runnable {
             idleRecheckRunnable = null
-            // R11-1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-11.md):
-            // only re-run stopControllerIfIdle() against an ALREADY-running controller instance.
-            // stopControllerIfIdle() ends in context.startService(); called with no live instance
-            // it CREATES a brand-new OpenVpnService just to immediately tear it down, and that
-            // instance's onCreate() unconditionally issues startForeground() -- see
-            // OpenVpnService.isInstanceAlive's declaration comment for the full rationale.
             if (OpenVpnService.isInstanceAlive) {
                 stopControllerIfIdle(appContext)
             }
@@ -255,15 +192,6 @@ object VpnManager {
     private fun startControllerService(context: Context, intent: Intent, action: String): Boolean {
         return try {
             if (action == ACTION_START) {
-                // Record the dispatch attempt BEFORE the actual call -- see
-                // lastActionStartDispatchElapsedRealtimeMs's declaration comment. Recorded even if
-                // the call below throws: a failed dispatch still means AMS may have registered the
-                // FGS-start obligation before raising the exception, so it is deliberately NOT
-                // cleared in the catch blocks below either. The flag's cost if a start never truly
-                // lands is bounded to RECENT_ACTION_START_DISPATCH_WINDOW_MS -- each catch block
-                // below additionally schedules scheduleIdleRecheckAfterFailedStartDispatch() so that
-                // bound is actually enforced (PR #127 round-2 Codex thread 3791559721) instead of
-                // relying on some unrelated later event to re-issue a teardown.
                 lastActionStartDispatchElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 ContextCompat.startForegroundService(context, intent)
             } else {
