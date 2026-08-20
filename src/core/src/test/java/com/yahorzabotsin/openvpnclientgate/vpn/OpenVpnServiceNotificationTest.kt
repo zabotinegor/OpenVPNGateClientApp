@@ -923,37 +923,17 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
-    // Regression test for ClickUp 86cb2kqvu (found by Codex, PR #126 round-20 review; deferred by
-    // explicit decision rather than fixed in that PR, then fixed incidentally by unrelated work on
-    // ClickUp 86cb35fbt, commit 9b70f87 -- this test is the first to name the exact scenario):
-    // applyStatusSnapshot() correctly arms the singleton ServerAutoSwitcher timer (5-8s) when an
-    // ACTION_SYNC_STATUS-only one-shot controller receives a stale-push CONNECTING snapshot. Before
-    // the fix, stopAfterOneShotSyncRunnable / stopAfterOneShotSyncConfirmedRunnable tore the
-    // controller down ~1s later for ANY non-CONNECTED state (including CONNECTING) -- if the engine
-    // actually connected between that ~1s teardown and the 5-8s timer expiry, onDestroy() had
-    // already unregistered the status callbacks, so nothing observed CONNECTED and nothing
-    // cancelled the timer: it fired anyway, switching away from a connection that had succeeded.
-    // The fix (both runnables, see OpenVpnService.kt) makes them skip teardown UNLESS
-    // ConnectionStateManager.state.value == ConnectionState.DISCONNECTED.
+    // Regression test for ClickUp 86cb2kqvu: a one-shot ACTION_SYNC_STATUS controller must not
+    // tear down while CONNECTING, since a stale-push CONNECTING snapshot is exactly when
+    // applyStatusSnapshot() arms ServerAutoSwitcher's timer -- tearing down here would orphan it.
+    // See docs/guides/troubleshooting.md (bug 86cb35fbt entry) for the full mechanism.
     //
-    // Guard pinned: STAGE 1 ONLY (OpenVpnService.kt:302), the same guard isolated by
-    // oneShotSync_stage1GuardAlone_preventsStage2FromActingOnLaterDisconnectedState (line 643 of
-    // this file). State is CONNECTING when stage 1's 1000ms deadline runs -- an intact guard aborts
-    // there, so stage 2 is never scheduled -- then it becomes genuinely DISCONNECTED before stage
-    // 2's 400ms deadline. If stage 1's own guard were reverted, stage 1 would not have aborted,
-    // stage 2 WAS scheduled, and it now observes this later, real DISCONNECTED state, which even an
-    // intact stage-2 guard does not block: stopSelf() fires. Mutation testing
-    // (docs/qa-evidence/86cb2kqvu-autoswitch-timer-oneshot-teardown-review-2.md, MUT-1/MUT-2)
-    // proved the prior version of this test -- which held state constant at CONNECTING across both
-    // deadlines -- survived reverting either guard alone, so it added zero independent regression
-    // coverage over the three pre-existing guard tests (lines 589, 643, 689). This version does not
-    // claim to isolate the stage-1 guard in a way no other test does: by construction it shares
-    // stage1GuardAlone's exact mutation-catching profile (dies on MUT-1, survives MUT-2). What
-    // differs from all three pre-existing tests is the scenario, not the guard coverage: this test
-    // models 86cb2kqvu's stale-push CONNECTING snapshot as the very FIRST state the one-shot sync
-    // observes -- no prior DISCONNECTED state, no setReconnectingHint() call -- matching
-    // applyStatusSnapshot()'s timer-arming path directly, whereas lines 643 and 689 model a
-    // mid-flight ServerAutoSwitcher reconnect gap via an explicit reconnectingHint transition.
+    // Guard pinned: STAGE 1 ONLY (OpenVpnService.kt:302). Shares stage1GuardAlone's (line 643)
+    // exact mutation profile -- dies if that guard is reverted, survives a stage-2-only revert
+    // (docs/qa-evidence/86cb2kqvu-autoswitch-timer-oneshot-teardown-review-2.md, MUT-1/MUT-2).
+    // Differs from the pre-existing guard tests (lines 589, 643, 689) in scenario, not guard
+    // coverage: this models the stale-push CONNECTING snapshot as the very first state the
+    // one-shot sync observes, matching applyStatusSnapshot()'s timer-arming path directly.
     @Test
     fun oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
