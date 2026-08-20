@@ -28,7 +28,7 @@ object ServerAutoSwitcher {
     private var seconds: Int = 0
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
-    internal var starter: (Context, String, String?, Boolean) -> Unit = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
+    internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
     // selected-country server list is empty. The callback must hydrate the list and then
@@ -41,6 +41,22 @@ object ServerAutoSwitcher {
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
+    // QG4-2 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): the
+    // retry-commit dispatch used to be posted as an anonymous `handler.postDelayed({ ... }, ...)`
+    // lambda, which cancel() could not reference and therefore could never remove. A user
+    // Disconnect landing inside the START_AFTER_STOP_DELAY_MS window (cancelForUserStop() ->
+    // cancel(resetCycle = true)) cleared waitingStopForRetry/pendingConfig but left that lambda
+    // armed, so it still fired ~350ms later and (a) auto-reconnected the app despite the explicit
+    // Disconnect, and (b) armed a fresh FGS-start obligation while the user-stop teardown was still
+    // running toward OpenVpnService.finishStopFlowConfirmed()'s stopSelf(). Tracking the posted
+    // Runnable in a field -- exactly like stopRetryTimeoutRunnable/runnable above -- lets cancel()
+    // remove it deterministically, closing both the functional and crash-adjacent routes at once.
+    // Both retry-commit call sites (NOTCONNECTED-observed and stop-retry-timeout) share this single
+    // field: only one of the two can ever be in flight at a time (waitingStopForRetry is true
+    // until whichever site fires first, and each site clears it before posting this Runnable --
+    // R9-4, fix-cycle 9: the prior wording of this parenthetical had the polarity backwards).
+    private var retryStartRunnable: Runnable? = null
+    @Volatile private var retryCommitInFlight: Boolean = false
     private var idleToleranceRunnable: Runnable? = null
     private var idleToleranceLevel: ConnectionStatus? = null
     private var lastEngineLevel: ConnectionStatus? = null
@@ -73,6 +89,46 @@ object ServerAutoSwitcher {
         wasConnectingAtDispatch: Boolean? = null
     ) {
         logEngineLevel(level, source)
+
+        if (waitingStopForRetry) {
+            if (level == ConnectionStatus.LEVEL_NOTCONNECTED) {
+                val cfg = pendingConfig
+                val title = pendingTitle
+                pendingConfig = null
+                pendingTitle = null
+                waitingStopForRetry = false
+                stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                stopRetryTimeoutRunnable = null
+                if (!cfg.isNullOrBlank()) {
+                    AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
+                    try {
+                        ConnectionStateManager.setReconnectingHint(true)
+                        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (NOTCONNECTED path)", e)
+                    }
+                    retryStartRunnable?.let { handler.removeCallbacks(it) }
+                    val r = Runnable {
+                        retryStartRunnable = null
+                        retryCommitInFlight = false
+                        if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                    }
+                    retryStartRunnable = r
+                    retryCommitInFlight = true
+                    handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
+                    return
+                }
+            } else {
+                AppLog.i(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")
+                return
+            }
+        }
+
+        if (retryCommitInFlight) {
+            AppLog.i(TAG, "Ignoring level=$level (source=$source) while retry-commit dispatch is in flight")
+            return
+        }
+
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
             return
@@ -80,49 +136,10 @@ object ServerAutoSwitcher {
             cancelIdleTolerance()
         }
 
-        if (waitingStopForRetry && level == ConnectionStatus.LEVEL_NOTCONNECTED) {
-            val cfg = pendingConfig
-            val title = pendingTitle
-            pendingConfig = null
-            pendingTitle = null
-            waitingStopForRetry = false
-            stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
-            stopRetryTimeoutRunnable = null
-            if (cfg != null) {
-                AppLog.d(TAG, "Observed NOTCONNECTED after stop; starting next server")
-                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
-                return
-            }
-        }
-
         val shouldSwitchImmediately =
             level == ConnectionStatus.LEVEL_AUTH_FAILED ||
                 (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
         if (shouldSwitchImmediately) {
-            // A switch for this exact immediate-failure condition is already in progress
-            // (waitingStopForRetry == true). The poll loop (trafficPollRunnable /
-            // applyStatusSnapshot) can re-deliver the SAME cached terminal snapshot on every
-            // ~2s poll cycle without it ever going stale, since applyStatusSnapshot() restores
-            // lastStatusSnapshotMs to the snapshot's own timestamp rather than "now" -- so this
-            // is reached again and again for one underlying failure. It must be a no-op: falling
-            // through to the timeoutLevels/else block below would hit the `else -> cancel(...)`
-            // branch for LEVEL_NONETWORK (not in timeoutLevels), cancelling the switch that was
-            // already correctly kicked off by the FIRST dispatch and silently dropping the
-            // pending server change. See PR #126 round 13 (Codex P1, comment 3734974189).
-            if (waitingStopForRetry) {
-                AppLog.d(TAG, "Duplicate $level dispatch while switch already in progress; ignoring")
-                return
-            }
-            // Prefer the caller-captured pre-mutation snapshot when provided: the caller may
-            // have deferred this very call (e.g. OpenVpnService.dispatchAutoSwitcherOnEngineLevel
-            // posting from a binder thread to the main looper), and by the time this deferred
-            // block runs, ConnectionStateManager.state may already have been mutated away from
-            // CONNECTING by ConnectionStateManager.updateFromEngine(), which the caller invokes
-            // synchronously right after dispatching this callback. Re-reading state at that later
-            // point would silently defeat the immediate-switch fast path on a fresh connection
-            // attempt (no timer running yet). Callers that already run synchronously and in-order
-            // (e.g. the VPN_STATUS/updateState main-thread path, or tests) omit the parameter and
-            // fall back to reading current state, which is safe for them.
             val isConnecting = wasConnectingAtDispatch ?: try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
             } catch (_: Exception) {
@@ -171,7 +188,8 @@ object ServerAutoSwitcher {
         }
         try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
-        pendingConfig = config
+        cancelIdleTolerance()
+        pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)
@@ -233,8 +251,8 @@ object ServerAutoSwitcher {
     private fun cancel(resetCycle: Boolean) {
         runnable?.let { handler.removeCallbacks(it) }
         runnable = null
-        if (timerActive || seconds > 0) {
-            AppLog.d(TAG, "Switch timer stopped at ${seconds}s (level=${timerLevel})")
+        if (timerActive || seconds > 0 || waitingStopForRetry) {
+            AppLog.d(TAG, "Switch timer stopped at ${seconds}s (level=${timerLevel}, waitingStopForRetry=${waitingStopForRetry})")
         }
         timerActive = false
         timerLevel = null
@@ -244,6 +262,9 @@ object ServerAutoSwitcher {
         pendingTitle = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
+        retryStartRunnable?.let { handler.removeCallbacks(it) }
+        retryStartRunnable = null
+        retryCommitInFlight = false
         cancelIdleTolerance()
         _remainingSeconds.value = null
         v2HydrationPending = false
@@ -289,9 +310,6 @@ object ServerAutoSwitcher {
 
         val title = SelectedCountryStore.getSelectedCountry(appContext)
         val total = try { SelectedCountryStore.getServers(appContext).size } catch (e: Exception) { AppLog.w(TAG, "Failed to get server count", e); -1 }
-        // Capture the failing server id before nextServerCircular advances the index.
-        // Guard: only probe if the currently selected server config matches the last-started config,
-        // preventing spurious probes when the user changes server selection in the UI while connected.
         val failingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
             SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
         } else 0
@@ -375,7 +393,7 @@ object ServerAutoSwitcher {
             try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for switch", e) }
             try {
                 AppLog.d(TAG, "Requesting explicit engine stop before retry")
-                pendingConfig = next.config
+                pendingConfig = next.config.takeIf { it.isNotBlank() }
                 pendingTitle = title
                 waitingStopForRetry = true
                 scheduleStopRetryTimeout(appContext)
@@ -446,6 +464,17 @@ object ServerAutoSwitcher {
         )
     }
 
+    // Rolls back CONNECTING re-assertion when a retry dispatch fails (e.g. FGS-from-background restriction).
+    private fun rollBackFailedRetryDispatch() {
+        AppLog.w(TAG, "Retry-commit ACTION_START dispatch failed; rolling back CONNECTING re-assertion")
+        try {
+            ConnectionStateManager.setReconnectingHint(false)
+            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to roll back reconnect invariant after failed retry dispatch", e)
+        }
+    }
+
     private fun scheduleStopRetryTimeout(appContext: Context) {
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         val hasPending = pendingConfig != null
@@ -458,8 +487,22 @@ object ServerAutoSwitcher {
             pendingTitle = null
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
-            if (cfg != null) {
-                handler.postDelayed({ starter(appContext, cfg, title, true) }, START_AFTER_STOP_DELAY_MS.toLong())
+            if (!cfg.isNullOrBlank()) {
+                try {
+                    ConnectionStateManager.setReconnectingHint(true)
+                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                } catch (e: Exception) {
+                    AppLog.w(TAG, "Failed to re-assert reconnect invariant before retry start (timeout path)", e)
+                }
+                retryStartRunnable?.let { handler.removeCallbacks(it) }
+                val startR = Runnable {
+                    retryStartRunnable = null
+                    retryCommitInFlight = false
+                    if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                }
+                retryStartRunnable = startR
+                retryCommitInFlight = true
+                handler.postDelayed(startR, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
             }

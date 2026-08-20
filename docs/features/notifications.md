@@ -22,13 +22,24 @@ This matters when debugging a notification that will not clear: the notification
 may belong to the other process. See
 [vpn-connection.md](vpn-connection.md#two-processes-one-aidl-boundary).
 
+The engine's own service has its own independent FGS deadline, separate from the controller's. A
+bug in how the engine decides whether to (re)issue its `startForeground()` call on rapid
+stop/retry churn caused a real, device-reproduced crash of the engine process — mitigated but not
+fixed on the client side (the engine-side root cause is out of scope to edit directly). See
+[guides/troubleshooting.md](../guides/troubleshooting.md#engines-own-deblinktopenvpncoreopenvpnservice-fgs-timeout-crash-under-rapid-stopretry-churn--mitigated-root-cause-open-bug-86cb35fbt-fix-cycles-13-14)
+for the full root cause, the mitigation, and the recommended deterministic follow-up.
+
 ## Channels and the controller notification
 
 `OpenVpnService.ensureEngineNotificationChannels()` creates the channels the engine expects, so the
 engine's own notifications land in a channel the app controls rather than a default one.
 
 The controller's ongoing notification uses id **`CONTROLLER_NOTIFICATION_ID = 7014`** and is posted
-via `startForeground()` as part of the connect path.
+via `startForeground()` as part of the connect path. `enterControllerForeground()` always
+(re)issues this call on a genuine `ACTION_START`, even if the service was already foreground-active
+from an earlier, unrelated promotion — repeated `startForeground()` calls are safe/idempotent, and
+skipping the reissue was the root cause of a foreground-service-start crash; see
+[guides/troubleshooting.md](../guides/troubleshooting.md#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt).
 
 `specialUse` is the correct type for VPN on modern Android; it is not a placeholder to be "corrected"
 to `connectedDevice` or `dataSync`.
@@ -58,4 +69,4 @@ ongoing session to report, and asking on first launch produces a denial the user
 The VPN consent grant is tracked alongside it in the same action, so both are resolved before a
 connect attempt starts rather than failing partway.
 
-*Last verified against: `vpn/OpenVpnService.kt` notification setup, `vpn/DisconnectReceiver.kt`, `ui/main/MainContract`, launcher manifests (2026-07-31).*
+*Last verified against: `vpn/OpenVpnService.kt` notification setup, `vpn/DisconnectReceiver.kt`, `ui/main/MainContract`, launcher manifests, `src/external/OpenVPNEngine/main/.../core/OpenVPNService.java` (2026-08-16).*

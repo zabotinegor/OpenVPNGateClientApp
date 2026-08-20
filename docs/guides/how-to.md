@@ -15,6 +15,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
 - [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
 - [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
+- [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 
 ---
@@ -626,6 +627,150 @@ in `OpenVpnService.applyStatusSnapshot()` as the root cause.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
 - `docs/features/logging.md` ("Anti-spam" section)
 - `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")
+
+---
+
+## Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)
+
+**When to use**
+
+This OOM class has now been observed in **two** distinct forms on this machine — check for both
+before assuming a build failure is a genuine source break.
+
+Form 1 — test executor crash: a `:core:testDebugUnitTest` (or the aggregate `testDebugUnitTestApp`)
+run fails with:
+
+```
+Execution failed for task ':core:testDebugUnitTest'.
+> Process 'Gradle Test Executor N' finished with non-zero exit value 1
+```
+
+and the results table shows `0` total (or a partial count far below the known full suite size,
+e.g. 131 instead of 800+) — i.e. the failure happened mid-run, not from an actual assertion
+failure. No `FAILED` test names appear anywhere in the log.
+
+Form 2 — Kotlin compile worker crash (QG4-4, gate-4 of `86cb35fbt`, fix-cycle 8): a `compile*Kotlin`
+task (observed on `:mobile:compileDebugKotlin` and `:tv:compileDebugKotlin`) fails with:
+
+```
+Execution failed for task ':mobile:compileDebugKotlin'.
+> Compilation error. See log for more details
+```
+
+with **zero `e:` error lines** anywhere in the log. This reads exactly like a genuine source break
+and is far easier to misdiagnose than Form 1 for that reason. The tell: `BUILD FAILED` on a
+`compile*Kotlin` task, no `e:` lines, and a fresh `hs_err_pid*.log` (see path below) whose header
+says `Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp:79)`. Before
+concluding a `compile*Kotlin` failure with no `e:` lines is a real code error, check for a fresh
+crash dump first.
+
+Both forms are a JVM-level crash of a Gradle worker process, not a code regression.
+
+**Root cause on this machine**
+
+The dev box this was diagnosed on is memory-constrained (4 cores, ~12 GB RAM, frequently well
+under 500 MB free — one gate-4 capture showed 1.16 GB free of 11.91 GB) — this project's
+Robolectric-heavy `:core` suite (800+ tests spread across many `@RunWith(RobolectricTestRunner)`
+classes, each spinning up an Android runtime shadow) is memory-hungry, and Gradle's default worker
+parallelism (one JVM per available core) plus any leftover Gradle daemons from a prior run can
+push the system past available native memory. The same memory pressure can starve a Kotlin compile
+worker instead of a test executor (Form 2), depending on which Gradle workers happen to be
+scheduled concurrently.
+
+The crash lands as a HotSpot fatal error (`hs_err_pid<N>.log` + a `replay_pid<N>.log`), typically
+`Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler
+thread failing to allocate, not a Java heap `OutOfMemoryError` a test could catch.
+
+**Dump path correction (QG4-4, corrected R9-5):** HotSpot writes `hs_err_pid*.log` /
+`replay_pid*.log` into the **crashing JVM worker's own working directory**, which differs by form:
+Form 2's Kotlin compile workers run with the Gradle root (`src/`) as their working directory, so
+that form's dumps legitimately land at **`src/hs_err_pid*.log`** — a gate-4 OOM produced 9 dumps
+there. Form 1's `:core:testDebugUnitTest` test executor workers run with the `:core` project
+directory as their working directory, so that form's dumps legitimately land at
+**`src/core/hs_err_pid*.log`** — this is what fix-cycle 7's own code review captured (see **First
+demonstrated** below). Neither path is wrong; they are two different crash sites. A cleanup command
+scoped to only one of the two paths silently misses dumps from the other form — clean up both (see
+the **Steps** section below).
+
+**Steps**
+
+1. Stop any lingering Gradle daemons, which hold onto JVM memory between invocations:
+   ```bash
+   ./gradlew.bat --stop
+   ```
+2. Delete the stray crash-dump files so they don't get mistaken for source changes or bloat the
+   next `git status`. Check **both** dump locations (Form 2 lands at the Gradle root, Form 1 lands
+   under `src/core/` — see the dump-path correction above); `hs_err_pid*.log` is already covered by
+   `.gitignore`, so the `git status` concern applies mainly to `replay_pid*.log`:
+   ```bash
+   rm -f hs_err_pid*.log replay_pid*.log core/hs_err_pid*.log core/replay_pid*.log
+   ```
+3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
+   ```bash
+   rm -rf core/build/test-results/testDebugUnitTest core/build/reports/tests
+   rm -rf mobile/build/test-results/testDebugUnitTest mobile/build/reports/tests
+   rm -rf tv/build/test-results/testDebugUnitTest tv/build/reports/tests
+   ```
+4. Re-run with reduced worker parallelism. `--max-workers=2` was enough for a scoped
+   `--tests "*SomeTest"` run; the full `testDebugUnitTestApp` aggregate (core + mobile + tv, 800+
+   tests) needed `--max-workers=1 --no-daemon` on this machine to avoid a repeat crash:
+   ```bash
+   ./gradlew.bat testDebugUnitTestApp --max-workers=1 --no-daemon --no-build-cache
+   ```
+   `--no-daemon` avoids leaving a new daemon behind that competes with the next invocation;
+   `--no-build-cache` (QG4-4) is the important flag here, not `--rerun-tasks` alone — see the
+   **`FROM-CACHE` trap** note below for why.
+
+**`FROM-CACHE` trap (QG4-4, carried forward from review-8's R8 note on stale/cached "successes")**
+
+A run can print `BUILD SUCCESSFUL` while silently serving cached/stale task outputs, with **zero
+tests actually executed** in that invocation — Gradle's build cache can satisfy
+`:core:testDebugUnitTest` (etc.) from a prior run's cached output without re-running anything.
+`--rerun-tasks` alone does not fully prevent this composing with other caches; when validating a
+fix fresh (e.g. after a code change, or after recovering from an OOM), always add
+`--no-build-cache` and verify genuine execution independently of the exit code:
+
+- Grep the log for `testDebugUnitTest.*(FROM-CACHE|UP-TO-DATE)` — it must return **nothing**.
+- Delete the module `test-results`/`reports/tests` directories *before* the run (step 3 above), then
+  confirm the JUnit XML files under
+  `src/{core,mobile,tv}/build/test-results/testDebugUnitTest/` are freshly timestamped *after* the
+  run started, and tally their actual test/failure/error/skipped counts — do not trust the console
+  summary alone.
+
+**Limitation**
+
+This is a machine-resource issue, not a code issue — do not spend time trying to "fix" it in the
+test or production code itself. If the crash recurs even at `--max-workers=1 --no-daemon`, the
+system is likely under memory pressure from unrelated processes (browser tabs, IDEs, etc.); free
+memory elsewhere before retrying, or run the suite from a less loaded machine/CI.
+
+**First demonstrated**
+
+Fix-cycle 7 of bug `86cb35fbt` (`fix/86cb35fbt-vpn-foreground-service-crash`) — the same
+class of crash was independently seen once during fix-cycle 7's own code review (per its
+evidence file: *"an initial MUT-A run aborted with `Process 'Gradle Test Executor 3' finished
+with non-zero exit value 1` and a stray `src/core/replay_pid*.log`"*) and again three times
+during this cycle's implementation validation (once on the initial scoped-suite restore-check,
+twice on the full `testDebugUnitTestApp` aggregate) before landing on the
+`--max-workers=1 --no-daemon` combination that completed cleanly (845/845 core, 2/2 mobile, 17/17
+tv, `BUILD SUCCESSFUL` in ~24 min).
+
+**Form 2 (Kotlin compile worker) first demonstrated:** quality gate 4 of `86cb35fbt` (fix-cycles 6
++ 7, `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5): a
+`testDebugUnitTestApp --rerun-tasks --no-build-cache` run failed at 19m19s with
+`:mobile:compileDebugKotlin` + `:tv:compileDebugKotlin` "Compilation error" and zero `e:` lines;
+9 fresh `src/hs_err_pid*.log` dumps confirmed the OOM class. Recovered via `./gradlew --stop` plus
+the dump/result cleanup above, then re-run clean at `--max-workers=1 --no-daemon --no-build-cache`
+(`BUILD SUCCESSFUL` in 11m41s, 864 tests passed / 0 failed, genuine-execution verified per the
+`FROM-CACHE` trap check above).
+
+**References**
+
+- `docs/guides/how-to.md` ("Run the OpenVPN engine's own unit tests" — a related aggregate-task
+  scoping gotcha, different cause)
+- `.sdlc/status.json` → flow `fix/86cb35fbt-vpn-foreground-service-crash` (fix-cycle 7 evidence)
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5 (Form 2 first
+  demonstrated, `FROM-CACHE` trap verification detail)
 
 ---
 

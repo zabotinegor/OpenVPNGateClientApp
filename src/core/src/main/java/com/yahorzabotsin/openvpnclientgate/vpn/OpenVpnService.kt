@@ -15,6 +15,10 @@ import android.os.RemoteException
 import android.os.Handler
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
@@ -56,10 +60,11 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
-    private companion object {
+    internal companion object {
         private const val ENGINE_ACTION_PAUSE_VPN = "de.blinkt.openvpn.PAUSE_VPN"
         private const val ENGINE_ACTION_RESUME_VPN = "de.blinkt.openvpn.RESUME_VPN"
 
@@ -84,6 +89,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
         private const val MAX_THROTTLE_KEY_LENGTH = 96
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
+        // Re-checks guards before firing stopSelf() after one-shot status sync.
+        private const val ONE_SHOT_STOP_CONFIRM_DELAY_MS = 400L
+        private const val ENGINE_RECONNECT_DISPATCH_BUFFER_MS = 500L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
@@ -105,6 +113,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
         private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
         private const val WATCHDOG_DEFAULT_OPENVPN_PORT = 1194
+
+        @Volatile
+        internal var isInstanceAlive: Boolean = false
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -114,28 +125,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var boundToEngine = false
 
     // Remember whether start/stop were user-driven vs auto-switch.
-    // @Volatile: written on the main thread (onStartCommand / startUserStopTeardown),
-    // read on the AIDL binder thread (IStatusCallbacks.Stub.updateStateString →
+    // @Volatile: written on the main thread, read on the AIDL binder thread (updateStateString ->
     // syncEngineState / shouldIgnoreLevelAfterUserStop / handleEngineLevelForStop).
-    // Without @Volatile the JVM may cache stale values in the binder thread's register/cache,
-    // causing the FGS guard or stop-flow checks to act on outdated state.
     @Volatile private var userInitiatedStart = false
     @Volatile private var userInitiatedStop = false
-    // Distinct from userInitiatedStop above: userInitiatedStop models "the user asked to
-    // disconnect", but this Service instance keeps running (onDestroy() is not called) and can
-    // reconnect -- see onStartCommand()/ACTION_START, which clears userInitiatedStop and reuses
-    // the same instance. serviceDestroyed models "this Service instance is being torn down" and
-    // is set exactly once, as the very first statement in onDestroy(), before any teardown step
-    // (including the autoSwitchDispatchToken sweep and unregisterStatusCallback()) runs. A new
-    // connection after a full stop (stopSelf()) creates a brand-new OpenVpnService instance with
-    // this flag freshly false, so it never needs resetting.
-    // @Volatile: written on the main thread (onDestroy) and read on the AIDL binder thread
-    // (dispatchAutoSwitcherOnEngineLevel, invoked from updateStateString) to close the TOCTOU
-    // window where an in-flight binder callback -- already past this check but not yet at the
-    // postAtTime() enqueue when round-6's code ran -- could enqueue a fresh auto-switch dispatch
-    // after the removeCallbacksAndMessages(autoSwitchDispatchToken) sweep already ran and after
-    // unregisterStatusCallback() should have silenced it. See PR #126 review thread (round 7,
-    // Codex P2, follow-up to the shared-token fix).
     @Volatile private var serviceDestroyed = false
     @Volatile private var ignoreConnectedUntilNotConnected = false
     // Same cross-thread visibility requirement as above: stopRequestId/stopStartedAtMs are
@@ -157,59 +150,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
-    // Timestamp (via watchdogNowMs()) marking when the CURRENT connection attempt began -- set
-    // on every ACTION_START (fresh start or auto-switch reconnect), alongside sessionAttempt.
-    // Written and read on the main thread only (onStartCommand / applyStatusSnapshot), so no
-    // @Volatile is required here (unlike the binder-thread-written fields above/below).
-    // Used by applyStatusSnapshot() to distinguish a cached snapshot that PREDATES this attempt
-    // (genuinely stale/irrelevant leftover from a past, different attempt -- round 8's
-    // scenario) from one that IS reporting on this still-ongoing attempt, just old because the
-    // attempt itself has been stuck the whole time (round 9's scenario: must NOT be rejected,
-    // or ServerAutoSwitcher never gets a chance to run). See PR #126 round 9 (Codex P2, comment
-    // 3733934640).
     private var currentAttemptStartMs: Long = 0L
-    // Paired with currentAttemptStartMs above using SystemClock.elapsedRealtime() (device-uptime
-    // based; immune to wall-clock corrections such as automatic NTP sync or a manual/system
-    // clock change). Recorded at the same moments as currentAttemptStartMs -- every ACTION_START
-    // and the round-15 ACTION_SYNC_STATUS backfill below -- so applyStatusSnapshot() can tell a
-    // genuine backward wall-clock jump during the current attempt apart from a snapshot that
-    // truly predates it: if the device wall clock is corrected backward after currentAttemptStartMs
-    // is captured, every later snapshot's wall-clock timestampMs reads earlier than
-    // currentAttemptStartMs even though real (monotonic) time keeps moving forward, so the
-    // existing predates-check alone would reject every snapshot from the current attempt forever.
-    // See PR #126 round 16 (Codex P2, comment 3735937824).
-    // Left at its default 0L by any path that sets currentAttemptStartMs without also setting
-    // this field (e.g. pre-round-16 unit tests using reflection to set currentAttemptStartMs
-    // directly) -- the safety net in applyStatusSnapshot() is gated on this being > 0L so an
-    // unset baseline degrades to the exact pre-round-16 wall-clock-only behavior instead of
-    // comparing against a meaningless value.
     private var currentAttemptStartElapsedRealtimeMs: Long = 0L
-    // Monotonically-increasing counter, bumped on every ACTION_START (fresh start or
-    // auto-switch reconnect), alongside currentAttemptStartMs above. Narrower and additive to
-    // currentAttemptStartMs/serviceDestroyed: those two solve their own specific problems
-    // (snapshot staleness, instance teardown) and are left as-is. This counter exists solely to
-    // close a stop-then-restart race in dispatchAutoSwitcherOnEngineLevel() where the SAME
-    // service instance is reused (serviceDestroyed never becomes true) --
-    // 1) an old AIDL binder callback carrying a stale level passes the serviceDestroyed check
-    //    and captures the generation valid at that moment;
-    // 2) the main thread runs a user-stop sweep (startUserStopTeardown), cancelling queued
-    //    dispatches via autoSwitchDispatchToken;
-    // 3) the binder thread's postAtTime() call enqueues its deferred dispatch AFTER the sweep
-    //    already ran, so the sweep never saw it;
-    // 4) a fresh ACTION_START arrives, reusing the same instance, and clears userInitiatedStop
-    //    back to false as part of starting the new attempt;
-    // 5) the queued runnable from step 3 executes: its userInitiatedStop re-check (round 5) now
-    //    sees false -- cleared by the NEW start in step 4 -- so it does NOT skip, and the stale
-    //    callback would otherwise proceed to switch away from the brand-new attempt.
-    // Comparing the generation captured in step 1 against the live value at execution time
-    // (step 5) closes this gap: a mismatch means a newer attempt has started since this
-    // dispatch was queued, so it is skipped unconditionally, regardless of what
-    // userInitiatedStop currently reads (unreliable for this specific race, per above).
-    // @Volatile: written on the main thread (onStartCommand/ACTION_START) and read on the AIDL
-    // binder thread (dispatchAutoSwitcherOnEngineLevel's capture) for cross-thread visibility,
-    // same requirement as userInitiatedStop/serviceDestroyed above. See PR #126 review thread
-    // (round 12, Codex P2, comment 3734663965).
-    @Volatile private var connectionAttemptGeneration: Int = 0
+    private val connectionAttemptGeneration = AtomicInteger(0)
+
+    @Volatile private var reconnectDispatchPendingGeneration: Int = -1
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -222,70 +167,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
-    // Written on the AIDL binder thread (statusDeathRecipient's binderDied callback, invoked on
-    // a binder-pool thread when the status service dies) and read on the main looper
-    // (trafficPollRunnable, isAidlFresh() via applyStatusSnapshot). Same cross-thread visibility
-    // requirement as lastStatusSnapshotMs/lastLiveStatusMs below: without @Volatile the main
-    // thread could observe a stale cached boundToStatus/statusBinder value after a binder death,
-    // masking a dead status channel.
     @Volatile private var statusBinder: IServiceStatus? = null
     @Volatile private var boundToStatus = false
     private var statusRebindDelayMs = 500L
-    // Written on the AIDL binder thread (updateStateString) and read on the main looper
-    // (applyStatusSnapshot, via onServiceConnected / trafficPollRunnable). Same cross-thread
-    // visibility requirement as aidlLastInBytes/aidlLastOutBytes above: without @Volatile the
-    // main thread can observe a stale cached value, e.g. computing livePushStale=false when the
-    // live push channel has actually died, silently defeating the stale-push auto-switch fix.
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
-    // Monotonic counterpart to lastLiveStatusMs (SystemClock.elapsedRealtime() via
-    // elapsedRealtimeMs()), paired the same way currentAttemptStartElapsedRealtimeMs pairs with
-    // currentAttemptStartMs: it makes isAidlFresh() immune to a backward wall-clock jump after the
-    // last live AIDL push, which would otherwise make a stalled push channel look falsely "fresh"
-    // for as long as wall-clock time takes to naturally catch back up.
     @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
     private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
     private val aidlFreshWindowMs = 3_000L
-    // History (rounds 8-13): this gate started as a per-level allowlist
-    // (staleSnapshotTimeoutLevels) that grew by one entry almost every round --
-    // LEVEL_CONNECTING_NO_SERVER_REPLY_YET/LEVEL_CONNECTING_SERVER_REPLIED/LEVEL_AUTH_FAILED
-    // from the original fix, LEVEL_NONETWORK (round 8, Codex P2: it drives
-    // ServerAutoSwitcher's shouldSwitchImmediately fast path -- level == LEVEL_AUTH_FAILED ||
-    // (source == "AIDL" && level == LEVEL_NONETWORK) -- and without the gate a stale cached
-    // NONETWORK reading could immediately stop/switch a currently-fresh CONNECTING attempt),
-    // LEVEL_NOTCONNECTED (round 11, Codex P2, comment 3734228641: ServerAutoSwitcher treats it
-    // either as a waitingStopForRetry stop-confirmation or, in its else branch, as a reason to
-    // cancel(...) the active switch timer -- a stale reading could misfire either path), and
-    // LEVEL_CONNECTED (round 12, Codex P2, comment 3734663954: the same else-branch cancel(...)
-    // path, this time indistinguishable from a genuine "current attempt just connected"
-    // signal). By round 14 the allowlist held 7 of the 10 possible ConnectionStatus values,
-    // and Codex (comment 3735319526) pointed out that the remaining 3 -- LEVEL_START,
-    // LEVEL_WAITING_FOR_USER_INPUT, LEVEL_VPNPAUSED -- hit the EXACT SAME
-    // ServerAutoSwitcher.onEngineLevel else-branch cancel(...) path as LEVEL_NOTCONNECTED /
-    // LEVEL_CONNECTED above: none of the three is in ServerAutoSwitcher's own `timeoutLevels`
-    // set, none is UNKNOWN_LEVEL, none is the AUTH_FAILED/AIDL+NONETWORK immediate-switch case,
-    // so a stale/predating snapshot carrying any of them would incorrectly cancel a healthy
-    // active switch timer exactly like the round-11/12 bugs.
-    //
-    // Rather than add a 4th (and inevitably 5th, 6th...) entry, round 14 removed the allowlist
-    // entirely: since adding those 3 named levels would have made the set equal to the FULL
-    // ConnectionStatus domain (10 of 10 values -- see ConnectionStatus.java), enumerating "every
-    // level" and simply applying the check unconditionally are behaviorally identical for this
-    // closed enum, and only the latter closes the "one more level missing" bug class for good.
-    // No ConnectionStatus value has a reason to skip this check: the predates-current-attempt /
-    // age logic below already handles "is this genuinely the current attempt's data" correctly
-    // regardless of which level the snapshot carries, so every level -- current members and any
-    // added to the enum in the future -- goes through the same gate now.
     private val staleSnapshotMaxAgeMs = 10_000L
-    // Round 16 (Codex P2, comment 3735937824): thresholds for the backward-wall-clock-jump
-    // safety net in applyStatusSnapshot(). clockJumpMinDetectableMs filters out the sub-second
-    // measurement noise between two separate watchdogNowMs()/elapsedRealtimeMs() reads from
-    // being mistaken for a genuine clock correction. clockJumpSlackMs is a small tolerance added
-    // on top of the estimated jump size when deciding whether a snapshot's predates-gap is fully
-    // explained by that detected jump, absorbing the same read skew.
     private val clockJumpMinDetectableMs = 1_000L
     private val clockJumpSlackMs = 2_000L
     private val liveStatusGraceMs = 5_000L
@@ -360,6 +253,45 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
     private var oneShotSyncReceivedInitialState = false
+
+    // Gates one-shot-sync stopSelf() on UI not being visible (prevents race with Connect tap).
+    internal var appForegroundVisibleProvider: () -> Boolean = {
+        try {
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        } catch (t: Throwable) {
+            // Fail closed: assume an activity could be visible and suppress the stop rather than
+            // risk racing a Connect tap.
+            AppLog.w(TAG, "Unable to read process lifecycle state; treating app as foreground", t)
+            true
+        }
+    }
+
+    // Assumes this Service runs in the app's main process (no android:process, unlike the
+    // engine's :openvpn). If that ever changes, ProcessLifecycleOwner would never observe an
+    // activity here and this would silently return false forever, making the suppression above a
+    // permanent no-op.
+    private fun isAppForegroundVisible(): Boolean = appForegroundVisibleProvider()
+
+    // Reaps idle controller once UI leaves foreground via ACTION_STOP_IF_IDLE.
+    private val appLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStop(owner: LifecycleOwner) {
+            AppLog.i(TAG, "App UI left foreground; reaping idle controller via ACTION_STOP_IF_IDLE")
+            VpnManager.stopControllerIfIdle(this@OpenVpnService)
+        }
+    }
+
+    private fun registerAppLifecycleObserver() {
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
+        }.onFailure { AppLog.w(TAG, "Failed to register app lifecycle observer", it) }
+    }
+
+    private fun unregisterAppLifecycleObserver() {
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
+        }.onFailure { AppLog.w(TAG, "Failed to unregister app lifecycle observer", it) }
+    }
+
     private val stopAfterOneShotSyncRunnable = Runnable {
         if (!oneShotSyncRequested) return@Runnable
         if (!oneShotSyncReceivedInitialState) {
@@ -367,13 +299,44 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return@Runnable
         }
         if (userInitiatedStart || userInitiatedStop) return@Runnable
-        if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
-            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected")
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle")
+            return@Runnable
+        }
+        // Do not call stopSelf() here. Defer it by ONE_SHOT_STOP_CONFIRM_DELAY_MS and re-run the
+        // same guard checks in stopAfterOneShotSyncConfirmedRunnable immediately before the
+        // deferred stopSelf() actually fires -- see that constant's declaration comment.
+        AppLog.d(TAG, "One-shot status sync decided to stop; confirming after ${ONE_SHOT_STOP_CONFIRM_DELAY_MS}ms buffer")
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
+        statusHandler.postDelayed(stopAfterOneShotSyncConfirmedRunnable, ONE_SHOT_STOP_CONFIRM_DELAY_MS)
+    }
+
+    // Second stage of one-shot-sync stop decision -- re-runs guards before actual stopSelf().
+    private val stopAfterOneShotSyncConfirmedRunnable = Runnable {
+        if (!oneShotSyncRequested) return@Runnable
+        if (!oneShotSyncReceivedInitialState) return@Runnable
+        if (userInitiatedStart || userInitiatedStop) {
+            AppLog.i(TAG, "One-shot sync stop aborted by buffered re-check (userInitiatedStart/Stop set)")
+            return@Runnable
+        }
+        // userInitiatedStart may not yet reflect a dispatch still in AMS/Binder transit.
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "One-shot sync stop aborted: recent ACTION_START dispatch still in flight")
+            return@Runnable
+        }
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            // Excludes ServerAutoSwitcher's background retry-timer dispatcher: reconnectingHint
+            // holds state at CONNECTING for the whole auto-switch stop-to-start gap.
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle (buffered re-check)")
+            return@Runnable
+        }
+        if (isAppForegroundVisible()) {
+            AppLog.i(TAG, "One-shot sync stop suppressed while app UI is foreground; deferring to UI-gone-away teardown")
             return@Runnable
         }
         oneShotSyncRequested = false
         oneShotSyncReceivedInitialState = false
-        AppLog.d(TAG, "One-shot status sync complete; stopping controller service")
+        AppLog.i(TAG, "One-shot status sync complete; stopping controller service")
         stopSelf()
     }
     private val oneShotSyncTimeoutRunnable = Runnable {
@@ -457,29 +420,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         resumeActionInFlight = false
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
-        // This sweep only cancels dispatches to ServerAutoSwitcher that are queued but not yet
-        // run (see autoSwitchDispatchToken's declaration comment). It does nothing to a
-        // ServerAutoSwitcher switch timer that was ALREADY running before this teardown began --
-        // that timer lives on ServerAutoSwitcher's own separate main-looper Handler, and the one
-        // AIDL callback that would normally stop it (LEVEL_NOTCONNECTED reaching onEngineLevel)
-        // is intentionally discarded during a user/system stop by
-        // dispatchAutoSwitcherOnEngineLevel's userInitiatedStop/serviceDestroyed guard. Without an
-        // explicit cancel here, that timer fires a few seconds after an explicit disconnect and
-        // silently reconnects. See PR #126 round 18 (Codex P1, comment 3736956722).
+        // Cancels only queued-but-not-yet-run dispatches to ServerAutoSwitcher (see
+        // autoSwitchDispatchToken). Does nothing to a switch timer already running before this
+        // teardown began -- that lives on ServerAutoSwitcher's own Handler and is cancelled
+        // explicitly below instead.
         statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
-        // startUserStopTeardown() can be reached synchronously from the AIDL binder thread via
-        // maybeStartStaleStopReconciliation() -> syncEngineState() -> updateStateString() (the
-        // "stale_relaunch" path) -- it is NOT guaranteed to run on the main thread the way the
-        // ACTION_STOP and watchdog_fail_safe call sites are. ServerAutoSwitcher's internal timer
-        // state is plain, non-volatile state that assumes a single main-looper caller (the same
-        // invariant dispatchAutoSwitcherOnEngineLevel's Looper check below protects), so the
-        // cancellation itself must be dispatched onto the main thread exactly like
-        // dispatchAutoSwitcherOnEngineLevel already does for the same reason. Posted untagged
-        // (not with autoSwitchDispatchToken): that token exists to let teardown cancel
-        // forward-looking auto-switch REACTION dispatches -- this post IS the cancellation
-        // action, so tagging it the same way would risk a later
-        // removeCallbacksAndMessages(autoSwitchDispatchToken) sweep (e.g. from onDestroy())
-        // wiping out this cancel-the-timer post before it runs.
+        // Sweeps any reconnect engine-dispatch still queued from a prior auto-switch retry --
+        // see reconnectEngineDispatchToken's declaration comment.
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+        // This function can be reached synchronously from the AIDL binder thread (via
+        // maybeStartStaleStopReconciliation), so the cancellation must be dispatched onto the main
+        // thread -- ServerAutoSwitcher's internal timer state assumes a single main-looper caller.
+        // Posted untagged, not with autoSwitchDispatchToken: that token is for forward-looking
+        // auto-switch reaction dispatches, and tagging this cancellation the same way would risk a
+        // later sweep (e.g. from onDestroy()) wiping it out before it runs.
         if (Looper.myLooper() == Looper.getMainLooper()) {
             ServerAutoSwitcher.cancelForUserStop()
         } else {
@@ -523,18 +477,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         ignoreConnectedUntilNotConnected = false
         userInitiatedStop = false
-        // Bump the generation here too, not just on ACTION_START (round 12): a full
-        // user-initiated stop-to-shutdown never fires ACTION_START, but this confirmation runs
-        // BEFORE onDestroy() actually executes (serviceDestroyed is set there, not here) and
-        // BEFORE stopSelf() completes teardown. A binder callback whose deferred dispatch was
-        // enqueued before this confirmation ran, but which executes during this exact window,
-        // would otherwise see userInitiatedStop=false (just cleared above), serviceDestroyed=
-        // false (onDestroy hasn't run yet), and an unchanged generation -- passing all three
-        // defensive checks in dispatchAutoSwitcherOnEngineLevel and incorrectly starting
-        // auto-switch from stale data after the user explicitly disconnected. Bumping here closes
-        // that window with the same mechanism round 12 already introduced. See PR #126 round 13
-        // (Codex P2, comment 3734974192).
-        connectionAttemptGeneration += 1
+        connectionAttemptGeneration.incrementAndGet()
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
@@ -562,6 +505,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.w(TAG, "Failed to unbind engine after confirmed stop", e)
             }
             boundToEngine = false
+        }
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "Confirmed-stop stopSelf() aborted: recent ACTION_START dispatch still in flight")
+            return
         }
         stopSelf()
     }
@@ -613,15 +560,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     override fun onCreate() {
+        isInstanceAlive = true
         super.onCreate()
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
-        // Satisfy Android's startForegroundService() 5-second requirement immediately in onCreate(),
-        // eliminating the race between stopAfterOneShotSyncRunnable (stopSelf) and startForeground()
-        // delivery when startForegroundService() is called while a sync-started service is stopping.
-        // stopOnFailure=false: intent not yet delivered here, so don't stop — ACTION_START will retry.
-        enterControllerForeground(stopOnFailure = false)
+        enterControllerForeground()
+        registerAppLifecycleObserver()
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
@@ -720,13 +665,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun isAidlFresh(): Boolean {
-        // Round 17 fix (Codex P2, comment 3736234632): measured purely with monotonic time
-        // (elapsedRealtimeMs()/lastLiveStatusElapsedRealtimeMs), not wall-clock. The previous
-        // wall-clock-only check (now - lastLiveStatusMs) could be fooled by a backward clock jump
-        // after the last live push: the delta goes negative/small, so a stalled push channel keeps
-        // reporting "fresh" -- silently reproducing this PR's "stuck on Connecting..." bug via a
-        // clock-jump vector, since applyStatusSnapshot() derives allowAutoSwitch from
-        // !isAidlFresh().
         return boundToStatus && lastLiveStatusMs > 0L && lastLiveStatusElapsedRealtimeMs > 0L &&
             (elapsedRealtimeMs() - lastLiveStatusElapsedRealtimeMs) <= aidlFreshWindowMs
     }
@@ -824,6 +762,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -832,6 +771,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
+                VpnManager.clearRecentActionStartDispatch()
                 if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTING) {
                     ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
                 }
@@ -847,22 +787,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } else {
                     sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                     sessionAttempt = 1
-                    // A user-initiated start is a fresh budget. Only auto-switch reconnects
-                    // (isReconnect) continue an in-flight watchdog recovery chain.
                     watchdogRecoveryInFlight = false
                     watchdogState.recoveryAttempts = 0
                 }
-                // Every ACTION_START (fresh start or auto-switch reconnect) begins a new
-                // connection attempt -- record when, so applyStatusSnapshot() can tell a
-                // snapshot reporting on THIS attempt apart from one left over from a past one.
                 currentAttemptStartMs = watchdogNowMs()
-                // Paired monotonic baseline -- see currentAttemptStartElapsedRealtimeMs's
-                // declaration comment for why this is captured alongside the wall-clock value.
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
-                // Bump alongside currentAttemptStartMs: see connectionAttemptGeneration's
-                // declaration comment for the stop-then-restart race this closes (round 12).
-                connectionAttemptGeneration += 1
+                val attemptGeneration = connectionAttemptGeneration.incrementAndGet()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                if (isReconnect) {
+                    reconnectDispatchPendingGeneration = attemptGeneration
+                }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
@@ -884,7 +818,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
-                startIcsOpenVpn(config, title)
+                if (isReconnect) {
+                    val dispatchGeneration = attemptGeneration
+                    statusHandler.postAtTime(Runnable {
+                        fun clearMarkerIfOwn() {
+                            if (reconnectDispatchPendingGeneration == dispatchGeneration) {
+                                reconnectDispatchPendingGeneration = -1
+                            }
+                        }
+                        if (userInitiatedStop || serviceDestroyed) {
+                            clearMarkerIfOwn()
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
+                            return@Runnable
+                        }
+                        if (connectionAttemptGeneration.get() != dispatchGeneration) {
+                            clearMarkerIfOwn()
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
+                            return@Runnable
+                        }
+                        startIcsOpenVpn(config, title)
+                        clearMarkerIfOwn()
+                    }, reconnectEngineDispatchToken, SystemClock.uptimeMillis() + ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
+                } else {
+                    startIcsOpenVpn(config, title)
+                }
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
@@ -892,6 +849,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -903,6 +861,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
+                    connectionAttemptGeneration.incrementAndGet()
+                    // Sweep the reconnect engine-dispatch token too (defence in depth alongside the
+                    // generation bump above) -- see reconnectEngineDispatchToken's declaration comment.
+                    statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
                     statusHandler.removeCallbacks(stopRetryRunnable)
                     statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
@@ -917,6 +879,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.d(TAG, "Ignoring stop-if-idle while VPN is active")
                     return START_NOT_STICKY
                 }
+                if (VpnManager.hasRecentActionStartDispatch()) {
+                    AppLog.i(TAG, "Stop-if-idle stopSelf() aborted: recent ACTION_START dispatch still in flight")
+                    return START_NOT_STICKY
+                }
                 exitControllerForeground()
                 stopSelf()
             }
@@ -928,6 +894,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 if (!boundToStatus) bindStatusService()
                 val snapshotApplied = trySyncStatusSnapshot()
@@ -989,6 +956,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleOneShotStop(delayMs: Long = ONE_SHOT_STOP_DELAY_MS) {
         if (!oneShotSyncRequested) return
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.postDelayed(stopAfterOneShotSyncRunnable, delayMs)
     }
 
@@ -1193,13 +1161,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // binder thread reading this flag observes a stale false. See the field's doc comment
         // for why this is distinct from userInitiatedStop.
         serviceDestroyed = true
+        isInstanceAlive = false
         exitControllerForeground()
+        unregisterAppLifecycleObserver()
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
         try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
@@ -1207,6 +1178,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // Sweep the reconnect engine-dispatch token too -- without this, a deferred dispatch
+        // queued before onDestroy() would retain a strong reference to this Service for up to
+        // ENGINE_RECONNECT_DISPATCH_BUFFER_MS after destroy.
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -1224,8 +1199,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
-        if (controllerForegroundActive) return true
+    private fun enterControllerForeground(): Boolean {
+        // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
+        // already true: a genuine ACTION_START must get a fresh call to satisfy Android's
+        // foreground-service-start timing requirement. Repeated calls are idempotent.
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
             val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
@@ -1245,9 +1222,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to enter controller foreground${if (stopOnFailure) "; stopping service" else ""}", t)
+            // Do NOT call stopSelf() here. ACTION_START calls this method after its own
+            // startForegroundService() has already been dispatched, so the FGS-start obligation is
+            // still undischarged -- stopSelf() here would turn a recoverable "could not show the
+            // notification" failure into a ForegroundServiceDidNotStartInTimeException. Both
+            // callers already treat a `false` return as sufficient signal to bail out.
+            AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
-            if (stopOnFailure) stopSelf()
             return false
         }
     }
@@ -1929,147 +1910,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val now = watchdogNowMs()
         val nowElapsedRealtimeMs = elapsedRealtimeMs()
         val ts = snapshot.timestampMs
-        // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration
-        // comment above for why round 14 removed the per-level allowlist that used to gate this
-        // block.
+        // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration comment.
         if (ts > 0L) {
-            // Round 15 fix (Codex P2, comment 3735628745): MainActivityCore.onStart() reattaches
-            // to an already-running engine via ACTION_SYNC_STATUS, NOT ACTION_START -- e.g. after
-            // the Activity or this Service's process was recreated while the underlying engine
-            // connection attempt was still genuinely in progress. currentAttemptStartMs is only
-            // ever set inside ACTION_START handling, so a service instance that comes up via
-            // ACTION_SYNC_STATUS leaves it at its default 0L (unknown) even though a real attempt
-            // exists. Left alone, that forces every snapshot through the age-only fallback below,
-            // and the one cached snapshot available for a long-stuck attempt inevitably exceeds
-            // staleSnapshotMaxAgeMs, getting rejected on every poll/rebind forever -- resurrecting
-            // the exact "stuck on Connecting..." bug this PR fixes, via this lifecycle path
-            // instead of ACTION_START's. Fix: the first snapshot an unknown-start instance
-            // observes that carries a genuinely active engine level (i.e. NOT one of
-            // STOP_TERMINAL_LEVELS, which mean the engine is idle/never started) backfills
-            // currentAttemptStartMs to that snapshot's OWN timestamp -- the earliest evidence
-            // this instance has of the current attempt. The backfilled value may be later than
-            // when the attempt actually started; that is fine and intentional, since it only
-            // needs to serve as a baseline for the predates-check below. This snapshot and every
-            // later one then compare against a known baseline instead of an unknown 0L, exactly
-            // like the ACTION_START path, so a genuinely older/unrelated snapshot delivered
-            // afterwards is still correctly rejected by the existing predates-check. Trusting the
-            // very first observed snapshot unconditionally is safe here because
-            // trySyncStatusSnapshot() reads the AIDL binder's single lastStatusSnapshot -- there
-            // is no second, independently-tracked "different past attempt" data point for an
-            // unknown-start instance to compare it against; it IS the freshest truth the engine
-            // itself has to offer.
-            // Round 19 fix (Codex P2, comment 3737217807): classify terminal-ness for this
-            // backfill decision using the NORMALIZED level, not the raw `level` read at the top
-            // of this function. The raw level and the accompanying `state`/detail string can
-            // update on slightly different cadences (the same phenomenon
-            // ConnectionStateManager.normalizeEngineLevel's own doc comment describes, and the
-            // same class of bug round 14 already fixed for ServerAutoSwitcher's consumption of
-            // this data). A recreated controller reattaching via ACTION_SYNC_STATUS can observe a
-            // first snapshot whose raw level is still a lagging LEVEL_NONETWORK while its state
-            // already reads "CONNECTED" -- i.e. genuinely healthy. Classifying that snapshot as
-            // terminal on the raw level alone skips the backfill below, leaving
-            // currentAttemptStartMs at 0L, which routes it into the age-only fallback further
-            // down -- and that fallback then wrongly rejects a healthy reattachment snapshot as
-            // stale purely because it is older than staleSnapshotMaxAgeMs. Normalizing first
-            // ensures a raw-lagging-but-actually-connected snapshot is correctly seen as active
-            // (not terminal), so the backfill runs and syncEngineState() -- where normalization
-            // would otherwise happen -- actually gets to execute.
+            // ACTION_SYNC_STATUS reattachment leaves currentAttemptStartMs at 0L; backfill it from
+            // the first active snapshot so later ones have a baseline. Classified on the NORMALIZED
+            // level -- a raw lagging LEVEL_NONETWORK on a "CONNECTED" state string would otherwise
+            // skip the backfill.
             val normalizedLevelForBackfill = ConnectionStateManager.normalizeEngineLevel(level, snapshot.state)
             if (currentAttemptStartMs == 0L && normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS) {
                 currentAttemptStartMs = ts
-                // Estimate what elapsedRealtimeMs() was back when this snapshot's own timestamp
-                // (ts) was captured, by subtracting its age (now - ts) from the elapsed-realtime
-                // reading taken at THIS backfill moment. Keeps the pairing with
-                // currentAttemptStartMs (=ts) consistent with the ACTION_START path, where both
-                // fields are captured together at the same instant.
+                // Estimate what elapsedRealtimeMs() was when this snapshot's own timestamp (ts)
+                // was captured, keeping the pairing with currentAttemptStartMs consistent with the
+                // ACTION_START path, where both fields are captured together at the same instant.
                 currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - (now - ts)
             }
             val ageMs = now - ts
-            // A snapshot's absolute age alone cannot tell apart two very different situations:
-            // (a) it is a leftover reading from a PAST, different connection attempt (round 8's
-            // scenario -- e.g. a cached NONETWORK snapshot the status service never refreshed
-            // after a new attempt began) and should be rejected; vs (b) it IS the status of the
-            // CURRENT, still-ongoing attempt, just old because that attempt has genuinely been
-            // stuck the whole time (round 9's scenario -- e.g. the status service rebinds while
-            // push callbacks are stalled and this snapshot is the only data available). Rejecting
-            // case (b) starves ServerAutoSwitcher of its only signal and resurrects the original
-            // indefinite "stuck on Connecting..." bug through this rebind/poll path. Distinguish
-            // them by comparing the snapshot's own timestamp against when the CURRENT attempt
-            // started: only a snapshot that predates the current attempt is case (a). When
-            // currentAttemptStartMs is unknown (0L, e.g. never went through ACTION_START), the
-            // predates-check cannot be evaluated at all, so this falls back to the pre-existing,
-            // purely age-based check (ageMs > staleSnapshotMaxAgeMs) -- this keeps every caller
-            // that does not track attempt identity exactly as before. See PR #126 round 9 (Codex
-            // P2, comment 3733934640).
-            //
-            // Round 10 fix (Codex P2, comment 3734081106): the "predates" check above must be
-            // evaluated INDEPENDENTLY of the absolute-age gate below, not nested inside it. A
-            // snapshot's absolute age alone does not prove it belongs to the current attempt --
-            // the status service can re-deliver the SAME cached snapshot from a just-replaced
-            // attempt on a routine poll shortly after the new attempt starts (e.g. the new
-            // attempt begins ~5s after the old snapshot was captured, then a poll ~2s later
-            // redelivers that same old snapshot). Its absolute age is then still under
-            // staleSnapshotMaxAgeMs purely because little wall-clock time has passed, even
-            // though its timestamp is known to predate currentAttemptStartMs. Nesting the
-            // predates-check inside `ageMs > staleSnapshotMaxAgeMs` let that case slip through
-            // uncaught, since the outer age gate never fired. The actual priority, per the
-            // if/else below: when currentAttemptStartMs is known, that is the ONLY test applied
-            // -- a snapshot predating the current attempt is always rejected regardless of age,
-            // and a snapshot that does NOT predate it (i.e. belongs to the current, still-stuck
-            // attempt) is always accepted regardless of age, per round 9. Only when
-            // currentAttemptStartMs is unknown does the pre-existing age-based check
-            // (ageMs > staleSnapshotMaxAgeMs) apply instead.
+            // Age alone cannot separate a leftover snapshot from a past attempt (reject) from an
+            // old-but-current one whose attempt is simply stuck (keep -- it is ServerAutoSwitcher's
+            // only signal). When currentAttemptStartMs is known, the predates-check is the ONLY
+            // test applied, independent of age; only when it is unknown does the age gate apply.
             val currentAttemptStartKnown = currentAttemptStartMs > 0L
             val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
-            // Round 16 fix (Codex P2, comment 3735937824): the predates-check above compares two
-            // wall-clock readings (ts, currentAttemptStartMs) taken via watchdogNowMs() /
-            // System.currentTimeMillis() -- including on the engine side, since
-            // StatusSnapshot.timestampMs is produced by OpenVPNStatusService using
-            // System.currentTimeMillis() too, outside this app's control. If the device wall
-            // clock is corrected BACKWARD at any point during the current attempt's lifetime
-            // (e.g. automatic NTP sync, a user/system clock change), every snapshot delivered
-            // after the correction reads earlier than currentAttemptStartMs (captured before the
-            // correction, under the old/higher clock), so EVERY subsequent snapshot looks like it
-            // predates the attempt and gets rejected -- until wall-clock time naturally advances
-            // back past the stale currentAttemptStartMs value. That silently defeats the whole
-            // stale-push auto-switch mechanism via a clock-jump vector, distinct from the
-            // lifecycle-path/level-enumeration vectors rounds 9-15 closed.
-            //
-            // SystemClock.elapsedRealtime() is monotonic and immune to wall-clock corrections.
-            // Pairing it with currentAttemptStartMs (see currentAttemptStartElapsedRealtimeMs's
-            // declaration) lets us detect this: if LESS wall-clock time appears to have passed
-            // since the attempt started (now - currentAttemptStartMs) than the REAL, monotonic
-            // time that has actually passed (nowElapsedRealtimeMs -
-            // currentAttemptStartElapsedRealtimeMs), the wall clock must have moved backward by
-            // approximately that difference at some point during this attempt -- direct evidence
-            // of a clock artifact, not a genuinely old/unrelated snapshot. When the snapshot's own
-            // predates-gap is fully covered by that estimated jump size (plus a small slack for
-            // read skew between the separate clock calls), it is trusted as genuine current-attempt
-            // data delivered after the correction, not leftover data from a truly past attempt.
-            //
-            // Residual limitation, stated honestly rather than overclaimed: this only explains a
-            // predates-gap up to the size of the DETECTED jump. An arbitrarily long-running
-            // attempt combined with an arbitrarily large backward jump can, in principle, still
-            // mask a genuinely-stale leftover snapshot whose gap happens to fall within the
-            // detected jump size -- an inherent limit of reasoning about wall-clock data with no
-            // independent monotonic timestamp of its own. currentAttemptStartElapsedRealtimeMs is
-            // left at its default 0L by any path that sets currentAttemptStartMs without it (e.g.
-            // pre-round-16 reflection-based unit tests), so this safety net never activates for
-            // those, preserving the exact pre-round-16 behavior.
-            // Round 17 fix (Codex P2, comment 3736234637): the jump-size waiver above (round 16)
-            // only compared the snapshot's predates-gap against the estimated jump size, which
-            // wrongly waives rejection for a genuinely stale, small-gap prior-attempt snapshot
-            // whenever ANY large backward clock jump has happened during the current attempt's
-            // lifetime -- even one causally unrelated to that particular stale snapshot (e.g. a
-            // cached LEVEL_CONNECTED from 2s before the attempt started trivially satisfies a
-            // 2000ms gap <= a 30000ms unrelated jump). Discriminator: a genuine post-jump
-            // current-attempt snapshot's own ts is captured AFTER the jump, on the same corrected
-            // (lower) wall-clock scale as `now`, so ts can never be materially greater than now. A
-            // genuinely-stale snapshot captured BEFORE the jump uses the old/higher clock scale
-            // (same as currentAttemptStartMs), so once `now` is read post-jump, that stale ts ends
-            // up materially AHEAD of now. Requiring ts <= now + clockJumpSlackMs (slack covers read
-            // skew between the separate clock calls) rejects the stale case even though its raw
-            // predates-gap alone looked "explainable" by the jump size.
+            // A backward wall-clock correction (e.g. NTP) makes every post-correction snapshot look
+            // like it predates the attempt, silently defeating the stale-push auto-switch. Detect
+            // it by pairing the wall clock with monotonic elapsedRealtime(): less wall-clock time
+            // elapsed than real time means the clock moved back by roughly that difference, and a
+            // predates-gap covered by that estimate is trusted. The ts <= now + slack term keeps a
+            // genuinely stale pre-jump snapshot (its ts lands ahead of a corrected `now`) from
+            // being waived by an unrelated jump elsewhere in the attempt's lifetime.
             val predatesExplainedByBackwardClockJump = knownToPredateCurrentAttempt &&
                 currentAttemptStartElapsedRealtimeMs > 0L &&
                 ts <= now + clockJumpSlackMs &&
@@ -2103,13 +1971,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
-        // isAidlFresh() checks three things: boundToStatus is true, lastLiveStatusMs > 0 (a live
-        // push has actually arrived at least once), and that push happened within
-        // aidlFreshWindowMs. This is NOT strictly equivalent to `now - lastLiveStatusMs >
-        // aidlFreshWindowMs` alone: boundToStatus can be false here (e.g. the status binder just
-        // died on another thread, racing with this snapshot read) and lastLiveStatusMs can still
-        // be 0 if no live push has ever landed, both of which make isAidlFresh() false, i.e.
-        // livePushStale true, for reasons other than staleness of an existing timestamp.
+        // isAidlFresh() also covers boundToStatus and lastLiveStatusMs > 0 (a live push has ever
+        // arrived), not just the freshness-window comparison -- both can independently make it
+        // false, e.g. the status binder dying on another thread mid-read of this snapshot.
         val livePushStale = !isAidlFresh()
         syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
         onOneShotInitialStateSynced("AIDL snapshot")
@@ -2149,28 +2013,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        // Normalize ONCE, up front, and forward the SAME result to every consumer that derives
-        // an "effective" engine level from (level, detail). ConnectionStateManager.updateFromEngine
-        // normalizes internally (state=="CONNECTED" wins over a still-transitional raw level), but
-        // until round 14 that normalization only happened AFTER dispatchAutoSwitcherOnEngineLevel()
-        // below had already been called with the raw, un-normalized level -- so ServerAutoSwitcher
-        // and ConnectionStateManager could observe two DIFFERENT effective levels for the exact
-        // same snapshot. A raw connecting-family level could start a needless switch timer on an
-        // already-healthy connection, and a raw LEVEL_NONETWORK could trigger an immediate switch
-        // away from a connection the app itself is about to (or already does) recognize as
-        // connected. See PR #126 review thread (round 14, Codex P1, comment 3735319517).
+        // Normalize ONCE, up front, and forward the SAME result to every consumer that derives an
+        // "effective" engine level from (level, detail). Normalizing separately per consumer let
+        // ServerAutoSwitcher and ConnectionStateManager observe two DIFFERENT effective levels for
+        // the exact same snapshot -- a raw connecting-family level could start a needless switch
+        // timer on an already-healthy connection, and a raw LEVEL_NONETWORK could trigger an
+        // immediate switch away from a connection the app itself already recognizes as connected.
         val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, detail)
-        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
-        // We must NOT exit the FGS notification in two situations:
-        // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
-        //    before the next server start — dropping the notification here reopens the 5-second
-        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
-        // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
-        //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
-        //    on the binder thread; dropping the FGS notification here removes the safety net
-        //    started by ACTION_START and reopens the same 5-second race window.
-        // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
-        // explicitly, so those paths are unaffected by this guard.
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle. Must NOT exit the FGS
+        // notification in two situations: (1) chained auto-switch (reconnectingHint=true), where
+        // the engine is intentionally stopped before the next server start -- dropping the
+        // notification reopens the AMS FGS-obligation race; and (2) a user-initiated rapid
+        // reconnect (userInitiatedStart=true), where a stale LEVEL_NOTCONNECTED from the previous
+        // session may still be in-flight while a fresh ACTION_START's notification is the safety
+        // net. ACTION_STOP and ACTION_SYNC_STATUS both call exitControllerForeground() explicitly,
+        // so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         if (controllerForegroundActive
@@ -2179,24 +2036,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !reconnectPending) {
             exitControllerForeground()
         }
-        // Clear userInitiatedStart when the engine reports a successful connection, or a
-        // terminal failure, via the AIDL path. updateState() (the VPN_STATUS path) clears it in
-        // the equivalent cases, but when the status service is fresh (isAidlFresh()=true),
-        // updateState() returns early and never reaches that code — syncEngineState() (called
-        // from the AIDL callback path, updateStateString) is then the only place that can clear
-        // it. Without this clear, userInitiatedStart stays true after a failed user-initiated
-        // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
-        // reconnectPending stuck and the "VPN connecting" notification undismissable.
-        //
-        // NOTE: intentionally NOT followed by an immediate exitControllerForeground() for this
-        // callback (tried in rounds 7-8, reverted in round 10): a stale LEVEL_NOTCONNECTED from
-        // a PREVIOUS session can legitimately arrive here while a NEW user-initiated start is
-        // still in flight (userInitiatedStart=true, reconnectingHint=false) — indistinguishable
-        // from a genuine terminal failure of the current attempt without a start-generation
-        // token. Exiting foreground in that case reopens the exact FGS crash window the
-        // reconnectPending guard exists to prevent. Accepting the narrower, lower-severity
-        // gap instead: a single terminal-failure callback with no follow-up idle callback may
-        // leave the "VPN connecting" notification stuck until the next engine callback.
+        // The only place userInitiatedStart gets cleared while the status service is fresh (the
+        // VPN_STATUS path returns early then), otherwise reconnectPending stays stuck and the
+        // "VPN connecting" notification is undismissable. Intentionally NOT followed by
+        // exitControllerForeground(): a stale LEVEL_NOTCONNECTED arriving during a new start is
+        // indistinguishable from a genuine failure here, and exiting would reopen the FGS window.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
             userInitiatedStart = false
         }
@@ -2212,69 +2056,57 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     // Shared Handler token tagging every deferred dispatch posted by
     // dispatchAutoSwitcherOnEngineLevel() below, so teardown paths (startUserStopTeardown(),
-    // onDestroy()) can cancel ALL of them in one statusHandler.removeCallbacksAndMessages(token)
-    // call before they run. A single `Runnable?` field (round 5's first attempt) only remembers
-    // the MOST RECENTLY posted runnable: if the AIDL binder thread posts more than one deferred
-    // dispatch before the main looper drains its queue (e.g. rapid engine-level changes), each
-    // new post overwrites the field and orphans the previous runnable -- teardown could then
-    // cancel only the last one, leaving earlier ones queued with no reference left to cancel
-    // them. A shared token avoids that: every posted Runnable is tagged with the same token
-    // object, and removeCallbacksAndMessages(token) removes the whole family regardless of how
-    // many are queued, with no mutable reference to read cross-thread (and therefore no
-    // @Volatile question either). See PR #126 review thread (round 6, Codex P2 + Copilot,
-    // follow-up to the CONNECTING-preservation fix below).
+    // onDestroy()) can cancel ALL of them in one removeCallbacksAndMessages(token) call. A single
+    // mutable `Runnable?` field would only remember the most recently posted runnable: if the AIDL
+    // binder thread posts more than one deferred dispatch before the main looper drains its queue,
+    // each new post would orphan the previous one, leaving it uncancellable.
     private val autoSwitchDispatchToken = Any()
 
-    // syncEngineState() is reachable both from the AIDL binder-thread callback
-    // (updateStateString) and from the main thread (applyStatusSnapshot, via
-    // trySyncStatusSnapshot's onServiceConnected/trafficPollRunnable poll path). Before the
-    // stale-push auto-switch fix, applyStatusSnapshot() always passed allowAutoSwitch=false, so
-    // this call site was reachable from the binder thread only. Now both paths can reach it, and
-    // ServerAutoSwitcher's internal timer state (runnable/timerActive/seconds/timerLevel) is
-    // guarded only by non-atomic check-then-act sequences that assume a single (main-looper)
-    // caller. Route every invocation through the existing main-looper statusHandler when not
-    // already on the main thread, so binder-thread and main-thread callers are serialized onto
-    // the same queue -- exactly what ServerAutoSwitcher's own internal timer Runnable already
-    // relies on. The fast path preserves the previously synchronous behavior for the
-    // applyStatusSnapshot main-thread caller.
+    // Dedicated token for the ENGINE_RECONNECT_DISPATCH_BUFFER_MS deferred dispatch (the
+    // ACTION_START isReconnect==true branch below), swept at the same sites as
+    // autoSwitchDispatchToken (onDestroy(), the preserveReconnect stop branch,
+    // startUserStopTeardown()) so this dispatch is cancellable like every other deferred action in
+    // this class.
+    private val reconnectEngineDispatchToken = Any()
+
+    // syncEngineState() is reachable both from the AIDL binder thread (updateStateString) and from
+    // the main thread (applyStatusSnapshot). ServerAutoSwitcher's internal timer state is guarded
+    // only by non-atomic check-then-act sequences that assume a single (main-looper) caller, so
+    // every invocation is routed through the main-looper statusHandler when not already on the
+    // main thread, serializing binder-thread and main-thread callers onto the same queue. The fast
+    // path preserves synchronous behavior for the applyStatusSnapshot main-thread caller.
     private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
-        // Monotonic destroyed gate, checked at the enqueue point rather than swept after the
-        // fact: round 6's removeCallbacksAndMessages(autoSwitchDispatchToken) sweep in onDestroy()
-        // only clears dispatches queued BEFORE the sweep runs. An in-flight binder callback that
-        // had already started executing updateStateString()/syncEngineState() before teardown
-        // began, but had not yet reached this function, could still call postAtTime() AFTER the
-        // sweep -- enqueuing a dispatch the sweep never saw and has no way to catch. Checking
-        // serviceDestroyed here, at the moment this specific call actually tries to enqueue,
-        // closes that gap: it does not matter whether the call started before or after teardown
-        // began, only whether the service is destroyed right now. userInitiatedStop is NOT a
-        // substitute for this check during a system-driven onDestroy() (e.g. task removal), where
-        // userInitiatedStop stays false because the user never asked to disconnect. See PR #126
-        // review thread (round 7, Codex P2).
+        // Checked at the enqueue point rather than relying solely on onDestroy()'s
+        // removeCallbacksAndMessages(autoSwitchDispatchToken) sweep, which only clears dispatches
+        // queued BEFORE the sweep runs: an in-flight binder callback that had already started
+        // executing before teardown began, but had not yet reached this function, could still
+        // enqueue a dispatch afterward. userInitiatedStop is not a substitute here during a
+        // system-driven onDestroy() (e.g. task removal), where it stays false.
         if (serviceDestroyed) return
-        // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now
-        // -- before returning to syncEngineState(), which calls ConnectionStateManager
-        // .updateFromEngine(level, detail) immediately afterward on the CALLING thread (the AIDL
-        // binder thread when allowAutoSwitch=true). When this dispatch has to be deferred to the
-        // main looper below (non-main caller), updateFromEngine() runs synchronously first and
-        // can already flip CONNECTING -> DISCONNECTED for terminal levels (LEVEL_AUTH_FAILED /
-        // LEVEL_NONETWORK) before the deferred onEngineLevel() call actually executes. If
-        // onEngineLevel() re-read ConnectionStateManager.state at that later point, it would see
-        // DISCONNECTED and (with no auto-switch timer running yet on a fresh connection attempt)
-        // silently skip the immediate switch it must perform. Passing the pre-mutation snapshot
-        // through preserves the original ordering guarantee regardless of when the deferred
-        // block actually runs. See PR #126 review thread (P1 regression from the round-2 fix).
+        // While a reconnect engine-dispatch buffer is pending for the current generation, no new
+        // engine process has been asked to start yet, so any level received right now is
+        // necessarily a stray delivery from the just-stopped previous engine -- forwarding it would
+        // let it skip the selected server without ever trying it. See
+        // reconnectDispatchPendingGeneration's declaration comment.
+        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+            AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
+            return
+        }
+        // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now --
+        // before syncEngineState() calls updateFromEngine() on the calling thread, which can flip
+        // CONNECTING -> DISCONNECTED for a terminal level before a deferred dispatch below actually
+        // runs. Passing this pre-mutation snapshot through preserves the ordering guarantee that an
+        // immediate switch is not silently skipped just because the dispatch had to be deferred.
         val wasConnectingAtDispatch = try {
             ConnectionStateManager.state.value == ConnectionState.CONNECTING
         } catch (_: Exception) {
             false
         }
-        // Snapshot the attempt generation valid RIGHT NOW, at the moment this level was
-        // received and this dispatch is being prepared -- see connectionAttemptGeneration's
-        // declaration comment for the stop-then-restart race this closes (round 12, Codex P2,
-        // comment 3734663965). If a fresh ACTION_START bumps the live counter before the
-        // runnable below actually executes, the mismatch proves a newer attempt has begun since
-        // this dispatch was queued.
-        val dispatchedForGeneration = connectionAttemptGeneration
+        // Snapshot the attempt generation valid right now, at the moment this level was received --
+        // see connectionAttemptGeneration's declaration comment. If a fresh ACTION_START bumps the
+        // live counter before the runnable below actually executes, the mismatch proves a newer
+        // attempt has begun since this dispatch was queued.
+        val dispatchedForGeneration = connectionAttemptGeneration.get()
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
@@ -2286,7 +2118,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // ACTION_START clears it back to false as part of starting the new attempt, even
             // though this dispatch was queued for a now-superseded attempt. A generation mismatch
             // means exactly that happened, so skip unconditionally regardless of the flag above.
-            if (connectionAttemptGeneration != dispatchedForGeneration) return@Runnable
+            if (connectionAttemptGeneration.get() != dispatchedForGeneration) return@Runnable
+            // Re-evaluate the same suppression predicate checked above, but here at execution time
+            // rather than trusting the capture-time read: reconnectDispatchPendingGeneration and
+            // connectionAttemptGeneration are updated by two separate statements in ACTION_START, so
+            // a level captured strictly between the generation bump and the marker arm can observe
+            // a torn (marker=stale, generation=G) snapshot and evade suppression at the earlier
+            // check. This Runnable always executes on statusHandler's main looper -- the same
+            // thread that owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) --
+            // so if onStartCommand() has since armed the marker to match the live generation, this
+            // catches it even though the capture-time check could not.
+            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
+                return@Runnable
+            }
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {

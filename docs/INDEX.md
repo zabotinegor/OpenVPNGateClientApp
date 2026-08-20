@@ -44,7 +44,7 @@ Current behaviour, not change history.
 
 | Doc | Covers |
 |---|---|
-| [guides/how-to.md](guides/how-to.md) | Reusable techniques: MockWebServer tests, hardprobe lifecycle, on-device SSE verification, local mock backend, prefs-migration checks |
+| [guides/how-to.md](guides/how-to.md) | Reusable techniques: MockWebServer tests, hardprobe lifecycle, on-device SSE verification, local mock backend, prefs-migration checks, Gradle test/compile-worker OOM recovery (test-executor and Kotlin-compile-worker forms, `FROM-CACHE` trap) |
 | [guides/troubleshooting.md](guides/troubleshooting.md) | Symptom → root cause → fix. Read before debugging anything that feels familiar |
 | [guides/adb-cookbook.md](guides/adb-cookbook.md) | Topic-organised reusable ADB one-liners: device control, app lifecycle, prefs, probe/autoswitch, SSE signals |
 | [guides/engine-update.md](guides/engine-update.md) | Post-engine-bump regression checklist and pass criteria |
@@ -57,6 +57,7 @@ Current behaviour, not change history.
 | [operations/device-qa-miui.md](operations/device-qa-miui.md) | MIUI readiness commands and known device blockers |
 | [operations/device-qa-tv.md](operations/device-qa-tv.md) | MIBOX4 Leanback launch, D-pad injection, focus gotchas, landscape-lock verification, drawer-state persistence |
 | [operations/device-qa-log.md](operations/device-qa-log.md) | Chronological Android QA findings kept for their device-specific detail |
+| [../tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md](../tests/manual-e2e/environment/android-adb-vpn-qa-runbook.md) | VPN connect/watchdog/auto-switch QA techniques specific to this app: build/install path, deterministic reconnect-forcing, foreground-service crash-signature scan. Points to `operations/device-qa-phone.md` for general device workarounds instead of restating them |
 
 ## Conventions — rules for agents
 

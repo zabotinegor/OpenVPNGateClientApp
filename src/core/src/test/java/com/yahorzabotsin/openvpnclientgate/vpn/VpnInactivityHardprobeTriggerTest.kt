@@ -41,7 +41,7 @@ import java.time.Duration
 class VpnInactivityHardprobeTriggerTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Unit)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Unit)? = null
 
     private class FakeProbeRequestQueue : ProbeRequestQueue {
@@ -65,23 +65,32 @@ class VpnInactivityHardprobeTriggerTest {
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
 
         originalStarter = ServerAutoSwitcher.starter
-        ServerAutoSwitcher.starter = { _, _, _, _ -> }
+        ServerAutoSwitcher.starter = { _, _, _, _ -> true }
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> }
 
         fakeQueue = FakeProbeRequestQueue()
         ServerAutoSwitcher.setProbeRequestQueueForTest(fakeQueue)
 
-        // Reset ServerAutoSwitcher internal timer/wait state by driving it to CONNECTED then NOTCONNECTED.
-        // This clears waitingStopForRetry, timerActive, cycleStartIndex, etc. left from any previous test.
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, "RESET")
+        // Reset ServerAutoSwitcher internal timer/wait state left from any previous test. Uses the
+        // dedicated resetForTest() API (cancel(resetCycle = true)) rather than routing a synthetic
+        // "RESET" level through onEngineLevel(): as of bug 86cb35fbt fix-cycle 6, onEngineLevel()
+        // intentionally ignores any non-NOTCONNECTED level while waitingStopForRetry is true (a
+        // stale/spurious level must not silently cancel a pending retry -- see
+        // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md B23/B24), so a prior test
+        // left mid-switch (waitingStopForRetry=true, e.g. zeroIdServer_doesNotEnqueueProbe, which
+        // never delivers a NOTCONNECTED) would silently defeat this reset. resetForTest() -- like
+        // production's cancelForUserStop() -- bypasses the level-dispatch guard entirely and always
+        // resets unconditionally, which is what an inter-test reset actually needs.
+        ServerAutoSwitcher.resetForTest()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
     }
 
     @After
     fun tearDown() {
-        // Reset state before restoring callbacks
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTED, "RESET")
+        // Reset state before restoring callbacks -- see setUp() for why resetForTest() is used
+        // instead of routing a synthetic level through onEngineLevel().
+        ServerAutoSwitcher.resetForTest()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
 
         originalStarter?.let { ServerAutoSwitcher.starter = it }

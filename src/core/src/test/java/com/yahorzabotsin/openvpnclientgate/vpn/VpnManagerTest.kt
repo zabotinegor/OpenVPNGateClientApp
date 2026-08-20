@@ -4,11 +4,14 @@ import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Looper
 import android.util.Base64
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +26,12 @@ class VpnManagerTest {
     fun resetState() {
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        VpnManager.resetActionStartDispatchTrackingForTest()
+        // R11-1: static/companion state, so it can leak across test methods within this class
+        // (Robolectric's classloader isolation is per test class, not per test method) unless
+        // explicitly reset -- mirrors the existing resetActionStartDispatchTrackingForTest() call
+        // above.
+        OpenVpnService.isInstanceAlive = false
     }
 
     @Test
@@ -250,11 +259,312 @@ class VpnManagerTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
+    // Regression tests for VpnManager.hasRecentActionStartDispatch() (fix-cycle 7,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-2.md, "2026-08-14 continuation
+    // 2"): records an ACTION_START dispatch attempt synchronously, immediately before the actual
+    // startForegroundService() call, so OpenVpnService's one-shot idle-teardown stop can detect a
+    // fresh start still in AMS/Binder transit -- see the field's declaration comment for the
+    // FGS-obligation-timing race this closes.
+
+    @Test
+    fun hasRecentActionStartDispatch_falseWhenNoneRecorded() {
+        assertFalse(VpnManager.hasRecentActionStartDispatch())
+    }
+
+    @Test
+    fun startVpn_recordsRecentActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+
+        assertTrue(VpnManager.hasRecentActionStartDispatch())
+    }
+
+    @Test
+    fun hasRecentActionStartDispatch_falseAfterWindowElapses() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+
+        val farFuture = android.os.SystemClock.elapsedRealtime() + 10_000L
+        assertFalse(
+            "The dispatch marker must not stay set forever -- it only needs to bridge the brief " +
+                "AMS/Binder delivery gap, not survive indefinitely",
+            VpnManager.hasRecentActionStartDispatch(nowElapsedRealtimeMs = farFuture)
+        )
+    }
+
+    @Test
+    fun stopVpn_doesNotRecordActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+
+        VpnManager.stopVpn(app)
+
+        assertFalse(
+            "Only ACTION_START dispatches should arm the recent-dispatch marker",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+    }
+
+    @Test
+    fun pauseVpn_doesNotRecordActionStartDispatch() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        VpnManager.pauseVpn(app)
+
+        assertFalse(VpnManager.hasRecentActionStartDispatch())
+    }
+
+    // Regression test for R9-3 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-
+    // crash-review-9.md): lastActionStartDispatchElapsedRealtimeMs's own declaration comment says
+    // "Once onStartCommand() runs, userInitiatedStart is the authoritative, longer-lived signal --
+    // this flag only needs to bridge the brief pre-delivery gap", but before this fix nothing
+    // outside tests ever cleared it, so it stayed "recent" for the full
+    // RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) even after the start fully landed -- every
+    // hasRecentActionStartDispatch() guard (cycle-7's original site plus fix-cycle 8's two
+    // additions) then DROPPED an intervening stop decision instead of merely deferring it. See
+    // OpenVpnServiceNotificationTest.startAction_clearsRecentActionStartDispatchMarker for the
+    // integration-level test that onStartCommand()'s ACTION_START handler actually calls this.
+    @Test
+    fun clearRecentActionStartDispatch_clearsMarker() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        VpnManager.startVpn(app, "client\n", displayName = "RU")
+        assertTrue(
+            "Precondition: startVpn() must record the dispatch marker",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+
+        VpnManager.clearRecentActionStartDispatch()
+
+        assertFalse(
+            "clearRecentActionStartDispatch() must clear the marker so a later hasRecentAction" +
+                "StartDispatch() check does not keep treating a fully-landed start as still in flight",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+    }
+
+    // Regression test for PR #127 round-2 Codex finding (thread 3791559721,
+    // src/core/.../vpn/VpnManager.kt:202): when the dispatch call underlying an ACTION_START
+    // request throws (e.g. a background auto-switch retry rejected by Android's
+    // FGS-start-from-background restriction), lastActionStartDispatchElapsedRealtimeMs stayed
+    // armed with nothing to unarm it. Every hasRecentActionStartDispatch() guard site in
+    // OpenVpnService (one-shot-sync-confirmed, finishStopFlowConfirmed(), ACTION_STOP_IF_IDLE) is a
+    // single-shot check with no self-retry, so a teardown that happened to race the marker inside
+    // its window aborted once and nothing re-triggered it -- a pre-existing idle controller could
+    // stay running until some unrelated later event (next app foreground/background cycle, etc.)
+    // happened to re-issue a teardown, which is not actually bounded in practice. The fix schedules
+    // a single delayed stopControllerIfIdle() re-check timed to run once the marker window has
+    // definitely elapsed, closing the gap without clearing the marker early (which would reopen the
+    // AMS-obligation race lastActionStartDispatchElapsedRealtimeMs's declaration comment already
+    // guards against). Uses a startService()-throwing fault (matching this file's pre-existing
+    // ThrowingServiceContext convention) rather than overriding startForegroundService(): on this
+    // project's default Robolectric SDK (16, well below the API 26 startForegroundService cutoff),
+    // ContextCompat.startForegroundService() itself falls back to context.startService() -- the
+    // exact same call VpnManager.startControllerService()'s non-ACTION_START branch already uses,
+    // so this is the fault-injection point that is actually exercised here.
+    @Test
+    fun startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // R11-1: the self-heal re-check only re-runs stopControllerIfIdle() against an
+        // ALREADY-running controller instance (see OpenVpnService.isInstanceAlive's declaration
+        // comment) -- exactly the scenario this test models: a controller instance exists but a
+        // background auto-switch retry's ACTION_START dispatch to it failed.
+        OpenVpnService.isInstanceAlive = true
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+        assertTrue(
+            "The recent-dispatch marker must stay armed on a failed dispatch -- AMS may already " +
+                "have registered the FGS-start obligation before raising the exception, so clearing " +
+                "it here would reopen the crash this bug's fix-flow closes",
+            VpnManager.hasRecentActionStartDispatch()
+        )
+
+        val shadowApp = Shadows.shadowOf(app)
+        assertNull(
+            "No teardown should be dispatched yet -- still inside the safety window",
+            shadowApp.nextStartedService
+        )
+
+        // Advance past RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) plus the fix's small buffer.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        val started = shadowApp.nextStartedService
+        assertNotNull(
+            "A failed ACTION_START dispatch must self-heal by re-running stopControllerIfIdle() " +
+                "once the recent-dispatch marker window has elapsed, so a pre-existing idle " +
+                "controller is not left running indefinitely",
+            started
+        )
+        assertEquals(
+            VpnManager.ACTION_STOP_IF_IDLE,
+            started?.getStringExtra(VpnManager.actionKey(app))
+        )
+    }
+
+    // R12-1 (fix-cycle 12, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-12.md):
+    // review-12 proved the R11-1 isInstanceAlive gate itself was unpinned -- deleting
+    // `if (OpenVpnService.isInstanceAlive) { stopControllerIfIdle(appContext) }` at
+    // VpnManager.kt:155 (leaving the unconditional call) still left the scoped vpn suite
+    // 244/244 green, because every existing test that reaches this branch sets
+    // isInstanceAlive = true, which makes the gate transparent rather than pinning it. This test
+    // is the mirror of startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck with the one field
+    // that matters flipped to false: no controller instance is alive, so the self-heal re-check
+    // must NOT call stopControllerIfIdle()/startService() at all -- doing so would create a
+    // phantom OpenVpnService just to tear it down, and that instance's onCreate()
+    // unconditionally issues startForeground() (see OpenVpnService.isInstanceAlive's declaration
+    // comment). Falsifiability: this must fail (shadowApp.nextStartedService becomes non-null)
+    // if the isInstanceAlive gate is removed or bypassed.
+    @Test
+    fun startVpn_failedDispatch_idleRecheckNoOpsWhenNoInstanceAlive() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        // The defining condition for this test: no controller instance is alive when the failed
+        // ACTION_START dispatch happens, and none becomes alive before the self-heal re-check
+        // fires.
+        OpenVpnService.isInstanceAlive = false
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        val shadowApp = Shadows.shadowOf(app)
+        assertNull(
+            "No teardown should be dispatched yet -- still inside the safety window",
+            shadowApp.nextStartedService
+        )
+
+        // Advance past RECENT_ACTION_START_DISPATCH_WINDOW_MS (2s) plus the fix's small buffer --
+        // the same window startVpn_failedDispatch_selfHealsViaDelayedIdleRecheck uses to prove the
+        // re-check DOES fire when an instance is alive.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "The self-heal re-check must be a no-op when OpenVpnService.isInstanceAlive is false " +
+                "-- with no live controller instance, calling stopControllerIfIdle() would create " +
+                "a brand-new OpenVpnService just to immediately tear it down, and that instance's " +
+                "onCreate() unconditionally issues startForeground(), reopening the phantom-FGS " +
+                "gap R11-1 closed",
+            shadowApp.nextStartedService
+        )
+    }
+
+    // R11-4 test 1 (fix-cycle 11, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-
+    // review-11.md): scheduleIdleRecheckAfterFailedStartDispatch() is only ever called from the
+    // `if (action == ACTION_START)` branches of startControllerService()'s catch blocks -- that
+    // gate was previously unpinned by any test (removing it fails no test). A failed ACTION_STOP
+    // dispatch must not arm any self-heal re-check at all.
+    @Test
+    fun stopVpn_failedDispatch_doesNotScheduleIdleRecheck() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val result = VpnManager.stopVpn(failOnceContext)
+
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        val shadowApp = Shadows.shadowOf(app)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "scheduleIdleRecheckAfterFailedStartDispatch() must only run for a failed ACTION_START " +
+                "dispatch (the action == ACTION_START gate) -- a failed ACTION_STOP dispatch must " +
+                "not schedule any self-heal re-check",
+            shadowApp.nextStartedService
+        )
+    }
+
+    // R11-4 test 2: the self-heal re-check must still respect stopControllerIfIdle()'s own
+    // state != DISCONNECTED guard even while OpenVpnService.isInstanceAlive is true -- a live
+    // instance that is no longer idle by the time the re-check fires (a later, unrelated dispatch
+    // moved it to CONNECTING) must not be torn down.
+    @Test
+    fun startVpn_failedDispatch_idleRecheckNoOpsWhenNotDisconnected() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        OpenVpnService.isInstanceAlive = true
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val result = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertFalse("A thrown dispatch call must be reported as a failed dispatch", result)
+
+        // A later, unrelated transition moves the app off DISCONNECTED before the recheck window
+        // elapses.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        val shadowApp = Shadows.shadowOf(app)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "stopControllerIfIdle()'s own state != DISCONNECTED guard must still apply to the " +
+                "self-heal re-check, even while OpenVpnService.isInstanceAlive is true",
+            shadowApp.nextStartedService
+        )
+    }
+
+    // R11-4 test 3: a successful ACTION_START landing within the self-heal recheck window (e.g. a
+    // manual retry after the earlier failure) must not be torn down by the delayed re-check that
+    // was armed for the earlier failed dispatch.
+    @Test
+    fun startVpn_failedThenSuccessfulRetryWithinRecheckWindow_idleRecheckDoesNotTearDownNewStart() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val failOnceContext = FailOnceStartServiceContext(app)
+        OpenVpnService.isInstanceAlive = true
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val firstResult = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertFalse("Precondition: the first attempt must fail", firstResult)
+
+        // A fresh retry lands successfully before the self-heal window elapses (e.g. a later
+        // auto-switch attempt succeeded), moving the app back toward CONNECTING.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        val secondResult = VpnManager.startVpn(failOnceContext, "client\n", displayName = "RU")
+        assertTrue(
+            "Precondition: the second attempt must succeed (FailOnceStartServiceContext only " +
+                "throws on its first call)",
+            secondResult
+        )
+
+        val shadowApp = Shadows.shadowOf(app)
+        // Drain the legitimate ACTION_START from the successful retry before asserting on the
+        // self-heal recheck below.
+        assertNotNull(shadowApp.nextStartedService)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_300))
+
+        assertNull(
+            "A successful ACTION_START landing within the self-heal recheck window must not be " +
+                "torn down by the delayed re-check scheduled for the earlier failed dispatch",
+            shadowApp.nextStartedService
+        )
+    }
+
     private class ThrowingServiceContext(base: Context) : ContextWrapper(base) {
         override fun getApplicationContext(): Context = this
 
         override fun startService(service: Intent?): android.content.ComponentName {
             throw RuntimeException("startService failed")
+        }
+    }
+
+    private class FailOnceStartServiceContext(base: Context) : ContextWrapper(base) {
+        private var startServiceCallCount = 0
+
+        override fun getApplicationContext(): Context = this
+
+        override fun startService(service: Intent?): android.content.ComponentName? {
+            startServiceCallCount++
+            if (startServiceCallCount == 1) {
+                throw RuntimeException("startService failed")
+            }
+            return super.startService(service)
         }
     }
 }
