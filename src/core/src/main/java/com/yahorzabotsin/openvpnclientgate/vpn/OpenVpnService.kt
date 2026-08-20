@@ -1912,19 +1912,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val ts = snapshot.timestampMs
         // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration comment.
         if (ts > 0L) {
-            // MainActivityCore.onStart() can reattach to an already-running engine via
-            // ACTION_SYNC_STATUS rather than ACTION_START (e.g. after process recreation while a
-            // connection attempt is still in progress), leaving currentAttemptStartMs at its
-            // default 0L even though a real attempt exists -- which would otherwise force every
-            // snapshot through the age-only fallback and reject a long-stuck attempt's only data
-            // forever. Fix: the first snapshot an unknown-start instance observes that carries a
-            // genuinely active (non-STOP_TERMINAL_LEVELS) engine level backfills
-            // currentAttemptStartMs to that snapshot's own timestamp, giving every later snapshot a
-            // known baseline to compare against, same as the ACTION_START path. Terminal-ness for
-            // this decision is classified using the NORMALIZED level, not the raw `level` read at
-            // the top of this function: a reattaching snapshot can carry a lagging raw
-            // LEVEL_NONETWORK while its state string already reads "CONNECTED", and classifying
-            // that as terminal would skip the backfill and wrongly reject a healthy reattachment.
+            // ACTION_SYNC_STATUS reattachment leaves currentAttemptStartMs at 0L; backfill it from
+            // the first active snapshot so later ones have a baseline. Classified on the NORMALIZED
+            // level -- a raw lagging LEVEL_NONETWORK on a "CONNECTED" state string would otherwise
+            // skip the backfill.
             val normalizedLevelForBackfill = ConnectionStateManager.normalizeEngineLevel(level, snapshot.state)
             if (currentAttemptStartMs == 0L && normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS) {
                 currentAttemptStartMs = ts
@@ -1934,52 +1925,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - (now - ts)
             }
             val ageMs = now - ts
-            // A snapshot's absolute age alone cannot tell apart (a) a leftover reading from a
-            // PAST, different connection attempt (safe to reject) from (b) the status of the
-            // CURRENT, still-ongoing attempt that is just old because the attempt itself has been
-            // stuck (must NOT be rejected, or ServerAutoSwitcher is starved of its only signal).
-            // Distinguish by comparing the snapshot's own timestamp against when the current
-            // attempt started: only a snapshot that predates it is case (a). When
-            // currentAttemptStartMs is unknown, that check cannot be evaluated, so this falls back
-            // to the pre-existing age-based check (ageMs > staleSnapshotMaxAgeMs).
-            //
-            // The predates-check must be evaluated INDEPENDENTLY of the age gate below, not nested
-            // inside it: the status service can re-deliver the same cached snapshot from a
-            // just-replaced attempt shortly after the new one starts, and its absolute age can
-            // still read under staleSnapshotMaxAgeMs even though it is known to predate the
-            // current attempt. So: when currentAttemptStartMs is known, the predates-check is the
-            // ONLY test applied (regardless of age); only when it is unknown does the age-based
-            // check apply.
+            // Age alone cannot separate a leftover snapshot from a past attempt (reject) from an
+            // old-but-current one whose attempt is simply stuck (keep -- it is ServerAutoSwitcher's
+            // only signal). When currentAttemptStartMs is known, the predates-check is the ONLY
+            // test applied, independent of age; only when it is unknown does the age gate apply.
             val currentAttemptStartKnown = currentAttemptStartMs > 0L
             val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
-            // The predates-check above compares two wall-clock readings, including one produced by
-            // the engine (StatusSnapshot.timestampMs) outside this app's control. If the device
-            // wall clock is corrected BACKWARD during the current attempt's lifetime (e.g. NTP
-            // sync), every snapshot delivered after the correction reads earlier than
-            // currentAttemptStartMs and looks like it predates the attempt -- silently defeating
-            // the stale-push auto-switch mechanism via a clock-jump vector.
-            //
-            // SystemClock.elapsedRealtime() is monotonic and immune to wall-clock corrections.
-            // Pairing it with currentAttemptStartMs lets us detect this: if less wall-clock time
-            // appears to have passed since the attempt started than the real, monotonic time that
-            // has actually passed, the wall clock must have moved backward by approximately that
-            // difference -- direct evidence of a clock artifact rather than a genuinely stale
-            // snapshot. When the snapshot's own predates-gap is fully covered by that estimated
-            // jump size (plus a small slack for read skew), it is trusted as genuine data delivered
-            // after the correction. This only explains a predates-gap up to the size of the
-            // detected jump; it cannot rule out an arbitrarily large jump masking a genuinely-stale
-            // snapshot in principle. currentAttemptStartElapsedRealtimeMs is left at its default 0L
-            // by any path that sets currentAttemptStartMs without it, so this safety net never
-            // activates for those callers.
-            //
-            // The jump-size waiver alone would wrongly waive rejection for a genuinely stale,
-            // small-gap snapshot whenever ANY large backward jump happened during the attempt's
-            // lifetime, even one unrelated to that particular snapshot. Discriminator: a genuine
-            // post-jump snapshot's own ts is captured after the jump, on the same corrected
-            // (lower) wall-clock scale as `now`, so ts can never be materially greater than now,
-            // while a genuinely-stale pre-jump snapshot's ts ends up materially ahead of a
-            // post-jump `now`. Requiring ts <= now + clockJumpSlackMs rejects the stale case even
-            // when its raw predates-gap alone looked "explainable" by the jump size.
+            // A backward wall-clock correction (e.g. NTP) makes every post-correction snapshot look
+            // like it predates the attempt, silently defeating the stale-push auto-switch. Detect
+            // it by pairing the wall clock with monotonic elapsedRealtime(): less wall-clock time
+            // elapsed than real time means the clock moved back by roughly that difference, and a
+            // predates-gap covered by that estimate is trusted. The ts <= now + slack term keeps a
+            // genuinely stale pre-jump snapshot (its ts lands ahead of a corrected `now`) from
+            // being waived by an unrelated jump elsewhere in the attempt's lifetime.
             val predatesExplainedByBackwardClockJump = knownToPredateCurrentAttempt &&
                 currentAttemptStartElapsedRealtimeMs > 0L &&
                 ts <= now + clockJumpSlackMs &&
@@ -2078,18 +2036,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !reconnectPending) {
             exitControllerForeground()
         }
-        // Clear userInitiatedStart when the engine reports a successful connection or a terminal
-        // failure via the AIDL path. updateState() (the VPN_STATUS path) clears it in the
-        // equivalent cases, but returns early when the status service is fresh, so this is then
-        // the only place that can clear it. Without this, userInitiatedStart stays true after a
-        // failed connect attempt, leaving the FGS guard's reconnectPending stuck and the
-        // "VPN connecting" notification undismissable.
-        //
-        // Intentionally NOT followed by an immediate exitControllerForeground(): a stale
-        // LEVEL_NOTCONNECTED from a previous session can legitimately arrive here while a NEW
-        // user-initiated start is still in flight, indistinguishable from a genuine terminal
-        // failure of the current attempt without a start-generation token. Exiting foreground in
-        // that case would reopen the FGS crash window reconnectPending exists to prevent.
+        // The only place userInitiatedStart gets cleared while the status service is fresh (the
+        // VPN_STATUS path returns early then), otherwise reconnectPending stays stuck and the
+        // "VPN connecting" notification is undismissable. Intentionally NOT followed by
+        // exitControllerForeground(): a stale LEVEL_NOTCONNECTED arriving during a new start is
+        // indistinguishable from a genuine failure here, and exiting would reopen the FGS window.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
             userInitiatedStart = false
         }
