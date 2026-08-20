@@ -850,15 +850,27 @@ exercises.
 1. Identify each individual guard/condition the fix touches (e.g. two early-return checks in two
    different scheduled runnables, each gating on the same state field).
 2. Revert **one guard at a time** to its pre-fix form — never both at once — leaving the sibling
-   guard untouched. Confirm via `git diff --numstat` that exactly the expected single line changed.
+   guard untouched. Verify the mutation by **reading the actual patch** (`git diff -- <file>`), not
+   just a line count: `git diff --numstat` reports only aggregate insertion/deletion totals, so a
+   mutation applied to the wrong guard — or an unintended edit elsewhere with the same counts —
+   still looks like the expected one-line replacement. The whole pass/fail matrix below is
+   meaningless unless the patch shows exactly the intended guard restored to exactly its pre-fix
+   form (`--numstat` is at best a quick secondary check after the patch itself has been read).
 3. Run the new test in isolation after each single-guard revert:
    - If the test **fails** only when its claimed guard is reverted, and **survives** when the
      other guard is reverted, it is non-vacuous — it is genuinely pinned to that one guard.
    - If the test **passes** (survives) under every single-guard revert, and only fails when both
      guards are reverted together, it adds **zero** independent coverage beyond whatever tests
      already catch the double-revert case — it is a tautology dressed as a regression test.
-4. Restore the file after each mutation (`git checkout --` or an explicit backup/restore) and
-   re-run the full suite to confirm no residual diff before continuing.
+4. Restore the file after each mutation, then re-run the full suite and confirm no residual diff
+   before continuing. **Check `git status` / `git diff -- <file>` before you mutate anything.**
+   `git checkout -- <file>` restores the whole file from the index and silently discards *all*
+   uncommitted edits in it, not only your mutation — it is safe only when the file was clean
+   before mutation testing started. If the file already carries unrelated in-progress work,
+   restore the mutation specifically instead: save the exact mutation patch
+   (`git diff -- <file> > mutation.patch`) and reverse it (`git apply -R mutation.patch`), or copy
+   the file aside first and restore that copy. Never reach for a destructive checkout on a file
+   that has user work in it.
 5. If the test is vacuous, do not silently "make it pass" — restructure it so state changes
    *between* the two guards' checkpoints (matching each guard's own timing/deadline), so the
    assertion at each checkpoint can only be explained by that specific guard.
