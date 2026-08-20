@@ -934,18 +934,34 @@ class OpenVpnServiceNotificationTest {
     // already unregistered the status callbacks, so nothing observed CONNECTED and nothing
     // cancelled the timer: it fired anyway, switching away from a connection that had succeeded.
     // The fix (both runnables, see OpenVpnService.kt) makes them skip teardown UNLESS
-    // ConnectionStateManager.state.value == ConnectionState.DISCONNECTED. This test isolates that
-    // guard directly: state is CONNECTING (not DISCONNECTED) -- representing the window during
-    // which the auto-switch timer is armed and the connection may still succeed -- when the
-    // one-shot teardown path runs, and asserts the controller is NOT torn down across both the
-    // stage-1 and stage-2 (confirm-buffer) deadlines.
+    // ConnectionStateManager.state.value == ConnectionState.DISCONNECTED.
+    //
+    // Guard pinned: STAGE 1 ONLY (OpenVpnService.kt:302), the same guard isolated by
+    // oneShotSync_stage1GuardAlone_preventsStage2FromActingOnLaterDisconnectedState (line 643 of
+    // this file). State is CONNECTING when stage 1's 1000ms deadline runs -- an intact guard aborts
+    // there, so stage 2 is never scheduled -- then it becomes genuinely DISCONNECTED before stage
+    // 2's 400ms deadline. If stage 1's own guard were reverted, stage 1 would not have aborted,
+    // stage 2 WAS scheduled, and it now observes this later, real DISCONNECTED state, which even an
+    // intact stage-2 guard does not block: stopSelf() fires. Mutation testing
+    // (docs/qa-evidence/86cb2kqvu-autoswitch-timer-oneshot-teardown-review-2.md, MUT-1/MUT-2)
+    // proved the prior version of this test -- which held state constant at CONNECTING across both
+    // deadlines -- survived reverting either guard alone, so it added zero independent regression
+    // coverage over the three pre-existing guard tests (lines 589, 643, 689). This version does not
+    // claim to isolate the stage-1 guard in a way no other test does: by construction it shares
+    // stage1GuardAlone's exact mutation-catching profile (dies on MUT-1, survives MUT-2). What
+    // differs from all three pre-existing tests is the scenario, not the guard coverage: this test
+    // models 86cb2kqvu's stale-push CONNECTING snapshot as the very FIRST state the one-shot sync
+    // observes -- no prior DISCONNECTED state, no setReconnectingHint() call -- matching
+    // applyStatusSnapshot()'s timer-arming path directly, whereas lines 643 and 689 model a
+    // mid-flight ServerAutoSwitcher reconnect gap via an explicit reconnectingHint transition.
     @Test
-    fun oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed_86cb2kqvu() {
+    fun oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
         // Precondition: a stale-push CONNECTING snapshot -- NOT DISCONNECTED -- is exactly the
         // state under which applyStatusSnapshot() arms ServerAutoSwitcher's timer per 86cb2kqvu.
         ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
 
         val syncIntent = Intent().apply {
             putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
@@ -958,21 +974,24 @@ class OpenVpnServiceNotificationTest {
         onInitialStateSynced.isAccessible = true
         onInitialStateSynced.invoke(service, "test")
 
-        // Stage 1 (stopAfterOneShotSyncRunnable) must not tear the controller down directly.
+        // State is CONNECTING when stage 1's 1000ms deadline arrives (ClickUp 86cb2kqvu).
         Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertFalse(
-            "stopAfterOneShotSyncRunnable must not tear the controller down while CONNECTING " +
-                "(ClickUp 86cb2kqvu) -- pre-fix behavior tore down for any non-CONNECTED state here",
+            "Precondition: stage 1 must not have called stopSelf() directly",
             shadowOf(service).isStoppedBySelf
         )
 
-        // Stage 2 (stopAfterOneShotSyncConfirmedRunnable) re-checks the same guard; state is still
-        // CONNECTING, so it must also skip teardown.
+        // The connection resolves to a genuine disconnect before stage 2's deadline. A stage-2
+        // confirmation that was never scheduled (because stage 1's own guard aborted) cannot act
+        // on this -- there is nothing left pending to fire.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertFalse(
-            "stopAfterOneShotSyncConfirmedRunnable must not tear the controller down while " +
-                "CONNECTING -- tearing down here orphans an armed auto-switch timer that can later " +
-                "fire and switch away from a connection that actually succeeded (ClickUp 86cb2kqvu)",
+            "stage 1's != DISCONNECTED guard must independently prevent scheduling stage 2 while " +
+                "CONNECTING with ServerAutoSwitcher's timer potentially armed (ClickUp 86cb2kqvu) -- " +
+                "if it does not, a stage-2 confirmation left pending from that moment can later act " +
+                "on a state it never actually observed, tearing down and orphaning the armed timer, " +
+                "which can then fire and switch away from a connection that actually succeeded",
             shadowOf(service).isStoppedBySelf
         )
     }
