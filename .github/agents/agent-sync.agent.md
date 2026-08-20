@@ -3,6 +3,7 @@ name: Agent Sync
 description: "Use when mirror-syncing agents, skills, tools, helper scripts, Copilot/Claude/Git branch guards, and Claude slash commands from the latest github.com/zabotinegor/CopilotTools main commit into a target repository, including stale-file deletion, exact-path .gitignore policy, and change-count reporting."
 tools: [read, search, edit, run_in_terminal, runCommands, todo]
 argument-hint: "what should be synced from CopilotTools and to which target paths"
+model: claude-haiku-4-5
 user-invocable: true
 skills: [agent-sync]
 ---
