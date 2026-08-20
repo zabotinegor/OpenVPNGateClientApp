@@ -923,6 +923,60 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for ClickUp 86cb2kqvu (found by Codex, PR #126 round-20 review; deferred by
+    // explicit decision rather than fixed in that PR, then fixed incidentally by unrelated work on
+    // ClickUp 86cb35fbt, commit 9b70f87 -- this test is the first to name the exact scenario):
+    // applyStatusSnapshot() correctly arms the singleton ServerAutoSwitcher timer (5-8s) when an
+    // ACTION_SYNC_STATUS-only one-shot controller receives a stale-push CONNECTING snapshot. Before
+    // the fix, stopAfterOneShotSyncRunnable / stopAfterOneShotSyncConfirmedRunnable tore the
+    // controller down ~1s later for ANY non-CONNECTED state (including CONNECTING) -- if the engine
+    // actually connected between that ~1s teardown and the 5-8s timer expiry, onDestroy() had
+    // already unregistered the status callbacks, so nothing observed CONNECTED and nothing
+    // cancelled the timer: it fired anyway, switching away from a connection that had succeeded.
+    // The fix (both runnables, see OpenVpnService.kt) makes them skip teardown UNLESS
+    // ConnectionStateManager.state.value == ConnectionState.DISCONNECTED. This test isolates that
+    // guard directly: state is CONNECTING (not DISCONNECTED) -- representing the window during
+    // which the auto-switch timer is armed and the connection may still succeed -- when the
+    // one-shot teardown path runs, and asserts the controller is NOT torn down across both the
+    // stage-1 and stage-2 (confirm-buffer) deadlines.
+    @Test
+    fun oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed_86cb2kqvu() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        // Precondition: a stale-push CONNECTING snapshot -- NOT DISCONNECTED -- is exactly the
+        // state under which applyStatusSnapshot() arms ServerAutoSwitcher's timer per 86cb2kqvu.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // Stage 1 (stopAfterOneShotSyncRunnable) must not tear the controller down directly.
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "stopAfterOneShotSyncRunnable must not tear the controller down while CONNECTING " +
+                "(ClickUp 86cb2kqvu) -- pre-fix behavior tore down for any non-CONNECTED state here",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // Stage 2 (stopAfterOneShotSyncConfirmedRunnable) re-checks the same guard; state is still
+        // CONNECTING, so it must also skip teardown.
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "stopAfterOneShotSyncConfirmedRunnable must not tear the controller down while " +
+                "CONNECTING -- tearing down here orphans an armed auto-switch timer that can later " +
+                "fire and switch away from a connection that actually succeeded (ClickUp 86cb2kqvu)",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
     // Regression test for QG4-1 (fix-cycle 8,
     // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): enterControllerForeground()'s
     // catch block used to call stopSelf() when startForeground() threw during ACTION_START's own
