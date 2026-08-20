@@ -74,21 +74,6 @@ function Get-GitTargetPath {
                          else { $null }
                 if (-not [string]::IsNullOrWhiteSpace($value)) {
                     $clean = ($value -replace '["'']', '')
-                    # A POSIX-style absolute target ('/d/Apps/CopilotTools', which a
-                    # Git-Bash-issued 'git -C' command produces naturally) is only ever
-                    # translated to its Windows form by the MSYS runtime that wraps a
-                    # process launch from an actual POSIX shell. This guard always
-                    # resolves the target through pwsh's own git.exe (see
-                    # protect-agent-git-command.sh, which execs pwsh for both the bash
-                    # and powershell matchers), so no such translation happens: the
-                    # later 'git -C $Path ...' call fails outright, and silently, since
-                    # Resolve-GitRepoState swallows stderr - the resolution falls back to
-                    # the caller's cwd and the '.copilottools-source' exemption is never
-                    # checked for the real target. Convert a single-letter POSIX drive
-                    # prefix to its Windows form here so resolution is shell-independent.
-                    if ($clean -match '^/([A-Za-z])(/.*)?$') {
-                        $clean = "$($Matches[1]):$($Matches[2])"
-                    }
                     # A relative -C/--git-dir/--work-tree target is relative to the
                     # command's own cwd ($FallbackPath, from the payload), not to this
                     # hook subprocess's cwd (fixed to the repo root by
