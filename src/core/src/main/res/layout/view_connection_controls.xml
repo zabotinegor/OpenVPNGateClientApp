@@ -4,6 +4,24 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
 
+    <!--
+    Fixed-height spacer above the server-selector button. This ConstraintLayout chain is
+    bottom-anchored only (server_selection_container has no top constraint), so its overall
+    wrap_content height - and therefore how far above the screen bottom the details/speedometer
+    area gets pushed - is driven entirely by the sum of fixed heights/margins in this chain.
+    A real View here (rather than a bigger marginBottom on the speedometer, which is absorbed
+    as invisible slack inside the weighted LinearLayout in view_connection_details.xml and
+    never reaches the screen) is what actually opens up visible room between the speedometer
+    and this button on both phone and TV.
+    -->
+    <View
+        android:id="@+id/controls_top_spacer"
+        android:layout_width="0dp"
+        android:layout_height="24dp"
+        app:layout_constraintBottom_toTopOf="@+id/server_selection_container"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/server_selection_container"
         style="@style/Widget.OpenVPNClientGate.ServerSelectionButton"
