@@ -864,13 +864,11 @@ exercises.
      already catch the double-revert case — it is a tautology dressed as a regression test.
 4. Restore the file after each mutation, then re-run the full suite and confirm no residual diff
    before continuing. **Check `git status` / `git diff -- <file>` before you mutate anything.**
-   `git checkout -- <file>` restores the whole file from the index and silently discards *all*
-   uncommitted edits in it, not only your mutation — it is safe only when the file was clean
-   before mutation testing started. If the file already carries unrelated in-progress work,
-   restore the mutation specifically instead: save the exact mutation patch
-   (`git diff -- <file> > mutation.patch`) and reverse it (`git apply -R mutation.patch`), or copy
-   the file aside first and restore that copy. Never reach for a destructive checkout on a file
-   that has user work in it.
+   `git checkout -- <file>` restores the whole file from the index and silently discards *unstaged*
+   edits in it, not only your mutation — it is safe only when the file was clean before mutation
+   testing started. If the file already carries unrelated in-progress work, restore the mutation
+   specifically instead: copy the file aside first, then restore that copy after reverting the
+   mutation. Never reach for a destructive checkout on a file that has user work in it.
 5. If the test is vacuous, do not silently "make it pass" — restructure it so state changes
    *between* the two guards' checkpoints (matching each guard's own timing/deadline), so the
    assertion at each checkpoint can only be explained by that specific guard.
