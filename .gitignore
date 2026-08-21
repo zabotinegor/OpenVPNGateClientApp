@@ -112,6 +112,7 @@ docs/qa-evidence
 /.github/scripts/chrome-extension/content.js
 /.github/scripts/chrome-extension/interceptor.js
 /.github/scripts/chrome-extension/manifest.json
+/.github/scripts/clickup-flow-note-lib.ps1
 /.github/scripts/clickup-lib.ps1
 /.github/scripts/clickup.ps1
 /.github/scripts/detect-pr-review-bots.ps1
@@ -121,6 +122,7 @@ docs/qa-evidence
 /.github/scripts/fetch-claude-usage.js
 /.github/scripts/fetch-usage-api.ps1
 /.github/scripts/flow-log-lib.ps1
+/.github/scripts/get-flow-state.ps1
 /.github/scripts/get-pr-bot-comments.ps1
 /.github/scripts/get-pr-review-threads.ps1
 /.github/scripts/get-session-recovery-diagnostics.ps1
@@ -135,6 +137,7 @@ docs/qa-evidence
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/post-review-comments-round-summary.ps1
 /.github/scripts/post-round-summary.ps1
+/.github/scripts/push-clickup-flow-note.ps1
 /.github/scripts/push-clickup-qa-status.ps1
 /.github/scripts/push-clickup-status.ps1
 /.github/scripts/rate-limit-server.js
@@ -162,6 +165,7 @@ docs/qa-evidence
 /.github/scripts/test-clickup-status-assert.ps1
 /.github/scripts/test-detect-review-bots.ps1
 /.github/scripts/test-flow-log.ps1
+/.github/scripts/test-flow-state.ps1
 /.github/scripts/test-gate-reentry.ps1
 /.github/scripts/test-git-guard.ps1
 /.github/scripts/test-knowledge-catalog.ps1
