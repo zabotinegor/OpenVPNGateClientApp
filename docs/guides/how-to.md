@@ -17,6 +17,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
 - [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
+- [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
+- [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
 
 ---
 
@@ -830,3 +832,124 @@ worked derivation in `SpeedometerView.kt`'s KDoc directly above `NEEDLE_OUTER_RA
 **First encountered**
 
 `us-21-speedometer-redesign`, fix cycle 2 (commit `3cb9ba9`, `NEEDLE_OUTER_RADIUS_RATIO` 0.66 -> 0.45).
+
+---
+
+## Layout orientation-split files: when TV and mobile use different XML structures
+
+**When this matters**
+
+When editing a layout file used on both mobile (phone/tablet) and TV, verify whether the file has
+an orientation-split variant (`layout-land/`) before assuming a change to one will reach all
+devices.
+
+**The split**
+
+TV is landscape-locked (`src/tv/src/main/AndroidManifest.xml`, `OrientationPolicy.kt`), so it
+always inflates the `layout-land/` variant if one exists, regardless of device orientation
+settings. Mobile inflates `layout/` for portrait and `layout-land/` for landscape.
+
+If a layout file exists in **both** `layout/` and `layout-land/` directories, edits to the
+portrait file will **not** reach TV at all — TV only sees the landscape override.
+
+**Example: `view_connection_details.xml`**
+
+This file is structurally different in the two variants:
+
+- **`layout/view_connection_details.xml` (portrait, mobile only):** Vertical `LinearLayout` with
+  the `SpeedometerView` weighted in the center and a two-column `details_container` below.
+- **`layout-land/view_connection_details.xml` (landscape, TV + landscape tablets):** Horizontal
+  `LinearLayout` with `left_panel`, `SpeedometerView`, and `right_panel`. No `details_container` —
+  details are split into left/right panels at the same level as the speedometer.
+
+A margin or padding bump to the portrait file's `details_container` never reaches TV because TV
+inflates a completely different structure (landscape file) that has no `details_container` at all.
+This is not a quirk of how margins are resolved — it is architectural: the XML files themselves
+are incompatible.
+
+**Rule: when editing a layout that has a landscape override, apply changes to both files if the
+change is structural or needs to reach TV.** If the change is portrait-only (e.g., phone-specific
+spacing), verify that TV's landscape file is correct as-is.
+
+**How to spot orientation-split files**
+
+In Android Studio: open `res/layout/` and check if a corresponding file exists under
+`res/layout-land/`. Alternatively, from the shell:
+
+```bash
+diff -u src/core/src/main/res/layout/view_connection_details.xml \
+          src/core/src/main/res/layout-land/view_connection_details.xml
+```
+
+A small diff (e.g., a single margin change) suggests they are variants of the same layout. A large
+diff or entirely different structure means they are separate designs.
+
+**See also**
+
+- `src/core/src/main/res/layout/view_connection_controls.xml` (lines 7-31) — inline comment
+  documenting this specific split for `view_connection_details.xml` and explaining why a real
+  `View` spacer, not margin-only, is needed to open visual room on both phone and TV.
+
+**First documented**
+
+`bugfix/dialog-message-contrast`, defect-fix review cycle (commit 1078e8e, PR review finding F1).
+
+---
+
+## Detect a vacuous regression test with targeted single-guard mutation testing
+
+**When to use**
+
+When a new regression test claims to pin a specific guard/condition (e.g. "must not tear down
+while state X"), but the guard sits alongside a second, related guard that could independently
+produce the same passing assertion. A test written by holding state constant across both guards'
+checkpoints can pass for a completely different reason than the one it claims to verify, and the
+full test suite staying green after the fix proves nothing about which guard the new test actually
+exercises.
+
+**Steps**
+
+1. Identify each individual guard/condition the fix touches (e.g. two early-return checks in two
+   different scheduled runnables, each gating on the same state field).
+2. Revert **one guard at a time** to its pre-fix form — never both at once — leaving the sibling
+   guard untouched. Verify the mutation by **reading the actual patch** (`git diff -- <file>`), not
+   just a line count: `git diff --numstat` reports only aggregate insertion/deletion totals, so a
+   mutation applied to the wrong guard — or an unintended edit elsewhere with the same counts —
+   still looks like the expected one-line replacement. The whole pass/fail matrix below is
+   meaningless unless the patch shows exactly the intended guard restored to exactly its pre-fix
+   form (`--numstat` is at best a quick secondary check after the patch itself has been read).
+3. Run the new test in isolation after each single-guard revert:
+   - If the test **fails** only when its claimed guard is reverted, and **survives** when the
+     other guard is reverted, it is non-vacuous — it is genuinely pinned to that one guard.
+   - If the test **passes** (survives) under every single-guard revert, and only fails when both
+     guards are reverted together, it adds **zero** independent coverage beyond whatever tests
+     already catch the double-revert case — it is a tautology dressed as a regression test.
+4. Restore the file after each mutation, then re-run the full suite and confirm no residual diff
+   before continuing. **Check `git status` / `git diff -- <file>` before you mutate anything.**
+   `git checkout -- <file>` restores the whole file from the index and silently discards *unstaged*
+   edits in it, not only your mutation — it is safe only when the file was clean before mutation
+   testing started. If the file already carries unrelated in-progress work, restore the mutation
+   specifically instead: copy the file aside first, then restore that copy after reverting the
+   mutation. Never reach for a destructive checkout on a file that has user work in it.
+5. If the test is vacuous, do not silently "make it pass" — restructure it so state changes
+   *between* the two guards' checkpoints (matching each guard's own timing/deadline), so the
+   assertion at each checkpoint can only be explained by that specific guard.
+
+**Notes**
+
+- A green full-suite run only proves the combined post-fix behavior is correct — it does not prove
+  a *new* test independently exercises the guard its own name/KDoc claims to exercise. Only
+  targeted single-condition mutation testing proves that.
+- Do not trust another agent's (or your own prior) mutation-testing report at face value when
+  reviewing a fix for this class of finding — reproduce the matrix independently; the reverted
+  form must match the true pre-fix semantics (diff against the commit that introduced the fix), not
+  an arbitrary weakening.
+
+**First encountered**
+
+ClickUp bug `86cb2kqvu` regression test (`OpenVpnServiceNotificationTest.kt`,
+`oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed`): a first
+draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400ms teardown
+deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
+327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
+to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.

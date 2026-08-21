@@ -246,7 +246,10 @@ class AboutActivity : AppCompatActivity() {
                 startActivity(intent)
             }
         }
-        dialog.show().also { DialogUtils.applyThemedTitleColor(it) }
+        dialog.show().also {
+            DialogUtils.applyThemedTitleColor(it)
+            DialogUtils.applyThemedMessageColor(it)
+        }
     }
 
     private fun startUpdateInstall(update: com.yahorzabotsin.openvpnclientgate.core.updates.AppUpdateInfo) {

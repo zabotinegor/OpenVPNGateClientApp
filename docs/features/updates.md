@@ -45,6 +45,13 @@ See [../reference/permissions.md](../reference/permissions.md).
 The download URL is a **proxy URL** served by the backend rather than a direct storage link, so the
 server keeps control of where assets actually live.
 
+**Note on `UpdateInstallProgressDialog` theming:** This dialog uses a custom view (`LinearLayout`
+with a `ProgressBar` and a bare programmatic `TextView` for the progress text), not the standard
+`setMessage()` call. It calls `DialogUtils.applyThemedTitleColor()` but has no `android.R.id.message`
+view, so the message-color utility does not apply to it. The progress text `TextView` is not styled
+by `DialogUtils` — it uses the theme's default text color, which QA verified on real devices is
+readable in both light and dark themes without additional fixes.
+
 ## Release notes
 
 `VersionReleaseRepository` with `VersionReleaseCacheStore`, driven from
