@@ -17,6 +17,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
 - [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
+- [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
 
 ---
 
@@ -830,3 +831,63 @@ worked derivation in `SpeedometerView.kt`'s KDoc directly above `NEEDLE_OUTER_RA
 **First encountered**
 
 `us-21-speedometer-redesign`, fix cycle 2 (commit `3cb9ba9`, `NEEDLE_OUTER_RADIUS_RATIO` 0.66 -> 0.45).
+
+---
+
+## Detect a vacuous regression test with targeted single-guard mutation testing
+
+**When to use**
+
+When a new regression test claims to pin a specific guard/condition (e.g. "must not tear down
+while state X"), but the guard sits alongside a second, related guard that could independently
+produce the same passing assertion. A test written by holding state constant across both guards'
+checkpoints can pass for a completely different reason than the one it claims to verify, and the
+full test suite staying green after the fix proves nothing about which guard the new test actually
+exercises.
+
+**Steps**
+
+1. Identify each individual guard/condition the fix touches (e.g. two early-return checks in two
+   different scheduled runnables, each gating on the same state field).
+2. Revert **one guard at a time** to its pre-fix form — never both at once — leaving the sibling
+   guard untouched. Verify the mutation by **reading the actual patch** (`git diff -- <file>`), not
+   just a line count: `git diff --numstat` reports only aggregate insertion/deletion totals, so a
+   mutation applied to the wrong guard — or an unintended edit elsewhere with the same counts —
+   still looks like the expected one-line replacement. The whole pass/fail matrix below is
+   meaningless unless the patch shows exactly the intended guard restored to exactly its pre-fix
+   form (`--numstat` is at best a quick secondary check after the patch itself has been read).
+3. Run the new test in isolation after each single-guard revert:
+   - If the test **fails** only when its claimed guard is reverted, and **survives** when the
+     other guard is reverted, it is non-vacuous — it is genuinely pinned to that one guard.
+   - If the test **passes** (survives) under every single-guard revert, and only fails when both
+     guards are reverted together, it adds **zero** independent coverage beyond whatever tests
+     already catch the double-revert case — it is a tautology dressed as a regression test.
+4. Restore the file after each mutation, then re-run the full suite and confirm no residual diff
+   before continuing. **Check `git status` / `git diff -- <file>` before you mutate anything.**
+   `git checkout -- <file>` restores the whole file from the index and silently discards *unstaged*
+   edits in it, not only your mutation — it is safe only when the file was clean before mutation
+   testing started. If the file already carries unrelated in-progress work, restore the mutation
+   specifically instead: copy the file aside first, then restore that copy after reverting the
+   mutation. Never reach for a destructive checkout on a file that has user work in it.
+5. If the test is vacuous, do not silently "make it pass" — restructure it so state changes
+   *between* the two guards' checkpoints (matching each guard's own timing/deadline), so the
+   assertion at each checkpoint can only be explained by that specific guard.
+
+**Notes**
+
+- A green full-suite run only proves the combined post-fix behavior is correct — it does not prove
+  a *new* test independently exercises the guard its own name/KDoc claims to exercise. Only
+  targeted single-condition mutation testing proves that.
+- Do not trust another agent's (or your own prior) mutation-testing report at face value when
+  reviewing a fix for this class of finding — reproduce the matrix independently; the reverted
+  form must match the true pre-fix semantics (diff against the commit that introduced the fix), not
+  an arbitrary weakening.
+
+**First encountered**
+
+ClickUp bug `86cb2kqvu` regression test (`OpenVpnServiceNotificationTest.kt`,
+`oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed`): a first
+draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400ms teardown
+deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
+327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
+to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.

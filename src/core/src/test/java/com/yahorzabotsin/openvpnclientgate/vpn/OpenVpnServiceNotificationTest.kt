@@ -923,6 +923,59 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for ClickUp 86cb2kqvu: a one-shot ACTION_SYNC_STATUS controller must not
+    // tear down while CONNECTING, since a stale-push CONNECTING snapshot is exactly when
+    // applyStatusSnapshot() arms ServerAutoSwitcher's timer -- tearing down here would orphan it.
+    // See docs/guides/troubleshooting.md (bug 86cb35fbt entry) for the full mechanism.
+    //
+    // Guard pinned: STAGE 1 ONLY (OpenVpnService.kt:302). Shares stage1GuardAlone's (line 643)
+    // exact mutation profile -- dies if that guard is reverted, survives a stage-2-only revert
+    // (docs/qa-evidence/86cb2kqvu-autoswitch-timer-oneshot-teardown-review-2.md, MUT-1/MUT-2).
+    // Differs from the pre-existing guard tests (lines 589, 643, 689) in scenario, not guard
+    // coverage: this models the stale-push CONNECTING snapshot as the very first state the
+    // one-shot sync observes, matching applyStatusSnapshot()'s timer-arming path directly.
+    @Test
+    fun oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        // Precondition: a stale-push CONNECTING snapshot -- NOT DISCONNECTED -- is exactly the
+        // state under which applyStatusSnapshot() arms ServerAutoSwitcher's timer per 86cb2kqvu.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ReflectionHelpers.setField(service, "appForegroundVisibleProvider", ({ false } as () -> Boolean))
+
+        val syncIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_SYNC_STATUS)
+        }
+        service.onStartCommand(syncIntent, 0, 1)
+
+        val onInitialStateSynced = OpenVpnService::class.java.getDeclaredMethod(
+            "onOneShotInitialStateSynced", String::class.java
+        )
+        onInitialStateSynced.isAccessible = true
+        onInitialStateSynced.invoke(service, "test")
+
+        // State is CONNECTING when stage 1's 1000ms deadline arrives (ClickUp 86cb2kqvu).
+        Shadows.shadowOf(service.mainLooper).idleFor(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "Precondition: stage 1 must not have called stopSelf() directly",
+            shadowOf(service).isStoppedBySelf
+        )
+
+        // The connection resolves to a genuine disconnect before stage 2's deadline. A stage-2
+        // confirmation that was never scheduled (because stage 1's own guard aborted) cannot act
+        // on this -- there is nothing left pending to fire.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        Shadows.shadowOf(service.mainLooper).idleFor(400, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertFalse(
+            "stage 1's != DISCONNECTED guard must independently prevent scheduling stage 2 while " +
+                "CONNECTING with ServerAutoSwitcher's timer potentially armed (ClickUp 86cb2kqvu) -- " +
+                "if it does not, a stage-2 confirmation left pending from that moment can later act " +
+                "on a state it never actually observed, tearing down and orphaning the armed timer, " +
+                "which can then fire and switch away from a connection that actually succeeded",
+            shadowOf(service).isStoppedBySelf
+        )
+    }
+
     // Regression test for QG4-1 (fix-cycle 8,
     // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): enterControllerForeground()'s
     // catch block used to call stopSelf() when startForeground() threw during ACTION_START's own

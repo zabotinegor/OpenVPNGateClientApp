@@ -1243,6 +1243,8 @@ exact sequence, did reproduce the crash (the ~1058ms gap described above). Do no
   app during an active auto-switch cycle with a status sync armed, and correlate the `stopSelf()`
   log timestamp against `ServerAutoSwitcher`'s retry-timer dispatch.
 
+**Addendum — regression test naming (bug 86cb2kqvu):** The specific scenario where the auto-switch timer can fire after a one-shot sync controller tears itself down while a connection succeeds is now covered by a dedicated regression test: `oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed` in `OpenVpnServiceNotificationTest.kt`. It starts a one-shot `ACTION_SYNC_STATUS` sync while state is `CONNECTING` (the stale-push snapshot that arms `ServerAutoSwitcher`'s timer), pins the stage-1 guard (`stopAfterOneShotSyncRunnable` returning early unless `ConnectionStateManager.state.value == ConnectionState.DISCONNECTED`), then transitions to `DISCONNECTED` only after stage 1's 1000ms deadline has already passed — proving the stage-1 guard alone, independent of stage 2, keeps the controller from tearing down while `CONNECTING`.
+
 **References**
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
