@@ -4,6 +4,40 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
 
+    <!--
+    Fixed-height spacer above the server-selector button. This ConstraintLayout chain is
+    bottom-anchored only (server_selection_container has no top constraint), so its overall
+    wrap_content height - and therefore how far above the screen bottom the details/speedometer
+    area gets pushed - is driven entirely by the sum of fixed heights/margins in this chain.
+    A real View here is what actually opens up visible room between the speedometer and this
+    button.
+
+    This is NOT equivalent to a bigger marginBottom on the speedometer in
+    view_connection_details.xml. In that file's vertical LinearLayout, details_container.top =
+    parentHeight - detailsHeight, independent of the speedometer's layout_marginBottom (the
+    weighted speedometer absorbs a margin change as its own height change, so the margin bump
+    alone never moves details_container). That does not make a details.xml margin bump inert
+    for TV, though - it is irrelevant to TV for a different reason: TV is landscape-locked
+    (src/tv/src/main/AndroidManifest.xml, OrientationPolicy.kt) and therefore inflates
+    layout-land/view_connection_details.xml, an entirely different horizontal layout with no
+    speedometer marginBottom and no details_container at all, so TV never sees edits to the
+    portrait file regardless of the weighted-chain math above.
+
+    File-to-surface mapping for this area of the screen:
+    - view_connection_details.xml (this directory) = portrait/phone only.
+    - layout-land/view_connection_details.xml = TV and landscape tablets; structurally
+      different, edit both if a change here needs to reach TV.
+    - view_connection_controls.xml (this file) = no orientation override exists; the same
+      file reaches phone, tablet, and TV.
+    -->
+    <View
+        android:id="@+id/controls_top_spacer"
+        android:layout_width="0dp"
+        android:layout_height="24dp"
+        app:layout_constraintBottom_toTopOf="@+id/server_selection_container"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/server_selection_container"
         style="@style/Widget.OpenVPNClientGate.ServerSelectionButton"
@@ -11,7 +45,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="24dp"
         android:layout_marginEnd="24dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="20dp"
         android:shadowColor="@color/text_color_tertiary"
         android:shadowRadius="10"
         app:layout_constraintBottom_toTopOf="@+id/pause_connection_button"
@@ -27,7 +61,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="24dp"
         android:layout_marginEnd="24dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="20dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:focusable="true"

@@ -17,6 +17,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
 - [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
+- [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
 
 ---
@@ -831,6 +832,67 @@ worked derivation in `SpeedometerView.kt`'s KDoc directly above `NEEDLE_OUTER_RA
 **First encountered**
 
 `us-21-speedometer-redesign`, fix cycle 2 (commit `3cb9ba9`, `NEEDLE_OUTER_RADIUS_RATIO` 0.66 -> 0.45).
+
+---
+
+## Layout orientation-split files: when TV and mobile use different XML structures
+
+**When this matters**
+
+When editing a layout file used on both mobile (phone/tablet) and TV, verify whether the file has
+an orientation-split variant (`layout-land/`) before assuming a change to one will reach all
+devices.
+
+**The split**
+
+TV is landscape-locked (`src/tv/src/main/AndroidManifest.xml`, `OrientationPolicy.kt`), so it
+always inflates the `layout-land/` variant if one exists, regardless of device orientation
+settings. Mobile inflates `layout/` for portrait and `layout-land/` for landscape.
+
+If a layout file exists in **both** `layout/` and `layout-land/` directories, edits to the
+portrait file will **not** reach TV at all — TV only sees the landscape override.
+
+**Example: `view_connection_details.xml`**
+
+This file is structurally different in the two variants:
+
+- **`layout/view_connection_details.xml` (portrait, mobile only):** Vertical `LinearLayout` with
+  the `SpeedometerView` weighted in the center and a two-column `details_container` below.
+- **`layout-land/view_connection_details.xml` (landscape, TV + landscape tablets):** Horizontal
+  `LinearLayout` with `left_panel`, `SpeedometerView`, and `right_panel`. No `details_container` —
+  details are split into left/right panels at the same level as the speedometer.
+
+A margin or padding bump to the portrait file's `details_container` never reaches TV because TV
+inflates a completely different structure (landscape file) that has no `details_container` at all.
+This is not a quirk of how margins are resolved — it is architectural: the XML files themselves
+are incompatible.
+
+**Rule: when editing a layout that has a landscape override, apply changes to both files if the
+change is structural or needs to reach TV.** If the change is portrait-only (e.g., phone-specific
+spacing), verify that TV's landscape file is correct as-is.
+
+**How to spot orientation-split files**
+
+In Android Studio: open `res/layout/` and check if a corresponding file exists under
+`res/layout-land/`. Alternatively, from the shell:
+
+```bash
+diff -u src/core/src/main/res/layout/view_connection_details.xml \
+          src/core/src/main/res/layout-land/view_connection_details.xml
+```
+
+A small diff (e.g., a single margin change) suggests they are variants of the same layout. A large
+diff or entirely different structure means they are separate designs.
+
+**See also**
+
+- `src/core/src/main/res/layout/view_connection_controls.xml` (lines 7-31) — inline comment
+  documenting this specific split for `view_connection_details.xml` and explaining why a real
+  `View` spacer, not margin-only, is needed to open visual room on both phone and TV.
+
+**First documented**
+
+`bugfix/dialog-message-contrast`, defect-fix review cycle (commit 1078e8e, PR review finding F1).
 
 ---
 
