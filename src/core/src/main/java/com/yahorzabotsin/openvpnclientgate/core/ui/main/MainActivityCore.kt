@@ -336,7 +336,10 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                 openUpdateChangelog(update)
             }
         }
-        dialog.show().also { DialogUtils.applyThemedTitleColor(it) }
+        dialog.show().also {
+            DialogUtils.applyThemedTitleColor(it)
+            DialogUtils.applyThemedMessageColor(it)
+        }
     }
 
     private fun openUpdateChangelog(update: MainAvailableUpdate) {
