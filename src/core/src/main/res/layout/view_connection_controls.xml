@@ -9,10 +9,26 @@
     bottom-anchored only (server_selection_container has no top constraint), so its overall
     wrap_content height - and therefore how far above the screen bottom the details/speedometer
     area gets pushed - is driven entirely by the sum of fixed heights/margins in this chain.
-    A real View here (rather than a bigger marginBottom on the speedometer, which is absorbed
-    as invisible slack inside the weighted LinearLayout in view_connection_details.xml and
-    never reaches the screen) is what actually opens up visible room between the speedometer
-    and this button on both phone and TV.
+    A real View here is what actually opens up visible room between the speedometer and this
+    button.
+
+    This is NOT equivalent to a bigger marginBottom on the speedometer in
+    view_connection_details.xml. In that file's vertical LinearLayout, details_container.top =
+    parentHeight - detailsHeight, independent of the speedometer's layout_marginBottom (the
+    weighted speedometer absorbs a margin change as its own height change, so the margin bump
+    alone never moves details_container). That does not make a details.xml margin bump inert
+    for TV, though - it is irrelevant to TV for a different reason: TV is landscape-locked
+    (src/tv/src/main/AndroidManifest.xml, OrientationPolicy.kt) and therefore inflates
+    layout-land/view_connection_details.xml, an entirely different horizontal layout with no
+    speedometer marginBottom and no details_container at all, so TV never sees edits to the
+    portrait file regardless of the weighted-chain math above.
+
+    File-to-surface mapping for this area of the screen:
+    - view_connection_details.xml (this directory) = portrait/phone only.
+    - layout-land/view_connection_details.xml = TV and landscape tablets; structurally
+      different, edit both if a change here needs to reach TV.
+    - view_connection_controls.xml (this file) = no orientation override exists; the same
+      file reaches phone, tablet, and TV.
     -->
     <View
         android:id="@+id/controls_top_spacer"

@@ -26,6 +26,42 @@ import com.yahorzabotsin.openvpnclientgate.core.R
  * AlertDialog *message* body unreadable (stock system message color, unreadable in at least
  * light theme). [applyThemedMessageColor] mirrors [applyThemedTitleColor] but targets the
  * stock `android.R.id.message` view instead of AppCompat's `alertTitle`.
+ *
+ * ### Unit test coverage note (`86cb88gnw`)
+ *
+ * There is deliberately no `DialogUtilsTest` class in this module's test source set. Two
+ * testing approaches were attempted for [resolveThemedPrimaryTextColor] and both reproduce the
+ * same underlying constraint, one step further removed each time:
+ *
+ * 1. Asserting [resolveThemedPrimaryTextColor] resolves to the exact `values/colors.xml` /
+ *    `values-night/colors.xml` `text_color_primary` hex under day and `+night` qualifiers
+ *    throws even on the fallback-only call path — `ContextCompat.getColor(context,
+ *    R.color.text_color_primary)`, no AppCompat/Material theme-attribute indirection at all:
+ *    ```
+ *    android.content.res.Resources$NotFoundException: Resource ID #0x7f0603f2
+ *        at ...ShadowLegacyAssetManager.getResName(...)
+ *        at androidx.core.content.ContextCompat.getColor(ContextCompat.java:539)
+ *        at ...DialogUtils.resolveThemedPrimaryTextColor(DialogUtils.kt)
+ *    ```
+ * 2. Sidestepping color resolution entirely and asserting only the documented null-safety
+ *    contract ("safe to call on any dialog without a message/title — the view lookup finds
+ *    nothing and returns early") on an unshown, message-less `AlertDialog` fails even earlier,
+ *    inside `AlertDialog.Builder`'s constructor itself — before any dialog instance exists to
+ *    pass to [applyThemedMessageColor]:
+ *    ```
+ *    java.lang.NullPointerException: Cannot read field "packageName" because "resName" is null
+ *        at org.robolectric.res.StyleResolver.getAttrValue(StyleResolver.java:28)
+ *        at androidx.appcompat.app.AlertDialog.resolveDialogTheme(AlertDialog.java:115)
+ *        at androidx.appcompat.app.AlertDialog$Builder.<init>(AlertDialog.java:312)
+ *    ```
+ *
+ * Both confirm core unit tests run Robolectric in legacy resources mode, which cannot resolve
+ * this module's own resource ids or construct a themed `AlertDialog` at all — consistent with
+ * the constraint already documented for the title seam (see the trailing comment in
+ * `FavoriteActionDialogTest`). A class with zero `@Test` methods is silently skipped by
+ * Gradle's test detection rather than failing, which is a worse trap than not having the file
+ * at all — hence no placeholder test class. Coverage for the actual defect (unreadable dialog
+ * message text) rests on on-device screenshot verification in both themes.
  */
 internal object DialogUtils {
     /**
@@ -39,7 +75,7 @@ internal object DialogUtils {
      */
     fun applyThemedTitleColor(dialog: AlertDialog) {
         dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
-            ?.setTextColor(resolveThemedTitleColor(dialog.context))
+            ?.setTextColor(resolveThemedPrimaryTextColor(dialog.context))
     }
 
     /**
@@ -53,40 +89,28 @@ internal object DialogUtils {
      */
     fun applyThemedMessageColor(dialog: AlertDialog) {
         dialog.findViewById<TextView>(android.R.id.message)
-            ?.setTextColor(resolveThemedMessageColor(dialog.context))
+            ?.setTextColor(resolveThemedPrimaryTextColor(dialog.context))
     }
 
     /**
-     * Resolve the themed title color using Material's theme-attribute resolution with fallback.
+     * Resolve the themed primary text color using Material's theme-attribute resolution with
+     * fallback.
      *
      * Uses MaterialColors.getColor() to resolve android.R.attr.textColorPrimary (the actual
      * theme's primary text color attribute), with a fallback to R.color.text_color_primary
      * if the attribute cannot be resolved. This ensures the dialog uses the theme's intended
      * primary text color instead of a hardcoded resource reference.
      *
-     * Testable seam for [applyThemedTitleColor]'s color resolution, split out so the
-     * day/night resolved value can be asserted in a unit test without needing the full
-     * themed AlertDialog to render.
-     */
-    @ColorInt
-    internal fun resolveThemedTitleColor(context: Context): Int =
-        MaterialColors.getColor(
-            context,
-            android.R.attr.textColorPrimary,
-            ContextCompat.getColor(context, R.color.text_color_primary)
-        )
-
-    /**
-     * Resolve the themed message color, mirroring [resolveThemedTitleColor]'s resolution
-     * (same `android.R.attr.textColorPrimary` attribute and `R.color.text_color_primary`
-     * fallback) so title and message read consistently in both themes.
+     * Shared testable seam for both [applyThemedTitleColor] and [applyThemedMessageColor] —
+     * title and message currently resolve to the identical color, so this is one function
+     * rather than two byte-identical ones. If a future change needs the message to diverge
+     * (e.g. to `android.R.attr.textColorSecondary`), split it back out then, not before.
      *
-     * Testable seam for [applyThemedMessageColor]'s color resolution, split out so the
-     * day/night resolved value can be asserted in a unit test without needing the full
-     * themed AlertDialog to render.
+     * Split out so the day/night resolved value can be asserted in a unit test without
+     * needing the full themed AlertDialog to render.
      */
     @ColorInt
-    internal fun resolveThemedMessageColor(context: Context): Int =
+    internal fun resolveThemedPrimaryTextColor(context: Context): Int =
         MaterialColors.getColor(
             context,
             android.R.attr.textColorPrimary,
