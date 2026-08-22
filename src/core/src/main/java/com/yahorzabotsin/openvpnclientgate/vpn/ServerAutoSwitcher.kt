@@ -473,13 +473,13 @@ object ServerAutoSwitcher {
     // matching cancel()'s single-main-looper-caller invariant.
     private fun rollBackFailedRetryDispatch() {
         AppLog.w(TAG, "Retry-commit ACTION_START dispatch failed; rolling back CONNECTING re-assertion")
+        cancel(resetCycle = true)
         try {
             ConnectionStateManager.setReconnectingHint(false)
             ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to roll back reconnect invariant after failed retry dispatch", e)
         }
-        cancel(resetCycle = true)
     }
 
     private fun scheduleStopRetryTimeout(appContext: Context) {

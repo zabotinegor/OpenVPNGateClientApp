@@ -16,20 +16,33 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldShowNeedle
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.shouldUpdateConnected
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
+import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import kotlin.math.hypot
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import java.util.Locale
 
 /**
- * Unit tests for [SpeedometerView]'s pure scale/format helpers. The view itself needs Android
- * resource resolution, so only the companion seams are exercised here.
+ * Unit tests for [SpeedometerView]. Most cases exercise the pure companion-object scale/format
+ * helpers directly; the `contentDescription` cases below need a real (Robolectric) View instance
+ * since that behavior lives on the instance, not the companion.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(
+    manifest = "src/main/AndroidManifest.xml",
+    sdk = [27],
+    packageName = "com.yahorzabotsin.openvpnclientgate.core"
+)
 class SpeedometerViewTest {
 
     private val tolerance = 0.001f
@@ -438,5 +451,54 @@ class SpeedometerViewTest {
         assertEquals(unpadded.centerX + paddingLeft, geometry.centerX, tolerance)
         assertEquals(unpadded.centerY + paddingTop, geometry.centerY, tolerance)
         assertEquals(unpadded.outerRadius, geometry.outerRadius, tolerance)
+    }
+
+    // --------------- contentDescription: accessibility announcement gating ---------------
+    //
+    // setSpeedMbps normally animates via ValueAnimator, calling onSpeedChanged() on every frame
+    // (~60/sec). A freshly constructed, unattached view has outerRadius == 0, so setSpeedMbps
+    // takes its synchronous fallback path instead (skips the animator, calls onSpeedChanged()
+    // exactly once) - which is what makes these cases deterministic without driving animator
+    // frames by hand.
+
+    private fun newSpeedometerView() = SpeedometerView(RuntimeEnvironment.getApplication())
+
+    private fun expectedDescription(value: Float): String {
+        val unitLabel = RuntimeEnvironment.getApplication().getString(R.string.speedometer_unit_mbps)
+        return "${expected("%.2f", value)} $unitLabel"
+    }
+
+    @Test
+    fun `contentDescription reflects the formatted speed after setSpeedMbps`() {
+        val view = newSpeedometerView()
+
+        view.setSpeedMbps(81.74)
+
+        assertEquals(expectedDescription(81.74f), view.contentDescription)
+    }
+
+    @Test
+    fun `contentDescription is unchanged when two successive values format identically`() {
+        val view = newSpeedometerView()
+        view.setSpeedMbps(81.741)
+        val firstDescription = view.contentDescription
+
+        // 81.744 rounds to the same "81.74" two-decimal display as 81.741 - a different reading
+        // that must not re-trigger an accessibility announcement.
+        view.setSpeedMbps(81.744)
+
+        assertEquals(firstDescription, view.contentDescription)
+    }
+
+    @Test
+    fun `contentDescription updates when the formatted speed genuinely changes`() {
+        val view = newSpeedometerView()
+        view.setSpeedMbps(81.74)
+        val firstDescription = view.contentDescription
+
+        view.setSpeedMbps(82.5)
+
+        assertNotEquals(firstDescription, view.contentDescription)
+        assertEquals(expectedDescription(82.5f), view.contentDescription)
     }
 }

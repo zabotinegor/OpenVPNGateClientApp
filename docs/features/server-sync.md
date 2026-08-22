@@ -75,7 +75,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
 - `SplashServerPreloadInteractor` routes to the v2 path or the legacy path based on `UserSettingsStore.serverSource`.
 - `CountryServersInteractor` calls `ServersV2Repository.getServersForCountry()` to drive lazy per-country loads.
-- `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> VPN Gate CSV` fallback handoff for shared sync triggers. There is no legacy-CSV hop: `ApiConstants.primaryLegacyServersUrl()` exists but has zero callers.
+- `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> VPN Gate CSV` fallback handoff for shared sync triggers. There is no legacy-CSV hop: the dead `ApiConstants.primaryLegacyServersUrl()` helper (zero callers) was removed.
 
 ### Localization
 - `ServersV2Repository` resolves locale from `UserSettingsStore.resolvePreferredLocale(...)` and sends it as the `locale` query on both `getCountries(...)` and `getServers(...)` v2 API calls.
