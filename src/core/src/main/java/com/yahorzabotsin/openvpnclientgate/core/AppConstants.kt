@@ -15,13 +15,6 @@ object ApiConstants {
         PrimaryDomainRoutes.retrofitBaseUrl(primaryServersUrl)
             ?: SAFE_RETROFIT_FALLBACK_BASE_URL
 
-    fun primaryLegacyServersUrl(): String =
-        primaryLegacyServersUrlOrFallback(PRIMARY_SERVERS_URL)
-
-    internal fun primaryLegacyServersUrlOrFallback(primaryServersUrl: String): String =
-        PrimaryDomainRoutes.legacyServersUrl(primaryServersUrl)
-            ?: SAFE_RETROFIT_FALLBACK_BASE_URL + "api/v1/servers/active"
-
     fun primaryVersionByNumberAndBuildUrl(
         versionName: String,
         buildNumber: Long,

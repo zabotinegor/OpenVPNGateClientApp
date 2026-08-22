@@ -95,6 +95,31 @@ class UserSettingsStoreTest {
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
+    // F4 (docs/qa-evidence/release-review-1.md): load() must remove the orphaned
+    // "custom_server_url" key left behind by the US-14 removal of the custom-server-URL feature,
+    // so a value a user entered before the removal does not linger indefinitely in this
+    // SharedPreferences file with no UI left to view or clear it.
+    @Test
+    fun load_removes_orphaned_custom_server_url_key() {
+        val prefs = context.getSharedPreferences("user_settings", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("server_source", "CUSTOM")
+            .putString("custom_server_url", "https://example.invalid/servers.csv")
+            .commit()
+        assertTrue(
+            "precondition: the orphaned key must actually be present before load() runs",
+            prefs.contains("custom_server_url")
+        )
+
+        UserSettingsStore.load(context)
+
+        assertTrue(
+            "load() must remove the orphaned custom_server_url key so it does not persist " +
+                "indefinitely after the feature that wrote it was removed",
+            !prefs.contains("custom_server_url")
+        )
+    }
+
     // UT-1.2 — stored "DEFAULT_V2" round-trips correctly
     @Test
     fun load_default_v2() {

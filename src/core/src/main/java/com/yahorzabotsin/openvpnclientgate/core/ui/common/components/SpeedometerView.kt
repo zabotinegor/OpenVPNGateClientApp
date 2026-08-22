@@ -26,6 +26,7 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.launchLogged
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionStateManager
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
@@ -71,6 +72,15 @@ class SpeedometerView @JvmOverloads constructor(
         const val DEFAULT_MAX_MBPS = 1000f
 
         private const val ANIMATION_DURATION_MS = 350L
+
+        /**
+         * Minimum change in [sweepForValue]'s degrees, between the cached [shaderSweep] and the
+         * frame's sweep, before [buildProgressShader] rebuilds the gradient. [setSpeedMbps]'s
+         * animator ticks ~60 times/sec with a continuously changing sweep, so without this the
+         * shader (and its native peer) was rebuilt on essentially every frame; the arc is wide
+         * enough, and the gradient soft enough, that sub-degree shifts are not visible.
+         */
+        private const val SHADER_REBUILD_THRESHOLD_DEGREES = 0.75f
 
         // Radii and text sizes as fractions of the dial's outer radius, measured off the
         // reference gauge.
@@ -372,6 +382,11 @@ class SpeedometerView @JvmOverloads constructor(
     private val progressShaderMatrix = Matrix()
     private var needleGradient: LinearGradient? = null
 
+    // Reused by buildProgressShader instead of allocating a fresh IntArray/FloatArray on every
+    // shader rebuild; mutated in place each call.
+    private val progressShaderColors = IntArray(4)
+    private val progressShaderPositions = FloatArray(4)
+
     // Scale label text and halo radius per SCALE_STOPS entry, recomputed in
     // recomputeScaleLabelCache (called from onSizeChanged and setMaxMbps) instead of drawScaleLabels:
     // both formatScaleStop and labelPaint.measureText are onSizeChanged/maxMbps-scoped, not
@@ -395,6 +410,13 @@ class SpeedometerView @JvmOverloads constructor(
     private var maxMbps: Float = DEFAULT_MAX_MBPS
     private var animator: ValueAnimator? = null
 
+    // Last contentDescription actually published to accessibility services. onSpeedChanged runs
+    // on every ValueAnimator frame (~60/sec) for the duration of a speed-change animation;
+    // gating the write on the formatted string - rather than assigning unconditionally every
+    // frame - means TalkBack only gets a fresh announcement when the *displayed* value changes,
+    // not on every intermediate frame of the animation.
+    private var lastAnnouncedDescription: String = describe(currentMbps)
+
     // The needle only makes sense while the VPN is attempting, holding, or tearing down a
     // connection - i.e. state != DISCONNECTED (see shouldShowNeedle), which covers CONNECTING,
     // CONNECTED, PAUSING, PAUSED and DISCONNECTING, not just CONNECTED. At rest (DISCONNECTED)
@@ -404,7 +426,7 @@ class SpeedometerView @JvmOverloads constructor(
     private var isConnected: Boolean = false
 
     init {
-        contentDescription = describe(currentMbps)
+        contentDescription = lastAnnouncedDescription
     }
 
     fun setSpeedMbps(value: Double) {
@@ -477,7 +499,11 @@ class SpeedometerView @JvmOverloads constructor(
     }
 
     private fun onSpeedChanged() {
-        contentDescription = describe(currentMbps)
+        val description = describe(currentMbps)
+        if (description != lastAnnouncedDescription) {
+            lastAnnouncedDescription = description
+            contentDescription = description
+        }
         invalidate()
     }
 
@@ -579,7 +605,7 @@ class SpeedometerView @JvmOverloads constructor(
 
     private fun drawProgress(canvas: Canvas, sweep: Float) {
         if (sweep <= 0f) return
-        if (sweep != shaderSweep) {
+        if (abs(sweep - shaderSweep) >= SHADER_REBUILD_THRESHOLD_DEGREES) {
             progressPaint.shader = buildProgressShader(sweep)
             shaderSweep = sweep
         }
@@ -600,21 +626,17 @@ class SpeedometerView @JvmOverloads constructor(
      */
     private fun buildProgressShader(sweep: Float): SweepGradient {
         val filled = (sweep / 360f).coerceIn(0.001f, 1f)
-        val colors = intArrayOf(
-            gradientColors[0],
-            gradientColors[1],
-            gradientColors[2],
-            gradientColors[2],
-        )
-        val positions = floatArrayOf(
-            0f,
-            filled * GRADIENT_MID_POSITION,
-            filled,
-            1f,
-        )
+        progressShaderColors[0] = gradientColors[0]
+        progressShaderColors[1] = gradientColors[1]
+        progressShaderColors[2] = gradientColors[2]
+        progressShaderColors[3] = gradientColors[2]
+        progressShaderPositions[0] = 0f
+        progressShaderPositions[1] = filled * GRADIENT_MID_POSITION
+        progressShaderPositions[2] = filled
+        progressShaderPositions[3] = 1f
         progressShaderMatrix.reset()
         progressShaderMatrix.postRotate(ARC_START_ANGLE, centerX, centerY)
-        return SweepGradient(centerX, centerY, colors, positions).apply {
+        return SweepGradient(centerX, centerY, progressShaderColors, progressShaderPositions).apply {
             setLocalMatrix(progressShaderMatrix)
         }
     }

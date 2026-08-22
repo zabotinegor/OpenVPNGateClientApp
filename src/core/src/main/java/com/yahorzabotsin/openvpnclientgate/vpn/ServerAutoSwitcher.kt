@@ -464,7 +464,13 @@ object ServerAutoSwitcher {
         )
     }
 
-    // Rolls back CONNECTING re-assertion when a retry dispatch fails (e.g. FGS-from-background restriction).
+    // Rolls back CONNECTING re-assertion when a retry dispatch fails (e.g. FGS-from-background
+    // restriction). Also resets the switch cycle (cancel(resetCycle = true)): without this,
+    // cycleStartIndex survived the aborted attempt, so the next auto-switch cycle's
+    // nextServerCircular wrap detection was evaluated against a stale start index and could
+    // believe the country's server list had already been exhausted, giving up earlier than it
+    // should. Both call sites already run on the main looper (posted via this class's handler),
+    // matching cancel()'s single-main-looper-caller invariant.
     private fun rollBackFailedRetryDispatch() {
         AppLog.w(TAG, "Retry-commit ACTION_START dispatch failed; rolling back CONNECTING re-assertion")
         try {
@@ -473,6 +479,7 @@ object ServerAutoSwitcher {
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to roll back reconnect invariant after failed retry dispatch", e)
         }
+        cancel(resetCycle = true)
     }
 
     private fun scheduleStopRetryTimeout(appContext: Context) {
@@ -540,6 +547,13 @@ object ServerAutoSwitcher {
     fun resetForTest() {
         cancel(resetCycle = true)
     }
+
+    // Read-only test seam for the F11 regression coverage (rollBackFailedRetryDispatch() must
+    // reset the switch cycle): cycleStartIndex has no other externally observable effect until a
+    // whole second auto-switch cycle plays out, which unit tests should not need to drive just to
+    // assert this one field.
+    @JvmStatic
+    fun cycleStartIndexForTest(): Int? = cycleStartIndex
 }
 
 

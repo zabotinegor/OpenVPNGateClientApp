@@ -17,7 +17,6 @@
     <!-- Speedometer Colors: neutral grays -->
     <!-- Hairline color for the connection-detail dividers. -->
     <color name="speedometer_arc_color">#232323</color>
-    <color name="speedometer_progress_color">#424242</color>
     <!-- Unfilled part of the dial band: the desaturated navy groove of the reference dial,
          visible against #121212 without competing with the gradient fill. -->
     <color name="speedometer_track_color">#2A2B41</color>

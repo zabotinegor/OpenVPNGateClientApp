@@ -33,6 +33,13 @@ object UserSettingsStore {
     private const val KEY_STATUS_STALL_TIMEOUT_SECONDS = "status_stall_timeout_seconds"
     private const val KEY_DNS_OPTION = "dns_option"
     private const val KEY_AUTO_SWITCH_TIMEOUT_SECONDS_LEGACY = "auto_switch_timeout_seconds"
+
+    // Orphaned by the US-14 removal of the custom-server-URL feature: no code reads or writes
+    // this key anymore, but a value entered before the removal survives indefinitely in this
+    // SharedPreferences file with no UI left to view or clear it. load() below removes it
+    // opportunistically (one-shot, idempotent - a no-op once the key is gone) so it does not
+    // linger as retained user-supplied data after the feature that justified it was deleted.
+    private const val KEY_CUSTOM_SERVER_URL_ORPHANED = "custom_server_url"
     private const val MIN_CACHE_TTL_MS = 60_000L
     const val DEFAULT_CACHE_TTL_MS = 20 * 60 * 1000L
     const val DEFAULT_STATUS_STALL_TIMEOUT_SECONDS = 5
@@ -64,6 +71,9 @@ object UserSettingsStore {
         }
         val statusStallTimeoutSeconds = storedTimeout.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS)
         val dnsOption = DnsOption.fromString(p.getString(KEY_DNS_OPTION, null))
+        if (p.contains(KEY_CUSTOM_SERVER_URL_ORPHANED)) {
+            p.edit().remove(KEY_CUSTOM_SERVER_URL_ORPHANED).apply()
+        }
         return UserSettings(language, theme, serverSource, cacheTtl, autoSwitch, statusStallTimeoutSeconds, dnsOption)
     }
 

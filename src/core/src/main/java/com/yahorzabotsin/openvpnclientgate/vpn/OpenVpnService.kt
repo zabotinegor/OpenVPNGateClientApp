@@ -2019,6 +2019,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // the exact same snapshot -- a raw connecting-family level could start a needless switch
         // timer on an already-healthy connection, and a raw LEVEL_NONETWORK could trigger an
         // immediate switch away from a connection the app itself already recognizes as connected.
+        // This "normalize once" guarantee covers exactly those two consumers
+        // (dispatchAutoSwitcherOnEngineLevel / ConnectionStateManager.updateFromEngine) below --
+        // it is not a whole-function invariant. The stop-flow reconciliation further down
+        // (maybeStartStaleStopReconciliation, maybeClearStaleStopIntentOnIdleLevel,
+        // shouldIgnoreLevelAfterUserStop, handleEngineLevelForStop) is intentionally fed the raw
+        // `level`, not `normalizedLevel`: it reasons about what the engine literally reported, not
+        // about the app's effective interpretation of it.
         val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, detail)
         // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle. Must NOT exit the FGS
         // notification in two situations: (1) chained auto-switch (reconnectingHint=true), where

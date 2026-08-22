@@ -20,20 +20,6 @@ class ApiConstantsTest {
     }
 
     @Test
-    fun `primary legacy servers url returns normalized value for valid input`() {
-        val result = ApiConstants.primaryLegacyServersUrlOrFallback("https://api.example.com/custom")
-
-        assertEquals("https://api.example.com/custom/api/v1/servers/active", result)
-    }
-
-    @Test
-    fun `primary legacy servers url falls back to safe local url for invalid authority`() {
-        val result = ApiConstants.primaryLegacyServersUrlOrFallback("https:///api/v1/servers/active")
-
-        assertEquals("https://openvpnclientgate.local/api/v1/servers/active", result)
-    }
-
-    @Test
     fun `primary version url falls back to safe local url for invalid authority`() {
         val result = ApiConstants.primaryVersionByNumberAndBuildUrlOrFallback(
             primaryServersUrl = "https:///api/v1/servers/active",

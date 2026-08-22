@@ -19,7 +19,6 @@
     <!-- Hairline color for the connection-detail dividers. Not the gauge's unfilled track -
          that is speedometer_track_color below. -->
     <color name="speedometer_arc_color">#E7EBF0</color>
-    <color name="speedometer_progress_color">#7F93A8</color>
     <!-- Unfilled part of the dial band. Reads as a quiet groove so only the gradient fill,
          the needle and the value carry visual weight (as on the speedtest.net dial). -->
     <color name="speedometer_track_color">#DCE3ED</color>
@@ -85,7 +84,10 @@
     <color name="server_selection_border_pressed">#2F5C75</color>
 
     <!-- Section: Loading indicator -->
-    <color name="loading_spinner_color">@color/speedometer_progress_color</color>
+    <!-- Inlined (was an alias to the now-deleted speedometer_progress_color, which the
+         redesigned gauge no longer draws from - see speedometer_gradient_*/speedometer_track_color
+         above). Same literal value as before; this color is otherwise unrelated to the gauge. -->
+    <color name="loading_spinner_color">#7F93A8</color>
 
     <!-- Section: Switch Colors -->
     <color name="switch_thumb_checked">@color/button_primary_background</color>

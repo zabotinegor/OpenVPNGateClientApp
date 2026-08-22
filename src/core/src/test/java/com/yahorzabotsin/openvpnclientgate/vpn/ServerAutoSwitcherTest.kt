@@ -531,6 +531,11 @@ class ServerAutoSwitcherTest {
             "precondition: reconnectingHint must be re-asserted before the retry-commit dispatch",
             ConnectionStateManager.reconnectingHint.value
         )
+        assertTrue(
+            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+                "beginChainedSwitch), or the F11 assertion below proves nothing",
+            ServerAutoSwitcher.cycleStartIndexForTest() != null
+        )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
         // returns false, and rollBackFailedRetryDispatch() must run.
@@ -546,6 +551,15 @@ class ServerAutoSwitcherTest {
         assertFalse(
             "reconnectingHint must be cleared by the rollback",
             ConnectionStateManager.reconnectingHint.value
+        )
+        // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
+        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // cycle's wrap detection give up early.
+        assertEquals(
+            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            null,
+            ServerAutoSwitcher.cycleStartIndexForTest()
         )
     }
 
@@ -568,6 +582,11 @@ class ServerAutoSwitcherTest {
             "precondition: reconnectingHint must be re-asserted before the retry-commit dispatch",
             ConnectionStateManager.reconnectingHint.value
         )
+        assertTrue(
+            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+                "beginChainedSwitch), or the F11 assertion below proves nothing",
+            ServerAutoSwitcher.cycleStartIndexForTest() != null
+        )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
         // returns false, and rollBackFailedRetryDispatch() must run.
@@ -583,6 +602,15 @@ class ServerAutoSwitcherTest {
         assertFalse(
             "reconnectingHint must be cleared by the rollback",
             ConnectionStateManager.reconnectingHint.value
+        )
+        // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
+        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // cycle's wrap detection give up early.
+        assertEquals(
+            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            null,
+            ServerAutoSwitcher.cycleStartIndexForTest()
         )
     }
 

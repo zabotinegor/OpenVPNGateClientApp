@@ -61,10 +61,16 @@ jobs:
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         run: |
+          # android-36 / build-tools;36.0.0: core/mobile/tv client modules (compileSdk 36).
+          # android-37 / build-tools;37.0.0: :openVpnEngine submodule (compileSdk/targetSdk 37) -
+          # a first-class Gradle project of this build per src/settings.gradle.kts, so its
+          # platform must resolve on CI even though no client module targets it.
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
             "cmake;3.22.1" \
             "ndk;29.0.14206865"
           yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses
