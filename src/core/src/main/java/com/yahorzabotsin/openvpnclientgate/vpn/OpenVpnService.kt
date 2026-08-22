@@ -772,28 +772,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistPendingStopIntent(false)
                     AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
                 }
-                if (!enterControllerForeground()) {
-                    // ACTION_START is the only action dispatched via startForegroundService()
-                    // (VpnManager.startControllerService), so reaching here means an FGS-start
-                    // obligation is live and can no longer be discharged -- startForeground() just
-                    // threw. START_NOT_STICKY does NOT stop a service; it only affects restart
-                    // behaviour after a kill. Leaving the service alive therefore lets AMS's
-                    // SERVICE_FOREGROUND_TIMEOUT fire against a still-running service, which is
-                    // precisely what raises ForegroundServiceDidNotStartInTimeException.
-                    //
-                    // Stopping is the discharge, not the trigger: AMS clears the obligation when the
-                    // service is brought down -- bringDownServiceLocked() logs "Bringing down service
-                    // while still waiting for start foreground", sets fgRequired/fgWaiting = false and
-                    // removes SERVICE_FOREGROUND_TIMEOUT_MSG -- and serviceForegroundTimeout() itself
-                    // no-ops on `!r.fgRequired || r.destroying`. This restores the pre-9b70f87
-                    // behaviour (stopOnFailure defaulted to true at this call site).
-                    //
-                    // Safe for an in-flight tunnel: this is the controller service. The real
-                    // VpnService lives in the engine (see docs/reference/permissions.md), so stopping
-                    // the controller does not tear down an established connection.
-                    stopSelfSafely()
-                    return START_NOT_STICKY
-                }
+                if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -1257,12 +1236,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            // This method stays side-effect-free on failure: it reports `false` and lets each caller
-            // decide, because the right reaction differs by call site. onCreate() must NOT stop --
-            // it runs for startService()-dispatched actions (ACTION_SYNC_STATUS and friends) that
-            // register no FGS obligation, and such a service is still useful in the background.
-            // ACTION_START must stop, and does so at its own call site; see the comment there for
-            // why stopping discharges the obligation rather than violating it.
+            // Do NOT call stopSelf() here. ACTION_START calls this method after its own
+            // startForegroundService() has already been dispatched, so the FGS-start obligation is
+            // still undischarged -- stopSelf() here would turn a recoverable "could not show the
+            // notification" failure into a ForegroundServiceDidNotStartInTimeException. Both
+            // callers already treat a `false` return as sufficient signal to bail out.
             AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
             return false
