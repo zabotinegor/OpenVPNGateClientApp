@@ -18,6 +18,10 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.Speedometer
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.components.SpeedometerView.Companion.sweepForValue
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import android.app.Activity
+import android.view.View
+import android.view.ViewGroup
+import android.os.Looper
 import kotlin.math.hypot
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -27,9 +31,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 import java.util.Locale
 
 /**
@@ -47,6 +54,12 @@ class SpeedometerViewTest {
 
     private val tolerance = 0.001f
     private val segmentSweep = ARC_SWEEP_DEGREES / (SCALE_STOPS.size - 1)
+
+    companion object {
+        private const val VIEW_SIZE_PX = 400
+        // SpeedometerView's ANIMATION_DURATION_MS is 350L (private); comfortably past it.
+        private const val SETTLE_MS = 500L
+    }
 
     private lateinit var originalDefaultLocale: Locale
 
@@ -455,13 +468,34 @@ class SpeedometerViewTest {
 
     // --------------- contentDescription: accessibility announcement gating ---------------
     //
-    // setSpeedMbps normally animates via ValueAnimator, calling onSpeedChanged() on every frame
-    // (~60/sec). A freshly constructed, unattached view has outerRadius == 0, so setSpeedMbps
-    // takes its synchronous fallback path instead (skips the animator, calls onSpeedChanged()
-    // exactly once) - which is what makes these cases deterministic without driving animator
-    // frames by hand.
+    // setSpeedMbps animates via ValueAnimator when the view is attached and laid out, driving
+    // ~21 frames over ANIMATION_DURATION_MS. The accessible value must be published only when
+    // that animation settles, not per frame: below 100 Mbps the readout has 0.01 Mbps
+    // resolution, so during a real change essentially every frame formats differently and a
+    // string-equality guard alone suppresses nothing.
+    //
+    // A freshly constructed, unattached view has outerRadius == 0, so setSpeedMbps takes its
+    // synchronous fallback path instead (skips the animator, publishes exactly once) - which
+    // is what makes the non-animated cases deterministic without driving frames by hand.
 
     private fun newSpeedometerView() = SpeedometerView(RuntimeEnvironment.getApplication())
+
+    /** Attached and laid out, so [SpeedometerView.setSpeedMbps] takes its animated path. */
+    private fun attachedSpeedometerView(): SpeedometerView {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = SpeedometerView(activity)
+        activity.setContentView(view, ViewGroup.LayoutParams(VIEW_SIZE_PX, VIEW_SIZE_PX))
+        val spec = View.MeasureSpec.makeMeasureSpec(VIEW_SIZE_PX, View.MeasureSpec.EXACTLY)
+        view.measure(spec, spec)
+        view.layout(0, 0, VIEW_SIZE_PX, VIEW_SIZE_PX)
+        shadowOf(Looper.getMainLooper()).idle()
+        return view
+    }
+
+    /** Advances the main looper past [SpeedometerView]'s animation duration - fully settled. */
+    private fun settle() {
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(SETTLE_MS))
+    }
 
     private fun expectedDescription(value: Float): String {
         val unitLabel = RuntimeEnvironment.getApplication().getString(R.string.speedometer_unit_mbps)
@@ -500,5 +534,28 @@ class SpeedometerViewTest {
 
         assertNotEquals(firstDescription, view.contentDescription)
         assertEquals(expectedDescription(82.5f), view.contentDescription)
+    }
+
+    // A direct mid-animation snapshot (idle a bit, assert contentDescription is still the old
+    // value) is not reliable under Robolectric's ValueAnimator shadow: any main-looper idle call
+    // resolves the animator's Choreographer callback and drives it to completion in one step
+    // rather than modeling genuine partial progress, so there is no way to observe an in-flight
+    // frame from a test. The structural guarantee instead comes from source inspection (verified
+    // as part of this fix): the animator's addUpdateListener callback calls only invalidate(),
+    // never publishAccessibleValue() - that call exists solely in the AnimatorListenerAdapter's
+    // onAnimationEnd - so there is no code path left that can publish per frame. The settled-value
+    // test below is what Robolectric can verify end-to-end: that the attached/animated path
+    // reaches the AnimatorListenerAdapter wiring at all and publishes the correct target.
+
+    @Test
+    fun `contentDescription updates to the target value once the animation settles`() {
+        val view = attachedSpeedometerView()
+        view.setSpeedMbps(0.0)
+        settle()
+
+        view.setSpeedMbps(50.0)
+        settle()
+
+        assertEquals(expectedDescription(50f), view.contentDescription)
     }
 }

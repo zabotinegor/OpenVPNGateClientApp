@@ -1,5 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.common.components
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -410,11 +412,20 @@ class SpeedometerView @JvmOverloads constructor(
     private var maxMbps: Float = DEFAULT_MAX_MBPS
     private var animator: ValueAnimator? = null
 
-    // Last contentDescription actually published to accessibility services. onSpeedChanged runs
-    // on every ValueAnimator frame (~60/sec) for the duration of a speed-change animation;
-    // gating the write on the formatted string - rather than assigning unconditionally every
-    // frame - means TalkBack only gets a fresh announcement when the *displayed* value changes,
-    // not on every intermediate frame of the animation.
+    // Last contentDescription actually published to accessibility services.
+    //
+    // The accessible value is deliberately NOT published per animation frame. A speed-change
+    // animation runs ANIMATION_DURATION_MS (350 ms) at ~60 fps, i.e. ~21 frames, and below
+    // 100 Mbps formatValue prints two decimals (0.01 Mbps resolution). Even the *smallest*
+    // frame step of a DecelerateInterpolator - its final frame - moves ~0.2% of the range,
+    // which for an ordinary change like 10 -> 50 Mbps is ~0.09 Mbps, still ~9x the display
+    // resolution. So during any real speed change essentially every frame formats to a
+    // different string, and a string-equality guard alone suppresses none of those writes:
+    // TalkBack would receive ~21 content-change events per traffic sample. Instead the visual
+    // animation keeps running at full rate (invalidate on every frame) while the accessible
+    // value is published only when the animation *settles* - or immediately on the
+    // non-animated path. The equality guard is still applied at that point, so consecutive
+    // settled readings that format identically do not re-announce.
     private var lastAnnouncedDescription: String = describe(currentMbps)
 
     // The needle only makes sense while the VPN is attempting, holding, or tearing down a
@@ -434,7 +445,8 @@ class SpeedometerView @JvmOverloads constructor(
         animator?.cancel()
         if (!isAttachedToWindow || outerRadius <= 0f) {
             currentMbps = target
-            onSpeedChanged()
+            invalidate()
+            publishAccessibleValue(target)
             return
         }
         animator = ValueAnimator.ofFloat(currentMbps, target).apply {
@@ -442,8 +454,25 @@ class SpeedometerView @JvmOverloads constructor(
             interpolator = DecelerateInterpolator()
             addUpdateListener {
                 currentMbps = it.animatedValue as Float
-                onSpeedChanged()
+                // Visual only - see lastAnnouncedDescription for why the accessible value is
+                // not published here.
+                invalidate()
             }
+            addListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    // A cancelled animation was superseded by a newer setSpeedMbps call, whose
+                    // own animation publishes its target when it settles. Announcing the
+                    // abandoned mid-flight value here would reintroduce exactly the chatter
+                    // this end-gating removes, so cancellation stays silent.
+                    if (!cancelled) publishAccessibleValue(target)
+                }
+            })
             start()
         }
     }
@@ -498,13 +527,16 @@ class SpeedometerView @JvmOverloads constructor(
         }
     }
 
-    private fun onSpeedChanged() {
-        val description = describe(currentMbps)
-        if (description != lastAnnouncedDescription) {
-            lastAnnouncedDescription = description
-            contentDescription = description
-        }
-        invalidate()
+    /**
+     * Publishes [value] as the view's accessible reading, if it differs from what accessibility
+     * services were last told. Called only for *settled* values - the end of a speed animation,
+     * or the synchronous non-animated path - never per animation frame.
+     */
+    private fun publishAccessibleValue(value: Float) {
+        val description = describe(value)
+        if (description == lastAnnouncedDescription) return
+        lastAnnouncedDescription = description
+        contentDescription = description
     }
 
     private fun describe(value: Float) = "${formatValue(value)} $unitLabel"
