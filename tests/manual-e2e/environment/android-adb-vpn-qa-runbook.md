@@ -188,5 +188,62 @@ together, with no separate `settings put` step needed. Use `cmd connectivity air
 `settings put` + `am broadcast` combination, for any future scripted airplane-mode toggle.
 (Discovered during `fix/86cb35fbt-vpn-foreground-service-crash` manual QA round 6, 2026-08-17.)
 
+## TV Wi-Fi ADB (`adb connect host:5555`) logcat capture drops intermittently under long sessions
+
+A `adb -s <tv-ip>:5555 logcat -v time > file` capture left running for an extended real-device QA
+session (release regression pass, several hours) was observed to silently die 2-3 times with exit
+code 255 (task status `failed`), even though `adb devices` still showed the TV as `device` (connected)
+immediately afterward -- this is Wi-Fi ADB connection churn on the TV box, not a real disconnect
+requiring `adb connect` again in most cases (though `adb disconnect <ip>:5555 && adb connect
+<ip>:5555` is a safe first fallback if a plain retry doesn't restart the pipe). **Fix:** just restart
+the same `logcat -v time` command with `>>` (append) targeting the same log file -- `adb logcat`
+replays from its own still-buffered ring on reconnect, so appending does not lose crash-detection
+coverage across the gap, and the file's line count stays a valid intermediate freshness check (rules
+out a silently-empty capture). Treat a killed logcat background task as routine on this TV device, not
+a QA blocker -- just restart the pipe and continue. The phone (Samsung Galaxy A71, USB ADB) did not
+show this pattern; it appears TV-Wi-Fi-specific.
+
+## `wm density` tablet simulation: auto-rotate must be off for `user_rotation` to have any effect, even after wm density change
+
+Continuing the tablet-simulation technique in this file's "Simulating a tablet" section (`docs/operations/device-qa-phone.md`):
+when testing that a tablet-sized layout follows OS rotation-lock (as opposed to a phone's forced
+portrait), setting `adb shell settings put system user_rotation 1` alone silently no-ops if
+`accelerometer_rotation` (auto-rotate) is still `1` -- the OS just ignores the manual rotation request
+while auto-rotate is on, and `mRotation` in `dumpsys window displays` stays unchanged with no error of
+any kind. This produced a false "still locked to portrait" reading during `feature/release/21.08.2026`
+QA (US-22 orientation lock) until `accelerometer_rotation` was confirmed and explicitly set to `0`
+first, at which point `user_rotation` correctly drove `mRotation` to `ROTATION_90`/`ROTATION_0` in both
+directions on the `wm density 240` (sw720dp) simulated tablet. Always verify
+`adb shell settings get system accelerometer_rotation` reads `0` immediately before relying on
+`user_rotation` for any orientation-lock test, phone or simulated-tablet alike.
+(Discovered 2026-08-22, `feature/release/21.08.2026` release QA.)
+
+## TV launcher category is `LEANBACK_LAUNCHER`, not `LAUNCHER`
+
+`adb shell monkey -p <pkg> -c android.intent.category.LAUNCHER 1` (the standard mobile launch trick
+documented elsewhere in this file and in `docs/operations/device-qa-phone.md`) returns `No activity
+found` on the TV launcher and does nothing -- no crash, just silently fails to launch. Use
+`android.intent.category.LEANBACK_LAUNCHER` instead for the `tv` module; this correctly resolves to
+`.tv.SplashActivity` and launches normally. The `LAUNCHER`-category trick still applies unchanged to
+the `mobile` module.
+(Discovered 2026-08-22, `feature/release/21.08.2026` release QA, MIBOX4 TV device.)
+
+## Simulating a pre-migration legacy SharedPreferences state without an old APK
+
+To QA an upgrade/migration path (e.g. US-15/US-14-style enum-value or orphaned-key migrations) without
+needing to build and install an actual pre-migration APK, write the target XML directly into the app's
+`shared_prefs/` via `run-as` on a debug build. `adb shell run-as <pkg> sh -c 'cat > shared_prefs/x.xml'`
+fails with a heredoc/quoting error (`sh: can't create temporary file ...: Permission denied`) when fed
+a multi-line heredoc through nested `adb shell "..."` quoting -- the reliable path is: write the XML to
+a local file, `adb push` it to a world-writable staging path (`MSYS_NO_PATHCONV=1 adb push local.xml
+/data/local/tmp/x.xml` -- note the `MSYS_NO_PATHCONV=1` only on the command doing the remote-path
+argument, not on any later `Read`/local-path-only command), then pipe it into the app's private storage
+through `run-as`: `adb shell "cat /data/local/tmp/x.xml | run-as <pkg> sh -c 'cat > shared_prefs/x.xml'"`.
+Force-stop (`am force-stop <pkg>`) before the next launch so the migration-on-read code path actually
+runs against the freshly-written file rather than an already-loaded in-memory value.
+(Discovered 2026-08-22, `feature/release/21.08.2026` release QA, US-15/86cavhuna upgrade-path
+verification -- simulated a `server_source=LEGACY` + orphaned `custom_server_url` key install, force-
+stopped, relaunched, confirmed silent fold to `DEFAULT_V2` with no crash and a non-empty server list.)
+
 ## Last validated
-2026-08-17, against `fix/86cb35fbt-vpn-foreground-service-crash` HEAD `877f145`.
+2026-08-22, against `feature/release/21.08.2026` HEAD `828dc1454b18af2ff0253b2714347951e693e758`.
