@@ -13,7 +13,12 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.RemoteException
 import android.os.Handler
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.yahorzabotsin.openvpnclientgate.core.ApiConstants
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.BuildConfig
@@ -55,10 +60,11 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
-    private companion object {
+    internal companion object {
         private const val ENGINE_ACTION_PAUSE_VPN = "de.blinkt.openvpn.PAUSE_VPN"
         private const val ENGINE_ACTION_RESUME_VPN = "de.blinkt.openvpn.RESUME_VPN"
 
@@ -83,6 +89,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private val hexRegex = Regex("\\b[0-9a-fA-F]{8,}\\b")
         private const val MAX_THROTTLE_KEY_LENGTH = 96
         private const val ONE_SHOT_STOP_DELAY_MS = 1_000L
+        // Re-checks guards before firing stopSelf() after one-shot status sync.
+        private const val ONE_SHOT_STOP_CONFIRM_DELAY_MS = 400L
+        private const val ENGINE_RECONNECT_DISPATCH_BUFFER_MS = 500L
         private const val ONE_SHOT_SYNC_TIMEOUT_MS = 15_000L
         private const val CONTROLLER_NOTIFICATION_ID = 7014
         private const val PAUSE_CONFIRMATION_TIMEOUT_MS = 3_000L
@@ -104,6 +113,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val WATCHDOG_MAX_RECOVERY_ATTEMPTS = 3
         private const val WATCHDOG_FALLBACK_HTTPS_PORT = 443
         private const val WATCHDOG_DEFAULT_OPENVPN_PORT = 1194
+
+        @Volatile
+        internal var isInstanceAlive: Boolean = false
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -113,13 +125,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var boundToEngine = false
 
     // Remember whether start/stop were user-driven vs auto-switch.
-    // @Volatile: written on the main thread (onStartCommand / startUserStopTeardown),
-    // read on the AIDL binder thread (IStatusCallbacks.Stub.updateStateString →
+    // @Volatile: written on the main thread, read on the AIDL binder thread (updateStateString ->
     // syncEngineState / shouldIgnoreLevelAfterUserStop / handleEngineLevelForStop).
-    // Without @Volatile the JVM may cache stale values in the binder thread's register/cache,
-    // causing the FGS guard or stop-flow checks to act on outdated state.
     @Volatile private var userInitiatedStart = false
     @Volatile private var userInitiatedStop = false
+    @Volatile private var serviceDestroyed = false
     @Volatile private var ignoreConnectedUntilNotConnected = false
     // Same cross-thread visibility requirement as above: stopRequestId/stopStartedAtMs are
     // written on the main thread (startUserStopTeardown) and read on the AIDL binder thread
@@ -140,6 +150,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track per-session auto-switch attempts
     private var sessionTotalServers: Int = -1
     private var sessionAttempt: Int = 0
+    private var currentAttemptStartMs: Long = 0L
+    private var currentAttemptStartElapsedRealtimeMs: Long = 0L
+    private val connectionAttemptGeneration = AtomicInteger(0)
+
+    @Volatile private var reconnectDispatchPendingGeneration: Int = -1
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -152,23 +167,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var controllerForegroundActive = false
 
     // Binding to status service for engine logs/metrics
-    private var statusBinder: IServiceStatus? = null
-    private var boundToStatus = false
+    @Volatile private var statusBinder: IServiceStatus? = null
+    @Volatile private var boundToStatus = false
     private var statusRebindDelayMs = 500L
-    private var lastStatusSnapshotMs: Long = 0L
-    private var lastLiveStatusMs: Long = 0L
+    @Volatile private var lastStatusSnapshotMs: Long = 0L
+    @Volatile private var lastLiveStatusMs: Long = 0L
+    @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
     private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
     private val aidlFreshWindowMs = 3_000L
-    private val staleSnapshotTimeoutLevels = setOf(
-        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
-        ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-        ConnectionStatus.LEVEL_AUTH_FAILED,
-        ConnectionStatus.UNKNOWN_LEVEL
-    )
     private val staleSnapshotMaxAgeMs = 10_000L
+    // Ceiling for the ACTION_SYNC_STATUS reattach path only (unknown attempt baseline + an active,
+    // non-terminal level -- the snapshot that backfills currentAttemptStartMs in
+    // applyStatusSnapshot()). Round 15 established that such a snapshot must be trusted even when
+    // it is older than staleSnapshotMaxAgeMs, because a genuinely stuck current attempt is
+    // ServerAutoSwitcher's only signal on this lifecycle path. That trust still has to be BOUNDED:
+    // the backfill adopts the snapshot's own timestamp as the baseline, so the predates-check can
+    // never reject it, and without a ceiling a leftover snapshot of ANY age -- hours or days old,
+    // from a long-dead past session -- would be accepted and forwarded with auto-switch enabled,
+    // able to start a chained VPN retry merely from opening the app.
+    //
+    // Sized well above any plausible "current attempt": ServerAutoSwitcher's own switch thresholds
+    // are 5-8s, and an engine that is genuinely working a connection keeps pushing state changes
+    // seconds apart, so a cached snapshot untouched for two minutes is not a live attempt.
+    private val reattachSnapshotMaxAgeMs = 120_000L
+    private val clockJumpMinDetectableMs = 1_000L
+    private val clockJumpSlackMs = 2_000L
     private val liveStatusGraceMs = 5_000L
     private val statusHandler = Handler(Looper.getMainLooper())
     private val trafficHandler = Handler(Looper.getMainLooper())
@@ -191,12 +217,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val title: String?
     )
     private var watchdogState = HealthWatchdogState()
+
+    /**
+     * True from the moment the watchdog dispatches a recovery until traffic actually flows again,
+     * the fail-safe fires, or the user starts a connection themselves.
+     *
+     * Recovery reconnects, so it causes the very connection-state transition that
+     * [resetHealthWatchdog] zeroes. Without this flag [HealthWatchdogState.recoveryAttempts] would
+     * restart at 0 after every attempt, WATCHDOG_MAX_RECOVERY_ATTEMPTS would never be reached, and
+     * a server that connects cleanly but carries no traffic would be retried forever.
+     */
+    private var watchdogRecoveryInFlight = false
     internal var watchdogNowMs: () -> Long = { System.currentTimeMillis() }
+    // Monotonic counterpart to watchdogNowMs, used only to pair with
+    // currentAttemptStartElapsedRealtimeMs for the backward-wall-clock-jump safety net in
+    // applyStatusSnapshot(). Injectable for the same reason watchdogNowMs is: deterministic unit
+    // tests can simulate a clock jump without depending on real device uptime.
+    internal var elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() }
     internal var watchdogProbeDispatcher: CoroutineDispatcher = Dispatchers.IO
     internal var watchdogProbe: (String, Int, Int) -> Boolean = { host, port, timeoutMs ->
         performReachabilityProbe(host, port, timeoutMs)
     }
-    internal var watchdogRecoveryStarter: (Context, String, String?) -> Unit = { ctx, config, title ->
+    /**
+     * Dispatches a recovery. Returns false when nothing was actually dispatched, so the caller can
+     * fail safe instead of consuming budget on an attempt that never happened.
+     * [ServerAutoSwitcher.beginChainedSwitch] reports false for every such case: auto-switch off,
+     * a rejected stop command, or an exception while requesting the stop.
+     */
+    internal var watchdogRecoveryStarter: (Context, String, String?) -> Boolean = { ctx, config, title ->
         ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
     }
     private var watchdogProbeJob: Job? = null
@@ -219,6 +267,45 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
     private var oneShotSyncReceivedInitialState = false
+
+    // Gates one-shot-sync stopSelf() on UI not being visible (prevents race with Connect tap).
+    internal var appForegroundVisibleProvider: () -> Boolean = {
+        try {
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        } catch (t: Throwable) {
+            // Fail closed: assume an activity could be visible and suppress the stop rather than
+            // risk racing a Connect tap.
+            AppLog.w(TAG, "Unable to read process lifecycle state; treating app as foreground", t)
+            true
+        }
+    }
+
+    // Assumes this Service runs in the app's main process (no android:process, unlike the
+    // engine's :openvpn). If that ever changes, ProcessLifecycleOwner would never observe an
+    // activity here and this would silently return false forever, making the suppression above a
+    // permanent no-op.
+    private fun isAppForegroundVisible(): Boolean = appForegroundVisibleProvider()
+
+    // Reaps idle controller once UI leaves foreground via ACTION_STOP_IF_IDLE.
+    private val appLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStop(owner: LifecycleOwner) {
+            AppLog.i(TAG, "App UI left foreground; reaping idle controller via ACTION_STOP_IF_IDLE")
+            VpnManager.stopControllerIfIdle(this@OpenVpnService)
+        }
+    }
+
+    private fun registerAppLifecycleObserver() {
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
+        }.onFailure { AppLog.w(TAG, "Failed to register app lifecycle observer", it) }
+    }
+
+    private fun unregisterAppLifecycleObserver() {
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
+        }.onFailure { AppLog.w(TAG, "Failed to unregister app lifecycle observer", it) }
+    }
+
     private val stopAfterOneShotSyncRunnable = Runnable {
         if (!oneShotSyncRequested) return@Runnable
         if (!oneShotSyncReceivedInitialState) {
@@ -226,13 +313,44 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return@Runnable
         }
         if (userInitiatedStart || userInitiatedStop) return@Runnable
-        if (ConnectionStateManager.state.value == ConnectionState.CONNECTED) {
-            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is connected")
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle")
+            return@Runnable
+        }
+        // Do not call stopSelf() here. Defer it by ONE_SHOT_STOP_CONFIRM_DELAY_MS and re-run the
+        // same guard checks in stopAfterOneShotSyncConfirmedRunnable immediately before the
+        // deferred stopSelf() actually fires -- see that constant's declaration comment.
+        AppLog.d(TAG, "One-shot status sync decided to stop; confirming after ${ONE_SHOT_STOP_CONFIRM_DELAY_MS}ms buffer")
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
+        statusHandler.postDelayed(stopAfterOneShotSyncConfirmedRunnable, ONE_SHOT_STOP_CONFIRM_DELAY_MS)
+    }
+
+    // Second stage of one-shot-sync stop decision -- re-runs guards before actual stopSelf().
+    private val stopAfterOneShotSyncConfirmedRunnable = Runnable {
+        if (!oneShotSyncRequested) return@Runnable
+        if (!oneShotSyncReceivedInitialState) return@Runnable
+        if (userInitiatedStart || userInitiatedStop) {
+            AppLog.i(TAG, "One-shot sync stop aborted by buffered re-check (userInitiatedStart/Stop set)")
+            return@Runnable
+        }
+        // userInitiatedStart may not yet reflect a dispatch still in AMS/Binder transit.
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "One-shot sync stop aborted: recent ACTION_START dispatch still in flight")
+            return@Runnable
+        }
+        if (ConnectionStateManager.state.value != ConnectionState.DISCONNECTED) {
+            // Excludes ServerAutoSwitcher's background retry-timer dispatcher: reconnectingHint
+            // holds state at CONNECTING for the whole auto-switch stop-to-start gap.
+            AppLog.d(TAG, "One-shot sync keeping controller alive while VPN is not idle (buffered re-check)")
+            return@Runnable
+        }
+        if (isAppForegroundVisible()) {
+            AppLog.i(TAG, "One-shot sync stop suppressed while app UI is foreground; deferring to UI-gone-away teardown")
             return@Runnable
         }
         oneShotSyncRequested = false
         oneShotSyncReceivedInitialState = false
-        AppLog.d(TAG, "One-shot status sync complete; stopping controller service")
+        AppLog.i(TAG, "One-shot status sync complete; stopping controller service")
         stopSelf()
     }
     private val oneShotSyncTimeoutRunnable = Runnable {
@@ -316,6 +434,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         resumeActionInFlight = false
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+        // Cancels only queued-but-not-yet-run dispatches to ServerAutoSwitcher (see
+        // autoSwitchDispatchToken). Does nothing to a switch timer already running before this
+        // teardown began -- that lives on ServerAutoSwitcher's own Handler and is cancelled
+        // explicitly below instead.
+        statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // Sweeps any reconnect engine-dispatch still queued from a prior auto-switch retry --
+        // see reconnectEngineDispatchToken's declaration comment.
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+        // This function can be reached synchronously from the AIDL binder thread (via
+        // maybeStartStaleStopReconciliation), so the cancellation must be dispatched onto the main
+        // thread -- ServerAutoSwitcher's internal timer state assumes a single main-looper caller.
+        // Posted untagged, not with autoSwitchDispatchToken: that token is for forward-looking
+        // auto-switch reaction dispatches, and tagging this cancellation the same way would risk a
+        // later sweep (e.g. from onDestroy()) wiping it out before it runs.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            ServerAutoSwitcher.cancelForUserStop()
+        } else {
+            statusHandler.post { ServerAutoSwitcher.cancelForUserStop() }
+        }
         requestStopIcsOpenVpn()
     }
 
@@ -354,6 +491,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         ignoreConnectedUntilNotConnected = false
         userInitiatedStop = false
+        connectionAttemptGeneration.incrementAndGet()
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
@@ -381,6 +519,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.w(TAG, "Failed to unbind engine after confirmed stop", e)
             }
             boundToEngine = false
+        }
+        if (VpnManager.hasRecentActionStartDispatch()) {
+            AppLog.i(TAG, "Confirmed-stop stopSelf() aborted: recent ACTION_START dispatch still in flight")
+            return
         }
         stopSelf()
     }
@@ -432,15 +574,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     override fun onCreate() {
+        isInstanceAlive = true
         super.onCreate()
         AppLog.i(TAG, "Service created")
         ensureEngineNotificationChannels()
         ensureEnginePreferences()
-        // Satisfy Android's startForegroundService() 5-second requirement immediately in onCreate(),
-        // eliminating the race between stopAfterOneShotSyncRunnable (stopSelf) and startForeground()
-        // delivery when startForegroundService() is called while a sync-started service is stopping.
-        // stopOnFailure=false: intent not yet delivered here, so don't stop — ACTION_START will retry.
-        enterControllerForeground(stopOnFailure = false)
+        enterControllerForeground()
+        registerAppLifecycleObserver()
         VpnStatus.addStateListener(this)
         VpnStatus.addLogListener(this)
         VpnStatus.addByteCountListener(this)
@@ -539,8 +679,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun isAidlFresh(): Boolean {
-        val now = System.currentTimeMillis()
-        return boundToStatus && lastLiveStatusMs > 0L && (now - lastLiveStatusMs) <= aidlFreshWindowMs
+        return boundToStatus && lastLiveStatusMs > 0L && lastLiveStatusElapsedRealtimeMs > 0L &&
+            (elapsedRealtimeMs() - lastLiveStatusElapsedRealtimeMs) <= aidlFreshWindowMs
     }
 
     private fun shouldUseVpnStatus(): Boolean = !isAidlFresh()
@@ -636,6 +776,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -644,6 +785,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val config = intent.getStringExtra(VpnManager.extraConfigKey(this))
                 val title = intent.getStringExtra(VpnManager.extraTitleKey(this))
                 userInitiatedStart = true
+                VpnManager.clearRecentActionStartDispatch()
                 if (ConnectionStateManager.state.value == ConnectionState.DISCONNECTING) {
                     ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
                 }
@@ -659,8 +801,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 } else {
                     sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                     sessionAttempt = 1
+                    watchdogRecoveryInFlight = false
+                    watchdogState.recoveryAttempts = 0
                 }
+                currentAttemptStartMs = watchdogNowMs()
+                currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
+                val attemptGeneration = connectionAttemptGeneration.incrementAndGet()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                if (isReconnect) {
+                    reconnectDispatchPendingGeneration = attemptGeneration
+                }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 try {
@@ -682,7 +832,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 ConnectionStateManager.updateState(ConnectionState.CONNECTING)
                 suppressEngineState = false
-                startIcsOpenVpn(config, title)
+                if (isReconnect) {
+                    val dispatchGeneration = attemptGeneration
+                    statusHandler.postAtTime(Runnable {
+                        fun clearMarkerIfOwn() {
+                            if (reconnectDispatchPendingGeneration == dispatchGeneration) {
+                                reconnectDispatchPendingGeneration = -1
+                            }
+                        }
+                        if (userInitiatedStop || serviceDestroyed) {
+                            clearMarkerIfOwn()
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
+                            return@Runnable
+                        }
+                        if (connectionAttemptGeneration.get() != dispatchGeneration) {
+                            clearMarkerIfOwn()
+                            AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
+                            return@Runnable
+                        }
+                        startIcsOpenVpn(config, title)
+                        clearMarkerIfOwn()
+                    }, reconnectEngineDispatchToken, SystemClock.uptimeMillis() + ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
+                } else {
+                    startIcsOpenVpn(config, title)
+                }
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
@@ -690,6 +863,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 pauseActionInFlight = false
                 resumeActionInFlight = false
@@ -701,6 +875,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
+                    connectionAttemptGeneration.incrementAndGet()
+                    // Sweep the reconnect engine-dispatch token too (defence in depth alongside the
+                    // generation bump above) -- see reconnectEngineDispatchToken's declaration comment.
+                    statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
                     statusHandler.removeCallbacks(stopRetryRunnable)
                     statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
@@ -715,6 +893,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.d(TAG, "Ignoring stop-if-idle while VPN is active")
                     return START_NOT_STICKY
                 }
+                if (VpnManager.hasRecentActionStartDispatch()) {
+                    AppLog.i(TAG, "Stop-if-idle stopSelf() aborted: recent ACTION_START dispatch still in flight")
+                    return START_NOT_STICKY
+                }
                 exitControllerForeground()
                 stopSelf()
             }
@@ -726,6 +908,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 oneShotSyncRequested = true
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+                statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
                 statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
                 if (!boundToStatus) bindStatusService()
                 val snapshotApplied = trySyncStatusSnapshot()
@@ -787,6 +970,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleOneShotStop(delayMs: Long = ONE_SHOT_STOP_DELAY_MS) {
         if (!oneShotSyncRequested) return
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.postDelayed(stopAfterOneShotSyncRunnable, delayMs)
     }
 
@@ -866,10 +1050,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun applyAppFilter(profile: VpnProfile) {
+        // Establish the safe state (nothing excluded, list interpreted as a disallow list) BEFORE
+        // the fallible read. loadExcludedPackages() can throw -- getStringSet raises
+        // ClassCastException on a corrupted or wrong-typed preference -- and if it did so while
+        // these two assignments came after it, the profile would keep whatever it already carried.
+        // Do not reorder: this method must never leave app-routing directives half-applied.
+        profile.mAllowedAppsVpn.clear()
+        profile.mAllowedAppsVpnAreDisallowed = true
         try {
             val excluded = AppFilterStore.loadExcludedPackages(applicationContext)
-            profile.mAllowedAppsVpn.clear()
-            profile.mAllowedAppsVpnAreDisallowed = true
             if (excluded.isNotEmpty()) {
                 profile.mAllowedAppsVpn.addAll(excluded)
             }
@@ -981,19 +1170,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun stopSelfSafely() { stopSelf() }
 
     override fun onDestroy() {
+        // Set before anything else -- including the autoSwitchDispatchToken sweep a few lines
+        // below and unregisterStatusCallback() further down -- so there is no window where a
+        // binder thread reading this flag observes a stale false. See the field's doc comment
+        // for why this is distinct from userInitiatedStop.
+        serviceDestroyed = true
+        isInstanceAlive = false
         exitControllerForeground()
+        unregisterAppLifecycleObserver()
         super.onDestroy()
         VpnStatus.removeStateListener(this)
         VpnStatus.removeLogListener(this)
         try { VpnStatus.removeByteCountListener(this) } catch (_: Exception) {}
         statusHandler.removeCallbacks(statusRebindRunnable)
         statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
+        statusHandler.removeCallbacks(stopAfterOneShotSyncConfirmedRunnable)
         statusHandler.removeCallbacks(oneShotSyncTimeoutRunnable)
         statusHandler.removeCallbacks(pauseActionTimeoutRunnable)
         statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
         statusHandler.removeCallbacks(stopRetryRunnable)
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
+        statusHandler.removeCallbacksAndMessages(autoSwitchDispatchToken)
+        // Sweep the reconnect engine-dispatch token too -- without this, a deferred dispatch
+        // queued before onDestroy() would retain a strong reference to this Service for up to
+        // ENGINE_RECONNECT_DISPATCH_BUFFER_MS after destroy.
+        statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -1011,8 +1213,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(stopOnFailure: Boolean = true): Boolean {
-        if (controllerForegroundActive) return true
+    private fun enterControllerForeground(): Boolean {
+        // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
+        // already true: a genuine ACTION_START must get a fresh call to satisfy Android's
+        // foreground-service-start timing requirement. Repeated calls are idempotent.
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
             val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
@@ -1032,9 +1236,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to enter controller foreground${if (stopOnFailure) "; stopping service" else ""}", t)
+            // Do NOT call stopSelf() here. ACTION_START calls this method after its own
+            // startForegroundService() has already been dispatched, so the FGS-start obligation is
+            // still undischarged -- stopSelf() here would turn a recoverable "could not show the
+            // notification" failure into a ForegroundServiceDidNotStartInTimeException. Both
+            // callers already treat a `false` return as sufficient signal to bail out.
+            AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
-            if (stopOnFailure) stopSelf()
             return false
         }
     }
@@ -1171,8 +1379,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             intent: Intent?
         ) {
             if (level == null) return
-            lastStatusSnapshotMs = System.currentTimeMillis()
+            lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
+            lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
             staleSnapshotCount = 0
             updateStatusSource(StatusSource.AIDL, "AIDL update")
             logEngineStateChange("AIDL", level, state)
@@ -1293,12 +1502,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
                 val currentState = ConnectionStateManager.state.value
                 if (currentState != lastPolledState) {
+                    // A watchdog-driven recovery reconnects, so it lands here itself. Carry the
+                    // attempt count across that transition -- otherwise the watchdog resets its own
+                    // budget every time it spends some of it. Timing fields are deliberately NOT
+                    // carried: the new tunnel gets a fresh warmup grace period.
+                    val carriedRecoveryAttempts =
+                        if (watchdogRecoveryInFlight) watchdogState.recoveryAttempts else 0
                     if (currentState == ConnectionState.CONNECTED) {
                         resetHealthWatchdog(nowMs = watchdogNowMs())
                     } else {
                         lastPolledDatapoint = null
                         resetHealthWatchdog()
                     }
+                    watchdogState.recoveryAttempts = carriedRecoveryAttempts
                     lastPolledState = currentState
                 }
 
@@ -1387,7 +1603,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         if (sampleAdvanced && trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES) {
-            markWatchdogHealthy(now, "traffic", trafficDeltaBytes)
+            markWatchdogHealthy(now, "traffic", trafficDeltaBytes, trafficVerified = true)
             return
         }
 
@@ -1438,7 +1654,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun handleConnectedProbeResult(probeSucceeded: Boolean, trafficDeltaBytes: Long) {
         val now = watchdogNowMs()
         if (probeSucceeded) {
-            markWatchdogHealthy(now, "probe", trafficDeltaBytes)
+            // Reachable, but no traffic evidence: clears the failure streak, keeps the budget.
+            markWatchdogHealthy(
+                now,
+                "probe",
+                trafficDeltaBytes,
+                trafficVerified = trafficDeltaBytes >= WATCHDOG_MIN_TRAFFIC_DELTA_BYTES
+            )
             return
         }
 
@@ -1478,18 +1700,47 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             try { probeQueue?.enqueue(watchdogServerId) } catch (e: Exception) { AppLog.w(TAG, "Watchdog: failed to enqueue hardprobe for serverId=$watchdogServerId", e) }
         }
         try {
-            watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+            // Set before dispatch: beginChainedSwitch can drive the state change synchronously.
+            watchdogRecoveryInFlight = true
+            val dispatched =
+                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+            if (!dispatched) {
+                // Nothing was dispatched -- auto-switch is off, or the stop command was rejected.
+                // Do not burn the budget on attempts that never happen: that ends in a fail-safe
+                // disconnect three cycles later with logs claiming recoveries that did not occur.
+                // Fail safe now, for the same reason a missing recovery target does: there is no
+                // mechanism to recover with.
+                AppLog.e(TAG, "Watchdog: recovery not dispatched; entering fail-safe disconnect")
+                triggerWatchdogFailSafeDisconnect("recovery_unavailable")
+                return
+            }
         } catch (e: Exception) {
             AppLog.w(TAG, "Watchdog: failed to dispatch recovery", e)
             triggerWatchdogFailSafeDisconnect("recovery_dispatch_failed")
         }
     }
 
-    private fun markWatchdogHealthy(nowMs: Long, source: String, trafficDeltaBytes: Long) {
+    /**
+     * @param trafficVerified true only when real traffic was observed. A successful TCP probe means
+     *   the peer is reachable, which clears the failure streak -- but it is NOT evidence that the
+     *   tunnel carries data, so it must not refill the recovery budget. Otherwise a tunnel that
+     *   answers probes while passing nothing would reset the bound on every cycle and recover
+     *   forever, which is the exact case the budget exists to stop.
+     */
+    private fun markWatchdogHealthy(
+        nowMs: Long,
+        source: String,
+        trafficDeltaBytes: Long,
+        trafficVerified: Boolean
+    ) {
         val hadRecoveryState = watchdogState.degraded || watchdogState.recoveryAttempts > 0 || watchdogState.consecutiveFailures > 0
         watchdogState.consecutiveFailures = 0
         watchdogState.degraded = false
-        watchdogState.recoveryAttempts = 0
+        if (trafficVerified) {
+            // The recovery chain genuinely succeeded: the budget is spent and refilled.
+            watchdogRecoveryInFlight = false
+            watchdogState.recoveryAttempts = 0
+        }
         watchdogState.lastHealthyTimestamp = nowMs
         watchdogState.lastRecoveryTimestamp = 0L
         AppLog.iThrottled(
@@ -1588,6 +1839,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun triggerWatchdogFailSafeDisconnect(reason: String) {
         AppLog.e(TAG, "Watchdog: fail-safe disconnect reason=${reason}")
+        // The recovery chain is over either way; do not carry the count into whatever comes next.
+        watchdogRecoveryInFlight = false
+        watchdogState.recoveryAttempts = 0
         startUserStopTeardown("watchdog_fail_safe", forceReset = true)
     }
 
@@ -1667,11 +1921,55 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun applyStatusSnapshot(snapshot: StatusSnapshot) {
         val level = snapshot.level ?: return
-        val now = System.currentTimeMillis()
+        val now = watchdogNowMs()
+        val nowElapsedRealtimeMs = elapsedRealtimeMs()
         val ts = snapshot.timestampMs
-        if (ts > 0L && level in staleSnapshotTimeoutLevels) {
+        // Applied unconditionally to every level -- see staleSnapshotMaxAgeMs's declaration comment.
+        if (ts > 0L) {
+            // ACTION_SYNC_STATUS reattachment leaves currentAttemptStartMs at 0L; backfill it from
+            // the first active snapshot so later ones have a baseline. Classified on the NORMALIZED
+            // level -- a raw lagging LEVEL_NONETWORK on a "CONNECTED" state string would otherwise
+            // skip the backfill.
+            val normalizedLevelForBackfill = ConnectionStateManager.normalizeEngineLevel(level, snapshot.state)
+            val willBackfillAttemptBaseline = currentAttemptStartMs == 0L &&
+                normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS
             val ageMs = now - ts
-            if (ageMs > staleSnapshotMaxAgeMs) {
+            // Age alone cannot separate a leftover snapshot from a past attempt (reject) from an
+            // old-but-current one whose attempt is simply stuck (keep -- it is ServerAutoSwitcher's
+            // only signal). When currentAttemptStartMs is known, the predates-check is the ONLY
+            // test applied, independent of age; only when it is unknown does the age gate apply.
+            val currentAttemptStartKnown = currentAttemptStartMs > 0L
+            val knownToPredateCurrentAttempt = currentAttemptStartKnown && ts < currentAttemptStartMs
+            // A backward wall-clock correction (e.g. NTP) makes every post-correction snapshot look
+            // like it predates the attempt, silently defeating the stale-push auto-switch. Detect
+            // it by pairing the wall clock with monotonic elapsedRealtime(): less wall-clock time
+            // elapsed than real time means the clock moved back by roughly that difference, and a
+            // predates-gap covered by that estimate is trusted. The ts <= now + slack term keeps a
+            // genuinely stale pre-jump snapshot (its ts lands ahead of a corrected `now`) from
+            // being waived by an unrelated jump elsewhere in the attempt's lifetime.
+            val predatesExplainedByBackwardClockJump = knownToPredateCurrentAttempt &&
+                currentAttemptStartElapsedRealtimeMs > 0L &&
+                ts <= now + clockJumpSlackMs &&
+                run {
+                    val wallClockDeltaSinceStartMs = now - currentAttemptStartMs
+                    val realElapsedSinceStartMs =
+                        nowElapsedRealtimeMs - currentAttemptStartElapsedRealtimeMs
+                    val estimatedJumpMs = realElapsedSinceStartMs - wallClockDeltaSinceStartMs
+                    val predatesGapMs = currentAttemptStartMs - ts
+                    estimatedJumpMs > clockJumpMinDetectableMs &&
+                        predatesGapMs <= estimatedJumpMs + clockJumpSlackMs
+                }
+            val shouldRejectAsStale = if (currentAttemptStartKnown) {
+                knownToPredateCurrentAttempt && !predatesExplainedByBackwardClockJump
+            } else if (willBackfillAttemptBaseline) {
+                // Reattach path: bounded trust rather than the unbounded acceptance that adopting
+                // this snapshot's own timestamp as the baseline before the check would produce.
+                // See reattachSnapshotMaxAgeMs's declaration comment.
+                ageMs > reattachSnapshotMaxAgeMs
+            } else {
+                ageMs > staleSnapshotMaxAgeMs
+            }
+            if (shouldRejectAsStale) {
                 if (now - lastLiveStatusMs <= liveStatusGraceMs) {
                     AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
@@ -1683,11 +1981,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 return
             }
+            // Backfilled only AFTER the staleness verdict above, and only from a snapshot that
+            // passed it. Doing this before the check (the pre-fix ordering) set
+            // currentAttemptStartMs = ts, which made currentAttemptStartKnown true and
+            // `ts < currentAttemptStartMs` trivially false, so the age fallback -- the only
+            // staleness test available when no baseline is known -- could never fire for the very
+            // snapshot that supplied the baseline. Keeping the assignment here also stops a
+            // rejected snapshot from installing an ancient baseline that every later comparison
+            // would then measure against.
+            if (willBackfillAttemptBaseline) {
+                currentAttemptStartMs = ts
+                // Estimate what elapsedRealtimeMs() was when this snapshot's own timestamp (ts)
+                // was captured, keeping the pairing with currentAttemptStartMs consistent with the
+                // ACTION_START path, where both fields are captured together at the same instant.
+                currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - ageMs
+            }
         }
         staleSnapshotCount = 0
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
-        syncEngineState(level, snapshot.state, allowAutoSwitch = false)
+        // isAidlFresh() also covers boundToStatus and lastLiveStatusMs > 0 (a live push has ever
+        // arrived), not just the freshness-window comparison -- both can independently make it
+        // false, e.g. the status binder dying on another thread mid-read of this snapshot.
+        val livePushStale = !isAidlFresh()
+        syncEngineState(level, snapshot.state, allowAutoSwitch = livePushStale)
         onOneShotInitialStateSynced("AIDL snapshot")
         if (level == ConnectionStatus.LEVEL_CONNECTED) {
             if (snapshot.connectedSinceMs > 0L) {
@@ -1725,17 +2042,28 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
         logEngineLevel(level, detail)
-        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle.
-        // We must NOT exit the FGS notification in two situations:
-        // 1. Chained auto-switch (reconnectingHint=true): the engine is intentionally stopped
-        //    before the next server start — dropping the notification here reopens the 5-second
-        //    AMS timer race (RemoteServiceException crash, 2026-06-25).
-        // 2. User-initiated rapid reconnect (userInitiatedStart=true): the user tapped Connect
-        //    while a stale LEVEL_NOTCONNECTED from the previous session may still be in-flight
-        //    on the binder thread; dropping the FGS notification here removes the safety net
-        //    started by ACTION_START and reopens the same 5-second race window.
-        // ACTION_STOP and the ACTION_SYNC_STATUS handler both call exitControllerForeground()
-        // explicitly, so those paths are unaffected by this guard.
+        // Normalize ONCE, up front, and forward the SAME result to every consumer that derives an
+        // "effective" engine level from (level, detail). Normalizing separately per consumer let
+        // ServerAutoSwitcher and ConnectionStateManager observe two DIFFERENT effective levels for
+        // the exact same snapshot -- a raw connecting-family level could start a needless switch
+        // timer on an already-healthy connection, and a raw LEVEL_NONETWORK could trigger an
+        // immediate switch away from a connection the app itself already recognizes as connected.
+        // This "normalize once" guarantee covers exactly those two consumers
+        // (dispatchAutoSwitcherOnEngineLevel / ConnectionStateManager.updateFromEngine) below --
+        // it is not a whole-function invariant. The stop-flow reconciliation further down
+        // (maybeStartStaleStopReconciliation, maybeClearStaleStopIntentOnIdleLevel,
+        // shouldIgnoreLevelAfterUserStop, handleEngineLevelForStop) is intentionally fed the raw
+        // `level`, not `normalizedLevel`: it reasons about what the engine literally reported, not
+        // about the app's effective interpretation of it.
+        val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, detail)
+        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle. Must NOT exit the FGS
+        // notification in two situations: (1) chained auto-switch (reconnectingHint=true), where
+        // the engine is intentionally stopped before the next server start -- dropping the
+        // notification reopens the AMS FGS-obligation race; and (2) a user-initiated rapid
+        // reconnect (userInitiatedStart=true), where a stale LEVEL_NOTCONNECTED from the previous
+        // session may still be in-flight while a fresh ACTION_START's notification is the safety
+        // net. ACTION_STOP and ACTION_SYNC_STATUS both call exitControllerForeground() explicitly,
+        // so those paths are unaffected by this guard.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         if (controllerForegroundActive
@@ -1744,24 +2072,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !reconnectPending) {
             exitControllerForeground()
         }
-        // Clear userInitiatedStart when the engine reports a successful connection, or a
-        // terminal failure, via the AIDL path. updateState() (the VPN_STATUS path) clears it in
-        // the equivalent cases, but when the status service is fresh (isAidlFresh()=true),
-        // updateState() returns early and never reaches that code — syncEngineState() (called
-        // from the AIDL callback path, updateStateString) is then the only place that can clear
-        // it. Without this clear, userInitiatedStart stays true after a failed user-initiated
-        // connect (e.g. auto-switch disabled, no network), leaving the FGS guard's
-        // reconnectPending stuck and the "VPN connecting" notification undismissable.
-        //
-        // NOTE: intentionally NOT followed by an immediate exitControllerForeground() for this
-        // callback (tried in rounds 7-8, reverted in round 10): a stale LEVEL_NOTCONNECTED from
-        // a PREVIOUS session can legitimately arrive here while a NEW user-initiated start is
-        // still in flight (userInitiatedStart=true, reconnectingHint=false) — indistinguishable
-        // from a genuine terminal failure of the current attempt without a start-generation
-        // token. Exiting foreground in that case reopens the exact FGS crash window the
-        // reconnectPending guard exists to prevent. Accepting the narrower, lower-severity
-        // gap instead: a single terminal-failure callback with no follow-up idle callback may
-        // leave the "VPN connecting" notification stuck until the next engine callback.
+        // The only place userInitiatedStart gets cleared while the status service is fresh (the
+        // VPN_STATUS path returns early then), otherwise reconnectPending stays stuck and the
+        // "VPN connecting" notification is undismissable. Intentionally NOT followed by
+        // exitControllerForeground(): a stale LEVEL_NOTCONNECTED arriving during a new start is
+        // indistinguishable from a genuine failure here, and exiting would reopen the FGS window.
         if (level == ConnectionStatus.LEVEL_CONNECTED || level in AUTO_SWITCH_LEVELS) {
             userInitiatedStart = false
         }
@@ -1769,14 +2084,104 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
         if (allowAutoSwitch) {
+            dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
+        }
+        ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
+        handleEngineLevelForStop(level, "AIDL")
+    }
+
+    // Shared Handler token tagging every deferred dispatch posted by
+    // dispatchAutoSwitcherOnEngineLevel() below, so teardown paths (startUserStopTeardown(),
+    // onDestroy()) can cancel ALL of them in one removeCallbacksAndMessages(token) call. A single
+    // mutable `Runnable?` field would only remember the most recently posted runnable: if the AIDL
+    // binder thread posts more than one deferred dispatch before the main looper drains its queue,
+    // each new post would orphan the previous one, leaving it uncancellable.
+    private val autoSwitchDispatchToken = Any()
+
+    // Dedicated token for the ENGINE_RECONNECT_DISPATCH_BUFFER_MS deferred dispatch (the
+    // ACTION_START isReconnect==true branch below), swept at the same sites as
+    // autoSwitchDispatchToken (onDestroy(), the preserveReconnect stop branch,
+    // startUserStopTeardown()) so this dispatch is cancellable like every other deferred action in
+    // this class.
+    private val reconnectEngineDispatchToken = Any()
+
+    // syncEngineState() is reachable both from the AIDL binder thread (updateStateString) and from
+    // the main thread (applyStatusSnapshot). ServerAutoSwitcher's internal timer state is guarded
+    // only by non-atomic check-then-act sequences that assume a single (main-looper) caller, so
+    // every invocation is routed through the main-looper statusHandler when not already on the
+    // main thread, serializing binder-thread and main-thread callers onto the same queue. The fast
+    // path preserves synchronous behavior for the applyStatusSnapshot main-thread caller.
+    private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
+        // Checked at the enqueue point rather than relying solely on onDestroy()'s
+        // removeCallbacksAndMessages(autoSwitchDispatchToken) sweep, which only clears dispatches
+        // queued BEFORE the sweep runs: an in-flight binder callback that had already started
+        // executing before teardown began, but had not yet reached this function, could still
+        // enqueue a dispatch afterward. userInitiatedStop is not a substitute here during a
+        // system-driven onDestroy() (e.g. task removal), where it stays false.
+        if (serviceDestroyed) return
+        // While a reconnect engine-dispatch buffer is pending for the current generation, no new
+        // engine process has been asked to start yet, so any level received right now is
+        // necessarily a stray delivery from the just-stopped previous engine -- forwarding it would
+        // let it skip the selected server without ever trying it. See
+        // reconnectDispatchPendingGeneration's declaration comment.
+        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+            AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
+            return
+        }
+        // Capture whether ConnectionStateManager.state was CONNECTING synchronously, right now --
+        // before syncEngineState() calls updateFromEngine() on the calling thread, which can flip
+        // CONNECTING -> DISCONNECTED for a terminal level before a deferred dispatch below actually
+        // runs. Passing this pre-mutation snapshot through preserves the ordering guarantee that an
+        // immediate switch is not silently skipped just because the dispatch had to be deferred.
+        val wasConnectingAtDispatch = try {
+            ConnectionStateManager.state.value == ConnectionState.CONNECTING
+        } catch (_: Exception) {
+            false
+        }
+        // Snapshot the attempt generation valid right now, at the moment this level was received --
+        // see connectionAttemptGeneration's declaration comment. If a fresh ACTION_START bumps the
+        // live counter before the runnable below actually executes, the mismatch proves a newer
+        // attempt has begun since this dispatch was queued.
+        val dispatchedForGeneration = connectionAttemptGeneration.get()
+        val invoke = Runnable {
+            // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
+            // runnable already being pulled off the main-looper queue, don't act on it once the
+            // user has stopped the VPN in the meantime, or once the service itself has been
+            // destroyed (system-driven onDestroy(), where userInitiatedStop stays false).
+            if (userInitiatedStop || serviceDestroyed) return@Runnable
+            // Re-validated at the last possible moment, right before touching ServerAutoSwitcher:
+            // userInitiatedStop is NOT a reliable signal for the stop-then-restart race a fresh
+            // ACTION_START clears it back to false as part of starting the new attempt, even
+            // though this dispatch was queued for a now-superseded attempt. A generation mismatch
+            // means exactly that happened, so skip unconditionally regardless of the flag above.
+            if (connectionAttemptGeneration.get() != dispatchedForGeneration) return@Runnable
+            // Re-evaluate the same suppression predicate checked above, but here at execution time
+            // rather than trusting the capture-time read: reconnectDispatchPendingGeneration and
+            // connectionAttemptGeneration are updated by two separate statements in ACTION_START, so
+            // a level captured strictly between the generation bump and the marker arm can observe
+            // a torn (marker=stale, generation=G) snapshot and evade suppression at the earlier
+            // check. This Runnable always executes on statusHandler's main looper -- the same
+            // thread that owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) --
+            // so if onStartCommand() has since armed the marker to match the live generation, this
+            // catches it even though the capture-time check could not.
+            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
+                return@Runnable
+            }
             try {
-                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL")
+                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }
         }
-        ConnectionStateManager.updateFromEngine(level, detail)
-        handleEngineLevelForStop(level, "AIDL")
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            invoke.run()
+        } else {
+            // Tag with the shared token (instead of a plain post()) so teardown can cancel this
+            // dispatch -- and any other deferred dispatch still queued alongside it -- in one
+            // removeCallbacksAndMessages(autoSwitchDispatchToken) call.
+            statusHandler.postAtTime(invoke, autoSwitchDispatchToken, SystemClock.uptimeMillis())
+        }
     }
 
     private fun shouldIgnoreLevelAfterUserStop(level: ConnectionStatus): Boolean {

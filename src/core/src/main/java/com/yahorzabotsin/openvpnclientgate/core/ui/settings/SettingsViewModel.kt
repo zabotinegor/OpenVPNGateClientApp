@@ -14,7 +14,6 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshSch
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,7 +31,6 @@ class SettingsViewModel(
     private val tag = LogTags.APP + ':' + "SettingsViewModel"
 
     private var serverSourceSyncJob: Job? = null
-    private var customUrlSyncJob: Job? = null
     private var languageRelocalizationJob: Job? = null
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -50,7 +48,6 @@ class SettingsViewModel(
             is SettingsAction.SelectLanguage -> onLanguageSelected(action.option)
             is SettingsAction.SelectTheme -> onThemeSelected(action.option)
             is SettingsAction.SelectServerSource -> onServerSourceSelected(action.source)
-            is SettingsAction.SetCustomServerUrl -> onCustomServerUrlChanged(action.value)
             is SettingsAction.SetAutoSwitchWithinCountry -> onAutoSwitchChanged(action.enabled)
             is SettingsAction.SetStatusStallTimeoutInput -> onStatusTimeoutChanged(action.value)
             is SettingsAction.SetCacheTtlInput -> onCacheTtlChanged(action.value)
@@ -63,7 +60,6 @@ class SettingsViewModel(
             language = settings.language,
             theme = settings.theme,
             serverSource = settings.serverSource,
-            customServerUrl = settings.customServerUrl,
             autoSwitchWithinCountry = settings.autoSwitchWithinCountry,
             statusStallTimeoutSeconds = settings.statusStallTimeoutSeconds,
             statusStallTimeoutInput = settings.statusStallTimeoutSeconds.toString(),
@@ -124,8 +120,6 @@ class SettingsViewModel(
 
     private fun onServerSourceSelected(source: ServerSource) {
         if (_state.value.serverSource == source) return
-        customUrlSyncJob?.cancel()
-        customUrlSyncJob = null
         languageRelocalizationJob?.cancel()
         languageRelocalizationJob = null
         val old = _state.value.serverSource
@@ -140,34 +134,6 @@ class SettingsViewModel(
                 reason = "server source changed"
             )
         }
-    }
-
-    private fun onCustomServerUrlChanged(value: String) {
-        val current = _state.value
-        if (current.serverSource != ServerSource.CUSTOM) return
-        if (current.customServerUrl == value) return
-
-        _state.value = current.copy(customServerUrl = value)
-
-        val previousTrimmed = current.customServerUrl.trim()
-        val newTrimmed = value.trim()
-        if (previousTrimmed == newTrimmed) return
-
-        repository.saveCustomServerUrl(newTrimmed)
-        logger.logCustomServerUrlChanged(newTrimmed)
-        customUrlSyncJob?.cancel()
-        customUrlSyncJob = viewModelScope.launch {
-            delay(CUSTOM_URL_SYNC_DEBOUNCE_MS)
-            triggerServerSync(
-                forceRefresh = true,
-                clearCacheBeforeRefresh = false,
-                reason = "custom server URL changed"
-            )
-        }
-    }
-
-    companion object {
-        private const val CUSTOM_URL_SYNC_DEBOUNCE_MS = 1_000L
     }
 
     private fun onAutoSwitchChanged(enabled: Boolean) {

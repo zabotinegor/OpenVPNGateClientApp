@@ -267,39 +267,10 @@
                         style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
 
                     <RadioButton
-                        android:id="@+id/server_default"
-                        android:text="@string/settings_server_default"
-                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
-
-                    <RadioButton
                         android:id="@+id/server_vpngate"
                         android:text="@string/settings_server_vpngate"
                         style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
-
-                    <RadioButton
-                        android:id="@+id/server_custom"
-                        android:text="@string/settings_server_custom"
-                        style="@style/Widget.OpenVPNClientGate.Settings.RadioButton" />
                 </RadioGroup>
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/custom_server_input_layout"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    app:boxStrokeColor="@color/settings_input_stroke"
-                    android:visibility="gone">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/custom_server_input"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:hint="@string/settings_server_custom_hint"
-                        android:inputType="textUri"
-                        android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body"
-                        android:textColor="@null" />
-                </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </LinearLayout>
 

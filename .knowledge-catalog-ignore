@@ -1,0 +1,14 @@
+# Cited paths that are legitimately not in this repository, so the knowledge-catalog
+# validator should not report them as rotted citations. One regex per line.
+#
+# Only add a pattern when the path genuinely lives somewhere else. A file that used to
+# be in the repo and was deleted or renamed does NOT belong here - fix the citation.
+
+# On-device paths, named when documenting adb inspection of app storage.
+^shared_prefs/
+_prefs\.xml$
+^user_settings\.xml$
+
+# Android framework and vendor-ROM resources, named to explain styling and MIUI quirks.
+^abc_[a-z_]+\.xml$
+^theme_compatibility\.xml$

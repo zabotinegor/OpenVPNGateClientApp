@@ -36,7 +36,7 @@
 ## Conventions
 - Branch naming follows `feature/<feature_name>` for feature branches, `bugfix/<issue>` for bug fixes, and `hotfix/<issue>` for urgent hotfixes. Use lowercase with hyphens for multi-word features.
 - Keep new domain and UI logic in `src/core` unless the change is genuinely mobile-only or tv-only.
-- Use Timber for logging. Follow `src/docs/logging-policy.md`; do not introduce `android.util.Log` for app code.
+- Use Timber for logging. Follow `docs/features/logging.md`; do not introduce `android.util.Log` for app code.
 - Do not log secrets, raw credentials, or full sensitive URLs.
 - Build-time server endpoints come from Gradle properties, environment variables, or `servers.local.json`, in that order. Do not hardcode production endpoints in source files.
 - If a task changes API contracts for updates, releases, version metadata, or server-list payloads, inspect the backend implementation using the local path from `AGENTS.local.md` and keep client/server formats aligned.
@@ -60,6 +60,9 @@
   - `./gradlew assembleDebugApp`
   - `./gradlew testDebugUnitTestApp`
   - For release verification, use `assembleReleaseApp` or `bundleReleaseApp` with required `-P` properties.
+  - `testDebugUnitTestApp` does not run the engine's own unit tests (`:openVpnEngine` is not a dependency of that aggregate task). Run `./gradlew :openVpnEngine:testFullDebugUnitTest` directly when the merged upstream commits add or change engine-side tests. See `docs/guides/how-to.md`.
+  - If the merged upstream commits raise the engine module's `compileSdk`/`targetSdk`, the first build on a machine without that SDK Platform installed can fail with `Failed to find target with hash string 'android-NN'`; retry once the SDK manager installs it (or install it explicitly). See `docs/guides/troubleshooting.md`.
+  - Run the full regression checklist in `docs/guides/engine-update.md` (cold launch, server-list load, VPN connect/watchdog/disconnect, notification-tap regression, full-session stability) before trusting the merge.
 - Safety constraints:
   - Do not perform incidental refactors in `src/external/OpenVPNEngine` during conflict resolution.
   - Keep module wiring intact: `:openVpnEngine` must continue to map to `src/external/OpenVPNEngine/main`.
@@ -79,7 +82,7 @@
 - Keep local overlays aligned with global docs while preserving local-only constraints:
   - README.local.md
   - AGENTS.local.md
-- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md.
+- For docs-only maintenance tasks, follow .github/agents/docs-maintainer.agent.md and .github/skills/docs-maintenance/SKILL.md. These are local-only, gitignored, and mirrored via the `agent-sync` skill — if absent (fresh checkout without agent-sync run), treat as not-yet-provisioned and ask the user to run `agent-sync` rather than assuming the workflow doesn't apply or silently skipping it (same pattern as `AGENTS.local.md`).
 - Android device E2E references are documented by suite identifiers in test KDoc and local testing notes; keep them out of `.github/skills/` unless the catalog is explicitly added to this repository.
 
 ## Long-Running Operation Rules
@@ -102,9 +105,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 
 ## Docs to Link Instead of Rewriting
 - `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
-- `src/docs` for technical implementation notes used by contributors and AI agents.
-- `src/docs/logging-policy.md` for logging levels, throttling, and privacy rules.
-- `src/docs/server-sync-flow.md` for server-list synchronization triggers, guard conditions, and coordinator reuse guidance.
+- `docs/INDEX.md` for the full technical knowledge-base catalog — flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks. This is the one entry point; read the relevant catalog row rather than re-deriving or re-documenting something the catalog already covers.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.
 
@@ -118,7 +119,7 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/main/MainActivityCore.kt` for the shared main UI flow.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/ServerSelectionSyncCoordinator.kt` for the shared server-list synchronization entrypoint used by splash, main foreground, settings changes, and periodic refresh.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/refresh/ServerRefreshWorker.kt` for periodic sync execution that reuses the shared coordinator.
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for source/custom URL changes that trigger forced server sync.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/settings/SettingsViewModel.kt` for server source changes that trigger forced server sync.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` for VPN lifecycle integration.
 
 ## When Extending Instructions
@@ -131,27 +132,21 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - If the scripts remain unavailable after attempting provisioning, treat the session-limit bootstrap steps as not applicable, report the missing tooling to the user, and continue only with work that does not depend on them.
 
 <!-- BEGIN COPILOT SYNC -->
-## MANDATORY FIRST STEP — Session Limit Check
+## MANDATORY FIRST STEP — Session Recovery Check
 
 Before reading any other file or taking any action, every agent must:
 
-1. Run `pwsh -File .github/scripts/init-session.ps1`
-2. Run `pwsh -File .github/scripts/check-rate-limit.ps1`
-3. If status is `warning` (>=80%) or `exhausted` (>=100%):
-   a. Finish any current atomic unit.
-   b. Run `pwsh -File .github/scripts/checkpoint-session.ps1` with current flow state.
-   c. Schedule in-session auto-resume: if the reset is <=58 min away (3480s), call `ScheduleWakeup` with `delaySeconds` = seconds until `resetsAtUtc` + 120 (from `.sdlc/session.json`), `reason` = "Session limit reached — resuming at step <currentStep>", and `prompt` = the resume command; otherwise call `CronCreate` with `recurring: false` pinned to `resetsAtUtc` + 2 minutes (local time) with the resume command as the prompt. Keep the app window open — these jobs are session-local (see operational-rules.md, Session Limit Rules item 5).
-   d. Stop. Do not proceed with the requested task.
-4. During the session: check rate limit before every long operation, before every call to `update-sdlc-status.ps1`, AND periodically during long-running phases — at every substep/iteration/surface boundary and at least every ~10 tool operations or ~5 minutes of continuous work. A start-of-run check alone is not enough: many short tool calls in a row can exhaust the window without any single "long operation".
-5. If a `[SESSION WARNING]`, `[SESSION HIGH]`, or `[SESSION CRITICAL]` message appears after a tool call mid-turn: finish the current atomic action and immediately checkpoint — do not start new reasoning or tool sequences.
-6. On `warning`/`exhausted` mid-run: write the substep checkpoint first (`pwsh -File .github/scripts/update-sdlc-status.ps1 -Substep ...`). Then, if running as a **subagent**, return `GATE: BLOCKED`, `REASON: rate-limit` with completed substeps and remaining scope — never call `ScheduleWakeup`/`CronCreate` from a subagent; the orchestrator checkpoints the session and schedules resume. Standalone sessions follow step 3.
-7. Orchestrators: run `pwsh -File .github/scripts/check-rate-limit.ps1` before every subagent spawn; do not spawn an expensive specialist (manual-qa, implement, code-review, quality-gate, merge, bug-flow) at >=80% — checkpoint and stop instead.
-8. After ANY wakeup, auto-resume, or session restore: re-read `.sdlc/status.json` (steps, substeps, `lastUpdatedUtc`) and re-derive the entry step from the flow's resume table before acting — never resume from wakeup reason text, conversation memory, or `checkpoint.currentStep` alone; another session (possibly another account) may have advanced the flow while this one slept.
-9. **Flow lease (enforced):** every flow carries a 15-minute lease enforced by `update-sdlc-status.ps1`. Capture your `sessionId` once at flow start and pass `-SessionId` on every status write. At flow start/resume/wakeup: `-Lease check -SessionId <yours>`; exit 0 → `-Lease acquire` and proceed; exit 2 → another session is live — do not touch the flow; schedule a fresh wakeup (~15 min) or ask the user. Use `-Lease acquire -TakeOver` only on an explicit user handoff. A status write rejected with exit 2 means the lease was lost — stop immediately, cancel your own scheduled wakeups/cron jobs for the flow, report the handoff in one line. Before asking the user a blocking question, run `-Lease renew -WaitingForUser` — a waiting lease never expires and can only be displaced by an explicit `-TakeOver`; when the answer arrives, re-run `-Lease check` before acting (the next status write clears the mark). A session hitting a waiting lease reports the pending question to the user instead of scheduling retry wakeups. Run `-Lease release` at flow completion and when checkpointing for a long sleep. Subagents never take over; on exit 2 they return `GATE: BLOCKED`, `REASON: lease-conflict`.
-10. **Idle guard (mandatory — closes the checkpoint gap):** Any turn that ends with an SDLC flow mid-step MUST leave either (a) a completed handoff to the next specialist OR (b) an armed `ScheduleWakeup` / `CronCreate` resume. A rate-limit checkpoint without a scheduled resume is an **incomplete checkpoint** — the session sleeps and the flow hangs indefinitely. Before writing the checkpoint, verify the wakeup mechanism actually succeeded: if `ScheduleWakeup` or `CronCreate` fails (e.g. rate limit blocks the scheduling API call itself), retry once, then fall back to returning a copy-ready `(Prompt)` handoff to the user with explicit resume instructions instead of silently checkpointing. Never end a turn with "checkpointed, auto-resume scheduled" if the resume was not confirmed.
-11. **Check-rate-limit caching (mandatory — reduces tool call overhead):** Agents must cache the result of `check-rate-limit.ps1` in memory and skip redundant calls when the cache is fresh. Record the timestamp of each successful check; re-running the script is required only if >=60 seconds have elapsed since the last check OR the agent is entering a new substep/iteration boundary. The mandatory checks (session start, before every `update-sdlc-status.ps1`, and at every substep/iteration boundary) still apply — this rule eliminates redundant mid-boundary calls that add tool-call overhead without new data. The cache is per-agent-in-memory only; subagents start with a cold cache.
+1. Run `pwsh -File .github/scripts/init-session.ps1` — creates/refreshes `.sdlc/session.json` with `resetsAtUtc` (when the current usage window resets). There is no usage-percentage tracking or polling: no continuous CDP/Chrome fetch, no background watchdog, no per-tool-call check. `resetsAtUtc` only gets a rare live refresh (inside `init-session.ps1` itself) when there is no valid cached window boundary.
+2. **Top-level unfinished work must arm recovery before normal tools, unconditionally — not gated on any usage level:** register the canonical resume command with `manage-session-resume.ps1 -Action SetIntent`, obey its directive, create one one-shot `CronCreate` for `resetsAtUtc + 2 minutes`, verify the job with `CronList`, and record it with `-Action Confirm`. Do not continue merely because the transcript says `Used ScheduleWakeup`; provider listing plus `Confirm` is required. **If the PreToolUse gate denies a call, never answer it by retrying that call** - run `manage-session-resume.ps1 -Action Directive` and execute its `steps` array in order, exactly as written. Those steps are the remedy as literal ordered tool calls with every argument already filled in, and `Confirm` derives the rest, so you only supply the recovery key and the job id `CronList` just reported. Subagents remain schedule-free — the orchestrator owns this **unconditionally, regardless of which tools the subagent happens to have loaded**: a subagent that has loaded `CronCreate`/`CronDelete`/`CronList`/`manage-session-resume.ps1 -Action Confirm|SetIntent|Complete` via the same `ToolSearch` mechanism the orchestrator uses must still never call them for a flow's recovery key — tool availability is not a structural guarantee that a caller is the orchestrator, only the top-level orchestrator session may arm, confirm, or replace a flow's recovery cron. **If the PreToolUse gate denies a subagent's own tool call with this same reset-recovery message anyway** (it cannot tell a subagent's calls apart from the orchestrator's own — both share one session file), the remedy above is still not the subagent's to run, whether or not it could technically load the tools to attempt it. Do not retry it and do not attempt the remedy. Read stays available and Write is available for checkpoint/evidence paths (`.sdlc/`, `docs/qa-evidence/`) even while denied — checkpoint what is done there, then end the turn and return `GATE: BLOCKED`, `REASON: reset-recovery-unconfirmed` (same convention as the lease-conflict case in item 3) so the orchestrator can re-arm and re-spawn. Checkpoint unfinished work via `.sdlc/status.json` substeps as you go — that checkpoint trail, plus the always-armed cron, is what makes work resumable, not a percentage trip-wire. For SDLC orchestrators, **flow start means invocation, not branch creation**: a `FlowId` is a branch name and does not exist yet during intake, reproduction, BA, or story approval, so arm a `-Type task -ResumeAgent <flow-slash-command>` intent as the first action after `init-session.ps1` and let the later `-Type flow -FlowId <branch>` call promote it — the manager retires the placeholder and re-attaches its cron as `staleJobId`, so the directive comes back as `replace` and the usual CronDelete → CronCreate → Confirm completes the handover.
+3. **Flow lease (enforced):** every flow carries a 15-minute lease enforced by `update-sdlc-status.ps1`. Capture your `sessionId` once at flow start and pass `-SessionId` on every status write. At flow start/resume/wakeup: `-Lease check -SessionId <yours>`; exit 0 → `-Lease acquire` and proceed; exit 2 → another session is live — do not touch the flow; schedule a fresh wakeup (~15 min) or ask the user. Use `-Lease acquire -TakeOver` only on an explicit user handoff. A status write rejected with exit 2 means the lease was lost — stop immediately, cancel your own scheduled wakeups/cron jobs for the flow, report the handoff in one line. Before asking the user a blocking question, run `-Lease renew -WaitingForUser` — a waiting lease never expires and can only be displaced by an explicit `-TakeOver`; when the answer arrives, re-run `-Lease check` before acting (the next status write clears the mark). A session hitting a waiting lease reports the pending question to the user instead of scheduling retry wakeups. Run `-Lease release` at flow completion and when checkpointing for a long sleep. Subagents never take over; on exit 2 they return `GATE: BLOCKED`, `REASON: lease-conflict`.
+4. **Recovery and user-wait guard:** unfinished top-level work keeps one verified reset cron, waiting on the user or not. Before `AskUserQuestion`, mark the lease `WaitingForUser` and suspend (this only records the pending question — it does not touch the cron). Waiting for user input is normal, never `blocked`, and does not exempt the flow from needing a current, confirmed cron: if the window rolls over during the wait, a rearm is required exactly as it would be for active work. On reply, clear waiting state and re-read SDLC state; rearm only if the directive shows the cron went stale during the wait. The PreToolUse gate denies ordinary work while a registered intent lacks a confirmed current-window cron, and the Stop hook refuses to end the turn on one, so an unarmed flow is stopped rather than losing its recovery silently. If the gate reports the due time has already passed, the window boundary is stale: run `init-session.ps1` (exempt from the gate for exactly that reason) rather than arming another cron against the same dead reset. If scheduling fails, retry once then record the manual fallback without claiming automatic recovery.
+5. After ANY wakeup, auto-resume, or session restore: re-read `.sdlc/status.json` (steps, substeps, `lastUpdatedUtc`) and re-derive the entry step from the flow's resume table before acting — never resume from wakeup reason text, conversation memory, or `checkpoint.currentStep` alone; another session (possibly another account) may have advanced the flow while this one slept.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
+
+**One exemption: `agent-sync`.** It skips this entire section — no `init-session.ps1`, no usage or reset-time lookup, no recovery cron, no `.sdlc/status.json` checkpoint, no lease, no `check-tracking-preflight.ps1`. Agent Sync installs the session-tracking stack; it does not run on it, and gating a short idempotent file copy behind Chrome launches and account questions cost more than the interruption it was protecting against. An interrupted sync is recovered by re-running it. No other agent has this exemption.
+
+This exemption is **mechanically enforced**, not just documented: `check-session-before-tool.ps1` allows a subagent spawn whose prompt opens with `/agent-sync`, plus the sync/setup toolchain commands themselves, so a sync still runs when an unrelated flow on the same branch has unarmed or stale recovery. Agent Sync therefore never needs to arm a cron, acquire a lease, resolve another flow's recovery state, or switch branches to get itself unblocked — if a sync appears blocked by flow machinery, that is a bug in the gate, not a state the agent should try to satisfy. Outward-facing git (`push`, `commit`, `merge`) stays gated for it exactly as for everyone else, which is consistent with Agent Sync never committing.
 
 ## Core Principles
 
@@ -201,19 +196,22 @@ This applies whether the agent is invoked inside an orchestrator flow or indepen
 - Poll until the operation completes, fails, times out, is cancelled, or reaches a documented user-action blocker. Use process status, terminal output, supervisor status files, health checks, log tails, CI status APIs, browser/device readiness, or file/output changes as applicable.
 - Send concise progress updates during long waits, at least every 5 minutes or whenever the observed state changes. Include elapsed time, current state, and next check.
 - Do not provide a final answer while a required operation is still running unless the user explicitly asked to leave it running. In that case, report the process/session identifier, how to check it, and what remains.
+- **Subagent boundary rule:** a subagent terminates permanently when it returns its final message — it can never "stand by", "wait for a notification", or "resume automatically", and its background processes lose their consumer the moment it returns. A subagent must poll its own detached/background operations to a terminal status within the same turn, or return `GATE: BLOCKED`, `REASON: pending-operation` with the concrete operation handle (`.sdlc/operations/<id>` path, background task id, or exact command) so the parent takes ownership. "Started X in background, standing by" is a forbidden subagent final message.
+- **Zero live children is proof of termination, not background progress:** a background shell, `Monitor` task, or dispatched worker that shows no live entry — killed, exited, or missing from the Background Tasks panel — has nothing left to notify anyone; there is no later turn it will interrupt. Reporting it as "still running", "monitoring it in the background", or planning to "wait for its completion notification" past that point is a fabricated claim, not optimism — reproduced twice in separate sessions after being told explicitly to run synchronously. Re-verify liveness before making or repeating such a claim. Then either block synchronously in the current turn, poll a real handle via `.github/scripts/invoke-long-operation.ps1`, or — only when the operation must truly outlive this session — launch it OS-detached (PowerShell `Start-Process`) and confirm progress with sequential foreground polling (`Get-Process` liveness plus a log tail), never a notification you have no way to receive.
+- **Waiting-turn guard (top-level sessions and orchestrators):** end a turn waiting only on work tracked in your OWN session (your own background shell, background subagent task, or scheduled wakeup). Never end a turn waiting on an operation owned by a returned subagent — take ownership first: poll its status file, re-run it, or re-spawn the specialist. Whenever a turn ends waiting for any completion signal, also schedule a fallback `ScheduleWakeup` (1200-1800 s, reason `idle-guard: waiting for <operation>`) so a missed notification degrades into a delayed resume instead of a permanent flow hang.
 - If an operation exceeds its expected duration, extend polling with a clear reason or stop with a concrete blocker. Do not silently wait indefinitely.
 - Callback-style behavior is implemented as a real tool/platform completion callback when available; otherwise use foreground execution or `.github/scripts/invoke-long-operation.ps1` and poll `.sdlc/operations/*/status.json`.
 - On resume after interruption or context restoration, inspect `.sdlc/operations/*/status.json` before restarting required work. Continue polling running operations, consume completed exit codes/log tails, or report a blocker if the process disappeared without a terminal status.
 
-## Session Limit Rules
+## Session Recovery Rules
 
-Every agent must track Claude rate limits and checkpoint before exhaustion. See the **MANDATORY FIRST STEP** section above and `.github/skills/shared/operational-rules.md` for the authoritative rules.
+Every agent must keep unfinished work checkpointed and its reset-recovery cron armed. See the **MANDATORY FIRST STEP** section above and `.github/skills/shared/operational-rules.md` for the authoritative rules.
 
 Summary:
-- **Threshold: 80%** (not 90%). Thinking tokens are unpredictable and consume 10-20% per turn.
-- Session state is auto-updated by the Stop hook after every turn — read `.sdlc/session.json` via `check-rate-limit.ps1`, do not calculate manually.
-- On checkpoint: call `ScheduleWakeup` tool + inform user.
+- No usage-percentage tracking or polling — `resetsAtUtc` comes from `init-session.ps1`'s rare live refresh, not continuous checks.
+- Unfinished top-level work keeps one verified reset cron, always — recovery arming does not depend on any usage level, and waiting on the user does not exempt it either.
 - On new session: run `pwsh -File .github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
+- `agent-sync` is exempt from all of the above — see the exemption note in **MANDATORY FIRST STEP**.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
 
 ## Git Rules
@@ -225,7 +223,7 @@ Summary:
 - After successful validation, commit only relevant files and push to the target branch. Do not commit or push when validation failed, relevant files cannot be isolated, or unrelated user changes would be included.
 - For Manual QA and evidence-heavy workflows, do not commit raw/noisy artifacts (for example screenshots, full logs, videos, generated reports, temporary exports, crash dumps, large binaries) unless the user explicitly requested persistent storage and approved their scope.
 - Do not use broad staging (`git add .`, `git add -A`) in Manual QA flows; stage explicit approved files only.
-- Manual QA commit allowlist is mandatory by default: `tests/manual-e2e/environment/**/*.md`, `tests/manual-e2e/stories/**/specs/**`, `tests/manual-e2e/stories/**/cases/**`, `tests/manual-e2e/stories/**/suites/**`, and the QA knowledge index path. If staged files are outside this allowlist, agents must stop with `BLOCKED` until the user explicitly approves additional paths.
+- Manual QA commit allowlist is mandatory by default. Always allowed: `tests/manual-e2e/environment/**/*.md` and the QA knowledge index path. Additionally allowed **only when the repository has no `.sdlc/clickup-config.json`** (local artifact mode): `tests/manual-e2e/stories/**/specs/**`, `tests/manual-e2e/stories/**/cases/**`, `tests/manual-e2e/stories/**/suites/**`. When that config is present the repository stores story/QA content in ClickUp, and staging anything under `tests/manual-e2e/stories/` is itself a violation — it reintroduces content that was deliberately migrated out of git. If staged files are outside the allowlist for the active mode, agents must stop with `BLOCKED` until the user explicitly approves additional paths.
 
 ## Knowledge Documentation Standard
 
@@ -245,21 +243,40 @@ Every agent must document any discovery that would save time in a future session
 - Personal preferences or style opinions.
 
 **Where to write:**
-All knowledge lives under `docs/runbooks/` in the target repository:
+
+First check whether this repository declares its own knowledge-base catalog — a line in its
+`AGENTS.md` or `CLAUDE.md` pointing at a catalog file, for example `docs/INDEX.md` or
+`src/docs/INDEX.md`. **If one is declared, it wins.** Read it, write the new doc where its
+conventions say, and update its catalog row in the same change. Also update the target file's own
+`## Index` block if it has one. Do not fall back to the table below in that case — a repo with a
+catalog may have no `docs/runbooks/` directory at all.
+
+Otherwise, when no catalog is declared, knowledge lives under `docs/runbooks/`:
 
 | File | Content |
 |---|---|
 | `docs/runbooks/environment-setup.md` | Start commands, env var names, service dependencies, startup order |
-| `docs/runbooks/android-qa.md` | ADB commands, build variant, device prep, install procedure |
 | `docs/runbooks/api-testing.md` | Endpoint list, auth patterns, test data setup |
 | `docs/runbooks/solutions.md` | Specific problems solved: error messages, root causes, fixes |
 | `docs/runbooks/how-to.md` | Step-by-step guides: generate JWT, seed DB, trigger a webhook, etc. |
 
+Add a platform-specific runbook only where that platform actually exists in the target repository —
+for example `docs/runbooks/android-qa.md` (ADB commands, build variant, device prep, install
+procedure) in a repo with an Android surface. Do not create platform runbooks a repo has no use for.
+
 Create files that do not exist. Append to existing files — never overwrite useful prior content.
+
+Each entry is a **top-level `##` heading preceded by a `---` separator**. Do not use `###` for an
+entry: a heading one level deeper than the file's top-level entries silently nests under the
+previous entry instead of becoming its own, so the entry becomes unreachable when an agent scans
+the file's headings — and it still looks correct in any index block, which is what makes this
+easy to miss. Reserve `###` for genuine sub-steps inside one entry.
 
 **Format for `solutions.md` entries:**
 ```markdown
-### <Short problem title>
+---
+
+## <Short problem title>
 **Context:** when this happens
 **Problem:** what goes wrong
 **Solution:** what fixes it
@@ -268,7 +285,9 @@ Create files that do not exist. Append to existing files — never overwrite use
 
 **Format for `how-to.md` entries:**
 ```markdown
-### How to <do something>
+---
+
+## How to <do something>
 **When needed:** <scenario>
 **Steps:**
 1. ...
@@ -283,6 +302,14 @@ Commit knowledge files to the same branch as the implementation. They travel wit
 - Report blockers immediately with the exact reason.
 - State assumptions when input is incomplete.
 - Prefer actionable next steps over generic advice.
+
+## User Interaction Rules
+
+- Every question to the user goes through `AskUserQuestion`. A question asked as plain chat prose is a workflow violation — it has no options, no recorded answer, and from a subagent it routes the reply to the wrong agent.
+- Every question presents the agent's **recommended option first**, labelled `(Recommended)`, with the consequence of each option in its description. Do the analysis before asking; a question is the last step of your reasoning, not a substitute for it.
+- Do not ask what the code, docs, `.sdlc/status.json`, or a safe reversible default already answers. Take the default, record it as an assumption, and continue.
+- A subagent that needs user input calls the tool itself. The parent must not relay, re-present, or forward a free-text reply — that produces a double-ask and an approval the subagent never received.
+- Full contract, including the lease protocol around a blocking question: `.github/skills/shared/user-interaction-contract.md`.
 
 ## Safety Rules
 
@@ -300,7 +327,7 @@ Commit knowledge files to the same branch as the implementation. They travel wit
 
 ## Runtime SDLC Status
 
-Developer Flow Handoff and its downstream SDLC skills coordinate independent chats through `.sdlc/status.json` at the Git repository root resolved by `git rev-parse --show-toplevel`. Developer Flow Handoff and completed downstream agents expose paired handoff buttons: `(Agent)` sends compact evidence directly to the next specialist, while `(Prompt)` returns a copy-ready prompt as exactly one fenced `text` block. This file is runtime-only, must remain gitignored, and stores compact machine-readable gate evidence by flow. Agents must update it through `.github/scripts/update-sdlc-status.ps1`, not by ad hoc JSON edits, and must not store secrets, credentials, private environment values, or long logs in it. Every status write must pass `-SessionId` (flow lease identity, MANDATORY FIRST STEP item 9); exit code 2 means another session owns the flow lease — stop, do not retry. Nested `.sdlc/status.json` files below the repo root are runtime drift and must be removed or merged into the root status file. SDLC step order: `story -> branch -> implementation -> review -> qualityGate -> manualQa -> docs -> pr`. Each agent updates only its own step and must pass `-ValidatePriorSteps` to enforce required prior-step statuses before writing.
+Developer Flow Handoff and its downstream SDLC skills coordinate independent chats through `.sdlc/status.json` at the Git repository root resolved by `git rev-parse --show-toplevel`. Developer Flow Handoff and completed downstream agents expose paired handoff buttons: `(Agent)` sends compact evidence directly to the next specialist, while `(Prompt)` returns a copy-ready prompt as exactly one fenced `text` block. This file is runtime-only, must remain gitignored, and stores compact machine-readable gate evidence by flow. Agents must update it through `.github/scripts/update-sdlc-status.ps1`, not by ad hoc JSON edits, and must not store secrets, credentials, private environment values, or long logs in it. Every status write must pass `-SessionId` (flow lease identity, MANDATORY FIRST STEP item 3); exit code 2 means another session owns the flow lease — stop, do not retry. Nested `.sdlc/status.json` files below the repo root are runtime drift and must be removed or merged into the root status file. SDLC step order: `story -> branch -> implementation -> uiVerification -> review -> qualityGate -> manualQa -> docs -> pr -> reviewLoop -> merge`. Each agent updates only its own step and must pass `-ValidatePriorSteps` to enforce required prior-step statuses before writing.
 
 Manual QA sign-off rule:
 
@@ -355,6 +382,7 @@ A task is done when all points are true:
 - Follow foreground shell execution, real completion callback, or `.github/scripts/invoke-long-operation.ps1`.
 - Avoid fire-and-forget VS Code tasks or generated `.vscode/tasks.json` unless explicitly requested.
 - Do not final-answer while a required operation is still running; on resume, inspect `.sdlc/operations/*/status.json` before restarting work.
+- Zero live children (a killed/exited/absent background shell, `Monitor` task, or worker) means it already ended — never claim it is still running or wait on its notification; block synchronously, use `invoke-long-operation.ps1`, or launch OS-detached with foreground polling instead.
 
 ### Update-SDLC Status
 - Never invoke `.github/scripts/update-sdlc-status.ps1` using positional shorthand (e.g., `steps.story.status ready`).

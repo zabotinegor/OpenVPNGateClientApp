@@ -2,6 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import androidx.annotation.MainThread
 import androidx.core.content.ContextCompat
@@ -23,6 +25,77 @@ object VpnManager {
 
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
+
+    @Volatile
+    private var lastActionStartDispatchElapsedRealtimeMs: Long = 0L
+
+    private const val RECENT_ACTION_START_DISPATCH_WINDOW_MS = 2_000L
+
+    private const val IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS = RECENT_ACTION_START_DISPATCH_WINDOW_MS + 250L
+
+    private val recheckHandler = Handler(Looper.getMainLooper())
+
+    private var idleRecheckRunnable: Runnable? = null
+
+    /**
+     * True if an `ACTION_START` dispatch via [startVpn] was attempted within the last
+     * [RECENT_ACTION_START_DISPATCH_WINDOW_MS]. See [lastActionStartDispatchElapsedRealtimeMs]'s
+     * declaration comment for the FGS-obligation-timing race this closes.
+     */
+    internal fun hasRecentActionStartDispatch(
+        nowElapsedRealtimeMs: Long = android.os.SystemClock.elapsedRealtime()
+    ): Boolean {
+        val last = lastActionStartDispatchElapsedRealtimeMs
+        return last > 0L && (nowElapsedRealtimeMs - last) <= RECENT_ACTION_START_DISPATCH_WINDOW_MS
+    }
+
+    @JvmStatic
+    internal fun resetActionStartDispatchTrackingForTest() {
+        lastActionStartDispatchElapsedRealtimeMs = 0L
+    }
+
+    /**
+     * R9-3 (fix-cycle 9, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-9.md):
+     * hand authority back from this bridge marker to [OpenVpnService]'s own `userInitiatedStart`
+     * flag once `ACTION_START` has actually been delivered and processed -- exactly as
+     * [lastActionStartDispatchElapsedRealtimeMs]'s declaration comment already says should happen
+     * ("Once onStartCommand() runs, userInitiatedStart is the authoritative, longer-lived signal").
+     * Before this fix nothing ever called this outside of tests, so the marker stayed "recent" for
+     * the full [RECENT_ACTION_START_DISPATCH_WINDOW_MS] even after the start had fully landed --
+     * every `hasRecentActionStartDispatch()` guard (cycle 7's original site plus fix-cycle 8's two
+     * additions) then DROPPED an intervening stop decision outright instead of merely deferring it,
+     * for up to that whole window. Call this from `onStartCommand()`'s `ACTION_START` branch right
+     * after `userInitiatedStart = true` is set, so the two signals hand off at the same point the
+     * comment already documents.
+     */
+    @JvmStatic
+    internal fun clearRecentActionStartDispatch() {
+        lastActionStartDispatchElapsedRealtimeMs = 0L
+    }
+
+    /**
+     * See [IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS]'s declaration comment. Called only from
+     * [startControllerService]'s catch blocks, only for a failed `ACTION_START` dispatch. Posts a
+     * single delayed [stopControllerIfIdle] re-check timed to run after
+     * [RECENT_ACTION_START_DISPATCH_WINDOW_MS] has definitely elapsed, so
+     * `hasRecentActionStartDispatch()` is guaranteed false by the time it runs and cannot itself
+     * re-suppress the very teardown it exists to unblock. [stopControllerIfIdle] already no-ops
+     * whenever [ConnectionStateManager] is not `DISCONNECTED` by then (a later retry succeeded, or
+     * the user reconnected some other way), so this is safe to fire unconditionally on every failed
+     * `ACTION_START` dispatch.
+     */
+    private fun scheduleIdleRecheckAfterFailedStartDispatch(context: Context) {
+        val appContext = context.applicationContext
+        idleRecheckRunnable?.let { recheckHandler.removeCallbacks(it) }
+        val recheck = Runnable {
+            idleRecheckRunnable = null
+            if (OpenVpnService.isInstanceAlive) {
+                stopControllerIfIdle(appContext)
+            }
+        }
+        idleRecheckRunnable = recheck
+        recheckHandler.postDelayed(recheck, IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS)
+    }
 
     fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
         AppLog.d(TAG, "startVpn")
@@ -119,6 +192,7 @@ object VpnManager {
     private fun startControllerService(context: Context, intent: Intent, action: String): Boolean {
         return try {
             if (action == ACTION_START) {
+                lastActionStartDispatchElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 ContextCompat.startForegroundService(context, intent)
             } else {
                 context.startService(intent)
@@ -126,12 +200,15 @@ object VpnManager {
             true
         } catch (e: IllegalStateException) {
             AppLog.w(TAG, "Failed to start controller service for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         } catch (e: SecurityException) {
             AppLog.w(TAG, "Security error while starting controller for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         } catch (e: RuntimeException) {
             AppLog.w(TAG, "Runtime error while starting controller for action=$action", e)
+            if (action == ACTION_START) scheduleIdleRecheckAfterFailedStartDispatch(context)
             false
         }
     }

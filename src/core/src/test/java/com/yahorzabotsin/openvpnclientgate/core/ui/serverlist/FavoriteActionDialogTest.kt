@@ -131,10 +131,12 @@ class FavoriteActionDialogTest {
         )
     }
 
-    // --- resolveThemedTitleColor: DEF-2 defect-fix title-color coverage (AC2 readability) ---
+    // --- resolveThemedPrimaryTextColor: DEF-2 defect-fix title-color coverage (AC2 readability) ---
     //
     // Quality-gate follow-up (favorites-section-and-dialog-redesign-gate-2) attempted to close
-    // this specific gap by extracting `resolveThemedTitleColor` as a testable seam and asserting
+    // this specific gap by extracting `resolveThemedTitleColor` (since renamed to
+    // `resolveThemedPrimaryTextColor` when `86cb88gnw` collapsed it with the message-color
+    // resolver, which resolves identically) as a testable seam and asserting
     // it resolves to the exact `values/colors.xml`/`values-night/colors.xml` text_color_primary
     // hex under day and `+night` qualifiers — a resolved-value assertion, not a rendered-dialog
     // one, specifically to route around the "cannot render the full themed AlertDialog" limit.

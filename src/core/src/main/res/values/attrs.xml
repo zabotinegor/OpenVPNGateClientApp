@@ -1,20 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <declare-styleable name="SpeedometerView">
-        <attr name="arcColor" format="color" />
-        <attr name="progressColor" format="color" />
-        <attr name="speedTextColor" format="color" />
-        <attr name="subtitleTextColor" format="color" />
-        <attr name="arcWidth" format="dimension" />
-        <attr name="speedTextSize" format="dimension" />
-        <attr name="subtitleTextSize" format="dimension" />
-    </declare-styleable>
-
     <!-- Section: App theme attributes (centralized color tokens for app-specific parts) -->
     <attr name="ovpnNavBarColor" format="color" />
-    <attr name="ovpnSpeedometerArcColor" format="color" />
-    <attr name="ovpnSpeedometerProgressColor" format="color" />
-    <attr name="ovpnSpeedometerTextColor" format="color" />
     <attr name="ovpnFocusableStateListAnimator" format="reference" />
     <!-- SUB-09: fill color for the pinned Favorites section card (colorSurface-variant tone,
          distinct from ?attr/colorSurface so the card reads as a raised block behind the

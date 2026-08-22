@@ -187,8 +187,15 @@ class OpenVpnServicePauseTimeoutTest {
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
 
         val now = System.currentTimeMillis()
+        // Round 17 fix (Codex P2, comment 3736234632): isAidlFresh() now measures freshness
+        // purely via elapsedRealtimeMs()/lastLiveStatusElapsedRealtimeMs, not wall clock, so this
+        // fresh-live-push precondition must set the monotonic pairing too, not just
+        // lastLiveStatusMs, or isAidlFresh() incorrectly reads as stale.
+        val elapsedRealtimeValueMs = 500_000L
+        ReflectionHelpers.setField(service, "elapsedRealtimeMs", ({ elapsedRealtimeValueMs } as () -> Long))
         ReflectionHelpers.setField(service, "boundToStatus", true)
         ReflectionHelpers.setField(service, "lastLiveStatusMs", now)
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", elapsedRealtimeValueMs)
 
         val resumeIntent = Intent(appContext, OpenVpnService::class.java).apply {
             putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_RESUME)

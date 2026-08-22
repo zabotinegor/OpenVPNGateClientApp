@@ -30,24 +30,129 @@ if ($toolInput -is [string]) {
 $command = if ($toolInput -is [string]) { $toolInput } elseif ($null -ne $toolInput -and $null -ne $toolInput.command) { [string]$toolInput.command } else { '' }
 $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$payload.cwd } else { (Get-Location).Path }
 
-$repoRoot = ''
-$branch = ''
-$previousEap = $ErrorActionPreference
-try {
-    $ErrorActionPreference = 'Continue'
-    $repoRoot = ((git -C $cwd rev-parse --show-toplevel 2>$null) | Out-String).Trim()
-    $branch = ((git -C $cwd branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
+$normalized = ($command -replace '\s+', ' ').Trim()
+
+# A command can act on a repository other than the session's own via
+# 'git -C <path>' (--git-dir/--work-tree likewise). Judging it by the session
+# cwd is wrong in both directions: it reads the wrong branch, and it never
+# applies the target repo's '.copilottools-source' exemption - which is what
+# denied a CopilotTools push issued from a client-repo session. Resolve the
+# repository the command actually targets.
+function Get-GitTargetPath {
+    param([string]$NormalizedCommand, [string]$FallbackPath)
+
+    # Only the options between 'git' and its subcommand redirect the repository.
+    # A plain search would also hit subcommand flags that reuse the letter -
+    # 'git commit -C HEAD~1' reuses a commit message, it does not change repo.
+    # Comparisons are case-sensitive on purpose: -c (config) is not -C (path).
+    $pathFlags = @('-C', '--git-dir', '--work-tree')
+    $valueFlags = @('-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env')
+
+    $targets = New-Object System.Collections.Generic.List[string]
+    foreach ($segment in ($NormalizedCommand -split '[;&|]+')) {
+        # Token pattern keeps a quoted run glued to its token, so both
+        # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive.
+        $tokens = @([regex]::Matches($segment.Trim(), '(?:[^\s"'']+|"[^"]*"|''[^'']*'')+') | ForEach-Object { $_.Value })
+        if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { continue }
+
+        $target = $null
+        for ($i = 1; $i -lt $tokens.Count; $i++) {
+            $token = $tokens[$i]
+            if (-not $token.StartsWith('-')) { break }
+
+            $name = $token
+            $inlineValue = $null
+            $eq = $token.IndexOf('=')
+            if ($eq -gt 0) {
+                $name = $token.Substring(0, $eq)
+                $inlineValue = $token.Substring($eq + 1)
+            }
+
+            if ($pathFlags -ccontains $name) {
+                $value = if ($null -ne $inlineValue) { $inlineValue }
+                         elseif ($i + 1 -lt $tokens.Count) { $tokens[++$i] }
+                         else { $null }
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    $clean = ($value -replace '["'']', '')
+                    # A POSIX-style absolute target ('/d/Apps/CopilotTools', which a
+                    # Git-Bash-issued 'git -C' command produces naturally) is only ever
+                    # translated to its Windows form by the MSYS runtime that wraps a
+                    # process launch from an actual POSIX shell. This guard always
+                    # resolves the target through pwsh's own git.exe (see
+                    # protect-agent-git-command.sh, which execs pwsh for both the bash
+                    # and powershell matchers), so no such translation happens: the
+                    # later 'git -C $Path ...' call fails outright, and silently, since
+                    # Resolve-GitRepoState swallows stderr - the resolution falls back to
+                    # the caller's cwd and the '.copilottools-source' exemption is never
+                    # checked for the real target. Convert a single-letter POSIX drive
+                    # prefix to its Windows form here so resolution is shell-independent.
+                    if ($clean -match '^/([A-Za-z])(/.*)?$') {
+                        $clean = "$($Matches[1]):$($Matches[2])"
+                    }
+                    # A relative -C/--git-dir/--work-tree target is relative to the
+                    # command's own cwd ($FallbackPath, from the payload), not to this
+                    # hook subprocess's cwd (fixed to the repo root by
+                    # protected-branches.json's "cwd": "."). Resolve it against
+                    # $FallbackPath before use, or 'git -C $Path ...' below evaluates
+                    # the wrong repository entirely. An already-absolute target is
+                    # left unchanged.
+                    if (-not [System.IO.Path]::IsPathRooted($clean) -and -not [string]::IsNullOrWhiteSpace($FallbackPath)) {
+                        $clean = [System.IO.Path]::GetFullPath((Join-Path $FallbackPath $clean))
+                    }
+                    $target = $clean
+                }
+            }
+            elseif ($null -eq $inlineValue -and $valueFlags -ccontains $name) {
+                $i++
+            }
+        }
+
+        $targets.Add($(if ($target) { $target } else { $FallbackPath }))
+    }
+
+    # No git segment, or several different targets in one command line: fall
+    # back to the session repo. Ambiguity must never widen what is allowed.
+    $distinct = @($targets | Select-Object -Unique)
+    if ($distinct.Count -eq 1) { return $distinct[0] }
+    return $FallbackPath
 }
-finally {
-    $ErrorActionPreference = $previousEap
+
+function Resolve-GitRepoState {
+    param([string]$Path)
+
+    $root = ''
+    $head = ''
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $root = ((git -C $Path rev-parse --show-toplevel 2>$null) | Out-String).Trim()
+        $head = ((git -C $Path branch --show-current 2>$null) | Out-String).Trim().ToLowerInvariant()
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
+
+    return [pscustomobject]@{ Root = $root; Branch = $head }
 }
+
+$evalPath = Get-GitTargetPath -NormalizedCommand $normalized -FallbackPath $cwd
+$state = Resolve-GitRepoState -Path $evalPath
+
+# An unresolvable -C path must not become an escape hatch. Fall back to the
+# session repo and keep evaluating rather than sailing through with no branch.
+if ([string]::IsNullOrWhiteSpace($state.Root) -and $evalPath -ne $cwd) {
+    $evalPath = $cwd
+    $state = Resolve-GitRepoState -Path $evalPath
+}
+
+$repoRoot = $state.Root
+$branch = $state.Branch
 
 if (-not [string]::IsNullOrWhiteSpace($repoRoot) -and (Test-Path -LiteralPath (Join-Path $repoRoot '.copilottools-source'))) {
     Write-Output '{}'
     exit 0
 }
 
-$normalized = ($command -replace '\s+', ' ').Trim()
 $switchPattern = "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+(?:switch|checkout)\s+(?:-\S+\s+)*(?!--)([^\s;&|]+)"
 
 $reason = $null
@@ -97,27 +202,26 @@ if ($normalized -match '(?i)(^|[;&|]\s*)git\s+') {
             # and skip all protected-branch checks.
             $isDevPush   = $normalized -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
             $isDevDelete = $normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
-            # Guard: if command also targets main/master/develop in any push/delete context,
-            # the exception does not apply — e.g. `git push origin --delete dev main`.
-            foreach ($op in @('main', 'master', 'develop')) {
-                if ($normalized -match "(?i)(?:^|\s)(?:--delete|-d)\s+$op(?![-\w/.])" -or
-                    $normalized -match "(?i)\b(?:origin|upstream)\s+\+?$op(?![-\w/.])" -or
-                    $normalized -match "(?i)(?:^|\s):$op(?![-\w/.])" -or
-                    $normalized -match "(?i)\brefs/heads/$op(?![-\w/.])") {
-                    $isDevPush = $false; $isDevDelete = $false; break
-                }
+            # Guard: if the same command mentions any other protected branch name anywhere
+            # (bare token, +token, :token, or refs/heads/ form), the exception does not
+            # apply — e.g. `git push origin dev main` or `git push origin --delete dev main`
+            # pass extra refspecs positionally, so position-anchored patterns are not enough.
+            # False positives only deny the narrow exception (fail-safe: push stays blocked).
+            if (($isDevPush -or $isDevDelete) -and
+                $normalized -match '(?i)(?:^|[\s+:])(?:refs/heads/)?(?:main|master|develop)(?![-\w/.])') {
+                $isDevPush = $false; $isDevDelete = $false
             }
             if ($isDevPush -or $isDevDelete) {
                 $previousEap2 = $ErrorActionPreference
                 try {
                     $ErrorActionPreference = 'Continue'
-                    $remotes = (git -C $cwd branch -r 2>$null) -join "`n"
+                    $remotes = (git -C $evalPath branch -r 2>$null) -join "`n"
                     if ($remotes -match 'archive/archive-dev-') {
                         if ($isDevDelete) {
                             $allowReleaseArchivePush = $true
                         } elseif ($isDevPush) {
-                            $devSha  = ((git -C $cwd rev-parse dev        2>$null) | Out-String).Trim()
-                            $mainSha = ((git -C $cwd rev-parse origin/main 2>$null) | Out-String).Trim()
+                            $devSha  = ((git -C $evalPath rev-parse dev        2>$null) | Out-String).Trim()
+                            $mainSha = ((git -C $evalPath rev-parse origin/main 2>$null) | Out-String).Trim()
                             if ($devSha -and $mainSha -and $devSha -eq $mainSha) { $allowReleaseArchivePush = $true }
                         }
                     }
@@ -193,8 +297,6 @@ if ([string]::IsNullOrWhiteSpace($reason)) {
 }
 
 [ordered]@{
-    permissionDecision = 'deny'
-    permissionDecisionReason = $reason
     hookSpecificOutput = [ordered]@{
         hookEventName = 'PreToolUse'
         permissionDecision = 'deny'

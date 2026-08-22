@@ -1,0 +1,955 @@
+# How-To Runbook
+
+This runbook collects non-obvious techniques and patterns discovered during development. Add an
+entry when a technique is reusable and not obvious from the library documentation alone.
+
+## Index
+
+Read this list first and jump to the one relevant heading — do not read the whole file.
+
+- [Use MockWebServer in pure-JVM unit tests (no Robolectric)](#use-mockwebserver-in-pure-jvm-unit-tests-no-robolectric)
+- [Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed](#hardprobe-enqueue-during-vpn-lifecycle--when-it-fires-and-when-it-is-suppressed)
+- [Verify SSE client connection on device](#verify-sse-client-connection-on-device)
+- [Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern](#pinned-favorites-section-with-sealed-listitem-types--sectioned-recyclerview-pattern)
+- [Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)](#serve-a-local-mock-backend-to-drive-availability-driven-qa-list-churn-favorites-hiderestore)
+- [How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)](#how-to-run-the-openvpn-engines-own-unit-tests-they-are-not-part-of-testdebugunittestapp)
+- [Manually verify a SharedPreferences migration path on a real device](#manually-verify-a-sharedpreferences-migration-path-on-a-real-device)
+- [Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat](#diagnose-whether-a-throttled-debug-log-path-ever-fired-from-a-release-build-logcat)
+- [Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)](#recover-from-a-gradle-test-jvm-oom-crash-gradle-test-executor-n-finished-with-non-zero-exit-value-1-no-test-results)
+- [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
+- [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
+- [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
+
+---
+
+## Use MockWebServer in pure-JVM unit tests (no Robolectric)
+
+**When to use**
+
+When you need to test an API client (e.g., a Retrofit + OkHttp wrapper) at the HTTP level
+without standing up a real server. `MockWebServer` runs entirely in-process on a random port,
+so these tests are fast pure-JVM tests that run with `testDebugUnitTestApp` — no emulator or
+Robolectric required.
+
+**Step 1 — Register the artifact in the version catalog**
+
+In `src/gradle/libs.versions.toml`, add a `[libraries]` entry that reuses the existing
+`square-okhttp` version reference:
+
+```toml
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "square-okhttp" }
+```
+
+The `square-okhttp` version ref is already present (used by the runtime `okhttp` library). Using
+the same ref keeps `MockWebServer` and the runtime client at identical versions, which prevents
+subtle protocol-mismatch bugs.
+
+**Step 2 — Declare the dependency as test-only**
+
+In the module's `build.gradle.kts` (e.g., `src/core/build.gradle.kts`):
+
+```kotlin
+testImplementation(libs.okhttp.mockwebserver)
+```
+
+Do not add it to `implementation` or `androidTestImplementation` unless specifically needed for
+instrumented tests.
+
+**Step 3 — Write the test**
+
+```kotlin
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+
+class MyApiClientTest {
+
+    private lateinit var server: MockWebServer
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
+
+    @Test
+    fun `returns expected result on HTTP 202`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(202))
+
+        val retrofit = Retrofit.Builder()
+            .baseUrl(server.url("/"))
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+        val api = retrofit.create(MyApi::class.java)
+        val client = MyApiClient(api)
+
+        val result = client.doRequest(serverId = 1)
+
+        assertEquals(MyResult.Queued, result)
+    }
+}
+```
+
+Key points:
+- Call `server.start()` in `@Before` and `server.shutdown()` in `@After`.
+- Use `server.url("/")` as the Retrofit base URL so requests go to the in-process server.
+- `server.enqueue()` queues responses in FIFO order; each response is consumed by exactly one
+  request.
+- `server.takeRequest()` lets you assert on the outgoing request (method, path, headers, body).
+
+**First demonstrated**
+
+SUB-03 (`HardProbeApiClientTest`).
+
+**References**
+
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/HardProbeApiClientTest.kt`
+- `src/gradle/libs.versions.toml` (`okhttp-mockwebserver` entry)
+- [OkHttp MockWebServer README](https://github.com/square/okhttp/tree/master/mockwebserver)
+
+---
+
+## Hardprobe enqueue during VPN lifecycle — when it fires and when it is suppressed
+
+**When to use this knowledge**
+
+When adding a new VPN lifecycle event (disconnect, reconnect, auto-switch variant) and deciding
+whether that event should trigger a hardprobe.
+
+**When hardprobes are enqueued**
+
+`ProbeRequestQueue.enqueue(serverId)` is called at five points in the VPN lifecycle — see
+`docs/features/server-sync.md`'s "Hardprobe Trigger Points" section for the canonical, up-to-date
+list of call sites (this file used to keep its own copy of that table; it drifted out of the two
+other places it was also copied into, so it's now a single pointer instead of a third copy).
+
+**Why `serverId == 0` is a no-op**
+
+`SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted()` returns `0` when:
+
+- The currently selected server IP does not match the last-started IP (user changed
+  selection in the UI while connected).
+- The server has no integer ID from the v2 API — this covers CSV sources like `VPNGATE`,
+  which use opaque string identifiers and map to `id = 0` in the shared data model.
+- The network loss level `LEVEL_NONETWORK` is active — the calling code explicitly sets the ID
+  to 0 in this case, because the device has lost internet connectivity (not a server failure).
+
+A probe with `serverId = 0` would target no specific server and is suppressed at the call site
+with a simple `if (serverId != 0)` guard. This is the correct behavior; do not remove it.
+
+**WorkManager KEEP deduplication**
+
+`ProbeRequestQueue` uses `ExistingWorkPolicy.KEEP`. If the same `serverId` is enqueued multiple
+times in rapid succession (e.g., user stop followed by auto-switch for the same server), only
+the first enqueue takes effect. This is intentional — the backend only needs one probe signal
+per server per event cluster.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` (`finishStopFlowConfirmed`, `handleConnectedProbeResult`, `updateState`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`requestSwitchNow`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/probe/ProbeRequestQueue.kt`
+- `docs/features/server-sync.md` (Hardprobe Trigger Points section)
+- the ClickUp story
+- the ClickUp story
+
+---
+
+## Verify SSE client connection on device
+
+**When to use**
+
+After deploying a build that includes `SseServerEventsClient`, or when debugging SSE connectivity
+issues (e.g., the server list is not updating in real time despite backend pushes).
+
+**What to check**
+
+The SSE client connects when the app enters the foreground and disconnects when it backgrounds.
+A `servers-changed` push event from the backend triggers a forced server-list sync.
+
+**Step 1 — Start logcat filter**
+
+In a terminal, start streaming SSE-relevant log lines before launching the app:
+
+```bash
+adb -s <serial> logcat -v time -e "SseServerEventsClient|CoreApp"
+```
+
+Replace `<serial>` with your device's ADB serial (`adb devices` to list).
+
+**Step 2 — Launch the app**
+
+```bash
+adb -s <serial> shell am start -n com.yahorzabotsin.openvpnclientgate/.mobile.SplashActivity
+```
+
+Expected logcat sequence (within a few seconds of launch):
+
+```
+CoreApp: SSE lifecycle observer registered
+SseServerEventsClient: SSE client starting; url=https://.../api/v1/servers/events
+SseServerEventsClient: SSE connecting (attempt=0)
+SseServerEventsClient: SSE connection opened (HTTP 200)
+```
+
+Immediately after the `connection opened` line you should also see server-sync activity
+(`syncCountries`, `fetchAllPages`, or similar `ServersV2SyncCoordinator` tags). This is the
+`onOpen` sync trigger added in SUB-03: every successful SSE connection open fires
+`syncCoordinator.sync(forceRefresh=true, cacheOnly=false)` so the server list is always fresh
+on reconnect, not only when the backend sends a push event.
+
+**Step 3 — Verify foreground / background lifecycle**
+
+Press the Home button. Expect:
+
+```
+SseServerEventsClient: SSE client stopping
+SseServerEventsClient: SSE connection closed
+SseServerEventsClient: SSE reconnect loop exited
+```
+
+Return the app to the foreground. Expect the "SSE client starting / connecting / opened" sequence
+to repeat from the top.
+
+**Step 4 — Verify event-triggered sync**
+
+When the backend emits a `servers-changed` event (requires a backend-side deployment or test tool):
+
+```
+SseServerEventsClient: SSE event received: type='servers-changed' id='...'
+SseServerEventsClient: servers-changed event received; triggering server re-fetch
+```
+
+The event is emitted to an internal `MutableSharedFlow` with `debounce(500 ms)` (added in
+SUB-04). This means `ServersV2SyncCoordinator` / `fetchAllPages` log lines appear at least
+500 ms after the last `servers-changed` log line — not immediately. If the backend sends a
+burst of events, they collapse into a single sync call after the debounce window closes.
+
+Note: if the app just reconnected (e.g., foreground return), the `onOpen` sync (Step 2 above)
+fires first (no debounce — direct call). The `servers-changed` path is a second, independent
+trigger. Both call `syncCoordinator.sync(forceRefresh=true, cacheOnly=false)`.
+
+**Diagnosing backoff**
+
+If the SSE endpoint is unreachable the client retries with exponential backoff:
+
+```
+SseServerEventsClient: SSE connection failure (HTTP -1): ...
+SseServerEventsClient: SSE reconnect in 5000ms (attempt=1)
+SseServerEventsClient: SSE reconnect in 10000ms (attempt=2)
+```
+
+Delay starts at 5 s and doubles per attempt, capping at 5 min. This is expected when the
+device is offline or the backend endpoint is down.
+
+**Backoff reset — stability-threshold guard**
+
+The backoff counter resets only when a connection is closed or fails *after* being alive for at
+least 10 s (`STABLE_CONNECTION_RESET_DELAY_MS`). If the connection drops within 10 s of opening
+(including after receiving events), the counter is not reset and the next reconnect uses the
+next backoff delay. This prevents a tight reconnect loop when a degraded server connects, sends
+events, and immediately drops the connection.
+
+Receiving a `servers-changed` event does **not** reset the backoff counter (changed in SUB-03).
+Only `onClosed` / `onFailure` with a stable-connection elapsed time ≥ 10 s resets it.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/CoreApp.kt` (`registerSseLifecycleObserver`)
+- `docs/features/server-sync.md` (SSE Server-Push Sync section)
+- `docs/operations/device-qa-log.md` (MP-20260621 SUB-02 section)
+- the ClickUp story
+
+---
+
+## Pinned Favorites section with sealed ListItem types — sectioned RecyclerView pattern
+
+**When to use**
+
+When building a scrollable list that displays a "pinned favorites" header + rows at the top, followed by a regular section. Favorites are hidden if empty. Long-press on any row should reflect the current favorite state ("Add to favorites" vs "Remove from favorites").
+
+**Architecture overview**
+
+This is the real shape used in production (`src/core/.../serverlist/CountryListAdapter.kt`), not a
+generic sketch — use these exact names, not a reinvented `ListItem`/`Item` pair:
+
+```kotlin
+sealed interface CountryListItem {
+    data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : CountryListItem
+    data class CountryRow(
+        val country: Country,
+        val isFavorite: Boolean,
+        // true only for the row instance rendered inside the pinned "Favorites" block;
+        // the same favorited country also appears again lower down with isPinnedSection = false
+        val isPinnedSection: Boolean = false
+    ) : CountryListItem
+}
+```
+
+The `isFavorite` boolean is computed fresh on every list build so the long-press menu/dialog always
+shows the correct "Add"/"Remove" label. `isPinnedSection` is what lets the adapter (via
+`pinnedSectionItemCount()`) tell `FavoritesSectionCardDecoration` how many leading items to draw the
+pinned card background around — see `docs/features/favorites.md`'s "Visual Framing and Card
+Treatment" section for that decoration mechanism, which this entry doesn't otherwise cover.
+
+**Step 1 — Build the list with favorites pinned at top (ADDITIVE pattern)**
+
+The pinned Favorites section is purely **additive**: favorited items appear in the pinned
+section at the top AND remain at their normal position in the regular list below, marked
+favorite by id membership. Do NOT filter favorites out of the regular list — the pinned
+section is a shortcut, not a re-homing. This is the shared pattern across the countries
+screen (SUB-02, `ServerListViewModel.buildItems()`) and the servers-in-country screen
+(SUB-03, `CountryServersViewModel.buildItems()`); both screens must stay consistent.
+
+In your ViewModel's `buildItems()` method:
+
+```kotlin
+fun buildItems(): List<CountryListItem> {
+    val favorites = favoritesFilter.filterFavoriteCountries(favoriteCodes, allCountries)
+
+    return buildList {
+        // Pinned section (hidden if empty) — additive shortcut on top
+        if (favorites.isNotEmpty()) {
+            add(CountryListItem.SectionHeader(favoritesTitle, showFavoriteIcon = true))
+            favorites.forEach { country ->
+                add(CountryListItem.CountryRow(country, isFavorite = true, isPinnedSection = true))
+            }
+        }
+        // Regular section: ALL items, favorites included at their normal position.
+        // Mark favorite status via O(1) Set lookup, not List.contains.
+        allCountries.forEach { country ->
+            add(CountryListItem.CountryRow(country, isFavorite = country.code in favoriteCodes))
+        }
+    }
+}
+```
+
+**Step 2 — View types keyed off the sealed interface**
+
+```kotlin
+override fun getItemViewType(position: Int): Int = when (items[position]) {
+    is CountryListItem.SectionHeader -> VIEW_TYPE_HEADER
+    is CountryListItem.CountryRow -> VIEW_TYPE_COUNTRY
+}
+```
+
+**Step 3 — Long-press with PopupMenu**
+
+In your Activity, handle long-press on rows:
+
+```kotlin
+private fun onLongClickServer(anchorView: View, server: Server, isFavorite: Boolean) {
+    if (server.id <= 0) return  // Servers without a v2 ID cannot be favorited
+    
+    showPopupMenu(anchorView) { action ->
+        when (action) {
+            "add_favorite" -> viewModel.toggleFavorite(server.id, favorite = true)
+            "remove_favorite" -> viewModel.toggleFavorite(server.id, favorite = false)
+        }
+    }
+}
+```
+
+Pass the long-click callback from the adapter to the Activity. See `CountryServersActivity.kt` for the complete pattern.
+
+**TV-only variant (D-pad long-press → dialog, not PopupMenu)**
+
+On Android TV, `PopupMenu` doesn't anchor well to a D-pad-focused row, so TV uses a D-pad long-press (hold OK/center, delivered as `performLongClick()` on the focused row by the platform) to open a remote-navigable `AlertDialog` instead. Branch presentation with `FavoriteActionDialog.resolvePresentation(isTvDevice, canFavorite)`, which returns `NONE` / `TV_DIALOG` / `POPUP_MENU`:
+
+```kotlin
+private fun showFavoriteMenu(anchor: View, server: Server, isFavorite: Boolean) {
+    when (FavoriteActionDialog.resolvePresentation(
+        isTvDevice = TvUtils.isTvDevice(this),
+        canFavorite = server.id > 0
+    )) {
+        FavoriteActionDialog.Presentation.NONE -> return
+        FavoriteActionDialog.Presentation.TV_DIALOG -> {
+            showTvFavoriteDialog(server, isFavorite)
+            return
+        }
+        FavoriteActionDialog.Presentation.POPUP_MENU -> Unit // fall through to PopupMenu below
+    }
+    // ... existing PopupMenu path
+}
+```
+
+Guard the dialog against window leaks the same way the PopupMenu path already is (dismiss any previous instance before showing a new one, dismiss in `onDestroy`, identity-checked dismiss listener). This pattern is reused identically across the countries screen (`ServerListActivity`) and servers-in-country screen (`CountryServersActivity`).
+
+**First demonstrated**
+
+SUB-02 (`ServerListActivity.kt`, `ServerListViewModel.kt` — named `CountriesList*` at the time, since
+renamed) — MP-20260706-favorite-countries-servers. Extended to servers in SUB-03 (`CountryServersActivity.kt`, `CountryServersViewModel.kt`). TV D-pad long-press dialog variant added in SUB-04 (`FavoriteActionDialog.kt`, `ServerListActivity.kt`, `CountryServersActivity.kt`).
+
+**Testing the TV long-press with adb**
+
+`adb shell input keyevent --longpress KEYCODE_DPAD_CENTER` delivers a **short** press on at least some TV hardware (Xiaomi/MIBOX4), not a held key — it will not trigger the dialog. Use a held `sendevent` injection instead; see `docs/operations/device-qa-tv.md` and `docs/guides/troubleshooting.md` for the working sequence.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListViewModel.kt` (`buildItems`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/ServerListActivity.kt` (PopupMenu adapter)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersViewModel.kt` (`buildItems`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/CountryServersActivity.kt` (long-press handler, TV dialog handler)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/serverlist/FavoriteActionDialog.kt`
+- `docs/features/favorites.md`
+- `docs/operations/device-qa-tv.md`
+
+---
+
+## Serve a local mock backend to drive availability-driven QA (list churn, favorites hide/restore)
+
+**When needed**
+
+A manual QA case requires the synced server-list content to change deterministically (e.g.
+SUB-05 CASE-SUB05-005: a favorited country must disappear from a sync and reappear in a later
+one), but the canonical backend is hosted and cannot be mutated safely, and natural content
+churn cannot be relied on in-session.
+
+**Steps:**
+
+1. Fetch the real payloads from the canonical backend (`PRIMARY_SERVERS_URL` from
+   `servers.local.json`): `countries/active` per supported language, each per-country
+   `/api/v2/servers` payload, and the legacy v1 CSV. Save them as local files.
+2. Serve them with a small local Python HTTP mock bound to `127.0.0.1:18081`, mapping the API
+   routes to the saved files. Have the mock re-read the countries JSON from disk per request so
+   payload edits take effect on the next sync without restarting the mock.
+3. Bridge the device to the host loopback: `adb reverse tcp:18081 tcp:18081`.
+4. Rebuild the debug APK pointed at the mock:
+   `-PPRIMARY_SERVERS_URL=http://127.0.0.1:18081 -PFALLBACK_SERVERS_URL=http://127.0.0.1:18081`.
+   A cleartext loopback URL needs two LOCAL, test-only, **uncommitted** tweaks:
+   - `src/core/build.gradle.kts`: allow loopback `http://` at the config-time URL guard (it
+     otherwise rejects non-HTTPS endpoints at configuration time);
+   - a mobile debug-manifest overlay setting `android:usesCleartextTraffic="true"`.
+5. Install the mock build and confirm the runtime is actually on-mock via logcat (SSE
+   `connecting url=http://127.0.0.1:18081/...`, countries/servers fetched from the mock)
+   before asserting anything.
+6. Drive content changes by editing the served JSON; trigger an immediate re-sync via HOME +
+   reopen (SSE `onOpen` fires a `forceRefresh` sync on every foreground return).
+7. Cleanup (mandatory): revert both local patches (`git checkout` / delete the overlay; verify
+   `git status` is clean of QA patches), stop the mock, `adb reverse --remove tcp:18081`,
+   reinstall the canonical APK, and verify the installed `base.apk` md5 equals the canonical
+   build artifact.
+
+**Notes:**
+
+- Never commit the two build tweaks — they defeat the HTTPS-only endpoint guard.
+- The mock-build APK has a different md5 than the canonical build; record both so evidence is
+  attributable to the right build.
+- If `adb install -r` fails with `INSTALL_FAILED_INSUFFICIENT_STORAGE`, uninstall + fresh
+  install works.
+
+**First demonstrated**
+
+SUB-05 Manual QA (`CASE-SUB05-005-mock`, AC3 favorites availability hide/restore).
+
+**References**
+
+- the ClickUp QA suite
+- `docs/guides/how-to.md` ("Verify SSE client connection on device" — foreground `onOpen` sync trigger)
+- `docs/features/server-sync.md` (sync trigger matrix)
+
+---
+
+## How to run the OpenVPN engine's own unit tests (they are NOT part of `testDebugUnitTestApp`)
+
+**When needed**
+
+After bumping the `src/external/OpenVPNEngine` submodule, when you need to verify an engine-side unit test (e.g. an upstream test that ships with the merged commits, such as `TestTrafficHistory.kt`) actually compiles and passes against the client's resolved dependencies.
+
+**Why this is non-obvious**
+
+The client's aggregate unit-test task, `testDebugUnitTestApp` (defined in `src/build.gradle.kts`), depends only on `:core`, `:mobile`, and `:tv` — it does **not** depend on `:openVpnEngine`. The client CI workflow (`.github/workflows/build-by-pull-request.yml`) runs `testDebugUnitTestApp`, so it also never exercises engine-side tests. A green `testDebugUnitTestApp` run after an engine bump tells you nothing about whether the engine's own test suite (including any new upstream tests that arrived with the merge) still passes.
+
+**Steps**
+
+1. From `src/`, run the engine module's test task directly by its Gradle path:
+   ```bash
+   ./gradlew :openVpnEngine:testFullDebugUnitTest
+   ```
+2. To target a single test class (faster feedback while investigating one upstream change):
+   ```bash
+   ./gradlew :openVpnEngine:testFullDebugUnitTest --tests de.blinkt.openvpn.core.TestTrafficHistory
+   ```
+3. Read the HTML/XML report under `src/external/OpenVPNEngine/main/build/test-results/` and `build/reports/tests/` the same way as any other module's Gradle test report.
+
+**Notes**
+
+- This is a real, standing coverage gap, not just a one-off workaround: any future engine bump should include this direct run as part of validation, since neither the client aggregate task nor client CI will catch an engine-side test regression.
+- The engine repository's own CI (`src/external/OpenVPNEngine/.github/workflows/build.yaml`) runs `test<target>ReleaseUnitTest` on the fork, but that only applies if Actions are enabled on the fork — it cannot be relied on as the client's safety net.
+- Fixing the gap properly (adding `:openVpnEngine:testFullDebugUnitTest` to the `testDebugUnitTestApp` aggregate, or to client CI) is out of scope for a routine engine sync; treat it as a candidate for a dedicated follow-up story rather than doing it inline during an engine bump.
+
+**First demonstrated**
+
+US-14 (`update-openvpn-engine`) quality gate — direct run of `:openVpnEngine:testFullDebugUnitTest --tests de.blinkt.openvpn.core.TestTrafficHistory` (3/3 passed) substituted for the missing aggregate/CI coverage.
+
+**References**
+
+- `src/build.gradle.kts` (`testDebugUnitTestApp` aggregate task, depends on `:core`/`:mobile`/`:tv` only)
+- `.github/workflows/build-by-pull-request.yml` (client CI test step)
+- `src/external/OpenVPNEngine/main/src/test/java/de/blinkt/openvpn/core/TestTrafficHistory.kt`
+- Originally raised as finding 1 of the US-14 quality gate. That evidence lived under `.sdlc/`,
+  which is gitignored runtime state — the finding is reproduced in full above rather than linked.
+
+---
+
+## Manually verify a SharedPreferences migration path on a real device
+
+**When to use**
+
+When a code change migrates a stale/removed persisted preference value (e.g., an enum constant
+that no longer exists) to a new default, and you want to confirm the migration on a real device
+rather than trust unit tests alone — particularly for values a user could plausibly still have
+on disk from before the change shipped.
+
+**Steps**
+
+1. Confirm the debug build variant is debuggable (`android:debuggable="true"`, the default for
+   `assembleDebugApp`) — `run-as` only works against a debuggable package.
+2. Seed the stale value directly into the app's SharedPreferences XML file via `adb shell run-as`:
+   ```bash
+   adb shell run-as com.yahorzabotsin.openvpnclientgate.mobile \
+     sed -i 's/server_source">[^<]*</server_source">LEGACY</' \
+     /data/data/com.yahorzabotsin.openvpnclientgate.mobile/shared_prefs/user_settings.xml
+   ```
+   Repeat with each stale value under test (`LEGACY`, `CUSTOM`, the pre-existing legacy `"DEFAULT"`
+   string, or an arbitrary corrupted string) — force-stop and relaunch the app between edits so the
+   preference is re-read from disk rather than served from an in-memory cache.
+3. Launch the app and confirm no crash (`adb logcat | grep FATAL` is a fast negative check), then
+   confirm the migrated value is what Settings/logic actually uses going forward.
+
+**Notes**
+
+- This directly exercises what unit tests can only simulate: the real Android SharedPreferences
+  backing store, real process launch, and the real migration code path in
+  `UserSettingsStore.load()` — it does not replace unit test coverage for the migration logic
+  itself, but it closes the gap between "the function returns the right value in a JVM test" and
+  "an upgrading user's actual on-disk preference file doesn't crash the app."
+- `run-as` requires the target package to be debug-signed/debuggable; this technique does not work
+  against a release build.
+
+**First demonstrated**
+
+US-15 (`remove-legacy-and-custom-server-sources`) manual QA — verified the `LEGACY`/`CUSTOM`/
+`"DEFAULT"` → `DEFAULT_V2` migration on a real device after removing those enum values, confirming
+no crash and correct fallback for users upgrading from a build where a removed source was selected.
+
+**References**
+
+- `src/core/.../settings/UserSettingsStore.kt` (`load()` migration logic)
+- the ClickUp QA suite (manual QA case files)
+
+---
+
+## Diagnose whether a throttled DEBUG log path ever fired, from a release-build logcat
+
+**When to use**
+
+You have a **release-build** logcat capture (field report, crash report, or a release APK you
+can't easily rebuild as debug) and need to answer "did code path X ever execute during this
+window" — where X's own logging uses `AppLog.dThrottled(...)` / a plain `AppLog.d(...)` at
+`DEBUG` priority. A naive `grep <tag>` is inconclusive here: `AppReleaseTree.log()`
+(`src/core/.../logging/AppLogTrees.kt`) drops `DEBUG`/`VERBOSE` entirely from release logcat —
+
+```kotlin
+if (priority == Log.DEBUG || priority == Log.VERBOSE) return
+```
+
+— so "the tag never appears" is consistent with both "the code path never ran" and "it ran
+repeatedly but every line was filtered." Grepping alone cannot distinguish these.
+
+**The technique**
+
+`AppLog.logThrottled()` (`src/core/.../logging/AppLog.kt`) always emits its periodic
+suppressed-count summary at **`Log.INFO`** priority, independent of the throttled call's own
+priority:
+
+```kotlin
+log(priority = Log.INFO, tag = tag, message = "Suppressed $suppressed repeated logs for key=$key", ...)
+```
+
+`Log.INFO` passes the `AppReleaseTree` filter unconditionally. So if a `DEBUG`-level throttled
+call site fired at least once and then fired again after its 30 s throttle window (the default
+`windowMs`) closed, a `Suppressed N repeated logs for key=<key>` line at `INFO` appears in the
+release logcat for that tag — even though every individual `DEBUG` line is invisible. Its
+**absence** across the window under investigation is **inconclusive**, not proof the call site
+never fired: `logThrottled()` only emits the summary after at least one suppressed call is
+followed by a later call that flushes it, so a timer that reaches its threshold and fires
+immediately (the normal successful case) can legitimately produce no suppressed call and no
+flush at all, even though the code ran correctly.
+
+**Steps**
+
+1. Identify the tag and throttle key of the call site in question (e.g.
+   `ServerAutoSwitcher`'s `AppLog.dThrottled(TAG, "Switch wait: ...", key = "switch-wait-$level")`).
+2. In the release logcat capture, search for the tag combined with `"Suppressed"`:
+   ```bash
+   grep "<Tag>" logcat.txt | grep -i "suppressed"
+   ```
+3. Presence of a matching line proves the call site fired at least twice with more than 30 s
+   between window closes. Absence is **inconclusive**, not proof of non-execution: if the timer
+   reaches its threshold and fires on its very first attempt (the normal successful case), there
+   may be no suppressed call and no later flush to emit the summary at all, even though the code
+   ran correctly. Absence only becomes meaningful evidence when combined with other signals (step
+   4) that confirm the surrounding window was long enough and active enough that a real
+   invocation would have produced some observable trace.
+4. Cross-check with a nearby `INFO`/`WARN`/`ERROR` log from a *different* component that you know
+   should correlate (e.g. a poll-path log that keeps firing regardless) to confirm you're reading
+   the right window and the release tree isn't dropping everything for an unrelated reason (Timber
+   not planted, wrong build variant, etc.).
+
+**Limitation**
+
+This only helps for call sites using `AppLog.dThrottled`/`AppLog.iThrottled`. A plain
+`AppLog.d(...)` with no throttling has no periodic `INFO` summary to fall back on — for those,
+either reproduce on a debug build, or add a throttled variant if the call site is a plausible
+future diagnostic target.
+
+**First demonstrated**
+
+Bug 86cb21563 (`bug-autoswitch-stale-push-stall`) — the total absence of
+`ServerAutoSwitcher`'s `"Suppressed N repeated logs for key=switch-wait-*"` summary line across a
+multi-minute field incident window was, on its own, inconclusive (see "The technique" above, and
+step 3). Combined with the step-4 cross-check confirming the surrounding window was long and
+active enough that a real invocation would have left some trace, it supported the conclusion that
+`onEngineLevel` never ran — the key insight that identified the hardcoded `allowAutoSwitch=false`
+in `OpenVpnService.applyStatusSnapshot()` as the root cause.
+
+**References**
+
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLog.kt` (`logThrottled`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/logging/AppLogTrees.kt` (`AppReleaseTree.log`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (`onEngineLevel` throttled log)
+- `docs/features/logging.md` ("Anti-spam" section)
+- `docs/guides/troubleshooting.md` ("Auto-switch never fires when the live AIDL push status callback stalls — bug 86cb21563")
+
+---
+
+## Recover from a Gradle test JVM OOM crash (`Gradle Test Executor N finished with non-zero exit value 1`, no test results)
+
+**When to use**
+
+This OOM class has now been observed in **two** distinct forms on this machine — check for both
+before assuming a build failure is a genuine source break.
+
+Form 1 — test executor crash: a `:core:testDebugUnitTest` (or the aggregate `testDebugUnitTestApp`)
+run fails with:
+
+```
+Execution failed for task ':core:testDebugUnitTest'.
+> Process 'Gradle Test Executor N' finished with non-zero exit value 1
+```
+
+and the results table shows `0` total (or a partial count far below the known full suite size,
+e.g. 131 instead of 800+) — i.e. the failure happened mid-run, not from an actual assertion
+failure. No `FAILED` test names appear anywhere in the log.
+
+Form 2 — Kotlin compile worker crash (QG4-4, gate-4 of `86cb35fbt`, fix-cycle 8): a `compile*Kotlin`
+task (observed on `:mobile:compileDebugKotlin` and `:tv:compileDebugKotlin`) fails with:
+
+```
+Execution failed for task ':mobile:compileDebugKotlin'.
+> Compilation error. See log for more details
+```
+
+with **zero `e:` error lines** anywhere in the log. This reads exactly like a genuine source break
+and is far easier to misdiagnose than Form 1 for that reason. The tell: `BUILD FAILED` on a
+`compile*Kotlin` task, no `e:` lines, and a fresh `hs_err_pid*.log` (see path below) whose header
+says `Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp:79)`. Before
+concluding a `compile*Kotlin` failure with no `e:` lines is a real code error, check for a fresh
+crash dump first.
+
+Both forms are a JVM-level crash of a Gradle worker process, not a code regression.
+
+**Root cause on this machine**
+
+The dev box this was diagnosed on is memory-constrained (4 cores, ~12 GB RAM, frequently well
+under 500 MB free — one gate-4 capture showed 1.16 GB free of 11.91 GB) — this project's
+Robolectric-heavy `:core` suite (800+ tests spread across many `@RunWith(RobolectricTestRunner)`
+classes, each spinning up an Android runtime shadow) is memory-hungry, and Gradle's default worker
+parallelism (one JVM per available core) plus any leftover Gradle daemons from a prior run can
+push the system past available native memory. The same memory pressure can starve a Kotlin compile
+worker instead of a test executor (Form 2), depending on which Gradle workers happen to be
+scheduled concurrently.
+
+The crash lands as a HotSpot fatal error (`hs_err_pid<N>.log` + a `replay_pid<N>.log`), typically
+`Native memory allocation (malloc) failed ... Out of Memory Error (arena.cpp)` — a C2 JIT compiler
+thread failing to allocate, not a Java heap `OutOfMemoryError` a test could catch.
+
+**Dump path correction (QG4-4, corrected R9-5):** HotSpot writes `hs_err_pid*.log` /
+`replay_pid*.log` into the **crashing JVM worker's own working directory**, which differs by form:
+Form 2's Kotlin compile workers run with the Gradle root (`src/`) as their working directory, so
+that form's dumps legitimately land at **`src/hs_err_pid*.log`** — a gate-4 OOM produced 9 dumps
+there. Form 1's `:core:testDebugUnitTest` test executor workers run with the `:core` project
+directory as their working directory, so that form's dumps legitimately land at
+**`src/core/hs_err_pid*.log`** — this is what fix-cycle 7's own code review captured (see **First
+demonstrated** below). Neither path is wrong; they are two different crash sites. A cleanup command
+scoped to only one of the two paths silently misses dumps from the other form — clean up both (see
+the **Steps** section below).
+
+**Steps**
+
+1. Stop any lingering Gradle daemons, which hold onto JVM memory between invocations:
+   ```bash
+   ./gradlew.bat --stop
+   ```
+2. Delete the stray crash-dump files so they don't get mistaken for source changes or bloat the
+   next `git status`. Check **both** dump locations (Form 2 lands at the Gradle root, Form 1 lands
+   under `src/core/` — see the dump-path correction above); `hs_err_pid*.log` is already covered by
+   `.gitignore`, so the `git status` concern applies mainly to `replay_pid*.log`:
+   ```bash
+   rm -f hs_err_pid*.log replay_pid*.log core/hs_err_pid*.log core/replay_pid*.log
+   ```
+3. Clear the partial test-results directory so the next run doesn't report stale/mixed results:
+   ```bash
+   rm -rf core/build/test-results/testDebugUnitTest core/build/reports/tests
+   rm -rf mobile/build/test-results/testDebugUnitTest mobile/build/reports/tests
+   rm -rf tv/build/test-results/testDebugUnitTest tv/build/reports/tests
+   ```
+4. Re-run with reduced worker parallelism. `--max-workers=2` was enough for a scoped
+   `--tests "*SomeTest"` run; the full `testDebugUnitTestApp` aggregate (core + mobile + tv, 800+
+   tests) needed `--max-workers=1 --no-daemon` on this machine to avoid a repeat crash:
+   ```bash
+   ./gradlew.bat testDebugUnitTestApp --max-workers=1 --no-daemon --no-build-cache
+   ```
+   `--no-daemon` avoids leaving a new daemon behind that competes with the next invocation;
+   `--no-build-cache` (QG4-4) is the important flag here, not `--rerun-tasks` alone — see the
+   **`FROM-CACHE` trap** note below for why.
+
+**`FROM-CACHE` trap (QG4-4, carried forward from review-8's R8 note on stale/cached "successes")**
+
+A run can print `BUILD SUCCESSFUL` while silently serving cached/stale task outputs, with **zero
+tests actually executed** in that invocation — Gradle's build cache can satisfy
+`:core:testDebugUnitTest` (etc.) from a prior run's cached output without re-running anything.
+`--rerun-tasks` alone does not fully prevent this composing with other caches; when validating a
+fix fresh (e.g. after a code change, or after recovering from an OOM), always add
+`--no-build-cache` and verify genuine execution independently of the exit code:
+
+- Grep the log for `testDebugUnitTest.*(FROM-CACHE|UP-TO-DATE)` — it must return **nothing**.
+- Delete the module `test-results`/`reports/tests` directories *before* the run (step 3 above), then
+  confirm the JUnit XML files under
+  `src/{core,mobile,tv}/build/test-results/testDebugUnitTest/` are freshly timestamped *after* the
+  run started, and tally their actual test/failure/error/skipped counts — do not trust the console
+  summary alone.
+
+**Limitation**
+
+This is a machine-resource issue, not a code issue — do not spend time trying to "fix" it in the
+test or production code itself. If the crash recurs even at `--max-workers=1 --no-daemon`, the
+system is likely under memory pressure from unrelated processes (browser tabs, IDEs, etc.); free
+memory elsewhere before retrying, or run the suite from a less loaded machine/CI.
+
+**First demonstrated**
+
+Fix-cycle 7 of bug `86cb35fbt` (`fix/86cb35fbt-vpn-foreground-service-crash`) — the same
+class of crash was independently seen once during fix-cycle 7's own code review (per its
+evidence file: *"an initial MUT-A run aborted with `Process 'Gradle Test Executor 3' finished
+with non-zero exit value 1` and a stray `src/core/replay_pid*.log`"*) and again three times
+during this cycle's implementation validation (once on the initial scoped-suite restore-check,
+twice on the full `testDebugUnitTestApp` aggregate) before landing on the
+`--max-workers=1 --no-daemon` combination that completed cleanly (845/845 core, 2/2 mobile, 17/17
+tv, `BUILD SUCCESSFUL` in ~24 min).
+
+**Form 2 (Kotlin compile worker) first demonstrated:** quality gate 4 of `86cb35fbt` (fix-cycles 6
++ 7, `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5): a
+`testDebugUnitTestApp --rerun-tasks --no-build-cache` run failed at 19m19s with
+`:mobile:compileDebugKotlin` + `:tv:compileDebugKotlin` "Compilation error" and zero `e:` lines;
+9 fresh `src/hs_err_pid*.log` dumps confirmed the OOM class. Recovered via `./gradlew --stop` plus
+the dump/result cleanup above, then re-run clean at `--max-workers=1 --no-daemon --no-build-cache`
+(`BUILD SUCCESSFUL` in 11m41s, 864 tests passed / 0 failed, genuine-execution verified per the
+`FROM-CACHE` trap check above).
+
+**References**
+
+- `docs/guides/how-to.md` ("Run the OpenVPN engine's own unit tests" — a related aggregate-task
+  scoping gotcha, different cause)
+- `.sdlc/status.json` → flow `fix/86cb35fbt-vpn-foreground-service-crash` (fix-cycle 7 evidence)
+- `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md` §5 (Form 2 first
+  demonstrated, `FROM-CACHE` trap verification detail)
+
+---
+
+## How to safely change `SpeedometerView`'s needle/label geometry ratios
+
+**When needed**
+
+Before touching any of `SpeedometerView.kt`'s private geometry `const val`s —
+`NEEDLE_OUTER_RADIUS_RATIO`, `NEEDLE_OUTER_HALF_WIDTH_RATIO`, `LABEL_RADIUS_RATIO`,
+`LABEL_TEXT_SIZE_RATIO`, or `LABEL_HALO_PADDING_RATIO` — for example to change the dial's visual
+proportions, add a scale stop, or resize the needle.
+
+**The invariant these constants must jointly satisfy**
+
+The needle's outer tip must never enter any scale label's legibility halo. This was a real,
+user-reported defect (needle tip overlapping the "0" label at rest) fixed during
+`us-21-speedometer-redesign` by dropping `NEEDLE_OUTER_RADIUS_RATIO` from `0.66` to `0.45`. The
+binding constraint is not the narrowest label ("0") but the *widest* one ("1000", 4 digits) at
+`LABEL_RADIUS_RATIO` (0.61): its halo radius pushes its own inner edge — the closest any halo gets
+to the dial center — down to roughly `0.483 * outerRadius`, while the needle tip corner sits at
+roughly `0.451 * outerRadius`, leaving only ~0.032 of the outer radius as margin. See the full
+worked derivation in `SpeedometerView.kt`'s KDoc directly above `NEEDLE_OUTER_RADIUS_RATIO`
+(`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/ui/common/components/SpeedometerView.kt`).
+
+**Steps**
+
+1. Before changing any of the ratios above, re-read the KDoc block on `NEEDLE_OUTER_RADIUS_RATIO`
+   and redo its arithmetic with your new values (label text width/height scale linearly with
+   `LABEL_TEXT_SIZE_RATIO`; halo radius is `hypot(width, height) / 2 + LABEL_HALO_PADDING_RATIO`).
+   Confirm the clearance (`labelInnerEdge - needleTipCorner`) stays positive with headroom, not
+   just non-negative — font metrics shift slightly across devices/densities/locales.
+2. **No unit or component test currently pins this invariant.** All of
+   `NEEDLE_OUTER_RADIUS_RATIO`/`LABEL_RADIUS_RATIO`/`LABEL_HALO_PADDING_RATIO`/
+   `LABEL_TEXT_SIZE_RATIO` are `private const val`, invisible to `SpeedometerViewTest`, which only
+   imports the pure companion functions. Reverting `NEEDLE_OUTER_RADIUS_RATIO` to its old `0.66`
+   value (i.e. silently reintroducing the original defect) still leaves the full test suite green.
+   Do not treat "tests pass" as confirmation that this specific invariant holds — verify it by hand
+   (step 1) or visually, per step 3.
+3. After changing the constants, take an on-device screenshot in the CONNECTED state at a value
+   near each scale stop the needle can realistically point through, in **both** light and dark
+   theme, and visually confirm no tip/halo overlap — mirroring the manual QA evidence at
+   `docs/qa-evidence/feature-us-21-speedometer-redesign-ui/phone-v9-manualqa-light-connected.png`.
+4. A component-layer regression test (bitmap comparison or geometry assertion against a
+   constructed `SpeedometerView`) is not currently possible in this module — see the Robolectric
+   limitation entry in `docs/guides/troubleshooting.md` ("Custom `core` Views with resource-reading
+   `init` blocks cannot get Robolectric component tests at all"). If that module-wide gap is ever
+   closed, pinning this invariant with a real test is the first thing that should be added for
+   this view.
+
+**Notes**
+
+- This is a documentation-only invariant today (KDoc, not code) — it is easy to weaken by accident
+  when tuning visuals, and the test suite will not catch it.
+- Tracked as non-blocking follow-up QG2-02 in
+  `docs/qa-evidence/feature-us-21-speedometer-redesign-qualitygate-2.md`.
+
+**First encountered**
+
+`us-21-speedometer-redesign`, fix cycle 2 (commit `3cb9ba9`, `NEEDLE_OUTER_RADIUS_RATIO` 0.66 -> 0.45).
+
+---
+
+## Layout orientation-split files: when TV and mobile use different XML structures
+
+**When this matters**
+
+When editing a layout file used on both mobile (phone/tablet) and TV, verify whether the file has
+an orientation-split variant (`layout-land/`) before assuming a change to one will reach all
+devices.
+
+**The split**
+
+TV is landscape-locked (`src/tv/src/main/AndroidManifest.xml`, `OrientationPolicy.kt`), so it
+always inflates the `layout-land/` variant if one exists, regardless of device orientation
+settings. Mobile inflates `layout/` for portrait and `layout-land/` for landscape.
+
+If a layout file exists in **both** `layout/` and `layout-land/` directories, edits to the
+portrait file will **not** reach TV at all — TV only sees the landscape override.
+
+**Example: `view_connection_details.xml`**
+
+This file is structurally different in the two variants:
+
+- **`layout/view_connection_details.xml` (portrait, mobile only):** Vertical `LinearLayout` with
+  the `SpeedometerView` weighted in the center and a two-column `details_container` below.
+- **`layout-land/view_connection_details.xml` (landscape, TV + landscape tablets):** Horizontal
+  `LinearLayout` with `left_panel`, `SpeedometerView`, and `right_panel`. No `details_container` —
+  details are split into left/right panels at the same level as the speedometer.
+
+A margin or padding bump to the portrait file's `details_container` never reaches TV because TV
+inflates a completely different structure (landscape file) that has no `details_container` at all.
+This is not a quirk of how margins are resolved — it is architectural: the XML files themselves
+are incompatible.
+
+**Rule: when editing a layout that has a landscape override, apply changes to both files if the
+change is structural or needs to reach TV.** If the change is portrait-only (e.g., phone-specific
+spacing), verify that TV's landscape file is correct as-is.
+
+**How to spot orientation-split files**
+
+In Android Studio: open `res/layout/` and check if a corresponding file exists under
+`res/layout-land/`. Alternatively, from the shell:
+
+```bash
+diff -u src/core/src/main/res/layout/view_connection_details.xml \
+          src/core/src/main/res/layout-land/view_connection_details.xml
+```
+
+A small diff (e.g., a single margin change) suggests they are variants of the same layout. A large
+diff or entirely different structure means they are separate designs.
+
+**See also**
+
+- `src/core/src/main/res/layout/view_connection_controls.xml` (lines 7-31) — inline comment
+  documenting this specific split for `view_connection_details.xml` and explaining why a real
+  `View` spacer, not margin-only, is needed to open visual room on both phone and TV.
+
+**First documented**
+
+`bugfix/dialog-message-contrast`, defect-fix review cycle (commit 1078e8e, PR review finding F1).
+
+---
+
+## Detect a vacuous regression test with targeted single-guard mutation testing
+
+**When to use**
+
+When a new regression test claims to pin a specific guard/condition (e.g. "must not tear down
+while state X"), but the guard sits alongside a second, related guard that could independently
+produce the same passing assertion. A test written by holding state constant across both guards'
+checkpoints can pass for a completely different reason than the one it claims to verify, and the
+full test suite staying green after the fix proves nothing about which guard the new test actually
+exercises.
+
+**Steps**
+
+1. Identify each individual guard/condition the fix touches (e.g. two early-return checks in two
+   different scheduled runnables, each gating on the same state field).
+2. Revert **one guard at a time** to its pre-fix form — never both at once — leaving the sibling
+   guard untouched. Verify the mutation by **reading the actual patch** (`git diff -- <file>`), not
+   just a line count: `git diff --numstat` reports only aggregate insertion/deletion totals, so a
+   mutation applied to the wrong guard — or an unintended edit elsewhere with the same counts —
+   still looks like the expected one-line replacement. The whole pass/fail matrix below is
+   meaningless unless the patch shows exactly the intended guard restored to exactly its pre-fix
+   form (`--numstat` is at best a quick secondary check after the patch itself has been read).
+3. Run the new test in isolation after each single-guard revert:
+   - If the test **fails** only when its claimed guard is reverted, and **survives** when the
+     other guard is reverted, it is non-vacuous — it is genuinely pinned to that one guard.
+   - If the test **passes** (survives) under every single-guard revert, and only fails when both
+     guards are reverted together, it adds **zero** independent coverage beyond whatever tests
+     already catch the double-revert case — it is a tautology dressed as a regression test.
+4. Restore the file after each mutation, then re-run the full suite and confirm no residual diff
+   before continuing. **Check `git status` / `git diff -- <file>` before you mutate anything.**
+   `git checkout -- <file>` restores the whole file from the index and silently discards *unstaged*
+   edits in it, not only your mutation — it is safe only when the file was clean before mutation
+   testing started. If the file already carries unrelated in-progress work, restore the mutation
+   specifically instead: copy the file aside first, then restore that copy after reverting the
+   mutation. Never reach for a destructive checkout on a file that has user work in it.
+5. If the test is vacuous, do not silently "make it pass" — restructure it so state changes
+   *between* the two guards' checkpoints (matching each guard's own timing/deadline), so the
+   assertion at each checkpoint can only be explained by that specific guard.
+
+**Notes**
+
+- A green full-suite run only proves the combined post-fix behavior is correct — it does not prove
+  a *new* test independently exercises the guard its own name/KDoc claims to exercise. Only
+  targeted single-condition mutation testing proves that.
+- Do not trust another agent's (or your own prior) mutation-testing report at face value when
+  reviewing a fix for this class of finding — reproduce the matrix independently; the reverted
+  form must match the true pre-fix semantics (diff against the commit that introduced the fix), not
+  an arbitrary weakening.
+
+**First encountered**
+
+ClickUp bug `86cb2kqvu` regression test (`OpenVpnServiceNotificationTest.kt`,
+`oneShotSync_doesNotTearDownController_whenConnectingWithAutoSwitchTimerPotentiallyArmed`): a first
+draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400ms teardown
+deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
+327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
+to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.
