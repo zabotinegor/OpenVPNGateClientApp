@@ -179,6 +179,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var lastStatusSourceSwitchMs: Long = 0L
     private val aidlFreshWindowMs = 3_000L
     private val staleSnapshotMaxAgeMs = 10_000L
+    // Ceiling for the ACTION_SYNC_STATUS reattach path only (unknown attempt baseline + an active,
+    // non-terminal level -- the snapshot that backfills currentAttemptStartMs in
+    // applyStatusSnapshot()). Round 15 established that such a snapshot must be trusted even when
+    // it is older than staleSnapshotMaxAgeMs, because a genuinely stuck current attempt is
+    // ServerAutoSwitcher's only signal on this lifecycle path. That trust still has to be BOUNDED:
+    // the backfill adopts the snapshot's own timestamp as the baseline, so the predates-check can
+    // never reject it, and without a ceiling a leftover snapshot of ANY age -- hours or days old,
+    // from a long-dead past session -- would be accepted and forwarded with auto-switch enabled,
+    // able to start a chained VPN retry merely from opening the app.
+    //
+    // Sized well above any plausible "current attempt": ServerAutoSwitcher's own switch thresholds
+    // are 5-8s, and an engine that is genuinely working a connection keeps pushing state changes
+    // seconds apart, so a cached snapshot untouched for two minutes is not a live attempt.
+    private val reattachSnapshotMaxAgeMs = 120_000L
     private val clockJumpMinDetectableMs = 1_000L
     private val clockJumpSlackMs = 2_000L
     private val liveStatusGraceMs = 5_000L
@@ -758,7 +772,28 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistPendingStopIntent(false)
                     AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
                 }
-                if (!enterControllerForeground()) return START_NOT_STICKY
+                if (!enterControllerForeground()) {
+                    // ACTION_START is the only action dispatched via startForegroundService()
+                    // (VpnManager.startControllerService), so reaching here means an FGS-start
+                    // obligation is live and can no longer be discharged -- startForeground() just
+                    // threw. START_NOT_STICKY does NOT stop a service; it only affects restart
+                    // behaviour after a kill. Leaving the service alive therefore lets AMS's
+                    // SERVICE_FOREGROUND_TIMEOUT fire against a still-running service, which is
+                    // precisely what raises ForegroundServiceDidNotStartInTimeException.
+                    //
+                    // Stopping is the discharge, not the trigger: AMS clears the obligation when the
+                    // service is brought down -- bringDownServiceLocked() logs "Bringing down service
+                    // while still waiting for start foreground", sets fgRequired/fgWaiting = false and
+                    // removes SERVICE_FOREGROUND_TIMEOUT_MSG -- and serviceForegroundTimeout() itself
+                    // no-ops on `!r.fgRequired || r.destroying`. This restores the pre-9b70f87
+                    // behaviour (stopOnFailure defaulted to true at this call site).
+                    //
+                    // Safe for an in-flight tunnel: this is the controller service. The real
+                    // VpnService lives in the engine (see docs/reference/permissions.md), so stopping
+                    // the controller does not tear down an established connection.
+                    stopSelfSafely()
+                    return START_NOT_STICKY
+                }
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -1222,11 +1257,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             controllerForegroundActive = true
             return true
         } catch (t: Throwable) {
-            // Do NOT call stopSelf() here. ACTION_START calls this method after its own
-            // startForegroundService() has already been dispatched, so the FGS-start obligation is
-            // still undischarged -- stopSelf() here would turn a recoverable "could not show the
-            // notification" failure into a ForegroundServiceDidNotStartInTimeException. Both
-            // callers already treat a `false` return as sufficient signal to bail out.
+            // This method stays side-effect-free on failure: it reports `false` and lets each caller
+            // decide, because the right reaction differs by call site. onCreate() must NOT stop --
+            // it runs for startService()-dispatched actions (ACTION_SYNC_STATUS and friends) that
+            // register no FGS obligation, and such a service is still useful in the background.
+            // ACTION_START must stop, and does so at its own call site; see the comment there for
+            // why stopping discharges the obligation rather than violating it.
             AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
             return false
@@ -1917,13 +1953,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // level -- a raw lagging LEVEL_NONETWORK on a "CONNECTED" state string would otherwise
             // skip the backfill.
             val normalizedLevelForBackfill = ConnectionStateManager.normalizeEngineLevel(level, snapshot.state)
-            if (currentAttemptStartMs == 0L && normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS) {
-                currentAttemptStartMs = ts
-                // Estimate what elapsedRealtimeMs() was when this snapshot's own timestamp (ts)
-                // was captured, keeping the pairing with currentAttemptStartMs consistent with the
-                // ACTION_START path, where both fields are captured together at the same instant.
-                currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - (now - ts)
-            }
+            val willBackfillAttemptBaseline = currentAttemptStartMs == 0L &&
+                normalizedLevelForBackfill !in STOP_TERMINAL_LEVELS
             val ageMs = now - ts
             // Age alone cannot separate a leftover snapshot from a past attempt (reject) from an
             // old-but-current one whose attempt is simply stuck (keep -- it is ServerAutoSwitcher's
@@ -1952,6 +1983,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             val shouldRejectAsStale = if (currentAttemptStartKnown) {
                 knownToPredateCurrentAttempt && !predatesExplainedByBackwardClockJump
+            } else if (willBackfillAttemptBaseline) {
+                // Reattach path: bounded trust rather than the unbounded acceptance that adopting
+                // this snapshot's own timestamp as the baseline before the check would produce.
+                // See reattachSnapshotMaxAgeMs's declaration comment.
+                ageMs > reattachSnapshotMaxAgeMs
             } else {
                 ageMs > staleSnapshotMaxAgeMs
             }
@@ -1966,6 +2002,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
                 }
                 return
+            }
+            // Backfilled only AFTER the staleness verdict above, and only from a snapshot that
+            // passed it. Doing this before the check (the pre-fix ordering) set
+            // currentAttemptStartMs = ts, which made currentAttemptStartKnown true and
+            // `ts < currentAttemptStartMs` trivially false, so the age fallback -- the only
+            // staleness test available when no baseline is known -- could never fire for the very
+            // snapshot that supplied the baseline. Keeping the assignment here also stops a
+            // rejected snapshot from installing an ancient baseline that every later comparison
+            // would then measure against.
+            if (willBackfillAttemptBaseline) {
+                currentAttemptStartMs = ts
+                // Estimate what elapsedRealtimeMs() was when this snapshot's own timestamp (ts)
+                // was captured, keeping the pairing with currentAttemptStartMs consistent with the
+                // ACTION_START path, where both fields are captured together at the same instant.
+                currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - ageMs
             }
         }
         staleSnapshotCount = 0

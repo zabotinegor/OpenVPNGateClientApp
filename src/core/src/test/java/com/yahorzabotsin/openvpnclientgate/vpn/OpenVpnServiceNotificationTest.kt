@@ -976,15 +976,21 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
-    // Regression test for QG4-1 (fix-cycle 8,
-    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): enterControllerForeground()'s
-    // catch block used to call stopSelf() when startForeground() threw during ACTION_START's own
-    // call (stopOnFailure defaulted to true there) -- converting a recoverable "could not show the
-    // notification" failure into exactly the RemoteServiceException
-    // $ForegroundServiceDidNotStartInTimeException crash class this bug's fix-flow exists to
-    // eliminate. ACTION_START's startForegroundService() dispatch (VpnManager.startVpn()) has
-    // already armed the FGS-start obligation by the time this catch block runs, so stopSelf() there
-    // tore the obligation down before it could ever be discharged.
+    // Regression test for PR #135 round-1 bot review (Codex P2): this REVERSES QG4-1 (fix-cycle 8,
+    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md), which removed the
+    // stopSelf() from this failure path on the premise that stopping inside a live FGS obligation
+    // *causes* ForegroundServiceDidNotStartInTimeException. That premise is inverted, and gate-4
+    // recorded its own confidence in it as only "medium ... not verified against AOSP".
+    //
+    // AMS treats bring-down as the DISCHARGE of the obligation, not a violation of it:
+    // ActiveServices.bringDownServiceLocked() logs "Bringing down service while still waiting for
+    // start foreground", clears fgRequired/fgWaiting and removes SERVICE_FOREGROUND_TIMEOUT_MSG;
+    // serviceForegroundTimeout() additionally no-ops on `!r.fgRequired || r.destroying`. What
+    // actually raises the exception is the timeout firing against a service that is still alive --
+    // and START_NOT_STICKY does not stop a service (it only governs restart-after-kill), so the
+    // post-QG4-1 code left exactly that state behind: obligation armed, service running, nothing
+    // able to discharge it. QG4-1 therefore introduced a fresh route into the very crash class this
+    // release exists to eliminate.
     //
     // Deliberately NOT pinned to @Config(sdk = [27]): on the project's DEFAULT Robolectric SDK,
     // NotificationCompat.Builder(...).build() inside enterControllerForeground() already throws
@@ -993,7 +999,7 @@ class OpenVpnServiceNotificationTest {
     // throw is precisely the fault this test needs, so no synthetic fault injection is required --
     // driving a real ACTION_START through onStartCommand() on the default SDK exercises it directly.
     @Test
-    fun startAction_enterForegroundThrows_doesNotStopSelf() {
+    fun startAction_enterForegroundThrows_stopsSelfToDischargeFgsObligation() {
         val controller = Robolectric.buildService(OpenVpnService::class.java)
         val service = controller.create().get()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
@@ -1027,19 +1033,18 @@ class OpenVpnServiceNotificationTest {
             activeField.getBoolean(service)
         )
         assertEquals(
-            "ACTION_START must report START_NOT_STICKY when enterControllerForeground() fails, " +
-                "exactly like onCreate()'s pre-existing stopOnFailure=false treatment of the same " +
-                "failure",
+            "ACTION_START must still report START_NOT_STICKY when enterControllerForeground() fails",
             Service.START_NOT_STICKY,
             result
         )
-        assertFalse(
-            "QG4-1: a startForeground() throw during ACTION_START's enterControllerForeground() " +
-                "call must NOT call stopSelf() -- the FGS-start obligation registered by this " +
-                "ACTION_START's own startForegroundService() dispatch is still undischarged at this " +
-                "point, and stopSelf() here reproduces the exact crash this fix removes. " +
-                "START_NOT_STICKY at the ACTION_START call site already handles the failure " +
-                "correctly, matching the sibling onCreate() call which never stops on failure.",
+        assertTrue(
+            "A startForeground() throw during ACTION_START's enterControllerForeground() call MUST " +
+                "stop the service. ACTION_START is the only action dispatched via " +
+                "startForegroundService(), so an FGS-start obligation is live and can no longer be " +
+                "discharged by startForeground() -- it just threw. START_NOT_STICKY does not stop a " +
+                "service, so returning it alone leaves the obligation armed against a running " +
+                "service and AMS raises ForegroundServiceDidNotStartInTimeException. Bringing the " +
+                "service down is what clears fgRequired and cancels SERVICE_FOREGROUND_TIMEOUT_MSG.",
             shadowOf(service).isStoppedBySelf
         )
     }

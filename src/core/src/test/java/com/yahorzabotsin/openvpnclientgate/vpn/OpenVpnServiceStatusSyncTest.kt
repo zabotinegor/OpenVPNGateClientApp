@@ -1499,6 +1499,72 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun applyStatusSnapshot_unknownAttemptStartRejectsSnapshotFarBeyondReattachCeiling() {
+        // Regression for PR #135 round-1 bot review (Codex P1). The round-15 backfill above ran
+        // BEFORE the staleness verdict, assigning currentAttemptStartMs = ts. That made
+        // currentAttemptStartKnown true and `ts < currentAttemptStartMs` trivially false, so
+        // shouldRejectAsStale collapsed to false and the age fallback -- the only staleness test
+        // available when no baseline is known -- could never fire for the very snapshot that
+        // supplied the baseline. A cached snapshot of ANY age was therefore accepted on the
+        // ACTION_SYNC_STATUS reattach path.
+        //
+        // That matters because applyStatusSnapshot() forwards with allowAutoSwitch = livePushStale,
+        // and livePushStale is true exactly when no live AIDL push has arrived -- the reattach case.
+        // So a days-old CONNECTING reading could drive the UI to CONNECTING and arm
+        // ServerAutoSwitcher, chaining a VPN retry merely from opening the app.
+        //
+        // The fix keeps round 15's bounded trust (see the 20s test above, still green) but caps it
+        // at reattachSnapshotMaxAgeMs. Against pre-fix code this test fails: the snapshot is
+        // accepted, remainingSeconds becomes non-null and currentAttemptStartMs is backfilled to a
+        // three-day-old timestamp.
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val now = 1_700_000_000_000L
+        ReflectionHelpers.setField(service, "watchdogNowMs", ({ now } as () -> Long))
+
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // Live push channel long dead -- past liveStatusGraceMs, so the reject path is the
+        // counted/logged one rather than the "live updates present" early return.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", now - 20_000L)
+        // currentAttemptStartMs left at its default 0L: this instance never saw ACTION_START.
+        ServerAutoSwitcher.resetForTest()
+
+        // Three days old -- a leftover reading from a long-dead past session, not a stuck attempt.
+        val ancientConnectingSnapshot = StatusSnapshot(
+            "TCP_CONNECT",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            now - (3L * 24L * 60L * 60L * 1_000L),
+            0L
+        )
+
+        try {
+            ReflectionHelpers.callInstanceMethod<Any>(
+                service,
+                "applyStatusSnapshot",
+                ClassParameter.from(StatusSnapshot::class.java, ancientConnectingSnapshot)
+            )
+
+            assertNull(
+                "A days-old cached snapshot must NOT arm ServerAutoSwitcher on the reattach path -- " +
+                    "it is a leftover from a past session, and forwarding it with auto-switch " +
+                    "enabled can start a chained VPN retry merely from opening the app",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+            assertEquals(
+                "A snapshot rejected as stale must not install its own ancient timestamp as the " +
+                    "attempt baseline -- currentAttemptStartMs must stay unknown (0L) so a later, " +
+                    "genuinely fresh snapshot can establish it instead",
+                0L,
+                ReflectionHelpers.getField<Long>(service, "currentAttemptStartMs")
+            )
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun applyStatusSnapshot_unknownAttemptStartStillRejectsSnapshotPredatingBackfilledAttempt() {
         // Companion to the test above: once the first active-level snapshot backfills
         // currentAttemptStartMs, a SUBSEQUENT snapshot that predates that backfilled baseline --
