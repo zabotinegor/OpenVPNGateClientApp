@@ -475,6 +475,17 @@ class ServerPickerAdapterTest {
         assertTrue(retried)
     }
 
+    // m8 (US-23 code-review fix cycle, minor/deferred): the test above builds its own
+    // FooterViewHolder by hand with its own separate `onRetry` lambda, so it does not exercise
+    // the adapter's own onCreateViewHolder() wiring (`FooterViewHolder(v, onRetryLoadMore)`).
+    // Closing that gap properly requires going through the adapter's real onCreateViewHolder(),
+    // which inflates the real item_server_list_footer.xml -- but that layout pulls in
+    // MaterialButton/MaterialCardView styles that fail to resolve under this module's Robolectric
+    // legacy-resources setup (see buildFooterView's comment above, which stands the layout in by
+    // hand for the same reason). Attempted and reverted: not closable without either an app-theme
+    // fix to the test Robolectric config or a production-code seam, both out of scope for this
+    // fix cycle's "minor, only if time permits" item.
+
     @Test
     fun `pinnedSectionItemCount ignores a trailing loading footer`() {
         val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)

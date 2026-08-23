@@ -609,6 +609,111 @@ class ServersV2RepositoryTest {
         }
     }
 
+    // ==================== US-23 code review fix cycle: getServersPage() ====================
+
+    // M3 -- a backend that reports a wrong/hostile `total` must not keep hasMore=true forever;
+    // getServersPage() must stop at MAX_PAGES_SAFETY_LIMIT (200) the same way fetchAllPages does.
+    @Test
+    fun getServersPage_stops_at_safety_limit_when_backend_total_is_hostile() = runBlocking {
+        val api = RepeatingPageApi(pageSize = 50, hostileTotal = 1_000_000)
+        val repo = ServersV2Repository(api)
+
+        var skip = 0
+        var hasMore = true
+        var pagesFetched = 0
+        while (hasMore && pagesFetched < 250) {
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50)
+            skip = page.nextSkip
+            hasMore = page.hasMore
+            pagesFetched++
+        }
+
+        assertEquals("must stop at the safety limit, not the hostile total", 200, pagesFetched)
+        assertFalse("hasMore must be forced false once the safety limit is hit", hasMore)
+    }
+
+    // M6 -- pages fetched seconds-to-minutes apart (user scrolling) can see the backend's
+    // active-server cache shift, yielding the same server again at a different offset.
+    // getServersPage() must de-duplicate by server id when accumulating for the persisted cache.
+    @Test
+    fun getServersPage_deduplicates_accumulated_servers_by_id_across_pages() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3, rawCount=3 -> hasMore=true
+        val page2 = buildServersJsonWithIds(listOf(3, 4)) // id 3 repeats; rawCount=2 < take=3 -> hasMore=false
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3)
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3)
+        assertFalse(secondPage.hasMore)
+
+        // Read back the persisted full-list cache via the normal warm-cache path: it must
+        // contain each distinct id once (4), not the 5 raw entries fetched across both pages.
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 5, forceRefresh = false)
+        assertEquals(4, merged.size)
+        assertEquals(setOf(1, 2, 3, 4), merged.map { it.id }.toSet())
+    }
+
+    // M4 -- abandonPagingSession() must actually release the accumulator, not just be a no-op:
+    // resuming the same session after an abandon call must not resurrect the earlier pages.
+    @Test
+    fun abandonPagingSession_clears_accumulator_so_earlier_pages_do_not_resurface() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3, rawCount=3 -> hasMore=true
+        val page2 = buildServersJsonWithIds(listOf(4)) // rawCount=1 < take=3 -> hasMore=false
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3)
+        assertTrue(firstPage.hasMore)
+
+        repo.abandonPagingSession(context, "JP")
+
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3)
+        assertFalse(secondPage.hasMore)
+
+        // Only the second page's server should have been persisted -- if the abandoned first
+        // page's accumulator had survived, this would be 4 servers (ids 1-4) instead of 1.
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals(1, merged.size)
+        assertEquals(4, merged[0].id)
+    }
+
+    private fun buildServersJsonWithIds(ids: List<Int>): String {
+        val items = ids.joinToString(",") { id ->
+            """{"ip":"10.0.0.$id","countryCode":"JP","countryName":"Japan","configData":"CFG$id","id":$id}"""
+        }
+        return """{"items":[$items]}"""
+    }
+
+    /** Returns a fresh, ever-growing page of [pageSize] items with a `total` far beyond what
+     * any bounded loop will reach -- simulates a wrong/hostile backend `total` for M3. */
+    private class RepeatingPageApi(
+        private val pageSize: Int,
+        private val hostileTotal: Int
+    ) : ServersV2Api {
+        private var counter = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = emptyList()
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            val items = (0 until pageSize).map {
+                counter++
+                ServerV2(
+                    ip = "10.0.0.$counter",
+                    countryCode = countryCode,
+                    countryName = countryCode,
+                    configData = "CFG$counter",
+                    id = counter
+                )
+            }
+            return ServersPageResponse(items = items, total = hostileTotal)
+        }
+    }
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",

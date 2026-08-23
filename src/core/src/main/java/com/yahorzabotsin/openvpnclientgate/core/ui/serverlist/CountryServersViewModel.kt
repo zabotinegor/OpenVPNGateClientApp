@@ -71,13 +71,27 @@ class CountryServersViewModel(
                     "Loading country servers. country=$countryName, vpn_connected=$vpnConnected, " +
                         "cache_only=$cacheOnly, page_size=$pageSize"
                 )
-                val page = interactor.getServersPage(
+                var page = interactor.getServersPage(
                     countryName = countryName,
                     countryCode = countryCode,
                     skip = 0,
                     take = pageSize,
                     cacheOnly = cacheOnly
                 )
+                // M5: a raw page can filter down to zero displayable servers (e.g. a page made
+                // entirely of blank-configData entries) while more pages remain. Mirror
+                // fetchAllPages' pre-US-23 guard (ServersV2Repository's raw-page-size exit
+                // condition) and keep paging past such pages instead of treating this as "no
+                // servers for this country", which would incorrectly close the screen.
+                while (page.servers.isEmpty() && page.hasMore) {
+                    page = interactor.getServersPage(
+                        countryName = countryName,
+                        countryCode = countryCode,
+                        skip = page.nextSkip,
+                        take = pageSize,
+                        cacheOnly = cacheOnly
+                    )
+                }
                 if (page.servers.isEmpty()) {
                     logger.logNoServers(countryName)
                     _effects.emit(CountryServersEffect.ShowToast(UiText.Res(R.string.no_servers_for_country)))
@@ -150,7 +164,7 @@ class CountryServersViewModel(
                 logger.logLoadSuccess(countryName, page.servers.size)
                 updateState {
                     it.copy(
-                        servers = it.servers + page.servers,
+                        servers = mergeServersDeduped(it.servers, page.servers),
                         hasMorePages = page.hasMore,
                         nextSkip = page.nextSkip,
                         pageLoadError = false
@@ -179,7 +193,11 @@ class CountryServersViewModel(
                     countryName = countryName,
                     countryCode = snapshot.countryCode,
                     servers = snapshot.servers,
-                    selectedServer = server
+                    selectedServer = server,
+                    // M2: lets the interactor kick off a silent background backfill of the
+                    // remaining pages when the user selects before the full list has loaded.
+                    hasMorePages = snapshot.hasMorePages,
+                    nextSkip = snapshot.nextSkip
                 )
                 _effects.emit(CountryServersEffect.FinishWithSelection(result))
             } catch (e: Exception) {
@@ -210,8 +228,39 @@ class CountryServersViewModel(
         updateState { it.copy(favoriteServerIds = favoritesStore.getFavoriteServerIds()) }
     }
 
+    /**
+     * M4: releases the V2 repository's in-memory paging accumulator when the user leaves this
+     * screen (back navigation, process death, etc.) before the country's full list finished
+     * loading. Without this, a country left mid-scroll retained its accumulated servers --
+     * including full configData blobs -- for the entire process lifetime (the repository is a
+     * Koin singleton). A session that reaches hasMore=false already cleans up on its own inside
+     * ServersV2Repository.getServersPage(); a session that completes via a selection is cleaned
+     * up by resolveSelection()'s own backfill (M2) once it finishes -- this only covers the
+     * remaining "abandoned, nothing else will ever finish it" case.
+     */
+    override fun onCleared() {
+        val snapshot = _state.value
+        if (snapshot.hasMorePages) {
+            interactor.abandonPagingSession(snapshot.countryCode)
+        }
+        super.onCleared()
+    }
+
     private fun updateState(block: (CountryServersUiState) -> CountryServersUiState) {
         _state.value = block(_state.value).derived()
+    }
+
+    /** M6: de-duplicates by server id when appending a newly-fetched page onto the servers
+     * already loaded, keeping the first (earliest-loaded) occurrence. Offset-based pagination
+     * over the backend's live active-server cache can otherwise yield the same server again at
+     * a shifted offset once pages are fetched seconds-to-minutes apart (user scrolling) instead
+     * of the old eager loop's milliseconds. */
+    private fun mergeServersDeduped(existing: List<Server>, incoming: List<Server>): List<Server> {
+        if (incoming.isEmpty()) return existing
+        val merged = LinkedHashMap<Int, Server>(existing.size + incoming.size)
+        existing.forEach { merged[it.id] = it }
+        incoming.forEach { merged.putIfAbsent(it.id, it) }
+        return merged.values.toList()
     }
 
     private fun CountryServersUiState.derived(): CountryServersUiState =

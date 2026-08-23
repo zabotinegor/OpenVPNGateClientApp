@@ -46,10 +46,17 @@ class ServersV2Repository(
     // country+locale), so the full merged list can be written to the same on-disk cache that
     // fetchAllPages() writes once the session reaches its last page (hasMore=false) -- matching
     // AC8 "cached full list served fast" for the *next* time this country is opened, without
-    // requiring the current screen to drain every page up front. Bounded by distinct
-    // country+locale combos paged this process lifetime; entries are removed as soon as a
-    // session completes, so this never grows unbounded in normal use.
-    private val pageAccumulators: ConcurrentHashMap<String, MutableList<ServerV2>> = ConcurrentHashMap()
+    // requiring the current screen to drain every page up front. Entries are removed once a
+    // session completes (hasMore=false) or is explicitly abandoned via [abandonPagingSession]
+    // (US-23 M4) -- a country left mid-scroll before either of those would otherwise retain its
+    // accumulated ServerV2 list, including full configData blobs, for the process lifetime.
+    private val pageAccumulators: ConcurrentHashMap<String, MutableList<ServerV2>> = ConcurrentHashMap(),
+
+    // Per-session page counter (US-23 M3), keyed the same as [pageAccumulators]. Mirrors
+    // fetchAllPages's MAX_PAGES_SAFETY_LIMIT bound: without it, a backend that reports a wrong
+    // or hostile `total` keeps `hasMore=true` forever and the accumulator/adapter/UI state grow
+    // without bound. Reset on a fresh skip=0 session and removed alongside the accumulator.
+    private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
 ) {
 
     private companion object {
@@ -238,15 +245,32 @@ class ServersV2Repository(
             val rawCount = items.size
             val filtered = items.filter { it.configData.isNotBlank() }
             val reachedApiTotal = page.total > 0 && (skip + rawCount) >= page.total
-            val hasMore = if (page.total > 0) !reachedApiTotal else rawCount >= take
             val nextSkip = skip + rawCount
 
+            // US-23 M3: bound the number of pages fetched per session the same way
+            // fetchAllPages does, so a wrong or hostile `total` from the backend cannot keep
+            // hasMore=true (and this accumulator/the UI list) growing forever.
+            val pagesFetched = if (skip == 0) 1 else (pagesFetchedForSession[lockKey] ?: 0) + 1
+            pagesFetchedForSession[lockKey] = pagesFetched
+            val reachedSafetyLimit = pagesFetched >= MAX_PAGES_SAFETY_LIMIT
+            val hasMore = !reachedSafetyLimit && if (page.total > 0) !reachedApiTotal else rawCount >= take
+            if (reachedSafetyLimit) {
+                AppLog.w(TAG, "getServersPage[$countryCode]: stopped by safety page limit ($MAX_PAGES_SAFETY_LIMIT)")
+            }
+
+            // US-23 M6: de-duplicate by server id when accumulating. Pages are now requested
+            // seconds-to-minutes apart (the user scrolling) instead of the old eager loop's
+            // milliseconds, so the backend's active-server cache can shift between page fetches
+            // and yield the same server again at a different offset.
             if (skip == 0) {
                 pageAccumulators[lockKey] = filtered.toMutableList()
             } else {
-                pageAccumulators.getOrPut(lockKey) { mutableListOf() }.addAll(filtered)
+                val accumulated = pageAccumulators.getOrPut(lockKey) { mutableListOf() }
+                val seenIds = accumulated.mapTo(HashSet()) { it.id }
+                filtered.forEach { server -> if (seenIds.add(server.id)) accumulated.add(server) }
             }
             if (!hasMore) {
+                pagesFetchedForSession.remove(lockKey)
                 val fullList = pageAccumulators.remove(lockKey).orEmpty()
                 persistFullListCache(context, countryCode, normalizedLocale, fullList)
             }
@@ -256,6 +280,24 @@ class ServersV2Repository(
                 "getServersPage[$countryCode]: skip=$skip take=$take fetched=${filtered.size} hasMore=$hasMore"
             )
             ServersV2Page(servers = filtered, hasMore = hasMore, nextSkip = nextSkip)
+        }
+    }
+
+    /**
+     * Best-effort synchronous cleanup (US-23 M4): drops any in-memory paging accumulator (and
+     * its page counter) held for [countryCode] at the caller's current locale, releasing
+     * retained `configData` blobs for a lazy-loading session that will never resume -- e.g. the
+     * user leaves the country screen mid-scroll, before [getServersPage] ever reaches
+     * `hasMore=false`. Safe to call even when no accumulator exists for this key (no-op). Does
+     * not touch the on-disk cache.
+     */
+    fun abandonPagingSession(context: Context, countryCode: String) {
+        val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))
+        val normalizedCountryCode = normalizeCountryCode(countryCode)
+        val lockKey = "$normalizedCountryCode|$normalizedLocale"
+        pagesFetchedForSession.remove(lockKey)
+        if (pageAccumulators.remove(lockKey) != null) {
+            AppLog.d(TAG, "abandonPagingSession[$countryCode]: cleared accumulator for abandoned session")
         }
     }
 

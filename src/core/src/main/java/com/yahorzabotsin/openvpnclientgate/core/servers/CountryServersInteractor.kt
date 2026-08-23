@@ -5,6 +5,12 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.IOException
 
 /**
@@ -49,12 +55,34 @@ interface CountryServersInteractor {
         cacheOnly: Boolean
     ): CountryServersPage
 
+    /**
+     * @param hasMorePages true when the page(s) backing [servers] are not yet the country's
+     * complete list (US-23 M2): the caller selected a server before every page finished
+     * loading. When true, a silent background fetch of the remaining pages is kicked off so
+     * [SelectedCountryStore]'s persisted candidate pool for [ServerAutoSwitcher]
+     * (`vpn.ServerAutoSwitcher`) becomes complete shortly after selection, without blocking or
+     * delaying this call.
+     * @param nextSkip the `skip` offset to resume the background backfill from; meaningless
+     * when [hasMorePages] is false.
+     */
     suspend fun resolveSelection(
         countryName: String,
         countryCode: String?,
         servers: List<Server>,
-        selectedServer: Server
+        selectedServer: Server,
+        hasMorePages: Boolean = false,
+        nextSkip: Int = 0
     ): ServerSelectionResult
+
+    /**
+     * Best-effort cleanup hook (US-23 M4): releases any in-memory V2 paging accumulator held
+     * for [countryCode] when the user leaves the country screen before its full list loaded
+     * (and before a selection ever triggered [resolveSelection]'s own backfill, which cleans up
+     * naturally once it completes). No-op for the legacy/VPN Gate source and when [countryCode]
+     * is null -- the paging session was never V2-keyed in that case. Not suspend: intended to be
+     * called from a ViewModel's non-suspend `onCleared()`.
+     */
+    fun abandonPagingSession(countryCode: String?)
 }
 
 class DefaultCountryServersInteractor(
@@ -64,7 +92,21 @@ class DefaultCountryServersInteractor(
 ) : CountryServersInteractor {
     private companion object {
         private val TAG = LogTags.APP + ":CountryServersInteractor"
+        // US-23 M3 parity: bounds the silent background backfill (M2) the same way
+        // ServersV2Repository bounds the foreground paged path, in case of a wrong/hostile total.
+        private const val MAX_BACKFILL_PAGES_SAFETY_LIMIT = 200
     }
+
+    // Outlives any single screen/ViewModel on purpose (US-23 M2): the backfill triggered by
+    // resolveSelection() must keep running after the country screen (and its viewModelScope)
+    // has already finished/cleared following the user's selection.
+    private val backfillScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Visible for test synchronization only: the M2 backfill is fire-and-forget in production,
+    // but a test needs a handle to join() the background coroutine before asserting on
+    // SelectedCountryStore's persisted candidate pool.
+    internal var lastBackfillJob: Job? = null
+        private set
 
     override suspend fun getServersForCountry(
         countryName: String,
@@ -162,7 +204,24 @@ class DefaultCountryServersInteractor(
             }
         }
 
-        val page = repo.getServersPage(appContext, resolvedCode, skip = skip, take = take)
+        val page = try {
+            repo.getServersPage(appContext, resolvedCode, skip = skip, take = take)
+        } catch (e: IOException) {
+            if (skip != 0) throw e
+            // US-23 M1: restore the pre-US-23 offline fallback for the cold (skip=0) path.
+            // fetchWithCache()/fetchFromNetworkWithParsing() used to fall back to a stale
+            // on-disk cache entry when the network call failed; getServersPage() has no such
+            // fallback of its own, so route through the stale-cache-tolerant full fetch instead
+            // of letting the network failure close the screen. Throws (like before) only when
+            // neither a stale cache nor the network is available.
+            AppLog.w(
+                TAG,
+                "getServersPage: network fetch failed at skip=0 for $countryName, falling back to stale-cache-tolerant full fetch",
+                e
+            )
+            val all = getServersForCountryV2(countryName, countryCode, cacheOnly = false)
+            return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
+        }
         val legacyServers = page.servers.map { it.toLegacyServer() }
         if (skip == 0 && legacyServers.isEmpty() && !page.hasMore) {
             throw IOException("No servers available for $countryName")
@@ -178,7 +237,9 @@ class DefaultCountryServersInteractor(
         countryName: String,
         countryCode: String?,
         servers: List<Server>,
-        selectedServer: Server
+        selectedServer: Server,
+        hasMorePages: Boolean,
+        nextSkip: Int
     ): ServerSelectionResult {
         if (servers.isEmpty()) throw IOException("No servers available for $countryName")
 
@@ -195,6 +256,12 @@ class DefaultCountryServersInteractor(
         }
 
         SelectedCountryStore.saveSelection(appContext, countryName, resolvedServers)
+        if (source == ServerSource.DEFAULT_V2 && hasMorePages) {
+            // US-23 M2 (product decision): backfill the remaining pages silently in the
+            // background so the auto-switch candidate pool completes shortly after selection,
+            // without making the user's connect action wait on it.
+            launchSilentBackfill(countryName, countryCode, nextSkip, resolvedServers)
+        }
         val chosenIndex = resolveSelectedIndex(
             selectedServer = selectedServer,
             inputServers = servers,
@@ -235,6 +302,58 @@ class DefaultCountryServersInteractor(
             resolvedServers.indexOfFirst { it.lineIndex == selectedServer.lineIndex },
             resolvedServers.indexOfFirst { it.configData == selectedServer.configData && it.city == selectedServer.city }
         ).firstOrNull { it >= 0 } ?: 0
+    }
+
+    override fun abandonPagingSession(countryCode: String?) {
+        val code = countryCode ?: return
+        serversV2Repository?.abandonPagingSession(appContext, code)
+    }
+
+    /**
+     * US-23 M2: continues fetching this country's remaining pages (reusing
+     * [ServersV2Repository.getServersPage], the same paged-fetch/pageAccumulators mechanism the
+     * foreground screen uses) on [backfillScope] -- independent of any ViewModel/screen scope,
+     * so it keeps running after the country screen has already finished. Once the last page is
+     * reached, persists the full merged candidate pool via
+     * [SelectedCountryStore.saveSelectionPreservingIndex] (preserves the just-set current index
+     * as long as this is still the active selection). Failures are logged and swallowed: a
+     * failed backfill leaves the already-completed selection and its partial candidate pool
+     * untouched, matching the "must not affect the completed selection" requirement.
+     */
+    private fun launchSilentBackfill(
+        countryName: String,
+        countryCode: String?,
+        startSkip: Int,
+        initialServers: List<Server>
+    ) {
+        val repo = serversV2Repository ?: return
+        lastBackfillJob = backfillScope.launch {
+            try {
+                val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
+                val resolvedCode = countryV2.code
+                val accumulated = LinkedHashMap<Int, Server>()
+                initialServers.forEach { accumulated[it.id] = it }
+                var skip = startSkip
+                var hasMore = true
+                var pagesFetched = 0
+                while (hasMore && pagesFetched < MAX_BACKFILL_PAGES_SAFETY_LIMIT) {
+                    val page = repo.getServersPage(appContext, resolvedCode, skip = skip)
+                    page.servers.forEach { accumulated[it.id] = it.toLegacyServer() }
+                    skip = page.nextSkip
+                    hasMore = page.hasMore
+                    pagesFetched += 1
+                }
+                SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulated.values.toList())
+                AppLog.i(
+                    TAG,
+                    "Silent backfill complete: country=$countryName totalServers=${accumulated.size} pagesFetched=$pagesFetched"
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Silent backfill failed for country=$countryName", e)
+            }
+        }
     }
 }
 

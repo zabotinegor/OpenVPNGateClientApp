@@ -1,5 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersPage
@@ -204,6 +206,10 @@ class CountryServersViewModelTest {
         // requested skip matches `pageErrorAtSkip`, in which case `pageError` is thrown instead
         // (simulates a mid-scroll network failure for AC4 retry tests).
         private val firstPageHasMore: Boolean = false,
+        // M5: overrides the skip==0 page's nextSkip (defaults to the old `loaded.size` behavior)
+        // so a test can simulate a raw full page that filters down to zero displayable servers
+        // while the backend still reports more pages remain.
+        private val firstPageNextSkip: Int? = null,
         private val nextPageServers: List<Server> = emptyList(),
         private val nextPageHasMore: Boolean = false,
         private val pageError: Exception? = null,
@@ -219,6 +225,16 @@ class CountryServersViewModelTest {
         var getServersPageCallCount = 0
             private set
         val requestedSkips = mutableListOf<Int>()
+        // M4: abandonPagingSession call tracking.
+        var abandonPagingSessionCallCount = 0
+            private set
+        var lastAbandonedCountryCode: String? = null
+            private set
+        // M2: resolveSelection's paging params, recorded for assertions.
+        var lastResolveSelectionHasMorePages: Boolean? = null
+            private set
+        var lastResolveSelectionNextSkip: Int? = null
+            private set
 
         override suspend fun getServersForCountry(
             countryName: String,
@@ -247,7 +263,11 @@ class CountryServersViewModelTest {
                 throw (pageError ?: IOException("simulated page error"))
             }
             return if (skip == 0) {
-                CountryServersPage(servers = loaded, hasMore = firstPageHasMore, nextSkip = loaded.size)
+                CountryServersPage(
+                    servers = loaded,
+                    hasMore = firstPageHasMore,
+                    nextSkip = firstPageNextSkip ?: loaded.size
+                )
             } else {
                 CountryServersPage(
                     servers = nextPageServers,
@@ -261,10 +281,19 @@ class CountryServersViewModelTest {
             countryName: String,
             countryCode: String?,
             servers: List<Server>,
-            selectedServer: Server
+            selectedServer: Server,
+            hasMorePages: Boolean,
+            nextSkip: Int
         ): ServerSelectionResult {
+            lastResolveSelectionHasMorePages = hasMorePages
+            lastResolveSelectionNextSkip = nextSkip
             selectionError?.let { throw it }
             return selectionResult
+        }
+
+        override fun abandonPagingSession(countryCode: String?) {
+            abandonPagingSessionCallCount++
+            lastAbandonedCountryCode = countryCode
         }
     }
 
@@ -923,5 +952,126 @@ class CountryServersViewModelTest {
         val pinnedRow = items[1] as ServerListItem.ServerRow
         assertEquals(20, pinnedRow.server.id)
         assertTrue(pinnedRow.isFavorite)
+    }
+
+    // --- M4: abandonPagingSession is called on teardown iff the screen leaves with more pages
+    // still pending ---
+
+    @Test
+    fun `M4 - onCleared calls abandonPagingSession when hasMorePages is true at teardown`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = true)
+        val store = ViewModelStore()
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore()
+            ) as T
+        }
+        val vm = ViewModelProvider(store, factory)[CountryServersViewModel::class.java]
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        store.clear()
+
+        assertEquals(1, interactor.abandonPagingSessionCallCount)
+        assertEquals("FR", interactor.lastAbandonedCountryCode)
+    }
+
+    @Test
+    fun `M4 - onCleared does not call abandonPagingSession when hasMorePages is false`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
+        val store = ViewModelStore()
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore()
+            ) as T
+        }
+        val vm = ViewModelProvider(store, factory)[CountryServersViewModel::class.java]
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.hasMorePages)
+
+        store.clear()
+
+        assertEquals(0, interactor.abandonPagingSessionCallCount)
+    }
+
+    // --- M5: an empty-after-filtering first page with hasMore=true must not finish the screen;
+    // it must keep paging until real servers are found ---
+
+    @Test
+    fun `M5 - empty filtered first page with hasMore keeps loading until real servers appear`() = runTest {
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = emptyList(),
+            firstPageHasMore = true,
+            firstPageNextSkip = 50,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        val effects = mutableListOf<CountryServersEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        assertEquals("must keep paging past the empty-after-filtering first page", listOf(0, 50), interactor.requestedSkips)
+        assertEquals(listOf(serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+        assertTrue(
+            "an empty-but-hasMore first page must not finish/cancel the screen",
+            effects.first() is CountryServersEffect.FocusFirstItem
+        )
+        job.cancel()
+    }
+
+    // --- M6: offset-based pagination can re-deliver the same server id at a shifted offset; the
+    // ViewModel must de-dup by id when appending a newly-fetched page ---
+
+    @Test
+    fun `M6 - duplicate server id across two pages does not appear twice in state servers`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverADuplicate = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverADuplicate, serverB),
+            nextPageHasMore = false
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(listOf(10, 20), vm.state.value.servers.map { it.id })
+        assertEquals(2, vm.state.value.servers.size)
+        assertEquals("the first (earliest-loaded) occurrence must be kept", serverA, vm.state.value.servers[0])
     }
 }
