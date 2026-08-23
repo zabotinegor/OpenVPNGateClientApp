@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersPage
 import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesServerStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServerSelectionResult
@@ -10,6 +11,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.about.MainDispatcherRule
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,7 +47,7 @@ class CountryServersViewModelTest {
         val effects = mutableListOf<CountryServersEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
 
-        vm.onAction(CountryServersAction.Initialize(countryName = null, countryCode = null))
+        vm.onAction(CountryServersAction.Initialize(countryName = null, countryCode = null, pageSize = 50))
         advanceUntilIdle()
 
         assertTrue(effects.first() is CountryServersEffect.FinishCanceled)
@@ -70,7 +72,7 @@ class CountryServersViewModelTest {
         val effects = mutableListOf<CountryServersEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         assertEquals(false, interactor.lastCacheOnly)
@@ -93,7 +95,7 @@ class CountryServersViewModelTest {
         val effects = mutableListOf<CountryServersEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(2).toList(effects) }
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         assertTrue(effects[0] is CountryServersEffect.ShowToast)
@@ -125,7 +127,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = FakeFavoritesServerStore()
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -152,7 +154,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = FakeFavoritesServerStore()
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -195,10 +197,28 @@ class CountryServersViewModelTest {
     private class FakeInteractor(
         private val loaded: List<Server> = emptyList(),
         private val selectionResult: ServerSelectionResult = ServerSelectionResult("", null, null, "", null),
-        private val selectionError: Exception? = null
+        private val selectionError: Exception? = null,
+        // --- US-23 paging fixtures ---
+        // First page (skip == 0) always returns `loaded` with `firstPageHasMore`. Subsequent
+        // page requests (skip > 0) return `nextPageServers`/`nextPageHasMore` unless the
+        // requested skip matches `pageErrorAtSkip`, in which case `pageError` is thrown instead
+        // (simulates a mid-scroll network failure for AC4 retry tests).
+        private val firstPageHasMore: Boolean = false,
+        private val nextPageServers: List<Server> = emptyList(),
+        private val nextPageHasMore: Boolean = false,
+        private val pageError: Exception? = null,
+        private val pageErrorAtSkip: Int? = null,
+        // Optional suspension gate: when set, a skip>0 call suspends on this Deferred before
+        // returning, letting a test observe the in-flight (isLoadingMore=true) state before
+        // completing it.
+        private val nextPageGate: CompletableDeferred<Unit>? = null
     ) : CountryServersInteractor {
         var lastCacheOnly: Boolean? = null
         var lastCountryCode: String? = null
+        var lastTake: Int? = null
+        var getServersPageCallCount = 0
+            private set
+        val requestedSkips = mutableListOf<Int>()
 
         override suspend fun getServersForCountry(
             countryName: String,
@@ -208,6 +228,33 @@ class CountryServersViewModelTest {
             lastCacheOnly = cacheOnly
             lastCountryCode = countryCode
             return loaded
+        }
+
+        override suspend fun getServersPage(
+            countryName: String,
+            countryCode: String?,
+            skip: Int,
+            take: Int,
+            cacheOnly: Boolean
+        ): CountryServersPage {
+            lastCacheOnly = cacheOnly
+            lastCountryCode = countryCode
+            lastTake = take
+            getServersPageCallCount++
+            requestedSkips.add(skip)
+            if (skip > 0) nextPageGate?.await()
+            if (pageErrorAtSkip != null && skip == pageErrorAtSkip) {
+                throw (pageError ?: IOException("simulated page error"))
+            }
+            return if (skip == 0) {
+                CountryServersPage(servers = loaded, hasMore = firstPageHasMore, nextSkip = loaded.size)
+            } else {
+                CountryServersPage(
+                    servers = nextPageServers,
+                    hasMore = nextPageHasMore,
+                    nextSkip = loaded.size + nextPageServers.size
+                )
+            }
         }
 
         override suspend fun resolveSelection(
@@ -272,7 +319,7 @@ class CountryServersViewModelTest {
             favoritesStore = favoritesStore
         )
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val items = vm.state.value.items
@@ -308,7 +355,7 @@ class CountryServersViewModelTest {
             favoritesStore = favoritesStore
         )
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val headers = vm.state.value.items.filterIsInstance<ServerListItem.SectionHeader>()
@@ -331,7 +378,7 @@ class CountryServersViewModelTest {
             favoritesStore = FakeFavoritesServerStore()
         )
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
@@ -352,7 +399,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val items = vm.state.value.items
@@ -391,7 +438,7 @@ class CountryServersViewModelTest {
             favoritesStore = favoritesStore
         )
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val items = vm.state.value.items
@@ -411,7 +458,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
@@ -438,7 +485,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         vm.onAction(CountryServersAction.ToggleFavorite(legacyServer))
@@ -466,7 +513,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val favoriteRow = vm.state.value.items[1] as ServerListItem.ServerRow
@@ -495,7 +542,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
         assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
 
@@ -529,7 +576,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val effects = mutableListOf<CountryServersEffect>()
@@ -560,7 +607,7 @@ class CountryServersViewModelTest {
             favoritesStore = favoritesStore
         )
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val items = vm.state.value.items
@@ -596,7 +643,7 @@ class CountryServersViewModelTest {
             logger = FakeLogger(),
             favoritesStore = favoritesStore
         )
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         vm.onAction(CountryServersAction.ToggleFavorite(serverA))
@@ -629,11 +676,252 @@ class CountryServersViewModelTest {
         val effects = mutableListOf<CountryServersEffect>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(1).toList(effects) }
 
-        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR"))
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
         advanceUntilIdle()
 
         val focusEffect = effects.first() as CountryServersEffect.FocusFirstItem
         assertEquals(1, focusEffect.adapterPosition)
         job.cancel()
+    }
+
+    // ==================== US-23: lazy-load servers within a country ====================
+
+    // --- AC1: only the first page loads on open, sized by the caller-supplied pageSize ---
+
+    @Test
+    fun `AC1 - initial load requests skip 0 with the given pageSize as take`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = true)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 7))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), interactor.requestedSkips)
+        assertEquals(7, interactor.lastTake)
+        assertEquals(1, vm.state.value.servers.size)
+        assertTrue("hasMorePages must reflect the first page's result", vm.state.value.hasMorePages)
+    }
+
+    // --- AC2: scrolling near the loaded end fetches and appends the next page, with a
+    // loading indicator shown while that fetch is in flight ---
+
+    @Test
+    fun `AC2 - LoadNextPage appends the next page and clears the loading indicator once done`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), interactor.requestedSkips)
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+        assertFalse(vm.state.value.isLoadingMore)
+        assertTrue(
+            "no loading-footer item should remain once the page fetch settles",
+            vm.state.value.items.none { it is ServerListItem.LoadingFooter }
+        )
+    }
+
+    @Test
+    fun `AC2 - loading footer is shown while the next page fetch is in flight`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val gate = CompletableDeferred<Unit>()
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false,
+            nextPageGate = gate
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle() // runs up to the suspension point inside the fake (nextPageGate.await())
+
+        assertTrue("isLoadingMore must be true while the fetch is in flight", vm.state.value.isLoadingMore)
+        assertEquals(
+            ServerListItem.LoadingFooter(FooterState.LOADING),
+            vm.state.value.items.last()
+        )
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.isLoadingMore)
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+    }
+
+    // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---
+
+    @Test
+    fun `AC3 - LoadNextPage is a no-op once hasMorePages is false`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals("only the initial skip=0 call should ever happen", listOf(0), interactor.requestedSkips)
+        assertFalse(vm.state.value.isLoadingMore)
+        assertTrue(vm.state.value.items.none { it is ServerListItem.LoadingFooter })
+    }
+
+    // --- AC4: a mid-scroll page failure shows a retry affordance; retrying resumes from the
+    // same page ---
+
+    @Test
+    fun `AC4 - page fetch failure mid-scroll surfaces retry state instead of a silent stall`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            pageErrorAtSkip = 1
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.pageLoadError)
+        assertFalse(vm.state.value.isLoadingMore)
+        // The failed page must not have been appended -- only the first page's server remains.
+        assertEquals(listOf(serverA), vm.state.value.servers)
+        // hasMorePages must still be true so a retry is actually attempted, not silently dropped.
+        assertTrue(vm.state.value.hasMorePages)
+        assertEquals(
+            ServerListItem.LoadingFooter(FooterState.ERROR),
+            vm.state.value.items.last()
+        )
+    }
+
+    @Test
+    fun `AC4 - RetryLoadNextPage resumes from the same skip that failed`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            pageErrorAtSkip = 1
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.pageLoadError)
+
+        vm.onAction(CountryServersAction.RetryLoadNextPage)
+        advanceUntilIdle()
+
+        // Same skip (1) requested again -- retry resumes from the same page, it does not
+        // advance past the failed one.
+        assertEquals(listOf(0, 1, 1), interactor.requestedSkips)
+        assertTrue("retry against the same fixture fails again the same way", vm.state.value.pageLoadError)
+    }
+
+    @Test
+    fun `AC4 - RetryLoadNextPage is a no-op without a prior page error`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.RetryLoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), interactor.requestedSkips)
+    }
+
+    // --- AC6: a favorited server appears in the pinned section once its page has loaded,
+    // not eagerly before that ---
+
+    @Test
+    fun `AC6 - favorited server from a later page appears only once that page has loaded`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val favoritedServerB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(favoritedServerB),
+            nextPageHasMore = false
+        )
+        val favoritesStore = FakeFavoritesServerStore(setOf(20))
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = favoritesStore
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        // Before the second page loads, the favorite (on page 2) is not present at all, so no
+        // pinned section should be rendered yet -- not a separate eager favorites fetch.
+        assertTrue(vm.state.value.items.none { it is ServerListItem.SectionHeader })
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        val items = vm.state.value.items
+        assertTrue(items[0] is ServerListItem.SectionHeader)
+        val pinnedRow = items[1] as ServerListItem.ServerRow
+        assertEquals(20, pinnedRow.server.id)
+        assertTrue(pinnedRow.isFavorite)
     }
 }

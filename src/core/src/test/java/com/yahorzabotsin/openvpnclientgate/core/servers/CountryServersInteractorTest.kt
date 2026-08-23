@@ -5,7 +5,10 @@ import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -150,6 +153,144 @@ class CountryServersInteractorTest {
         assertEquals("JP", api.lastRequestedCountryCode)
     }
 
+    // ==================== US-23: getServersPage (lazy loading) ====================
+
+    // AC1/AC2 -- cold cache: the interactor requests exactly one page from the network, not
+    // the whole country, and reports hasMore/nextSkip from that single response.
+    @Test
+    fun getServersPage_v2_cold_cache_fetches_only_the_requested_page() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 50, total = 120))
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+
+        assertEquals(1, api.serversCallCount)
+        assertEquals(listOf(0), api.requestedSkips)
+        assertEquals(50, api.lastTake)
+        assertEquals(50, page.servers.size)
+        assertTrue("more pages remain (only 50 of 120 fetched)", page.hasMore)
+        assertEquals(50, page.nextSkip)
+    }
+
+    // AC2 -- a second page request uses the caller-supplied skip offset, not a re-derived one.
+    @Test
+    fun getServersPage_v2_second_page_uses_the_given_skip_offset() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":70}]""",
+            serversPageResponses = listOf(
+                buildServersJsonWithTotal("JP", 50, total = 70),
+                buildServersJsonWithTotal("JP", 20, total = 70)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val page2 = interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false)
+
+        assertEquals(listOf(0, 50), api.requestedSkips)
+        assertEquals(20, page2.servers.size)
+        assertFalse("last page reached (50 + 20 == total 70)", page2.hasMore)
+    }
+
+    // AC8 -- a fresh full-list cache (written by a prior completed session, or by the legacy
+    // eager fetch) is served in one shot, unchanged, without a network call.
+    @Test
+    fun getServersPage_v2_skip0_uses_fresh_cache_fast_path_without_network_call() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        // Prime the warm cache exactly as the pre-existing eager path would.
+        v2Repo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+        val callsAfterPriming = api.serversCallCount
+
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false)
+
+        assertEquals("cache hit must not make another network call", callsAfterPriming, api.serversCallCount)
+        assertEquals(3, page.servers.size)
+        assertFalse("full cached list means nothing more to fetch", page.hasMore)
+    }
+
+    // Out of scope source (VPN Gate/legacy): always the full list as a single page, unchanged.
+    @Test
+    fun getServersPage_non_v2_source_returns_full_list_as_single_page() = runBlocking {
+        setSource(ServerSource.VPNGATE)
+        val csv = "TITLE, SAMPLE\nHEADER, IGNORE\n" +
+            "legacy,9.9.9.9,0,10,0,Japan,JP,0,0,0,0,L,op,msg,cfg"
+        val legacyRepo = ServerRepository(FixedApi(csv))
+        val interactor = DefaultCountryServersInteractor(context, legacyRepo, serversV2Repository = null)
+
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+
+        assertEquals(1, page.servers.size)
+        assertEquals("9.9.9.9", page.servers[0].ip)
+        assertFalse(page.hasMore)
+        assertEquals(1, page.nextSkip)
+    }
+
+    // AC4 -- a network failure on a genuine (non-first) page propagates so the ViewModel can
+    // surface the retry affordance, instead of being swallowed here.
+    @Test(expected = IOException::class)
+    fun getServersPage_v2_network_failure_mid_scroll_propagates(): Unit = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 50, total = 120))
+            // only one scripted response: the 2nd call falls back to the Fake's default empty
+            // page, which is not what we want here -- use a throwing fake instead below.
+        )
+        val v2Repo = ServersV2Repository(ThrowingOnSecondPageApi(api))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false)
+    }
+
+    private fun buildServersJsonWithTotal(code: String, count: Int, total: Int): String {
+        val items = (1..count).joinToString(",") { i ->
+            """{"ip":"10.$i.0.$code","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$i"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
+    private class FixedApi(private val body: String) : VpnServersApi {
+        override suspend fun getServers(url: String): okhttp3.ResponseBody =
+            body.toResponseBody("text/plain".toMediaTypeOrNull())
+    }
+
+    /** Wraps a [FakeServersV2Api] to throw on the 2nd+ getServers() call, simulating a
+     * mid-scroll network failure on a genuine (non-first) page while keeping the first call's
+     * scripted success response intact. */
+    private class ThrowingOnSecondPageApi(private val delegate: FakeServersV2Api) : ServersV2Api {
+        private var callCount = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            callCount++
+            if (callCount > 1) throw IOException("simulated mid-scroll network failure")
+            return delegate.getServers(locale, countryCode, isActive, skip, take)
+        }
+    }
+
     // --------------- helpers ---------------
 
     private fun setSource(source: ServerSource) {
@@ -165,9 +306,16 @@ class CountryServersInteractorTest {
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
-        private val serversJson: String = "{\"items\":[]}"
+        private val serversJson: String = "{\"items\":[]}",
+        // US-23: when set, each successive getServers() call returns the next entry (indexed
+        // by call order), so a test can script a distinct response per page/skip.
+        private val serversPageResponses: List<String>? = null
     ) : ServersV2Api {
         var lastRequestedCountryCode: String? = null
+        var serversCallCount = 0
+            private set
+        val requestedSkips = mutableListOf<Int>()
+        var lastTake: Int? = null
 
         override suspend fun getCountries(locale: String): List<CountryV2> =
             Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
@@ -179,7 +327,11 @@ class CountryServersInteractorTest {
             take: Int
         ): ServersPageResponse {
             lastRequestedCountryCode = countryCode
-            return Gson().fromJson(serversJson, ServersPageResponse::class.java)
+            requestedSkips.add(skip)
+            lastTake = take
+            val json = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
+            serversCallCount++
+            return Gson().fromJson(json, ServersPageResponse::class.java)
         }
     }
 

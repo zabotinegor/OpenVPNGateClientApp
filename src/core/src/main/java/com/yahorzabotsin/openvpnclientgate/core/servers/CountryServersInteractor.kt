@@ -7,12 +7,48 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import java.io.IOException
 
+/**
+ * Result of a single lazy-loaded page request against [CountryServersInteractor.getServersPage]
+ * (US-23), expressed in the legacy [Server] shape used throughout the UI layer.
+ *
+ * @param servers the servers for this page (or the full list, when [ServersV2Repository]'s
+ * warm-cache fast path is taken -- see [getServersPage] doc).
+ * @param hasMore true when at least one more page is expected; false once the country's full
+ * list has been delivered (via genuine pagination or the cache fast path).
+ * @param nextSkip the `skip` offset to request next; meaningless when [hasMore] is false.
+ */
+data class CountryServersPage(
+    val servers: List<Server>,
+    val hasMore: Boolean,
+    val nextSkip: Int
+)
+
 interface CountryServersInteractor {
     suspend fun getServersForCountry(
         countryName: String,
         countryCode: String? = null,
         cacheOnly: Boolean
     ): List<Server>
+
+    /**
+     * Lazy-loading entry point (US-23): fetches one page of servers for [countryName]/
+     * [countryCode] starting at [skip], up to [take] items.
+     *
+     * For the default V2 source, this genuinely fetches only the requested page over the
+     * network when no fresh full-list cache exists (AC1/AC2), or serves the complete cached
+     * list unchanged in one shot when a fresh cache is present (AC8 -- the already-fast path is
+     * preserved). For every other source (VPN Gate/legacy, out of scope per the story), this
+     * always returns the complete country list as a single page with `hasMore = false`,
+     * matching pre-US-23 behavior exactly.
+     */
+    suspend fun getServersPage(
+        countryName: String,
+        countryCode: String?,
+        skip: Int,
+        take: Int,
+        cacheOnly: Boolean
+    ): CountryServersPage
+
     suspend fun resolveSelection(
         countryName: String,
         countryCode: String?,
@@ -54,23 +90,12 @@ class DefaultCountryServersInteractor(
     ): List<Server> {
         val repo = serversV2Repository
             ?: throw IOException("ServersV2Repository not injected for v2 source")
-
-        // Find the countryCode from the cached country list to get serverCount for pagination.
-        // Prefer code lookup for stability: if a country label changes (backend rename/localization),
-        // the code-based path avoids failure. If the cache is absent (splash sync failed, app data cleared),
-        // honor the caller's cacheOnly flag: with cacheOnly=false a network fetch is attempted before failing.
-        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
-        val countryV2 = countryCode?.let { code ->
-            countries.firstOrNull { it.code.equals(code, ignoreCase = true) }
-        } ?: countries.firstOrNull { it.name.equals(countryName, ignoreCase = true) }
-            ?: throw IOException("Country '$countryName' (code=${countryCode ?: "<unknown>"}) not found in cache.")
-        val countryCode = countryV2.code
-        val serverCount = countryV2.serverCount
+        val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly)
 
         val v2Servers = repo.getServersForCountry(
             context = appContext,
-            countryCode = countryCode,
-            serverCount = serverCount,
+            countryCode = countryV2.code,
+            serverCount = countryV2.serverCount,
             forceRefresh = false,
             cacheOnly = cacheOnly
         )
@@ -79,6 +104,74 @@ class DefaultCountryServersInteractor(
         val legacyServers = v2Servers.map { it.toLegacyServer() }
         AppLog.i(TAG, "getServersForCountryV2: country=$countryName servers=${legacyServers.size}")
         return legacyServers
+    }
+
+    /**
+     * Finds the [CountryV2] for [countryName]/[countryCode] in the cached country list.
+     * Prefers code lookup for stability: if a country label changes (backend rename/
+     * localization), the code-based path avoids failure. If the cache is absent (splash sync
+     * failed, app data cleared), honors [cacheOnly]: with cacheOnly=false a network fetch is
+     * attempted before failing.
+     */
+    private suspend fun resolveCountryV2(
+        repo: ServersV2Repository,
+        countryName: String,
+        countryCode: String?,
+        cacheOnly: Boolean
+    ): CountryV2 {
+        val countries = repo.getCountries(appContext, forceRefresh = false, cacheOnly = cacheOnly)
+        return countryCode?.let { code ->
+            countries.firstOrNull { it.code.equals(code, ignoreCase = true) }
+        } ?: countries.firstOrNull { it.name.equals(countryName, ignoreCase = true) }
+            ?: throw IOException("Country '$countryName' (code=${countryCode ?: "<unknown>"}) not found in cache.")
+    }
+
+    override suspend fun getServersPage(
+        countryName: String,
+        countryCode: String?,
+        skip: Int,
+        take: Int,
+        cacheOnly: Boolean
+    ): CountryServersPage {
+        val source = UserSettingsStore.load(appContext).serverSource
+        if (source != ServerSource.DEFAULT_V2) {
+            // Out of scope for lazy loading (VPN Gate/legacy source): always the full list in
+            // one shot, exactly as before US-23.
+            val all = getServersForCountry(countryName, countryCode, cacheOnly)
+            return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
+        }
+
+        val repo = serversV2Repository
+            ?: throw IOException("ServersV2Repository not injected for v2 source")
+        val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly)
+        val resolvedCode = countryV2.code
+
+        if (skip == 0) {
+            val freshCached = repo.getFreshCachedServers(appContext, resolvedCode)
+            if (!freshCached.isNullOrEmpty()) {
+                val legacy = freshCached.map { it.toLegacyServer() }
+                AppLog.i(TAG, "getServersPage: warm-cache fast path country=$countryName servers=${legacy.size}")
+                return CountryServersPage(servers = legacy, hasMore = false, nextSkip = legacy.size)
+            }
+            if (cacheOnly) {
+                // No fresh cache and network is disallowed (VPN connected): preserve the
+                // pre-existing cacheOnly contract exactly -- a single stale-cache-tolerant full
+                // read via getServersForCountryV2, never genuine network pagination.
+                val all = getServersForCountryV2(countryName, countryCode, cacheOnly = true)
+                return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
+            }
+        }
+
+        val page = repo.getServersPage(appContext, resolvedCode, skip = skip, take = take)
+        val legacyServers = page.servers.map { it.toLegacyServer() }
+        if (skip == 0 && legacyServers.isEmpty() && !page.hasMore) {
+            throw IOException("No servers available for $countryName")
+        }
+        AppLog.i(
+            TAG,
+            "getServersPage: country=$countryName skip=$skip take=$take fetched=${legacyServers.size} hasMore=${page.hasMore}"
+        )
+        return CountryServersPage(servers = legacyServers, hasMore = page.hasMore, nextSkip = page.nextSkip)
     }
 
     override suspend fun resolveSelection(

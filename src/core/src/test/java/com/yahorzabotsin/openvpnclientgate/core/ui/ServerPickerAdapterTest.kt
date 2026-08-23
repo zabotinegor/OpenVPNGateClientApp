@@ -9,6 +9,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
+import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.FooterState
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerListItem
 import com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerPickerAdapter
 import org.junit.Assert.assertEquals
@@ -95,6 +96,20 @@ class ServerPickerAdapterTest {
         val container = FrameLayout(context)
         container.addView(TextView(context).apply { id = R.id.section_header_title })
         container.addView(ImageView(context).apply { id = R.id.section_header_icon })
+        return container
+    }
+
+    private fun buildFooterView(context: android.content.Context): FrameLayout {
+        // Plain View/TextView stand-ins for the real item_server_list_footer.xml layout
+        // (mirrors buildItemView/buildHeaderView above): avoids inflating MaterialButton/
+        // MaterialCardView directly, which requires app theme resolution unavailable to core
+        // unit tests running Robolectric in legacy resources mode.
+        val container = FrameLayout(context)
+        container.addView(View(context).apply { id = R.id.footer_progress })
+        val errorGroup = FrameLayout(context).apply { id = R.id.footer_error_group }
+        errorGroup.addView(TextView(context).apply { id = R.id.footer_error_text })
+        errorGroup.addView(View(context).apply { id = R.id.footer_retry_button })
+        container.addView(errorGroup)
         return container
     }
 
@@ -406,5 +421,71 @@ class ServerPickerAdapterTest {
         favoriteStar?.contentDescription = "sentinel_value"
         holder.bind(server, isFavorite = false)
         assertEquals(null, favoriteStar?.contentDescription)
+    }
+
+    // ==================== US-23: loading-footer row (lazy loading) ====================
+
+    @Test
+    fun `loading footer is the last view type when appended after server rows`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(
+            ServerListItem.ServerRow(serverA, isFavorite = false),
+            ServerListItem.LoadingFooter(FooterState.LOADING)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(2, adapter.itemCount)
+        assertEquals(1, adapter.getItemViewType(0))
+        assertEquals(2, adapter.getItemViewType(1))
+    }
+
+    @Test
+    fun `loading footer shows progress and hides the error group when state is LOADING`() {
+        val context = RuntimeEnvironment.getApplication()
+        val items = listOf(ServerListItem.LoadingFooter(FooterState.LOADING))
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+        val holder = ServerPickerAdapter.FooterViewHolder(buildFooterView(context), onRetry = {})
+
+        adapter.onBindViewHolder(holder, 0)
+
+        assertEquals(View.VISIBLE, holder.itemView.findViewById<View>(R.id.footer_progress).visibility)
+        assertEquals(View.GONE, holder.itemView.findViewById<View>(R.id.footer_error_group).visibility)
+    }
+
+    @Test
+    fun `loading footer shows error group with a working retry callback when state is ERROR`() {
+        val context = RuntimeEnvironment.getApplication()
+        val items = listOf(ServerListItem.LoadingFooter(FooterState.ERROR))
+        var retried = false
+        val adapter = ServerPickerAdapter(
+            items,
+            isDefaultV2Source = false,
+            onClick = {},
+            onLongClick = { _, _, _ -> },
+            onRetryLoadMore = { retried = true }
+        )
+        val holder = ServerPickerAdapter.FooterViewHolder(buildFooterView(context)) { retried = true }
+
+        adapter.onBindViewHolder(holder, 0)
+
+        assertEquals(View.GONE, holder.itemView.findViewById<View>(R.id.footer_progress).visibility)
+        assertEquals(View.VISIBLE, holder.itemView.findViewById<View>(R.id.footer_error_group).visibility)
+
+        holder.itemView.findViewById<View>(R.id.footer_retry_button).performClick()
+        assertTrue(retried)
+    }
+
+    @Test
+    fun `pinnedSectionItemCount ignores a trailing loading footer`() {
+        val serverA = buildServer(city = "Paris", name = "srv-a").copy(id = 1)
+        val items = listOf(
+            ServerListItem.SectionHeader(UiText.Res(R.string.favorites_section_title)),
+            ServerListItem.ServerRow(serverA, isFavorite = true, isPinnedSection = true),
+            ServerListItem.ServerRow(serverA, isFavorite = true),
+            ServerListItem.LoadingFooter(FooterState.LOADING)
+        )
+        val adapter = ServerPickerAdapter(items, isDefaultV2Source = false, onClick = {}, onLongClick = { _, _, _ -> })
+
+        assertEquals(2, adapter.pinnedSectionItemCount())
     }
 }

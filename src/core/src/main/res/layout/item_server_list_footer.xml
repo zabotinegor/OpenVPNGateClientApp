@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SUB-23: loading-footer row appended to the server list while a lazy-loaded page is
+     in flight (progress) or failed (error + retry). Rendered by ServerPickerAdapter as the
+     final adapter item; never part of the pinned Favorites block. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:paddingTop="16dp"
+    android:paddingBottom="16dp">
+
+    <ProgressBar
+        android:id="@+id/footer_progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:indeterminateTint="@color/loading_spinner_color"
+        android:indeterminateTintMode="src_in"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/footer_error_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/footer_error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/country_servers_page_load_error"
+            android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Subtitle" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/footer_retry_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="40dp"
+            android:minWidth="40dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/action_retry"
+            android:textAllCaps="false"
+            android:textColor="?attr/colorOnSurface"
+            app:backgroundTint="@color/button_primary_background"
+            app:icon="@drawable/ic_baseline_refresh_24"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:iconTint="?attr/colorOnSurface"
+            app:rippleColor="@android:color/transparent" />
+    </LinearLayout>
+
+</LinearLayout>

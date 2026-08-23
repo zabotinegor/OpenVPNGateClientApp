@@ -24,6 +24,14 @@ import org.robolectric.annotation.Config
  * mirrors the ConnectionControlsView.resolveFocusTarget pattern). The full themed Activity cannot be
  * launched here because core unit tests run Robolectric in legacy resources mode, which
  * cannot resolve AppCompat/Material library theme resources.
+ *
+ * Re-verified against US-23 (lazy-loaded first page): [applyFocusFirstItem] only needs the
+ * `position` the ViewModel computed from whatever items are currently loaded (position 0 or 1
+ * depending on whether a pinned Favorites header exists) -- that computation is unchanged by
+ * paging, since the first page is always non-empty by the time FocusFirstItem is emitted (see
+ * CountryServersViewModelTest's `AC1 -` and `initialize loads servers and emits focus effect...`
+ * cases, which now drive that emission through the paged getServersPage flow). This file's
+ * coverage of the scroll/focus decoupling itself therefore still applies unchanged.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [27])

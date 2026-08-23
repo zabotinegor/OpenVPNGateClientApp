@@ -18,6 +18,18 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
+ * Result of a single lazy-loaded page fetch (US-23). [nextSkip] is derived from the raw
+ * (pre-configData-filtering) item count returned by the backend so the caller's next request
+ * stays aligned with the API's own `skip`/`take` cursor, even though [servers] itself only
+ * contains the filtered, non-blank-configData entries.
+ */
+data class ServersV2Page(
+    val servers: List<ServerV2>,
+    val hasMore: Boolean,
+    val nextSkip: Int
+)
+
+/**
  * Fetches and caches v2 country and server lists.
  *
  * Cache strategy mirrors [ServerRepository]:
@@ -29,7 +41,15 @@ class ServersV2Repository(
     private val settingsStore: UserSettingsStore = UserSettingsStore,
     private val countriesMutex: Mutex = Mutex(),
     private val serversMutexMap: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap(),
-    private val fileCopy: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = false) }
+    private val fileCopy: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = false) },
+    // Accumulates filtered ServerV2 items across a lazy-loading paging session (keyed by
+    // country+locale), so the full merged list can be written to the same on-disk cache that
+    // fetchAllPages() writes once the session reaches its last page (hasMore=false) -- matching
+    // AC8 "cached full list served fast" for the *next* time this country is opened, without
+    // requiring the current screen to drain every page up front. Bounded by distinct
+    // country+locale combos paged this process lifetime; entries are removed as soon as a
+    // session completes, so this never grows unbounded in normal use.
+    private val pageAccumulators: ConcurrentHashMap<String, MutableList<ServerV2>> = ConcurrentHashMap()
 ) {
 
     private companion object {
@@ -144,6 +164,123 @@ class ServersV2Repository(
                 parse = ::parseServers,
                 fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
             )
+        }
+    }
+
+    /**
+     * Returns the cached server list for [countryCode] only if a non-expired (still within
+     * TTL) cache entry exists, without ever making a network call -- used by the lazy-loading
+     * screen (US-23 AC8) to take the existing "already fast" warm-cache path unchanged. Returns
+     * null when the cache is absent, expired, or fails to parse (caller falls back to genuine
+     * paged fetching in that case).
+     */
+    suspend fun getFreshCachedServers(
+        context: Context,
+        countryCode: String
+    ): List<ServerV2>? {
+        val locale = resolvePreferredLocale(context)
+        val normalizedLocale = normalizeLocale(locale)
+        val normalizedCountryCode = normalizeCountryCode(countryCode)
+        val lockKey = "$normalizedCountryCode|$normalizedLocale"
+        val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
+        return mutex.withLock {
+            val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+            migrateLegacyServersCacheIfNeeded(context, prefs, normalizedCountryCode, normalizedLocale)
+            val cacheFile = serversCacheFile(context, countryCode, normalizedLocale)
+            val tsKey = serversTimestampKey(normalizedCountryCode, normalizedLocale)
+            val ts = prefs.getLong(tsKey, -1L)
+            val cacheTtlMs = settingsStore.load(context).cacheTtlMs
+            val cacheValid = ts > 0L && cacheFile.isFile && (System.currentTimeMillis() - ts) < cacheTtlMs
+            if (!cacheValid) return@withLock null
+            try {
+                withContext(Dispatchers.IO) { parseServers(cacheFile.readText()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.w(TAG, "getFreshCachedServers[$countryCode]: cache parse error", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * Fetches exactly one page (`skip`/`take`) of servers for [countryCode] directly from the
+     * network -- the lazy-loading counterpart to [getServersForCountry]'s [fetchAllPages]
+     * (US-23). Does not consult or write the on-disk cache per call; instead, filtered items
+     * are accumulated in-memory across the calling session (keyed by country+locale) and the
+     * full merged list is persisted to the same cache file [getServersForCountry] reads once
+     * [ServersV2Page.hasMore] turns false (the session reached its last page), so a later
+     * re-open within the TTL takes the warm-cache fast path.
+     */
+    suspend fun getServersPage(
+        context: Context,
+        countryCode: String,
+        skip: Int,
+        take: Int = PAGE_SIZE
+    ): ServersV2Page {
+        val locale = resolvePreferredLocale(context)
+        val normalizedLocale = normalizeLocale(locale)
+        val normalizedCountryCode = normalizeCountryCode(countryCode)
+        val lockKey = "$normalizedCountryCode|$normalizedLocale"
+        val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
+        return mutex.withLock {
+            val page = withContext(Dispatchers.IO) {
+                api.getServers(
+                    locale = normalizedLocale,
+                    countryCode = countryCode,
+                    isActive = true,
+                    skip = skip,
+                    take = take
+                )
+            }
+            val items = page.items
+                ?: throw IOException("getServersPage[$countryCode]: missing 'items' in response")
+            val rawCount = items.size
+            val filtered = items.filter { it.configData.isNotBlank() }
+            val reachedApiTotal = page.total > 0 && (skip + rawCount) >= page.total
+            val hasMore = if (page.total > 0) !reachedApiTotal else rawCount >= take
+            val nextSkip = skip + rawCount
+
+            if (skip == 0) {
+                pageAccumulators[lockKey] = filtered.toMutableList()
+            } else {
+                pageAccumulators.getOrPut(lockKey) { mutableListOf() }.addAll(filtered)
+            }
+            if (!hasMore) {
+                val fullList = pageAccumulators.remove(lockKey).orEmpty()
+                persistFullListCache(context, countryCode, normalizedLocale, fullList)
+            }
+
+            AppLog.d(
+                TAG,
+                "getServersPage[$countryCode]: skip=$skip take=$take fetched=${filtered.size} hasMore=$hasMore"
+            )
+            ServersV2Page(servers = filtered, hasMore = hasMore, nextSkip = nextSkip)
+        }
+    }
+
+    /** Writes the fully-paged-in server list to the same cache file/timestamp key that
+     * [fetchWithCache] uses, so the next open of this country within the TTL is a cache hit.
+     * Must be called while already holding this country+locale's [serversMutexMap] lock. */
+    private suspend fun persistFullListCache(
+        context: Context,
+        countryCode: String,
+        normalizedLocale: String,
+        servers: List<ServerV2>
+    ) {
+        if (servers.isEmpty()) return
+        try {
+            val cacheFile = serversCacheFile(context, countryCode, normalizedLocale)
+            val tsKey = serversTimestampKey(normalizeCountryCode(countryCode), normalizedLocale)
+            val json = Gson().toJson(servers)
+            withContext(Dispatchers.IO) { cacheFile.writeText(json) }
+            context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
+                .edit().putLong(tsKey, System.currentTimeMillis()).apply()
+            AppLog.d(TAG, "persistFullListCache[$countryCode]: cached ${servers.size} servers after final page")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "persistFullListCache[$countryCode]: failed to write cache", e)
         }
     }
 

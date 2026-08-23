@@ -10,6 +10,7 @@ import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.snackbar.Snackbar
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.databinding.ActivityTemplateBinding
@@ -51,15 +52,53 @@ class CountryServersActivity : AppCompatActivity() {
         contentBinding.serversRecyclerView.addItemDecoration(
             FavoritesSectionCardDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
         )
+        // US-23 AC2/AC7: fires for both touch fling and D-pad-driven scroll (RecyclerView's
+        // scroll callback is input-method agnostic — a D-pad focus move that scrolls the list
+        // to bring the next row into view goes through the same onScrolled path).
+        contentBinding.serversRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                maybeLoadNextPage(recyclerView)
+            }
+        })
 
         observeViewModel()
 
         viewModel.onAction(
             CountryServersAction.Initialize(
                 countryName = intent.getStringExtra(EXTRA_COUNTRY_NAME),
-                countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE)
+                countryCode = intent.getStringExtra(EXTRA_COUNTRY_CODE),
+                pageSize = computeServerPageSize()
             )
         )
+    }
+
+    /** US-23 AC5: page size derived from the device's real screen dimensions and the server
+     * row's measured/laid-out height — no hardcoded item-count constant. Safe to call before
+     * the RecyclerView has been laid out (`onCreate`): falls back to the display width when
+     * the view's own width isn't known yet. See [ServerListPageSizeCalculator]. */
+    private fun computeServerPageSize(): Int = ServerListPageSizeCalculator.compute(
+        parent = contentBinding.serversRecyclerView,
+        rowLayoutResId = R.layout.item_server_row,
+        screenHeightPx = resources.displayMetrics.heightPixels,
+        screenWidthPx = resources.displayMetrics.widthPixels
+    )
+
+    /** AC2: triggers the next page fetch once the user has scrolled within
+     * [LOAD_MORE_TRIGGER_THRESHOLD] rows of the currently loaded end. This is a scroll-trigger
+     * distance, not a page-size constant (AC5) — it only decides *when* to ask for more, never
+     * *how many* servers a page contains. The ViewModel itself is idempotent against repeated
+     * triggers (no-ops while already loading or once the list is complete), so no local
+     * debouncing state is needed here. */
+    private fun maybeLoadNextPage(recyclerView: RecyclerView) {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val itemCount = recyclerView.adapter?.itemCount ?: 0
+        if (itemCount == 0) return
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        if (lastVisible == RecyclerView.NO_POSITION) return
+        if (lastVisible >= itemCount - LOAD_MORE_TRIGGER_THRESHOLD) {
+            viewModel.onAction(CountryServersAction.LoadNextPage)
+        }
     }
 
     override fun onDestroy() {
@@ -96,6 +135,9 @@ class CountryServersActivity : AppCompatActivity() {
                 },
                 onLongClick = { anchor, server, isFavorite ->
                     showFavoriteMenu(anchor, server, isFavorite)
+                },
+                onRetryLoadMore = {
+                    viewModel.onAction(CountryServersAction.RetryLoadNextPage)
                 }
             )
             contentBinding.serversRecyclerView.adapter = adapter
@@ -234,5 +276,9 @@ class CountryServersActivity : AppCompatActivity() {
         const val EXTRA_SELECTED_SERVER_IP = "EXTRA_SELECTED_SERVER_IP"
         const val EXTRA_COUNTRY_NAME = "EXTRA_COUNTRY_NAME"
         const val EXTRA_COUNTRY_CODE = "EXTRA_COUNTRY_CODE"
+
+        /** Row-count distance from the loaded end that triggers the next page fetch (AC2) —
+         * a scroll-trigger threshold, not the page size itself (see [maybeLoadNextPage] doc). */
+        private const val LOAD_MORE_TRIGGER_THRESHOLD = 5
     }
 }

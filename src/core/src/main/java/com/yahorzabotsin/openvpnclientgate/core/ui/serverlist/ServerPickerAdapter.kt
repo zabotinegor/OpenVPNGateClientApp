@@ -37,13 +37,24 @@ sealed interface ServerListItem {
         val isFavorite: Boolean,
         val isPinnedSection: Boolean = false
     ) : ServerListItem
+
+    /**
+     * Loading-footer row appended after the regular list while a lazy-loaded next page is in
+     * flight or has failed (US-23 AC2/AC4). Always the last adapter item when present; never
+     * counted by [ServerPickerAdapter.pinnedSectionItemCount].
+     */
+    data class LoadingFooter(val state: FooterState) : ServerListItem
 }
+
+/** State rendered by [ServerPickerAdapter]'s [ServerListItem.LoadingFooter] row. */
+enum class FooterState { LOADING, ERROR }
 
 class ServerPickerAdapter(
     private var items: List<ServerListItem>,
     private val isDefaultV2Source: Boolean,
     private val onClick: (Server) -> Unit,
-    private val onLongClick: (view: View, server: Server, isFavorite: Boolean) -> Unit
+    private val onLongClick: (view: View, server: Server, isFavorite: Boolean) -> Unit,
+    private val onRetryLoadMore: () -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     fun updateItems(newItems: List<ServerListItem>) {
@@ -54,6 +65,7 @@ class ServerPickerAdapter(
     override fun getItemViewType(position: Int): Int = when (items[position]) {
         is ServerListItem.SectionHeader -> VIEW_TYPE_HEADER
         is ServerListItem.ServerRow -> VIEW_TYPE_SERVER
+        is ServerListItem.LoadingFooter -> VIEW_TYPE_FOOTER
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -62,6 +74,10 @@ class ServerPickerAdapter(
             VIEW_TYPE_HEADER -> {
                 val v = inflater.inflate(R.layout.item_country_section_header, parent, false)
                 HeaderViewHolder(v)
+            }
+            VIEW_TYPE_FOOTER -> {
+                val v = inflater.inflate(R.layout.item_server_list_footer, parent, false)
+                FooterViewHolder(v, onRetryLoadMore)
             }
             else -> {
                 val v = inflater.inflate(R.layout.item_server_row, parent, false)
@@ -73,6 +89,7 @@ class ServerPickerAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
             is ServerListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
+            is ServerListItem.LoadingFooter -> (holder as FooterViewHolder).bind(item.state)
             is ServerListItem.ServerRow -> {
                 val rowHolder = holder as ViewHolder
                 rowHolder.bind(item.server, item.isFavorite)
@@ -193,8 +210,33 @@ class ServerPickerAdapter(
         }
     }
 
+    class FooterViewHolder(
+        itemView: View,
+        private val onRetry: () -> Unit
+    ) : RecyclerView.ViewHolder(itemView) {
+        private val progress: View = itemView.findViewById(R.id.footer_progress)
+        private val errorGroup: View = itemView.findViewById(R.id.footer_error_group)
+        private val retryButton: View = itemView.findViewById(R.id.footer_retry_button)
+
+        fun bind(state: FooterState) {
+            when (state) {
+                FooterState.LOADING -> {
+                    progress.visibility = View.VISIBLE
+                    errorGroup.visibility = View.GONE
+                    retryButton.setOnClickListener(null)
+                }
+                FooterState.ERROR -> {
+                    progress.visibility = View.GONE
+                    errorGroup.visibility = View.VISIBLE
+                    retryButton.setOnClickListener { onRetry() }
+                }
+            }
+        }
+    }
+
     private companion object {
         const val VIEW_TYPE_HEADER = 0
         const val VIEW_TYPE_SERVER = 1
+        const val VIEW_TYPE_FOOTER = 2
     }
 }
