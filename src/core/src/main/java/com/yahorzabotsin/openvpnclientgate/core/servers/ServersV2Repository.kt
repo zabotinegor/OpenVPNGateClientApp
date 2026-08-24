@@ -223,7 +223,8 @@ class ServersV2Repository(
         context: Context,
         countryCode: String,
         skip: Int,
-        take: Int = PAGE_SIZE
+        take: Int = PAGE_SIZE,
+        accumulate: Boolean = true
     ): ServersV2Page {
         val locale = resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
@@ -246,6 +247,24 @@ class ServersV2Repository(
             val filtered = items.filter { it.configData.isNotBlank() }
             val reachedApiTotal = page.total > 0 && (skip + rawCount) >= page.total
             val nextSkip = skip + rawCount
+
+            if (!accumulate) {
+                // US-23 F1: a session-isolated fetch (currently only the silent background
+                // backfill in CountryServersInteractor). Deliberately does not touch
+                // pageAccumulators/pagesFetchedForSession or persist the on-disk cache -- those
+                // are shared per country+locale across every foreground paging session, and a
+                // caller that mixed into them could have its pages wiped by an unrelated
+                // abandonPagingSession() call from a screen teardown racing this fetch (F1), or
+                // collide with a second concurrently-open session on the same country (F3). The
+                // caller owns its own accumulation, its own safety-limit bound, and -- once
+                // done -- persisting the merged list via [persistFullServerList].
+                val hasMore = if (page.total > 0) !reachedApiTotal else rawCount >= take
+                AppLog.d(
+                    TAG,
+                    "getServersPage[$countryCode]: (non-accumulating) skip=$skip take=$take fetched=${filtered.size} hasMore=$hasMore"
+                )
+                return@withLock ServersV2Page(servers = filtered, hasMore = hasMore, nextSkip = nextSkip)
+            }
 
             // US-23 M3: bound the number of pages fetched per session the same way
             // fetchAllPages does, so a wrong or hostile `total` from the backend cannot keep
@@ -272,7 +291,12 @@ class ServersV2Repository(
             if (!hasMore) {
                 pagesFetchedForSession.remove(lockKey)
                 val fullList = pageAccumulators.remove(lockKey).orEmpty()
-                persistFullListCache(context, countryCode, normalizedLocale, fullList)
+                // US-23 F6: a stop forced by the safety limit means the accumulated list is
+                // knowingly incomplete -- do not cache it as this country's authoritative full
+                // list, which would otherwise stick for the whole TTL.
+                if (!reachedSafetyLimit) {
+                    persistFullListCache(context, countryCode, normalizedLocale, fullList)
+                }
             }
 
             AppLog.d(
@@ -284,12 +308,38 @@ class ServersV2Repository(
     }
 
     /**
+     * US-23 F1: persists [servers] as [countryCode]'s complete on-disk server list cache -- the
+     * same file/timestamp key [getServersForCountry]/[getFreshCachedServers] read -- on behalf
+     * of a caller (the silent background backfill) that fetched its pages via [getServersPage]
+     * with `accumulate = false` and therefore built its own merged list instead of relying on
+     * [pageAccumulators]. Acquires this country+locale's paging lock itself. No-op for an empty
+     * list (mirrors [persistFullListCache]'s own guard).
+     */
+    suspend fun persistFullServerList(context: Context, countryCode: String, servers: List<ServerV2>) {
+        val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))
+        val normalizedCountryCode = normalizeCountryCode(countryCode)
+        val lockKey = "$normalizedCountryCode|$normalizedLocale"
+        val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
+        mutex.withLock {
+            persistFullListCache(context, countryCode, normalizedLocale, servers)
+        }
+    }
+
+    /**
      * Best-effort synchronous cleanup (US-23 M4): drops any in-memory paging accumulator (and
      * its page counter) held for [countryCode] at the caller's current locale, releasing
      * retained `configData` blobs for a lazy-loading session that will never resume -- e.g. the
      * user leaves the country screen mid-scroll, before [getServersPage] ever reaches
      * `hasMore=false`. Safe to call even when no accumulator exists for this key (no-op). Does
      * not touch the on-disk cache.
+     *
+     * US-23 F10 (documented, not fixed): unlike every other mutation of [pageAccumulators],
+     * this one is not taken under this country+locale's [serversMutexMap] lock -- it is
+     * intentionally non-suspend so it can be called synchronously from a ViewModel's
+     * `onCleared()`, which cannot await a `Mutex`. Benign on the underlying
+     * [ConcurrentHashMap] (no corruption, no crash possible), but callers relying on this
+     * running strictly before/after a concurrent accumulating [getServersPage] call for the
+     * same key should not assume ordering.
      */
     fun abandonPagingSession(context: Context, countryCode: String) {
         val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))

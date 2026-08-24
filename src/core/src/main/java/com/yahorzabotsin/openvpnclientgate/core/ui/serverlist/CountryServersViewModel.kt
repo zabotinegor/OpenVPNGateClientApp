@@ -32,6 +32,11 @@ class CountryServersViewModel(
     private val _effects = MutableSharedFlow<CountryServersEffect>()
     val effects = _effects.asSharedFlow()
 
+    // US-23 F1: set once a server selection completes while hasMorePages was true, i.e. once
+    // resolveSelection() has handed this paging session off to its own silent background
+    // backfill (M2). onCleared() must not also abandon the session in that case -- see its KDoc.
+    private var selectionHandedOffToBackfill = false
+
     fun onAction(action: CountryServersAction) {
         when (action) {
             is CountryServersAction.Initialize -> onInitialize(action.countryName, action.countryCode, action.pageSize)
@@ -83,7 +88,13 @@ class CountryServersViewModel(
                 // fetchAllPages' pre-US-23 guard (ServersV2Repository's raw-page-size exit
                 // condition) and keep paging past such pages instead of treating this as "no
                 // servers for this country", which would incorrectly close the screen.
-                while (page.servers.isEmpty() && page.hasMore) {
+                // F4: guard against a page whose nextSkip does not advance past the skip that
+                // produced it (an empty `items` array while the backend still reports
+                // total > skip) -- without this, the loop above would re-issue the identical
+                // request, bounded only by the repository's 200-page safety limit.
+                var previousSkip = 0
+                while (page.servers.isEmpty() && page.hasMore && page.nextSkip > previousSkip) {
+                    previousSkip = page.nextSkip
                     page = interactor.getServersPage(
                         countryName = countryName,
                         countryCode = countryCode,
@@ -199,6 +210,11 @@ class CountryServersViewModel(
                     hasMorePages = snapshot.hasMorePages,
                     nextSkip = snapshot.nextSkip
                 )
+                if (snapshot.hasMorePages) {
+                    // US-23 F1: the interactor has just launched (or reused) its own background
+                    // backfill for this country/session; onCleared() must defer cleanup to it.
+                    selectionHandedOffToBackfill = true
+                }
                 _effects.emit(CountryServersEffect.FinishWithSelection(result))
             } catch (e: Exception) {
                 logger.logSelectionError(server.ip, e)
@@ -235,12 +251,14 @@ class CountryServersViewModel(
      * including full configData blobs -- for the entire process lifetime (the repository is a
      * Koin singleton). A session that reaches hasMore=false already cleans up on its own inside
      * ServersV2Repository.getServersPage(); a session that completes via a selection is cleaned
-     * up by resolveSelection()'s own backfill (M2) once it finishes -- this only covers the
-     * remaining "abandoned, nothing else will ever finish it" case.
+     * up by resolveSelection()'s own backfill (M2) once it finishes -- guarded here by
+     * [selectionHandedOffToBackfill] (US-23 F1) so this only ever fires for the remaining
+     * "abandoned, nothing else will ever finish it" case, never racing the backfill that a
+     * completed selection just launched.
      */
     override fun onCleared() {
         val snapshot = _state.value
-        if (snapshot.hasMorePages) {
+        if (snapshot.hasMorePages && !selectionHandedOffToBackfill) {
             interactor.abandonPagingSession(snapshot.countryCode)
         }
         super.onCleared()

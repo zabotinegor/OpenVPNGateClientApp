@@ -35,3 +35,24 @@ fun ServerV2.toLegacyServer(): Server = Server(
     utc = utc,
     id = id
 )
+
+/**
+ * Reconstructs the [ServerV2] shape from a legacy [Server] originally produced by
+ * [ServerV2.toLegacyServer] (US-23 F1): the silent background backfill
+ * (`CountryServersInteractor.launchSilentBackfill`) seeds its merged accumulator from servers
+ * the foreground screen already held before the user selected one -- those are only available
+ * as legacy [Server], but the on-disk full-list cache it must persist via
+ * [ServersV2Repository.persistFullServerList] is a [ServerV2] list. [fallbackCountryCode]/
+ * [fallbackCountryName] back the country fields on the rare chance [Server.country] itself is
+ * incomplete (never expected in practice for a V2-sourced server).
+ */
+fun Server.toServerV2(fallbackCountryCode: String, fallbackCountryName: String): ServerV2 = ServerV2(
+    ip = ip,
+    countryCode = country.code?.takeIf { it.isNotBlank() } ?: fallbackCountryCode,
+    countryName = country.name.ifBlank { fallbackCountryName },
+    configData = configData,
+    city = city.takeIf { it.isNotBlank() },
+    utc = utc,
+    id = id,
+    ping = ping
+)

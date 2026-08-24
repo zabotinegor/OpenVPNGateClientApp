@@ -210,6 +210,11 @@ class CountryServersViewModelTest {
         // so a test can simulate a raw full page that filters down to zero displayable servers
         // while the backend still reports more pages remain.
         private val firstPageNextSkip: Int? = null,
+        // F4: bounds a would-be-infinite skip==0 retry loop in tests -- once the skip==0 branch
+        // has been requested this many times, hasMore flips to false so an *unfixed* loop-
+        // detection test still terminates (with a larger, differing call count) instead of
+        // hanging forever; a fixed loop stops after the very first call regardless.
+        private val firstPageHasMoreCallLimit: Int? = null,
         private val nextPageServers: List<Server> = emptyList(),
         private val nextPageHasMore: Boolean = false,
         private val pageError: Exception? = null,
@@ -263,9 +268,12 @@ class CountryServersViewModelTest {
                 throw (pageError ?: IOException("simulated page error"))
             }
             return if (skip == 0) {
+                val effectiveHasMore = firstPageHasMoreCallLimit?.let { limit ->
+                    requestedSkips.count { it == 0 } < limit
+                } ?: firstPageHasMore
                 CountryServersPage(
                     servers = loaded,
-                    hasMore = firstPageHasMore,
+                    hasMore = effectiveHasMore,
                     nextSkip = firstPageNextSkip ?: loaded.size
                 )
             } else {
@@ -1073,5 +1081,138 @@ class CountryServersViewModelTest {
         assertEquals(listOf(10, 20), vm.state.value.servers.map { it.id })
         assertEquals(2, vm.state.value.servers.size)
         assertEquals("the first (earliest-loaded) occurrence must be kept", serverA, vm.state.value.servers[0])
+    }
+
+    // --- F4: the M5 loop must not re-issue an identical request when nextSkip does not advance ---
+
+    @Test
+    fun `F4 - empty first page whose nextSkip does not advance stops instead of looping forever`() = runTest {
+        val interactor = FakeInteractor(
+            loaded = emptyList(),
+            firstPageHasMore = true,
+            firstPageNextSkip = 0,
+            // Escape hatch so an *unfixed* ViewModel still terminates the test (with a call
+            // count that fails the assertion below) instead of looping forever.
+            firstPageHasMoreCallLimit = 5
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        val effects = mutableListOf<CountryServersEffect>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) { vm.effects.take(2).toList(effects) }
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        assertEquals(
+            "must not re-issue an identical request when nextSkip does not advance",
+            listOf(0),
+            interactor.requestedSkips
+        )
+        assertTrue(effects[0] is CountryServersEffect.ShowToast)
+        assertTrue(effects[1] is CountryServersEffect.FinishCanceled)
+        job.cancel()
+    }
+
+    // --- F7: pin the ViewModel -> interactor M2 wiring (hasMorePages/nextSkip forwarding) ---
+
+    @Test
+    fun `F7 - server selection forwards hasMorePages true and the current nextSkip to resolveSelection`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            firstPageNextSkip = 42,
+            selectionResult = result
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+        assertEquals(42, vm.state.value.nextSkip)
+
+        vm.onAction(CountryServersAction.ServerSelected(serverA))
+        advanceUntilIdle()
+
+        assertEquals(true, interactor.lastResolveSelectionHasMorePages)
+        assertEquals(42, interactor.lastResolveSelectionNextSkip)
+    }
+
+    @Test
+    fun `F7 - server selection from a complete list forwards hasMorePages false`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = false,
+            selectionResult = result
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.ServerSelected(serverA))
+        advanceUntilIdle()
+
+        assertEquals(false, interactor.lastResolveSelectionHasMorePages)
+    }
+
+    // --- F1(b): a completed selection must not also abandon the paging session -- that would
+    // race resolveSelection()'s own background backfill (M2), which now owns cleanup for this
+    // case. onCleared() must only cover the genuinely abandoned path (back navigation before any
+    // selection was made). ---
+
+    @Test
+    fun `F1 - onCleared does not abandon paging session after a completed selection with hasMorePages true`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            selectionResult = result
+        )
+        val store = ViewModelStore()
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore()
+            ) as T
+        }
+        val vm = ViewModelProvider(store, factory)[CountryServersViewModel::class.java]
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.ServerSelected(serverA))
+        advanceUntilIdle()
+
+        store.clear()
+
+        assertEquals(
+            "a completed selection hands the session off to resolveSelection()'s own backfill; " +
+                "onCleared() must not also abandon it",
+            0,
+            interactor.abandonPagingSessionCallCount
+        )
     }
 }

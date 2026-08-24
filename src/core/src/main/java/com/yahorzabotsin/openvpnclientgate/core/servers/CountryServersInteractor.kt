@@ -1,6 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
@@ -105,6 +106,7 @@ class DefaultCountryServersInteractor(
     // Visible for test synchronization only: the M2 backfill is fire-and-forget in production,
     // but a test needs a handle to join() the background coroutine before asserting on
     // SelectedCountryStore's persisted candidate pool.
+    @VisibleForTesting
     internal var lastBackfillJob: Job? = null
         private set
 
@@ -206,14 +208,20 @@ class DefaultCountryServersInteractor(
 
         val page = try {
             repo.getServersPage(appContext, resolvedCode, skip = skip, take = take)
-        } catch (e: IOException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             if (skip != 0) throw e
-            // US-23 M1: restore the pre-US-23 offline fallback for the cold (skip=0) path.
-            // fetchWithCache()/fetchFromNetworkWithParsing() used to fall back to a stale
-            // on-disk cache entry when the network call failed; getServersPage() has no such
-            // fallback of its own, so route through the stale-cache-tolerant full fetch instead
-            // of letting the network failure close the screen. Throws (like before) only when
-            // neither a stale cache nor the network is available.
+            // US-23 M1/F2: restore the pre-US-23 offline fallback for the cold (skip=0) path.
+            // fetchWithCache()/fetchFromNetworkWithParsing() used to catch Exception broadly
+            // (after rethrowing CancellationException) and fall back to a stale on-disk cache
+            // entry for *any* failure -- not just IOException. Retrofit throws HttpException (a
+            // RuntimeException) for a non-2xx response and Gson throws JsonSyntaxException for a
+            // malformed body; neither is an IOException, so a narrower catch here would still let
+            // a backend 5xx/malformed-body response close the screen despite a usable stale
+            // cache. getServersPage() has no fallback of its own, so route through the
+            // stale-cache-tolerant full fetch instead. Throws (like before) only when neither a
+            // stale cache nor the network is available.
             AppLog.w(
                 TAG,
                 "getServersPage: network fetch failed at skip=0 for $countryName, falling back to stale-cache-tolerant full fetch",
@@ -310,15 +318,34 @@ class DefaultCountryServersInteractor(
     }
 
     /**
-     * US-23 M2: continues fetching this country's remaining pages (reusing
-     * [ServersV2Repository.getServersPage], the same paged-fetch/pageAccumulators mechanism the
-     * foreground screen uses) on [backfillScope] -- independent of any ViewModel/screen scope,
-     * so it keeps running after the country screen has already finished. Once the last page is
-     * reached, persists the full merged candidate pool via
-     * [SelectedCountryStore.saveSelectionPreservingIndex] (preserves the just-set current index
-     * as long as this is still the active selection). Failures are logged and swallowed: a
-     * failed backfill leaves the already-completed selection and its partial candidate pool
-     * untouched, matching the "must not affect the completed selection" requirement.
+     * US-23 M2: continues fetching this country's remaining pages on [backfillScope] --
+     * independent of any ViewModel/screen scope, so it keeps running after the country screen
+     * has already finished. Once the last page is reached, persists the full merged candidate
+     * pool via [SelectedCountryStore.saveSelectionPreservingIndex] (preserves the just-set
+     * current index as long as this is still the active selection), and separately persists the
+     * same merged list as the country's on-disk full-list cache via
+     * [ServersV2Repository.persistFullServerList]. Failures are logged and swallowed: a failed
+     * backfill leaves the already-completed selection and its partial candidate pool untouched,
+     * matching the "must not affect the completed selection" requirement.
+     *
+     * US-23 F1 fix: fetches every page with `accumulate = false`
+     * ([ServersV2Repository.getServersPage]'s session-isolation parameter), so this backfill
+     * never reads or writes [ServersV2Repository]'s shared `pageAccumulators`. Before this fix,
+     * the backfill reused that shared per-country accumulator -- the same one the foreground
+     * screen's own paging used -- keyed only by country+locale with no session identity. A
+     * `ViewModel.onCleared()` firing (correctly) for the just-finished foreground session raced
+     * this backfill and cleared the accumulator out from under it; the backfill's own last page
+     * then started a *new* accumulator from scratch and persisted only its own tail as the
+     * country's "complete" list, with a fresh cache timestamp -- silently truncating the cache
+     * for the rest of the TTL. Fetching accumulate=false removes the shared state entirely: this
+     * method now owns its own local merge (seeded from [initialServers], the pages the
+     * foreground screen had already loaded) and persists it independently, so it can no longer
+     * be disturbed by -- or interfere with -- any other session on the same country (also
+     * closing F3's concurrent-session hazard). This also makes F5's "accumulator leaked on
+     * failure" concern moot: there is no repository-side accumulator entry for this session to
+     * leak in the first place, so no `finally { abandonPagingSession(...) }` is needed here --
+     * the local maps below are ordinary coroutine-local state, reclaimed on completion or
+     * cancellation like any other.
      */
     private fun launchSilentBackfill(
         countryName: String,
@@ -331,22 +358,30 @@ class DefaultCountryServersInteractor(
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
                 val resolvedCode = countryV2.code
-                val accumulated = LinkedHashMap<Int, Server>()
-                initialServers.forEach { accumulated[it.id] = it }
+                val accumulatedLegacy = LinkedHashMap<Int, Server>()
+                val accumulatedV2 = LinkedHashMap<Int, ServerV2>()
+                initialServers.forEach { server ->
+                    accumulatedLegacy[server.id] = server
+                    accumulatedV2[server.id] = server.toServerV2(resolvedCode, countryV2.name)
+                }
                 var skip = startSkip
                 var hasMore = true
                 var pagesFetched = 0
                 while (hasMore && pagesFetched < MAX_BACKFILL_PAGES_SAFETY_LIMIT) {
-                    val page = repo.getServersPage(appContext, resolvedCode, skip = skip)
-                    page.servers.forEach { accumulated[it.id] = it.toLegacyServer() }
+                    val page = repo.getServersPage(appContext, resolvedCode, skip = skip, accumulate = false)
+                    page.servers.forEach { v2 ->
+                        accumulatedLegacy[v2.id] = v2.toLegacyServer()
+                        accumulatedV2[v2.id] = v2
+                    }
                     skip = page.nextSkip
                     hasMore = page.hasMore
                     pagesFetched += 1
                 }
-                SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulated.values.toList())
+                SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
+                repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
                 AppLog.i(
                     TAG,
-                    "Silent backfill complete: country=$countryName totalServers=${accumulated.size} pagesFetched=$pagesFetched"
+                    "Silent backfill complete: country=$countryName totalServers=${accumulatedLegacy.size} pagesFetched=$pagesFetched"
                 )
             } catch (e: CancellationException) {
                 throw e

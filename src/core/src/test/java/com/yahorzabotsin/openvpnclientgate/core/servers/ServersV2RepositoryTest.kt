@@ -632,6 +632,76 @@ class ServersV2RepositoryTest {
         assertFalse("hasMore must be forced false once the safety limit is hit", hasMore)
     }
 
+    // F6 -- when the safety limit forces hasMore=false, the accumulated list is knowingly
+    // incomplete and must NOT be cached as this country's authoritative full list (it would
+    // otherwise stick, wrongly, for the whole TTL).
+    @Test
+    fun getServersPage_safety_limit_stop_does_not_persist_incomplete_list_as_full_cache() = runBlocking {
+        val api = RepeatingPageApi(pageSize = 50, hostileTotal = 1_000_000)
+        val repo = ServersV2Repository(api)
+
+        var skip = 0
+        var hasMore = true
+        var pagesFetched = 0
+        while (hasMore && pagesFetched < 250) {
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50)
+            skip = page.nextSkip
+            hasMore = page.hasMore
+            pagesFetched++
+        }
+        assertEquals(200, pagesFetched)
+
+        val cached = repo.getFreshCachedServers(context, "JP")
+        assertTrue("a safety-limit stop must not cache a knowingly-incomplete list", cached.isNullOrEmpty())
+    }
+
+    // F1 -- accumulate=false must not touch the shared pageAccumulators/pagesFetchedForSession
+    // state, and must not be affected by (or affect) a concurrent abandonPagingSession() call on
+    // the same lockKey -- the whole point of the session-isolation parameter.
+    @Test
+    fun getServersPage_accumulate_false_ignores_concurrent_abandonPagingSession_and_does_not_self_persist() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3))
+        val page2 = buildServersJsonWithIds(listOf(4))
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, accumulate = false)
+        assertTrue(firstPage.hasMore)
+        assertEquals(listOf(1, 2, 3), firstPage.servers.map { it.id })
+
+        // A concurrent onCleared()-style abandon must be a no-op for a non-accumulating session:
+        // it never wrote into pageAccumulators in the first place.
+        repo.abandonPagingSession(context, "JP")
+
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, accumulate = false)
+        assertFalse(secondPage.hasMore)
+        assertEquals(listOf(4), secondPage.servers.map { it.id })
+
+        // A non-accumulating call must not have written the on-disk full-list cache itself --
+        // that is the caller's own responsibility via persistFullServerList.
+        val cached = repo.getFreshCachedServers(context, "JP")
+        assertTrue("accumulate=false must not persist the disk cache on its own", cached.isNullOrEmpty())
+    }
+
+    // F1 -- persistFullServerList lets a session-isolated caller (the silent background
+    // backfill) write the same on-disk cache file/timestamp key that a normal accumulating
+    // session would have, so the country takes the warm-cache fast path on its next open.
+    @Test
+    fun persistFullServerList_writes_the_same_cache_getServersForCountry_reads() = runBlocking {
+        val api = FakeServersV2Api()
+        val repo = ServersV2Repository(api)
+        val servers = listOf(
+            ServerV2(ip = "1.1.1.1", countryCode = "JP", countryName = "Japan", configData = "CFG1", id = 1),
+            ServerV2(ip = "2.2.2.2", countryCode = "JP", countryName = "Japan", configData = "CFG2", id = 2)
+        )
+
+        repo.persistFullServerList(context, "JP", servers)
+
+        val cached = repo.getServersForCountry(context, "JP", serverCount = 2, forceRefresh = false)
+        assertEquals(2, cached.size)
+        assertEquals(setOf(1, 2), cached.map { it.id }.toSet())
+    }
+
     // M6 -- pages fetched seconds-to-minutes apart (user scrolling) can see the backend's
     // active-server cache shift, yielding the same server again at a different offset.
     // getServersPage() must de-duplicate by server id when accumulating for the persisted cache.

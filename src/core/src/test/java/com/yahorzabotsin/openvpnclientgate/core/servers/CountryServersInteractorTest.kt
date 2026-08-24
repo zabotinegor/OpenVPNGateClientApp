@@ -15,6 +15,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import retrofit2.HttpException
+import retrofit2.Response
 import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
@@ -293,6 +295,38 @@ class CountryServersInteractorTest {
         assertFalse(page.hasMore)
     }
 
+    // F2 -- M1's fallback must not be limited to IOException: Retrofit throws HttpException (a
+    // RuntimeException) for a non-2xx response, and Gson throws JsonSyntaxException for a
+    // malformed body. Both must still fall back to a stale on-disk cache at skip==0, exactly
+    // like IOException does above -- restoring the pre-US-23 fetchFromNetworkWithParsing()
+    // behavior, which caught Exception broadly (after rethrowing CancellationException).
+    @Test
+    fun getServersPage_v2_skip0_stale_cache_and_http_exception_falls_back_to_stale_list() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val workingApi = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val primingRepo = ServersV2Repository(workingApi)
+        primingRepo.getCountries(context, forceRefresh = true)
+        primingRepo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+
+        // Expire the just-primed server cache (file stays on disk, timestamp is now stale).
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_de_${currentLocaleCode()}", 1L).commit()
+
+        // A second repository instance sharing the same on-disk cache, but whose network calls
+        // for servers always throw a non-IOException RuntimeException -- simulates a backend
+        // 5xx response while a stale cache exists.
+        val offlineRepo = ServersV2Repository(AlwaysThrowingHttpExceptionServersApi(workingApi))
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
+
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false)
+
+        assertEquals("stale cache must be served instead of throwing", 3, page.servers.size)
+        assertFalse(page.hasMore)
+    }
+
     // M2 -- product decision: selecting a server from a country whose full list has not yet
     // loaded (hasMorePages=true) must kick off a silent background fetch of the remaining
     // pages, so SelectedCountryStore's persisted candidate pool for ServerAutoSwitcher
@@ -333,6 +367,64 @@ class CountryServersInteractorTest {
         assertEquals("full candidate pool must be persisted once the backfill completes", 120, stored.size)
     }
 
+    // F1 -- an onCleared()-style abandon of the *foreground* paging session, firing while
+    // resolveSelection()'s own background backfill is still mid-flight, must not truncate the
+    // persisted full-list on-disk cache (nor the SelectedCountryStore candidate pool). Before the
+    // fix, the backfill shared ServersV2Repository's pageAccumulators with the foreground
+    // session; the abandon call cleared that shared accumulator out from under the backfill,
+    // whose own last page then persisted only its own tail as the "complete" list with a fresh
+    // cache timestamp.
+    @Test
+    fun resolveSelection_v2_backfill_survives_concurrent_abandonPagingSession_without_truncating_cache() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 1),
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 51),
+                buildServersJsonWithTotalAndIds("JP", 20, total = 120, startId = 101)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+
+        // Simulates the exact race the review demonstrated: FinishWithSelection -> finish() ->
+        // ViewModel.onCleared() -> interactor.abandonPagingSession() firing while the backfill
+        // just launched by resolveSelection() above is still running.
+        v2Repo.abandonPagingSession(context, "JP")
+
+        interactor.lastBackfillJob?.join()
+
+        val storedSelection = SelectedCountryStore.getServers(context)
+        assertEquals(
+            "candidate pool must still be the complete 120, not just the backfilled tail",
+            120,
+            storedSelection.size
+        )
+
+        // The on-disk full-list cache -- what the *next* open of this country reads -- must also
+        // be complete, not truncated to whatever the backfill alone fetched after the abandon.
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 120, forceRefresh = false)
+        assertEquals(
+            "persisted full-list cache must not be truncated by the concurrent abandon",
+            120,
+            cachedFullList.size
+        )
+    }
+
     private class AlwaysThrowingServersApi(private val delegate: ServersV2Api) : ServersV2Api {
         override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
         override suspend fun getServers(
@@ -342,6 +434,21 @@ class CountryServersInteractorTest {
             skip: Int,
             take: Int
         ): ServersPageResponse = throw IOException("simulated offline network failure")
+    }
+
+    /** F2: throws retrofit2.HttpException (RuntimeException, not IOException) for every server
+     * page request, simulating a backend 5xx response while a stale cache exists. */
+    private class AlwaysThrowingHttpExceptionServersApi(private val delegate: ServersV2Api) : ServersV2Api {
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse = throw HttpException(
+            Response.error<Any>(500, "simulated server error".toResponseBody("text/plain".toMediaTypeOrNull()))
+        )
     }
 
     private fun buildServersJsonWithTotal(code: String, count: Int, total: Int): String {
