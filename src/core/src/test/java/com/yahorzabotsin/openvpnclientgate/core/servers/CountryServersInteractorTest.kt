@@ -717,6 +717,50 @@ class CountryServersInteractorTest {
         }
     }
 
+    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
+    // onto one entry in the silent backfill's merged pool: distinct connections stay, the
+    // duplicate connection is dropped, and the persisted full-list cache keeps all of them.
+    @Test
+    fun resolveSelection_v2_backfill_keeps_zero_id_servers_distinct() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "z")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 3, forceRefresh = false)
+        assertEquals(
+            listOf("10.0.0.1", "10.0.0.2", "10.0.0.3"),
+            cachedFullList.map { it.ip }
+        )
+    }
+
+    private fun buildZeroIdServersJson(ips: List<String>, total: Int): String {
+        val items = ips.joinToString(",") { ip ->
+            """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
     private class FailingVpnServersApi : VpnServersApi {
         var callCount = 0
         override suspend fun getServers(url: String): okhttp3.ResponseBody {

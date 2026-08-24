@@ -824,6 +824,35 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
+    // onto one entry or get discarded across pages: distinct connections stay, the duplicate
+    // connection is dropped, and the persisted full-list cache keeps all of them.
+    @Test
+    fun getServersPage_zero_id_servers_are_kept_across_pages() = runBlocking {
+        val page1 = buildZeroIdJson(listOf("10.0.0.1", "10.0.0.2"), total = 3)
+        val page2 = buildZeroIdJson(listOf("10.0.0.1", "10.0.0.3"), total = 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "z")
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "z")
+        assertFalse(secondPage.hasMore)
+
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 3, forceRefresh = false)
+        assertEquals(
+            listOf("10.0.0.1", "10.0.0.2", "10.0.0.3"),
+            merged.map { it.ip }
+        )
+    }
+
+    private fun buildZeroIdJson(ips: List<String>, total: Int): String {
+        val items = ips.joinToString(",") { ip ->
+            """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
     private fun buildServersJsonWithIds(ids: List<Int>): String {
         val items = ids.joinToString(",") { id ->
             """{"ip":"10.0.0.$id","countryCode":"JP","countryName":"Japan","configData":"CFG$id","id":$id}"""

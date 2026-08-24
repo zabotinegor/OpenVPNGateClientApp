@@ -1084,6 +1084,11 @@ class CountryServersViewModelTest {
             false,
             vm.state.value.hasMorePages
         )
+        org.junit.Assert.assertEquals(
+            "the terminal session must be released immediately",
+            1,
+            interactor.abandonPagingSessionCallCount
+        )
         assertTrue(vm.state.value.items.none { it is ServerListItem.LoadingFooter })
 
         vm.onAction(CountryServersAction.LoadNextPage)
@@ -1092,6 +1097,69 @@ class CountryServersViewModelTest {
             "no further fetch may fire once paging has stopped",
             listOf(0, 1),
             interactor.requestedSkips
+        )
+    }
+
+    // --- Review fix: teardown abandons the paging session unconditionally -- it is a no-op
+    // for completed sessions and still cleans up paths where the UI state never recorded
+    // more pages (malformed/empty non-advancing pages). ---
+
+    @Test
+    fun `onCleared abandons the paging session even when hasMorePages is false`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
+        val store = ViewModelStore()
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore()
+            ) as T
+        }
+        val vm = ViewModelProvider(store, factory)[CountryServersViewModel::class.java]
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.hasMorePages)
+
+        store.clear()
+
+        assertEquals(1, interactor.abandonPagingSessionCallCount)
+    }
+
+    // --- Review fix: servers without a stable id must not collapse onto the shared 0 key
+    // when pages are merged. ---
+
+    @Test
+    fun `merge keeps zero-id servers as distinct rows across pages`() = runTest {
+        val zeroIdA = server("France", "FR", 1, id = 0).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val zeroIdB = server("France", "FR", 2, id = 0).copy(ip = "10.0.0.200", configData = "CFG-B")
+        val zeroIdADup = server("France", "FR", 3, id = 0).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val stable = server("France", "FR", 4, id = 5)
+        val interactor = FakeInteractor(
+            loaded = listOf(zeroIdA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(zeroIdB, zeroIdADup, stable),
+            nextPageHasMore = false
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "zero-id entries keep a fallback identity: distinct ips stay, the duplicate is dropped",
+            listOf(zeroIdA, zeroIdB, stable),
+            vm.state.value.servers
         )
     }
 
@@ -1239,8 +1307,8 @@ class CountryServersViewModelTest {
         assertTrue(pinnedRow.isFavorite)
     }
 
-    // --- M4: abandonPagingSession is called on teardown iff the screen leaves with more pages
-    // still pending ---
+    // --- M4: abandonPagingSession is called on every teardown (session-keyed; a safe no-op
+    // for sessions that already completed), and it releases exactly this screen's session. ---
 
     @Test
     fun `M4 - onCleared calls abandonPagingSession when hasMorePages is true at teardown`() = runTest {
@@ -1269,7 +1337,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `M4 - onCleared does not call abandonPagingSession when hasMorePages is false`() = runTest {
+    fun `M4 - onCleared abandons unconditionally even when hasMorePages is false`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
         val store = ViewModelStore()
@@ -1290,7 +1358,11 @@ class CountryServersViewModelTest {
 
         store.clear()
 
-        assertEquals(0, interactor.abandonPagingSessionCallCount)
+        assertEquals(
+            "teardown abandons unconditionally: safe no-op for completed sessions, cleanup for early-release paths",
+            1,
+            interactor.abandonPagingSessionCallCount
+        )
     }
 
     // --- M5: an empty-after-filtering first page with hasMore=true must not finish the screen;

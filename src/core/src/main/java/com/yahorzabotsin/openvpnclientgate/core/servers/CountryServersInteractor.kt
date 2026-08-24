@@ -358,6 +358,9 @@ class DefaultCountryServersInteractor(
      * the local maps below are ordinary coroutine-local state, reclaimed on completion or
      * cancellation like any other.
      */
+    private fun dedupKey(id: Int, ip: String?, configData: String): Any =
+        if (id > 0) id else "no-id:$ip:${configData.hashCode()}"
+
     private fun launchSilentBackfill(
         countryName: String,
         countryCode: String?,
@@ -369,20 +372,22 @@ class DefaultCountryServersInteractor(
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
                 val resolvedCode = countryV2.code
-                val accumulatedLegacy = LinkedHashMap<Int, Server>()
-                val accumulatedV2 = LinkedHashMap<Int, ServerV2>()
+                val accumulatedLegacy = LinkedHashMap<Any, Server>()
+                val accumulatedV2 = LinkedHashMap<Any, ServerV2>()
                 initialServers.forEach { server ->
-                    accumulatedLegacy[server.id] = server
-                    accumulatedV2[server.id] = server.toServerV2(resolvedCode, countryV2.name)
-                }
+                    val seedKey = dedupKey(server.id, server.ip, server.configData)
+                accumulatedLegacy[seedKey] = server
+                accumulatedV2[seedKey] = server.toServerV2(resolvedCode, countryV2.name)
+            }
                 var skip = startSkip
                 var hasMore = true
                 var pagesFetched = 0
                 while (hasMore && pagesFetched < MAX_BACKFILL_PAGES_SAFETY_LIMIT) {
                     val page = repo.getServersPage(appContext, resolvedCode, skip = skip, accumulate = false)
                     page.servers.forEach { v2 ->
-                        accumulatedLegacy[v2.id] = v2.toLegacyServer()
-                        accumulatedV2[v2.id] = v2
+                        val pageKey = dedupKey(v2.id, v2.ip, v2.configData)
+                accumulatedLegacy[pageKey] = v2.toLegacyServer()
+                        accumulatedV2[pageKey] = v2
                     }
                     pagesFetched += 1
                     // G3: mirror F4's non-advancing-cursor guard (CountryServersViewModel.

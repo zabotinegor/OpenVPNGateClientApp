@@ -210,6 +210,9 @@ class CountryServersViewModel(
                 val nonAdvancingCursor = page.hasMore && page.nextSkip <= skip
                 if (nonAdvancingCursor) {
                     runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$skip, nextSkip=${page.nextSkip}) -- stopping paging") }
+                    // The session is terminal here: release its repository state immediately
+                    // instead of waiting for teardown.
+                    interactor.abandonPagingSession(pagingSessionId)
                 }
                 updateState {
                     it.copy(
@@ -298,14 +301,14 @@ class CountryServersViewModel(
      * [pagingSessionId], so it releases exactly this screen's state -- overlapping sessions of
      * the same country are never disturbed, and screens opened by name without a country code
      * are cleaned up too.
+     *
+     * The call is unconditional: it is a safe no-op for sessions that already completed or were
+     * released early (for example by the stop-paging branch), and it still cleans up paths where
+     * the UI state never recorded more pages -- malformed or shifting responses can report
+     * `hasMore=true` from the repository while the screen holds no paging state of its own.
      */
     override fun onCleared() {
-        val snapshot = _state.value
-        if (snapshot.hasMorePages) {
-            // Session-keyed teardown -- releases exactly this screen's
-            // paging state, independent of any country-code resolution.
-            interactor.abandonPagingSession(pagingSessionId)
-        }
+        interactor.abandonPagingSession(pagingSessionId)
         // D1 fix: the paging scope is not viewModelScope, so it must be cancelled explicitly
         // to keep an in-flight deferred page fetch from outliving the ViewModel.
         pagingScope.cancel()
@@ -320,14 +323,20 @@ class CountryServersViewModel(
      * already loaded, keeping the first (earliest-loaded) occurrence. Offset-based pagination
      * over the backend's live active-server cache can otherwise yield the same server again at
      * a shifted offset once pages are fetched seconds-to-minutes apart (user scrolling) instead
-     * of the old eager loop's milliseconds. */
+     * of the old eager loop's milliseconds.
+     *
+     * Servers without a stable id (id <= 0) must not collapse onto the shared 0 key: they get
+     * a fallback identity derived from their connection attributes instead. */
     private fun mergeServersDeduped(existing: List<Server>, incoming: List<Server>): List<Server> {
         if (incoming.isEmpty()) return existing
-        val merged = LinkedHashMap<Int, Server>(existing.size + incoming.size)
-        existing.forEach { merged[it.id] = it }
-        incoming.forEach { merged.putIfAbsent(it.id, it) }
+        val merged = LinkedHashMap<Any, Server>(existing.size + incoming.size)
+        existing.forEach { merged[dedupKey(it.id, it.ip, it.configData)] = it }
+        incoming.forEach { merged.putIfAbsent(dedupKey(it.id, it.ip, it.configData), it) }
         return merged.values.toList()
     }
+
+    private fun dedupKey(id: Int, ip: String?, configData: String): Any =
+        if (id > 0) id else "no-id:${ip ?: ""}:${configData.hashCode()}"
 
     private fun CountryServersUiState.derived(): CountryServersUiState =
         copy(items = buildItems(servers, favoriteServerIds, isLoadingMore, pageLoadError))

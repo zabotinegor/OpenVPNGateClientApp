@@ -301,8 +301,10 @@ class ServersV2Repository(
                 pageAccumulators[sessionKey] = filtered.toMutableList()
             } else {
                 val accumulated = pageAccumulators.getOrPut(sessionKey) { mutableListOf() }
-                val seenIds = accumulated.mapTo(HashSet()) { it.id }
-                filtered.forEach { server -> if (seenIds.add(server.id)) accumulated.add(server) }
+                // De-dup keys fall back to connection attributes for entries without a stable
+                // id, so zero-id servers neither collapse onto one row nor get discarded.
+                val seenKeys = accumulated.mapTo(HashSet()) { dedupKey(it) }
+                filtered.forEach { server -> if (seenKeys.add(dedupKey(server))) accumulated.add(server) }
             }
             if (!hasMore) {
                 pagesFetchedForSession.remove(sessionKey)
@@ -372,6 +374,12 @@ class ServersV2Repository(
     /** Writes the fully-paged-in server list to the same cache file/timestamp key that
      * [fetchWithCache] uses, so the next open of this country within the TTL is a cache hit.
      * Must be called while already holding this country+locale's [serversMutexMap] lock. */
+    /** De-dup identity for accumulated servers: stable id when present, otherwise a fallback
+     * derived from the connection attributes so zero-id entries neither collapse onto the
+     * shared 0 key nor get discarded on the next page. */
+    private fun dedupKey(server: ServerV2): Any =
+        if (server.id > 0) server.id else "no-id:${server.ip}:${server.configData.hashCode()}"
+
     private suspend fun persistFullListCache(
         context: Context,
         countryCode: String,
