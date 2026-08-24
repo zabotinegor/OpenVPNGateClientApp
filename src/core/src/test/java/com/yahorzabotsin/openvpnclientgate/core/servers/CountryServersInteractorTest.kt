@@ -754,6 +754,51 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Review -- when the API omits `total` and the count is an exact multiple of the page
+    // size, the final probe legitimately returns an empty page with hasMore=false and
+    // nextSkip == skip. That is successful completion: the full-list cache must be persisted,
+    // not skipped as an incomplete backfill.
+    @Test
+    fun resolveSelection_v2_backfill_persists_full_list_when_count_is_exact_multiple_of_page_size() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":100}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson((1..50).map { "10.0.0.$it" }, total = 0),
+                buildZeroIdServersJson((51..100).map { "10.0.0.$it" }, total = 0),
+                buildZeroIdServersJson(emptyList(), total = 0)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "em")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "candidate pool",
+            100,
+            SelectedCountryStore.getServers(context).size
+        )
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 100, forceRefresh = false)
+        assertEquals(
+            "an exact-multiple completion must persist the full list",
+            100,
+            cachedFullList.size
+        )
+    }
+
     private fun buildZeroIdServersJson(ips: List<String>, total: Int): String {
         val items = ips.joinToString(",") { ip ->
             """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""

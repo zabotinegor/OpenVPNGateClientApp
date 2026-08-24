@@ -846,6 +846,34 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // Review -- the zero-id fallback key must carry the FULL connection attributes: two
+    // zero-id servers with the same ip and hash-colliding configs (classic `Aa` / `BB`)
+    // are distinct connections and both must survive accumulation.
+    @Test
+    fun getServersPage_zero_id_hash_colliding_configs_are_kept_distinct() = runBlocking {
+        val page1 = buildZeroIdConfigJson(ip = "10.0.0.1", config = "Aa", total = 2)
+        val page2 = buildZeroIdConfigJson(ip = "10.0.0.1", config = "BB", total = 2)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "k")
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "k")
+        assertFalse(secondPage.hasMore)
+
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 2, forceRefresh = false)
+        assertEquals(
+            "hash-colliding configs must not collapse into one row",
+            setOf("Aa", "BB"),
+            merged.map { it.configData }.toSet()
+        )
+    }
+
+    private fun buildZeroIdConfigJson(ip: String, config: String, total: Int): String {
+        val items = """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"$config"}"""
+        return """{"items":[$items],"total":$total}"""
+    }
+
     private fun buildZeroIdJson(ips: List<String>, total: Int): String {
         val items = ips.joinToString(",") { ip ->
             """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""

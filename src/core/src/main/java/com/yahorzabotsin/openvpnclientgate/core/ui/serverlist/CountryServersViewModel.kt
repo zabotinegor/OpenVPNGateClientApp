@@ -194,7 +194,7 @@ class CountryServersViewModel(
             try {
                 val vpnConnected = connectionStateProvider.isConnected()
                 val cacheOnly = ServerRefreshFeatureFlags.shouldUseCacheOnlyWhenVpnConnected(vpnConnected)
-                val page = interactor.getServersPage(
+                var page = interactor.getServersPage(
                     countryName = countryName,
                     countryCode = countryCode,
                     skip = skip,
@@ -203,13 +203,30 @@ class CountryServersViewModel(
                     pagingSessionId = pagingSessionId
                 )
                 logger.logLoadSuccess(countryName, page.servers.size)
-                // A misbehaving backend can return an empty page while still
-                // reporting more (total > skip), yielding nextSkip == skip. Committing that
-                // cursor would re-fetch the identical offset on every near-end scroll until
-                // the safety limit -- stop paging instead, mirroring the F4/G3 guards.
-                val nonAdvancingCursor = page.hasMore && page.nextSkip <= skip
+                // Mirror the initial-load drain: a raw page can consist entirely of
+                // blank-configData entries while the cursor advances. Keep fetching advancing
+                // empty pages here too, otherwise a user already at the loaded end never
+                // triggers another scroll callback and the remaining servers stay unreachable.
+                var lastSkip = skip
+                while (page.servers.isEmpty() && page.hasMore && page.nextSkip > lastSkip) {
+                    lastSkip = page.nextSkip
+                    page = interactor.getServersPage(
+                        countryName = countryName,
+                        countryCode = countryCode,
+                        skip = page.nextSkip,
+                        take = pageSize,
+                        cacheOnly = cacheOnly,
+                        pagingSessionId = pagingSessionId
+                    )
+                    logger.logLoadSuccess(countryName, page.servers.size)
+                }
+                // A misbehaving backend can also return a page whose cursor does not advance
+                // while still reporting more (total > skip). Committing that cursor would
+                // re-fetch the identical offset on every near-end scroll until the safety
+                // limit -- stop paging instead, mirroring the cursor guards used elsewhere.
+                val nonAdvancingCursor = page.hasMore && page.nextSkip <= lastSkip
                 if (nonAdvancingCursor) {
-                    runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$skip, nextSkip=${page.nextSkip}) -- stopping paging") }
+                    runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$lastSkip, nextSkip=${page.nextSkip}) -- stopping paging") }
                     // The session is terminal here: release its repository state immediately
                     // instead of waiting for teardown.
                     interactor.abandonPagingSession(pagingSessionId)
@@ -336,7 +353,7 @@ class CountryServersViewModel(
     }
 
     private fun dedupKey(id: Int, ip: String?, configData: String): Any =
-        if (id > 0) id else "no-id:${ip ?: ""}:${configData.hashCode()}"
+        if (id > 0) id else com.yahorzabotsin.openvpnclientgate.core.servers.NoIdKey(ip, configData)
 
     private fun CountryServersUiState.derived(): CountryServersUiState =
         copy(items = buildItems(servers, favoriteServerIds, isLoadingMore, pageLoadError))

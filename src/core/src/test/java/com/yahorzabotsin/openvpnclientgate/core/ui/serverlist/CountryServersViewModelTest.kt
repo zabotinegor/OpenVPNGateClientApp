@@ -227,7 +227,10 @@ class CountryServersViewModelTest {
         // Optional suspension gate: when set, a skip>0 call suspends on this Deferred before
         // returning, letting a test observe the in-flight (isLoadingMore=true) state before
         // completing it.
-        private val nextPageGate: CompletableDeferred<Unit>? = null
+        private val nextPageGate: CompletableDeferred<Unit>? = null,
+        // When set, skip>0 calls consume these pages in request order (overrides the
+        // nextPageServers/nextPageHasMore fixtures).
+        private val nextPageSequence: List<CountryServersPage>? = null
     ) : CountryServersInteractor {
         var lastCacheOnly: Boolean? = null
         var lastCountryCode: String? = null
@@ -286,7 +289,8 @@ class CountryServersViewModelTest {
                     nextSkip = firstPageNextSkip ?: loaded.size
                 )
             } else {
-                CountryServersPage(
+                val seqIndex = requestedSkips.count { it != 0 } - 1
+                nextPageSequence?.getOrNull(seqIndex) ?: CountryServersPage(
                     servers = nextPageServers,
                     hasMore = nextPageHasMore,
                     nextSkip = loaded.size + nextPageServers.size
@@ -1161,6 +1165,45 @@ class CountryServersViewModelTest {
             listOf(zeroIdA, zeroIdB, stable),
             vm.state.value.servers
         )
+    }
+
+    // --- Review fix: incremental loads must drain advancing empty pages (blank-configData
+    // entries) exactly like the initial load, otherwise a user parked at the loaded end can
+    // never trigger another scroll callback and the remaining servers stay unreachable. ---
+
+    @Test
+    fun `loadNextPage drains advancing empty pages until a displayable page arrives`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageSequence = listOf(
+                CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = 2),
+                CountryServersPage(servers = listOf(serverB), hasMore = false, nextSkip = 3)
+            )
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "advancing empty pages must be drained within the same trigger",
+            listOf(0, 1, 2),
+            interactor.requestedSkips
+        )
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+        assertFalse(vm.state.value.isLoadingMore)
     }
 
     // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---

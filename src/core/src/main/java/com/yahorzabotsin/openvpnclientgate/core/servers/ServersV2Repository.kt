@@ -29,6 +29,10 @@ data class ServersV2Page(
     val nextSkip: Int
 )
 
+/** Identity of a paging entry that has no stable server id: equality over the full
+ * connection attributes, so distinct connections never collide (unlike a hash). */
+internal data class NoIdKey(val ip: String?, val configData: String)
+
 /**
  * Fetches and caches v2 country and server lists.
  *
@@ -375,10 +379,10 @@ class ServersV2Repository(
      * [fetchWithCache] uses, so the next open of this country within the TTL is a cache hit.
      * Must be called while already holding this country+locale's [serversMutexMap] lock. */
     /** De-dup identity for accumulated servers: stable id when present, otherwise a fallback
-     * derived from the connection attributes so zero-id entries neither collapse onto the
-     * shared 0 key nor get discarded on the next page. */
+     * built from the full connection attributes (never a hash of them -- a hash collision
+     * would collapse distinct zero-id servers into one row). */
     private fun dedupKey(server: ServerV2): Any =
-        if (server.id > 0) server.id else "no-id:${server.ip}:${server.configData.hashCode()}"
+        if (server.id > 0) server.id else NoIdKey(server.ip, server.configData)
 
     private suspend fun persistFullListCache(
         context: Context,

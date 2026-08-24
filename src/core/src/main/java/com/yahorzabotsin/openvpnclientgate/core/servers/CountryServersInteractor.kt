@@ -359,7 +359,7 @@ class DefaultCountryServersInteractor(
      * cancellation like any other.
      */
     private fun dedupKey(id: Int, ip: String?, configData: String): Any =
-        if (id > 0) id else "no-id:$ip:${configData.hashCode()}"
+        if (id > 0) id else NoIdKey(ip, configData)
 
     private fun launchSilentBackfill(
         countryName: String,
@@ -390,14 +390,21 @@ class DefaultCountryServersInteractor(
                         accumulatedV2[pageKey] = v2
                     }
                     pagesFetched += 1
-                    // G3: mirror F4's non-advancing-cursor guard (CountryServersViewModel.
-                    // loadFirstPage). A page with an empty `items` array while the backend still
-                    // reports total > skip yields nextSkip == skip with hasMore still true --
-                    // without this guard the loop would re-issue the identical request up to
-                    // MAX_BACKFILL_PAGES_SAFETY_LIMIT times, unattended, on the user's connection.
-                    if (page.nextSkip <= skip) break
+                    // Record the terminal status BEFORE the non-advancing-cursor guard: a
+                    // final probe can legitimately return an empty page with hasMore=false
+                    // and nextSkip == skip (count is an exact multiple of the page size and
+                    // the API omits `total`) -- that is successful completion, not an
+                    // incomplete backfill.
+                    val pageHasMore = page.hasMore
+                    if (page.nextSkip <= skip) {
+                        // The cursor guard must not discard the terminal status recorded by
+                        // this probe: an exact-multiple completion arrives exactly as an
+                        // empty page with nextSkip == skip and hasMore = false.
+                        hasMore = pageHasMore
+                        break
+                    }
                     skip = page.nextSkip
-                    hasMore = page.hasMore
+                    hasMore = pageHasMore
                 }
                 // G2: mirror F6 (ServersV2Repository.getServersPage's own safety-limit guard).
                 // hasMore is still true here only when the loop above exited early -- either the
