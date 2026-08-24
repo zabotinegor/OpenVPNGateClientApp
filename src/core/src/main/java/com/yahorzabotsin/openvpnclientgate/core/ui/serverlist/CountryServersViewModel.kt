@@ -1,4 +1,4 @@
-﻿package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
+package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -45,7 +45,7 @@ class CountryServersViewModel(
     // released when the fetch settles (including cancellation and failure).
     private val pageFetchInFlight = AtomicBoolean(false)
 
-    // Review fix (PRRT bveIU/bxsTH/bxsYe/bxsOx): this screen's paging session identity. The
+    // This screen's paging session identity. The
     // repository keys its accumulation state by it, making overlapping country screens fully
     // independent, and teardown releases exactly this session (no shared key to overwrite or
     // cross-abandon; works even when the screen was opened by name without a country code).
@@ -203,10 +203,18 @@ class CountryServersViewModel(
                     pagingSessionId = pagingSessionId
                 )
                 logger.logLoadSuccess(countryName, page.servers.size)
+                // A misbehaving backend can return an empty page while still
+                // reporting more (total > skip), yielding nextSkip == skip. Committing that
+                // cursor would re-fetch the identical offset on every near-end scroll until
+                // the safety limit -- stop paging instead, mirroring the F4/G3 guards.
+                val nonAdvancingCursor = page.hasMore && page.nextSkip <= skip
+                if (nonAdvancingCursor) {
+                    runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$skip, nextSkip=${page.nextSkip}) -- stopping paging") }
+                }
                 updateState {
                     it.copy(
                         servers = mergeServersDeduped(it.servers, page.servers),
-                        hasMorePages = page.hasMore,
+                        hasMorePages = page.hasMore && !nonAdvancingCursor,
                         nextSkip = page.nextSkip,
                         pageLoadError = false
                     )
@@ -286,7 +294,7 @@ class CountryServersViewModel(
      * up the foreground accumulator on this screen's behalf, so onCleared() is the *only*
      * release path left, for every teardown reason including a completed selection.
      *
-     * Review fix (PRRT bveIU/bxsOx/bxsTH/bxsYe): teardown is keyed by this screen's own
+     * Teardown is keyed by this screen's own
      * [pagingSessionId], so it releases exactly this screen's state -- overlapping sessions of
      * the same country are never disturbed, and screens opened by name without a country code
      * are cleaned up too.
@@ -294,7 +302,7 @@ class CountryServersViewModel(
     override fun onCleared() {
         val snapshot = _state.value
         if (snapshot.hasMorePages) {
-            // Review fix (PRRT bxsOx): session-keyed teardown -- releases exactly this screen's
+            // Session-keyed teardown -- releases exactly this screen's
             // paging state, independent of any country-code resolution.
             interactor.abandonPagingSession(pagingSessionId)
         }

@@ -1053,6 +1053,48 @@ class CountryServersViewModelTest {
         assertTrue("the retried fetch fails again against this fake", vm.state.value.pageLoadError)
     }
 
+    // --- A later page that neither advances the cursor nor adds servers must
+    // terminate paging instead of re-fetching the identical offset on every scroll trigger. ---
+
+    @Test
+    fun `loadNextPage stops paging when a later page returns a non-advancing cursor`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = emptyList(),
+            nextPageHasMore = true
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), interactor.requestedSkips)
+        org.junit.Assert.assertEquals(
+            "hasMorePages after non-advancing page",
+            false,
+            vm.state.value.hasMorePages
+        )
+        assertTrue(vm.state.value.items.none { it is ServerListItem.LoadingFooter })
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        assertEquals(
+            "no further fetch may fire once paging has stopped",
+            listOf(0, 1),
+            interactor.requestedSkips
+        )
+    }
+
     // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---
 
     @Test

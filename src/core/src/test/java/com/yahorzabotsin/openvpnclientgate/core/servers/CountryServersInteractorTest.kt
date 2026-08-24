@@ -295,7 +295,7 @@ class CountryServersInteractorTest {
         assertFalse(page.hasMore)
     }
 
-    // Review PRRT bveIO -- the M1/F2 offline fallback must READ the stale cache directly with
+    // The offline fallback must READ the stale cache directly with
     // networking disabled, not re-attempt the network before falling back: an offline cold open
     // already paid one full network timeout at skip==0, and the old fallback (cacheOnly=false)
     // paid a second one before serving the same stale file.

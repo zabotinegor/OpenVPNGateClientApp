@@ -724,7 +724,7 @@ class ServersV2RepositoryTest {
         assertEquals(setOf(1, 2, 3, 4), merged.map { it.id }.toSet())
     }
 
-    // Review PRRT bveIU/bxsTH -- overlapping paging sessions of the same country+locale must be
+    // Overlapping paging sessions of the same country+locale must be
     // fully isolated: B's skip=0 must not clobber A's accumulator, and each session persists its
     // own COMPLETE list when it reaches its final page.
     @Test
@@ -752,7 +752,7 @@ class ServersV2RepositoryTest {
         assertEquals("session B's accumulator must have survived A's completion", setOf(11, 12, 13, 14), mergedAfterB.map { it.id }.toSet())
     }
 
-    // Review PRRT bxsYe/bxsOx -- abandoning session A must release ONLY A's state: session B
+    // Abandoning session A must release ONLY A's state: session B
     // keeps its accumulator and persists its own complete list afterwards.
     @Test
     fun abandon_session_a_does_not_touch_live_session_b() = runBlocking {
@@ -801,6 +801,27 @@ class ServersV2RepositoryTest {
         val merged = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
         assertEquals(1, merged.size)
         assertEquals(4, merged[0].id)
+    }
+
+    // The session-id requirement must be validated BEFORE any network activity:
+    // a default-args accumulate caller must fail fast without paying a real request.
+    @Test
+    fun getServersPage_requires_session_id_before_any_network_call() = runBlocking {
+        val api = FakeServersV2Api(serversJson = buildServersJsonWithIds(listOf(1, 2, 3)))
+        val repo = ServersV2Repository(api)
+
+        try {
+            repo.getServersPage(context, "JP", skip = 0, take = 3)
+            org.junit.Assert.fail("expected IllegalArgumentException for accumulate=true without pagingSessionId")
+        } catch (expected: IllegalArgumentException) {
+            // fast-fail is the contract
+        }
+
+        assertEquals(
+            "no network call may happen before validation",
+            0,
+            api.serversCallCount
+        )
     }
 
     private fun buildServersJsonWithIds(ids: List<Int>): String {

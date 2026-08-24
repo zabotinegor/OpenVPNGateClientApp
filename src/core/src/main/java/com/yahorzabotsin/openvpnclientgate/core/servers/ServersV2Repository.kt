@@ -18,7 +18,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Result of a single lazy-loaded page fetch (US-23). [nextSkip] is derived from the raw
+ * Result of a single lazy-loaded page fetch. [nextSkip] is derived from the raw
  * (pre-configData-filtering) item count returned by the backend so the caller's next request
  * stays aligned with the API's own `skip`/`take` cursor, even though [servers] itself only
  * contains the filtered, non-blank-configData entries.
@@ -150,7 +150,7 @@ class ServersV2Repository(
         val locale = resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
         val normalizedCountryCode = normalizeCountryCode(countryCode)
-        val lockKey = "${normalizedCountryCode}|$normalizedLocale"
+        val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
         return mutex.withLock {
             val prefs = context.getSharedPreferences(CACHE_PREFS, MODE_PRIVATE)
@@ -212,11 +212,10 @@ class ServersV2Repository(
 
     /**
      * Fetches exactly one page (`skip`/`take`) of servers for [countryCode] directly from the
-     * network -- the lazy-loading counterpart to [getServersForCountry]'s [fetchAllPages]
-     * (US-23). Does not consult or write the on-disk cache per call; instead, filtered items
+     * network -- the lazy-loading counterpart to [getServersForCountry]'s [fetchAllPages].
+     * Does not consult or write the on-disk cache per call; instead, filtered items
      * are accumulated in-memory for THIS paging session only (keyed by [pagingSessionId], so
-     * two overlapping country screens can never share or clobber each other's state -- review
-     * threads PRRT_kwDOONeEXM6bveIU / bxsTH / bxsYe) and the full merged list is persisted to
+     * two overlapping country screens can never share or clobber each other's state) and the full merged list is persisted to
      * the same cache file [getServersForCountry] reads once [ServersV2Page.hasMore] turns
      * false (the session reached its last page), so a later re-open within the TTL takes the
      * warm-cache fast path. [abandonPagingSession] releases the session's state.
@@ -234,6 +233,15 @@ class ServersV2Repository(
         val normalizedCountryCode = normalizeCountryCode(countryCode)
         val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
+        // Validate the session id BEFORE acquiring the lock or touching the
+        // network -- a default-args accumulate caller must fail fast instead of paying a real
+        // request and only then receiving an IllegalArgumentException. The non-accumulating
+        // backfill path is explicitly exempt (it owns its own accumulation).
+        if (accumulate) {
+            require(!pagingSessionId.isNullOrEmpty()) {
+                "getServersPage[$countryCode]: accumulate=true requires a pagingSessionId"
+            }
+        }
         return mutex.withLock {
             val page = withContext(Dispatchers.IO) {
                 api.getServers(
@@ -272,13 +280,11 @@ class ServersV2Repository(
             // US-23 M3: bound the number of pages fetched per session the same way
             // fetchAllPages does, so a wrong or hostile `total` from the backend cannot keep
             // hasMore=true (and this accumulator/the UI list) growing forever.
-            // Review fix (PRRT bveIU/bxsTH/bxsYe): accumulation is keyed by the caller's
+            // Accumulation is keyed by the caller's
             // paging session id -- overlapping country screens get disjoint state, so no
             // session can overwrite, abandon, or tail-persist another session's pages.
-            require(!pagingSessionId.isNullOrEmpty()) {
-                "getServersPage[$countryCode]: accumulate=true requires a pagingSessionId"
-            }
-            val sessionKey = pagingSessionId
+            // (The session id was already validated before the network call above.)
+            val sessionKey = pagingSessionId!!
             val pagesFetched = if (skip == 0) 1 else (pagesFetchedForSession[sessionKey] ?: 0) + 1
             pagesFetchedForSession[sessionKey] = pagesFetched
             val reachedSafetyLimit = pagesFetched >= MAX_PAGES_SAFETY_LIMIT
@@ -336,20 +342,20 @@ class ServersV2Repository(
     }
 
     /**
-     * Best-effort synchronous cleanup (US-23 M4): drops the in-memory paging accumulator (and
+     * Best-effort synchronous cleanup: drops the in-memory paging accumulator (and
      * its page counter) owned by paging session [pagingSessionId], releasing retained
      * `configData` blobs for a lazy-loading session that will never resume -- e.g. the user
      * leaves the country screen mid-scroll, before [getServersPage] ever reaches
      * `hasMore=false`. Safe to call even when no state exists for this session (no-op). Does
      * not touch the on-disk cache.
      *
-     * Review fix (PRRT bveIU/bxsOx/bxsTH/bxsYe): keyed by the caller's paging session id, not
+     * Keyed by the caller's paging session id, not
      * by country+locale -- so cleanup can never touch another, still-live session's state, and
      * it works even when the country screen was opened by name without
      * [com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryServersActivity]
      * `EXTRA_COUNTRY_CODE` (the old code-keyed lookup silently no-op'd there).
      *
-     * F10 note (updated): like every other mutation of these maps this one is not taken under
+     * Note: like every other mutation of these maps this one is not taken under
      * a country mutex -- it is intentionally non-suspend so a ViewModel's `onCleared()` can
      * call it synchronously. With session-keyed entries the old cross-session hazard is gone
      * structurally: only the owning session ever reads or writes its own entries, and the

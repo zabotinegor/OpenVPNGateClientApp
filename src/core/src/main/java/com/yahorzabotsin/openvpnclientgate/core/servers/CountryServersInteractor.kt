@@ -50,7 +50,7 @@ interface CountryServersInteractor {
      *
      * @param pagingSessionId identifies THIS screen's paging session; the repository keys its
      * accumulation state by it so overlapping sessions of the same country stay independent
-     * (review threads PRRT bveIU/bxsTH/bxsYe), and teardown releases exactly this session via
+     *), and teardown releases exactly this session via
      * [abandonPagingSession].
      */
     suspend fun getServersPage(
@@ -86,7 +86,7 @@ interface CountryServersInteractor {
      * for [pagingSessionId] when the user leaves the country screen before its full list loaded
      * (and before a selection ever triggered [resolveSelection]'s own backfill, which cleans up
      * naturally once it completes). No-op for the legacy/VPN Gate source and when no state
-     * exists for this session. Session-keyed (review PRRT bxsOx): cleanup works even when the
+     * exists for this session. Session-keyed cleanup works even when the
      * screen was opened by name without a country code, because it no longer depends on
      * resolving one. Not suspend: intended to be called from a ViewModel's non-suspend
      * `onCleared()`.
@@ -221,7 +221,7 @@ class DefaultCountryServersInteractor(
             throw e
         } catch (e: Exception) {
             if (skip != 0) throw e
-            // US-23 M1/F2 + review PRRT bveIO: restore the pre-US-23 offline fallback for the
+            // Offline fallback: restore the pre-US-23 offline fallback for the
             // cold (skip=0) path. fetchWithCache()/fetchFromNetworkWithParsing() used to catch
             // Exception broadly (after rethrowing CancellationException) and fall back to a
             // stale on-disk cache entry for *any* failure -- not just IOException. Retrofit
@@ -323,7 +323,7 @@ class DefaultCountryServersInteractor(
     }
 
     override fun abandonPagingSession(pagingSessionId: String) {
-        // Session-keyed (review PRRT bxsOx): cleanup no longer depends on resolving a country
+        // Session-keyed: cleanup no longer depends on resolving a country
         // code, so screens opened by name without EXTRA_COUNTRY_CODE release their state too.
         serversV2Repository?.abandonPagingSession(pagingSessionId)
     }
