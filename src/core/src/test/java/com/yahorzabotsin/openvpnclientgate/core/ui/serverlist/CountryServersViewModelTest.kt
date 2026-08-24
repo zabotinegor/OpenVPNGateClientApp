@@ -970,6 +970,85 @@ class CountryServersViewModelTest {
         }
     }
 
+    // --- F1 fix: the paging claim must be taken synchronously by the trigger itself, so
+    // back-to-back triggers cannot double-launch the same skip while the first deferred
+    // coroutine is still queued. ---
+
+    @Test
+    fun `F1 - two back-to-back LoadNextPage actions produce exactly one page fetch`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = true
+        )
+        val pagingDispatcher = StandardTestDispatcher(testScheduler)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore(),
+            pagingScope = CoroutineScope(SupervisorJob() + pagingDispatcher)
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        // Two scroll callbacks firing back-to-back inside one frame: the second must be
+        // rejected synchronously instead of queuing a duplicate fetch of the same skip.
+        vm.onAction(CountryServersAction.LoadNextPage)
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "AC2: exactly one fetch per unique skip -- no duplicate for the same trigger burst",
+            listOf(0, 1),
+            interactor.requestedSkips
+        )
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertTrue(vm.state.value.hasMorePages)
+    }
+
+    @Test
+    fun `F1 - double-tap RetryLoadNextPage refetches the failed skip exactly once`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false,
+            pageErrorAtSkip = 1
+        )
+        val pagingDispatcher = StandardTestDispatcher(testScheduler)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore(),
+            pagingScope = CoroutineScope(SupervisorJob() + pagingDispatcher)
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.pageLoadError)
+
+        // Rapid double-tap on the retry affordance: only one of the two may refetch skip=1.
+        vm.onAction(CountryServersAction.RetryLoadNextPage)
+        vm.onAction(CountryServersAction.RetryLoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "AC4: a retry burst must refetch the failed skip exactly once",
+            listOf(0, 1, 1),
+            interactor.requestedSkips
+        )
+        assertTrue("the retried fetch fails again against this fake", vm.state.value.pageLoadError)
+    }
+
     // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---
 
     @Test

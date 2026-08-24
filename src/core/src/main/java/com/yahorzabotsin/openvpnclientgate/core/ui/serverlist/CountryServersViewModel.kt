@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CountryServersViewModel(
     private val interactor: CountryServersInteractor,
@@ -36,6 +37,13 @@ class CountryServersViewModel(
     // a later frame. Injectable so tests can pin the deferral with a controlled scheduler.
     private val pagingScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 ) : ViewModel() {
+
+    // F1 fix: the state-based duplicate-trigger guards (isLoadingMore) are only updated from
+    // inside the deferred paging coroutine, so two back-to-back triggers landing in the same
+    // frame both pass them and double-fetch the same skip. This claim is checked-and-set
+    // SYNCHRONOUSLY in loadNextPage() -- the caller's frame -- closing that window entirely;
+    // released when the fetch settles (including cancellation and failure).
+    private val pageFetchInFlight = AtomicBoolean(false)
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
 
@@ -169,6 +177,10 @@ class CountryServersViewModel(
 
     private fun loadNextPage(countryName: String, countryCode: String?, skip: Int, pageSize: Int) {
         // D1 fix: run on pagingScope (non-immediate main), never inline in the scroll frame.
+        // F1 fix: claim synchronously BEFORE dispatching -- the state-based guards above were
+        // read before this call and isLoadingMore only becomes true once the deferred body
+        // runs, so back-to-back triggers could both launch. The atomic claim closes that.
+        if (!pageFetchInFlight.compareAndSet(false, true)) return
         pagingScope.launch {
             updateState { it.copy(isLoadingMore = true, pageLoadError = false) }
             try {
@@ -197,6 +209,9 @@ class CountryServersViewModel(
                 updateState { it.copy(pageLoadError = true) }
             } finally {
                 updateState { it.copy(isLoadingMore = false) }
+                // F1 fix: release only after the fetch settles so a trigger racing this
+                // coroutine's tail frames cannot double-fire.
+                pageFetchInFlight.set(false)
             }
         }
     }
