@@ -32,11 +32,6 @@ class CountryServersViewModel(
     private val _effects = MutableSharedFlow<CountryServersEffect>()
     val effects = _effects.asSharedFlow()
 
-    // US-23 F1: set once a server selection completes while hasMorePages was true, i.e. once
-    // resolveSelection() has handed this paging session off to its own silent background
-    // backfill (M2). onCleared() must not also abandon the session in that case -- see its KDoc.
-    private var selectionHandedOffToBackfill = false
-
     fun onAction(action: CountryServersAction) {
         when (action) {
             is CountryServersAction.Initialize -> onInitialize(action.countryName, action.countryCode, action.pageSize)
@@ -210,11 +205,6 @@ class CountryServersViewModel(
                     hasMorePages = snapshot.hasMorePages,
                     nextSkip = snapshot.nextSkip
                 )
-                if (snapshot.hasMorePages) {
-                    // US-23 F1: the interactor has just launched (or reused) its own background
-                    // backfill for this country/session; onCleared() must defer cleanup to it.
-                    selectionHandedOffToBackfill = true
-                }
                 _effects.emit(CountryServersEffect.FinishWithSelection(result))
             } catch (e: Exception) {
                 logger.logSelectionError(server.ip, e)
@@ -246,19 +236,24 @@ class CountryServersViewModel(
 
     /**
      * M4: releases the V2 repository's in-memory paging accumulator when the user leaves this
-     * screen (back navigation, process death, etc.) before the country's full list finished
-     * loading. Without this, a country left mid-scroll retained its accumulated servers --
-     * including full configData blobs -- for the entire process lifetime (the repository is a
-     * Koin singleton). A session that reaches hasMore=false already cleans up on its own inside
-     * ServersV2Repository.getServersPage(); a session that completes via a selection is cleaned
-     * up by resolveSelection()'s own backfill (M2) once it finishes -- guarded here by
-     * [selectionHandedOffToBackfill] (US-23 F1) so this only ever fires for the remaining
-     * "abandoned, nothing else will ever finish it" case, never racing the backfill that a
-     * completed selection just launched.
+     * screen (back navigation, process death, or a completed server selection) before the
+     * country's full list finished loading. Without this, a country left mid-scroll retained its
+     * accumulated servers -- including full configData blobs -- for the entire process lifetime
+     * (the repository is a Koin singleton). A session that reaches hasMore=false already cleans
+     * up on its own inside ServersV2Repository.getServersPage().
+     *
+     * US-23 F1/G1: as of the accumulate=false fix, resolveSelection()'s silent background
+     * backfill (M2) is fully session-isolated -- it fetches into its own local accumulator and
+     * never reads or writes this screen's entry in ServersV2Repository's shared
+     * pageAccumulators. That means the backfill can never clean up the foreground accumulator on
+     * this screen's behalf, so onCleared() is the *only* release path left, for every teardown
+     * reason including a completed selection. Calling abandonPagingSession() here is always safe:
+     * it only removes this country+locale's shared accumulator entry, which the backfill never
+     * touches.
      */
     override fun onCleared() {
         val snapshot = _state.value
-        if (snapshot.hasMorePages && !selectionHandedOffToBackfill) {
+        if (snapshot.hasMorePages) {
             interactor.abandonPagingSession(snapshot.countryCode)
         }
         super.onCleared()

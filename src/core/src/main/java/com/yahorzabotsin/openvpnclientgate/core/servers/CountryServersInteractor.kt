@@ -373,15 +373,38 @@ class DefaultCountryServersInteractor(
                         accumulatedLegacy[v2.id] = v2.toLegacyServer()
                         accumulatedV2[v2.id] = v2
                     }
+                    pagesFetched += 1
+                    // G3: mirror F4's non-advancing-cursor guard (CountryServersViewModel.
+                    // loadFirstPage). A page with an empty `items` array while the backend still
+                    // reports total > skip yields nextSkip == skip with hasMore still true --
+                    // without this guard the loop would re-issue the identical request up to
+                    // MAX_BACKFILL_PAGES_SAFETY_LIMIT times, unattended, on the user's connection.
+                    if (page.nextSkip <= skip) break
                     skip = page.nextSkip
                     hasMore = page.hasMore
-                    pagesFetched += 1
                 }
+                // G2: mirror F6 (ServersV2Repository.getServersPage's own safety-limit guard).
+                // hasMore is still true here only when the loop above exited early -- either the
+                // MAX_BACKFILL_PAGES_SAFETY_LIMIT bound was hit, or the non-advancing-cursor guard
+                // (G3) broke out of it -- so the accumulated list is knowingly incomplete. The
+                // partial candidate pool is still useful to ServerAutoSwitcher, so
+                // saveSelectionPreservingIndex always runs; but persisting an incomplete list as
+                // this country's authoritative on-disk full-list cache (with a fresh TTL stamp)
+                // would silently strand it truncated for the rest of the TTL, so that persist is
+                // skipped in this case.
+                val backfillIncomplete = hasMore
                 SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
-                repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
+                if (!backfillIncomplete) {
+                    repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
+                } else {
+                    AppLog.w(
+                        TAG,
+                        "Silent backfill for country=$countryName stopped early (incomplete) after pagesFetched=$pagesFetched; not caching as the country's full list"
+                    )
+                }
                 AppLog.i(
                     TAG,
-                    "Silent backfill complete: country=$countryName totalServers=${accumulatedLegacy.size} pagesFetched=$pagesFetched"
+                    "Silent backfill complete: country=$countryName totalServers=${accumulatedLegacy.size} pagesFetched=$pagesFetched incomplete=$backfillIncomplete"
                 )
             } catch (e: CancellationException) {
                 throw e

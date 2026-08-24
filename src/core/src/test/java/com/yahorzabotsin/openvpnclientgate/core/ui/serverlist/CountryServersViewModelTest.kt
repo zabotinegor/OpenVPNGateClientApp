@@ -1173,13 +1173,17 @@ class CountryServersViewModelTest {
         assertEquals(false, interactor.lastResolveSelectionHasMorePages)
     }
 
-    // --- F1(b): a completed selection must not also abandon the paging session -- that would
-    // race resolveSelection()'s own background backfill (M2), which now owns cleanup for this
-    // case. onCleared() must only cover the genuinely abandoned path (back navigation before any
-    // selection was made). ---
+    // --- G1: a completed selection must still abandon the foreground paging session in
+    // onCleared(). resolveSelection()'s background backfill (M2) fetches with
+    // accumulate = false (F1), so it is fully session-isolated from ServersV2Repository's shared
+    // pageAccumulators and can never release this screen's own accumulator entry on its behalf.
+    // onCleared() is therefore the *only* remaining release path, for every teardown reason
+    // including a completed selection -- skipping it here (as a prior fix-cycle's
+    // selectionHandedOffToBackfill flag did) leaked the foreground accumulator's full configData
+    // blobs for the process lifetime on every early selection, the dominant US-23 path. ---
 
     @Test
-    fun `F1 - onCleared does not abandon paging session after a completed selection with hasMorePages true`() = runTest {
+    fun `G1 - onCleared abandons paging session after a completed selection with hasMorePages true`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
         val interactor = FakeInteractor(
@@ -1209,10 +1213,12 @@ class CountryServersViewModelTest {
         store.clear()
 
         assertEquals(
-            "a completed selection hands the session off to resolveSelection()'s own backfill; " +
-                "onCleared() must not also abandon it",
-            0,
+            "onCleared() is the only release path left for the foreground accumulator once the " +
+                "backfill is session-isolated (accumulate=false); it must abandon regardless of " +
+                "whether a selection completed",
+            1,
             interactor.abandonPagingSessionCallCount
         )
+        assertEquals("FR", interactor.lastAbandonedCountryCode)
     }
 }

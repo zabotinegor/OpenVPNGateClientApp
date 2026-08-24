@@ -425,6 +425,152 @@ class CountryServersInteractorTest {
         )
     }
 
+    // G2 -- mirrors ServersV2Repository's F6 guard, but for the backfill's own safety limit
+    // (CountryServersInteractor.MAX_BACKFILL_PAGES_SAFETY_LIMIT). When the backfill loop itself
+    // stops because it hit that limit while the backend still claims more data exists, the
+    // accumulated list is knowingly incomplete and must not be cached as this country's
+    // authoritative full list.
+    @Test
+    fun resolveSelection_v2_backfill_hitting_its_own_safety_limit_does_not_persist_incomplete_full_list_cache() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = HostileTotalServersApi(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":1000000}]""",
+            pageSize = 50,
+            hostileTotal = 1_000_000
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        val cachedFullList = v2Repo.getFreshCachedServers(context, "JP")
+        assertTrue(
+            "a backfill that hits its own safety limit must not cache a knowingly-incomplete " +
+                "list as the country's full list",
+            cachedFullList.isNullOrEmpty()
+        )
+    }
+
+    // G3 -- mirrors ViewModel.loadFirstPage's F4 non-advancing-cursor guard, but for the
+    // backfill loop. A page with an empty `items` array while the backend still reports
+    // total > skip yields nextSkip == skip with hasMore still true; without a guard the
+    // backfill would re-issue the identical request, unattended, up to its safety limit.
+    @Test
+    fun resolveSelection_v2_backfill_stops_instead_of_looping_forever_when_cursor_does_not_advance() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = StuckCursorServersApi(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            firstPageJson = buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 1),
+            stuckTotal = 120
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a non-advancing cursor must stop the backfill after a single extra request, not " +
+                "re-issue it up to the safety limit",
+            2,
+            api.callCount
+        )
+        assertEquals(listOf(0, 50), api.requestedSkips)
+
+        val cachedFullList = v2Repo.getFreshCachedServers(context, "JP")
+        assertTrue(
+            "a backfill stopped by a non-advancing cursor must not cache the incomplete list",
+            cachedFullList.isNullOrEmpty()
+        )
+    }
+
+    /** G2 test support: an ever-growing page API with a total far beyond any bounded loop --
+     * mirrors ServersV2RepositoryTest's RepeatingPageApi but also serves getCountries() so
+     * DefaultCountryServersInteractor can resolve the country by code. */
+    private class HostileTotalServersApi(
+        private val countriesJson: String,
+        private val pageSize: Int,
+        private val hostileTotal: Int
+    ) : ServersV2Api {
+        private var counter = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> =
+            Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            val items = (0 until pageSize).map {
+                counter++
+                ServerV2(
+                    ip = "10.0.0.$counter",
+                    countryCode = countryCode,
+                    countryName = countryCode,
+                    configData = "CFG$counter",
+                    id = counter
+                )
+            }
+            return ServersPageResponse(items = items, total = hostileTotal)
+        }
+    }
+
+    /** G3 test support: serves the scripted [firstPageJson] on the first call, then an
+     * empty-items page that still reports [stuckTotal] (> skip) on every later call -- the
+     * pathological "cursor does not advance" shape G3 guards against. */
+    private class StuckCursorServersApi(
+        private val countriesJson: String,
+        private val firstPageJson: String,
+        private val stuckTotal: Int
+    ) : ServersV2Api {
+        var callCount = 0
+            private set
+        val requestedSkips = mutableListOf<Int>()
+
+        override suspend fun getCountries(locale: String): List<CountryV2> =
+            Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
+
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            requestedSkips.add(skip)
+            callCount++
+            return if (callCount == 1) {
+                Gson().fromJson(firstPageJson, ServersPageResponse::class.java)
+            } else {
+                ServersPageResponse(items = emptyList(), total = stuckTotal)
+            }
+        }
+    }
+
     private class AlwaysThrowingServersApi(private val delegate: ServersV2Api) : ServersV2Api {
         override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
         override suspend fun getServers(
