@@ -14,16 +14,21 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -816,6 +821,153 @@ class CountryServersViewModelTest {
 
         assertFalse(vm.state.value.isLoadingMore)
         assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+    }
+
+    // --- D1 defect fix: paging mutations must be deferred out of RecyclerView's scroll-callback
+    // frame. Production injects CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // (non-immediate => always dispatches through the main queue). These tests pin that
+    // contract with a controlled scheduler.
+    // Falsifiability: reverting loadNextPage() to viewModelScope.launch (keeping the unused
+    // constructor param) makes D1-inline test fail -- under an unconfined Main the whole
+    // footer update then runs inline inside onAction(), which the synchronous assertions
+    // below detect via requestedSkips/isLoadingMore. ---
+
+    @Test
+    fun `D1 - LoadNextPage does not mutate state inline within the triggering call frame`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false
+        )
+        // A queued paging scheduler sharing this test's scheduler simulates production's
+        // non-immediate main queue: work posted by LoadNextPage must not run until the
+        // current call frame yields.
+        val pagingDispatcher = StandardTestDispatcher(testScheduler)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore(),
+            pagingScope = CoroutineScope(SupervisorJob() + pagingDispatcher)
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+
+        assertEquals(
+            "no page request may leave the triggering frame before it yields",
+            listOf(0),
+            interactor.requestedSkips
+        )
+        assertFalse("isLoadingMore must not be set inline by the trigger", vm.state.value.isLoadingMore)
+        assertTrue(
+            "no loading-footer item may appear synchronously inside the triggering frame",
+            vm.state.value.items.none { it is ServerListItem.LoadingFooter }
+        )
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), interactor.requestedSkips)
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `D1 - onCleared cancels an in-flight deferred page fetch so it never appends after teardown`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val serverB = server("France", "FR", 2, id = 20)
+        val gate = CompletableDeferred<Unit>()
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageServers = listOf(serverB),
+            nextPageHasMore = false,
+            nextPageGate = gate
+        )
+        val store = ViewModelStore()
+        val pagingDispatcher = StandardTestDispatcher(testScheduler)
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore(),
+                pagingScope = CoroutineScope(SupervisorJob() + pagingDispatcher)
+            ) as T
+        }
+        val vm = ViewModelProvider(store, factory)[CountryServersViewModel::class.java]
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle() // runs up to the suspension point inside the fake (nextPageGate.await())
+        assertTrue(vm.state.value.isLoadingMore)
+
+        store.clear()
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a fetch cancelled by onCleared must not append its page after teardown",
+            listOf(serverA),
+            vm.state.value.servers
+        )
+        assertEquals(listOf(0, 1), interactor.requestedSkips)
+    }
+
+    @Test
+    fun `D1 - paging mutation stays off the caller frame even when Main runs inline`() = runTest {
+        // Reproduces the production condition of the defect: real Android Main behaves like an
+        // immediate dispatcher, so the pre-fix code (viewModelScope.launch) executed the entire
+        // LoadNextPage state update synchronously inside onScrolled. Swap Main to an unconfined
+        // dispatcher for this test; the injected paging scope (non-immediate in production) must
+        // still defer.
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val serverA = server("France", "FR", 1, id = 10)
+            val serverB = server("France", "FR", 2, id = 20)
+            val interactor = FakeInteractor(
+                loaded = listOf(serverA),
+                firstPageHasMore = true,
+                nextPageServers = listOf(serverB),
+                nextPageHasMore = false
+            )
+            val pagingDispatcher = StandardTestDispatcher(testScheduler)
+            val vm = CountryServersViewModel(
+                interactor = interactor,
+                connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+                logger = FakeLogger(),
+                favoritesStore = FakeFavoritesServerStore(),
+                pagingScope = CoroutineScope(SupervisorJob() + pagingDispatcher)
+            )
+            vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+            advanceUntilIdle()
+            assertTrue(vm.state.value.hasMorePages)
+
+            vm.onAction(CountryServersAction.LoadNextPage)
+
+            assertEquals(
+                "with an inline Main, the pre-fix code fetched and mutated state synchronously; " +
+                    "the paging scope must keep the work off the caller frame",
+                listOf(0),
+                interactor.requestedSkips
+            )
+            assertFalse(vm.state.value.isLoadingMore)
+
+            advanceUntilIdle()
+
+            assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        } finally {
+            // Restore the rule's original Main so its finished() resetMain keeps working.
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        }
     }
 
     // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---

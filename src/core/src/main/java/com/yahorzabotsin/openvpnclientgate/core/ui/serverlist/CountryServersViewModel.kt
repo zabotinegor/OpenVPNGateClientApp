@@ -11,6 +11,10 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.refresh.ServerRefreshFeatureFlags
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.UiText
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -21,7 +25,16 @@ class CountryServersViewModel(
     private val interactor: CountryServersInteractor,
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: CountryServersLogger,
-    private val favoritesStore: FavoritesServerStore
+    private val favoritesStore: FavoritesServerStore,
+    // D1 fix: paging state mutations must never execute inline inside RecyclerView's
+    // scroll-callback frame. viewModelScope uses Dispatchers.Main.immediate, which runs
+    // synchronously when already on main -- so a LoadNextPage triggered from onScrolled
+    // appended the LoadingFooter via notifyDataSetChanged() during an active measure &
+    // layout pass, tripping RecyclerView's "Cannot call this method in a scroll callback"
+    // soft assertion (reproduced on both touch fling and TV D-pad). Non-immediate
+    // Dispatchers.Main always dispatches through the main queue, deferring the mutation to
+    // a later frame. Injectable so tests can pin the deferral with a controlled scheduler.
+    private val pagingScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 ) : ViewModel() {
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
@@ -155,7 +168,8 @@ class CountryServersViewModel(
     }
 
     private fun loadNextPage(countryName: String, countryCode: String?, skip: Int, pageSize: Int) {
-        viewModelScope.launch {
+        // D1 fix: run on pagingScope (non-immediate main), never inline in the scroll frame.
+        pagingScope.launch {
             updateState { it.copy(isLoadingMore = true, pageLoadError = false) }
             try {
                 val vpnConnected = connectionStateProvider.isConnected()
@@ -256,6 +270,9 @@ class CountryServersViewModel(
         if (snapshot.hasMorePages) {
             interactor.abandonPagingSession(snapshot.countryCode)
         }
+        // D1 fix: the paging scope is not viewModelScope, so it must be cancelled explicitly
+        // to keep an in-flight deferred page fetch from outliving the ViewModel.
+        pagingScope.cancel()
         super.onCleared()
     }
 
