@@ -1,4 +1,4 @@
-package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
+﻿package com.yahorzabotsin.openvpnclientgate.core.ui.serverlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -44,6 +44,12 @@ class CountryServersViewModel(
     // SYNCHRONOUSLY in loadNextPage() -- the caller's frame -- closing that window entirely;
     // released when the fetch settles (including cancellation and failure).
     private val pageFetchInFlight = AtomicBoolean(false)
+
+    // Review fix (PRRT bveIU/bxsTH/bxsYe/bxsOx): this screen's paging session identity. The
+    // repository keys its accumulation state by it, making overlapping country screens fully
+    // independent, and teardown releases exactly this session (no shared key to overwrite or
+    // cross-abandon; works even when the screen was opened by name without a country code).
+    private val pagingSessionId: String = java.util.UUID.randomUUID().toString()
 
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "CountryServersViewModel"
 
@@ -97,7 +103,8 @@ class CountryServersViewModel(
                     countryCode = countryCode,
                     skip = 0,
                     take = pageSize,
-                    cacheOnly = cacheOnly
+                    cacheOnly = cacheOnly,
+                    pagingSessionId = pagingSessionId
                 )
                 // M5: a raw page can filter down to zero displayable servers (e.g. a page made
                 // entirely of blank-configData entries) while more pages remain. Mirror
@@ -116,7 +123,8 @@ class CountryServersViewModel(
                         countryCode = countryCode,
                         skip = page.nextSkip,
                         take = pageSize,
-                        cacheOnly = cacheOnly
+                        cacheOnly = cacheOnly,
+                        pagingSessionId = pagingSessionId
                     )
                 }
                 if (page.servers.isEmpty()) {
@@ -191,7 +199,8 @@ class CountryServersViewModel(
                     countryCode = countryCode,
                     skip = skip,
                     take = pageSize,
-                    cacheOnly = cacheOnly
+                    cacheOnly = cacheOnly,
+                    pagingSessionId = pagingSessionId
                 )
                 logger.logLoadSuccess(countryName, page.servers.size)
                 updateState {
@@ -273,17 +282,21 @@ class CountryServersViewModel(
      *
      * US-23 F1/G1: as of the accumulate=false fix, resolveSelection()'s silent background
      * backfill (M2) is fully session-isolated -- it fetches into its own local accumulator and
-     * never reads or writes this screen's entry in ServersV2Repository's shared
-     * pageAccumulators. That means the backfill can never clean up the foreground accumulator on
-     * this screen's behalf, so onCleared() is the *only* release path left, for every teardown
-     * reason including a completed selection. Calling abandonPagingSession() here is always safe:
-     * it only removes this country+locale's shared accumulator entry, which the backfill never
-     * touches.
+     * never reads or writes this screen's paging state. That means the backfill can never clean
+     * up the foreground accumulator on this screen's behalf, so onCleared() is the *only*
+     * release path left, for every teardown reason including a completed selection.
+     *
+     * Review fix (PRRT bveIU/bxsOx/bxsTH/bxsYe): teardown is keyed by this screen's own
+     * [pagingSessionId], so it releases exactly this screen's state -- overlapping sessions of
+     * the same country are never disturbed, and screens opened by name without a country code
+     * are cleaned up too.
      */
     override fun onCleared() {
         val snapshot = _state.value
         if (snapshot.hasMorePages) {
-            interactor.abandonPagingSession(snapshot.countryCode)
+            // Review fix (PRRT bxsOx): session-keyed teardown -- releases exactly this screen's
+            // paging state, independent of any country-code resolution.
+            interactor.abandonPagingSession(pagingSessionId)
         }
         // D1 fix: the paging scope is not viewModelScope, so it must be cancelled explicitly
         // to keep an in-flight deferred page fetch from outliving the ViewModel.

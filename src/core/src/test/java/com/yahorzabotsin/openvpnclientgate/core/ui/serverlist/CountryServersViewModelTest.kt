@@ -232,13 +232,15 @@ class CountryServersViewModelTest {
         var lastCacheOnly: Boolean? = null
         var lastCountryCode: String? = null
         var lastTake: Int? = null
+        var lastPagingSessionId: String? = null
+            private set
         var getServersPageCallCount = 0
             private set
         val requestedSkips = mutableListOf<Int>()
         // M4: abandonPagingSession call tracking.
         var abandonPagingSessionCallCount = 0
             private set
-        var lastAbandonedCountryCode: String? = null
+        var lastAbandonedSessionId: String? = null
             private set
         // M2: resolveSelection's paging params, recorded for assertions.
         var lastResolveSelectionHasMorePages: Boolean? = null
@@ -261,11 +263,13 @@ class CountryServersViewModelTest {
             countryCode: String?,
             skip: Int,
             take: Int,
-            cacheOnly: Boolean
+            cacheOnly: Boolean,
+            pagingSessionId: String
         ): CountryServersPage {
             lastCacheOnly = cacheOnly
             lastCountryCode = countryCode
             lastTake = take
+            lastPagingSessionId = pagingSessionId
             getServersPageCallCount++
             requestedSkips.add(skip)
             if (skip > 0) nextPageGate?.await()
@@ -304,9 +308,9 @@ class CountryServersViewModelTest {
             return selectionResult
         }
 
-        override fun abandonPagingSession(countryCode: String?) {
+        override fun abandonPagingSession(pagingSessionId: String) {
             abandonPagingSessionCallCount++
-            lastAbandonedCountryCode = countryCode
+            lastAbandonedSessionId = pagingSessionId
         }
     }
 
@@ -1219,7 +1223,7 @@ class CountryServersViewModelTest {
         store.clear()
 
         assertEquals(1, interactor.abandonPagingSessionCallCount)
-        assertEquals("FR", interactor.lastAbandonedCountryCode)
+        assertTrue("teardown must forward this screen's paging session id", !interactor.lastAbandonedSessionId.isNullOrBlank())
     }
 
     @Test
@@ -1450,6 +1454,6 @@ class CountryServersViewModelTest {
             1,
             interactor.abandonPagingSessionCallCount
         )
-        assertEquals("FR", interactor.lastAbandonedCountryCode)
+        assertTrue("teardown must forward this screen's paging session id", !interactor.lastAbandonedSessionId.isNullOrBlank())
     }
 }

@@ -170,7 +170,7 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals(1, api.serversCallCount)
         assertEquals(listOf(0), api.requestedSkips)
@@ -195,8 +195,8 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
-        val page2 = interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false)
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        val page2 = interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals(listOf(0, 50), api.requestedSkips)
         assertEquals(20, page2.servers.size)
@@ -219,7 +219,7 @@ class CountryServersInteractorTest {
         val callsAfterPriming = api.serversCallCount
 
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
-        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false)
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals("cache hit must not make another network call", callsAfterPriming, api.serversCallCount)
         assertEquals(3, page.servers.size)
@@ -235,7 +235,7 @@ class CountryServersInteractorTest {
         val legacyRepo = ServerRepository(FixedApi(csv))
         val interactor = DefaultCountryServersInteractor(context, legacyRepo, serversV2Repository = null)
 
-        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals(1, page.servers.size)
         assertEquals("9.9.9.9", page.servers[0].ip)
@@ -258,8 +258,8 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
-        interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false)
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
     }
 
     // ==================== US-23 code review fix cycle ====================
@@ -289,10 +289,44 @@ class CountryServersInteractorTest {
         val offlineRepo = ServersV2Repository(AlwaysThrowingServersApi(workingApi))
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
 
-        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false)
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals("stale cache must be served instead of throwing", 3, page.servers.size)
         assertFalse(page.hasMore)
+    }
+
+    // Review PRRT bveIO -- the M1/F2 offline fallback must READ the stale cache directly with
+    // networking disabled, not re-attempt the network before falling back: an offline cold open
+    // already paid one full network timeout at skip==0, and the old fallback (cacheOnly=false)
+    // paid a second one before serving the same stale file.
+    @Test
+    fun getServersPage_v2_skip0_offline_fallback_reads_stale_cache_without_a_second_network_attempt() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val workingApi = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val primingRepo = ServersV2Repository(workingApi)
+        primingRepo.getCountries(context, forceRefresh = true)
+        primingRepo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+        val serversCallsAfterPriming = workingApi.serversCallCount
+        assertTrue(serversCallsAfterPriming > 0)
+
+        // Expire the just-primed server cache (file stays on disk, timestamp is now stale).
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_de_${currentLocaleCode()}", 1L).commit()
+
+        val offlineRepo = ServersV2Repository(AlwaysThrowingServersApi(workingApi))
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
+
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "offline")
+
+        assertEquals("stale cache must still be served", 3, page.servers.size)
+        assertEquals(
+            "fallback must not re-attempt the network: no getServers() call beyond priming",
+            serversCallsAfterPriming,
+            workingApi.serversCallCount
+        )
     }
 
     // F2 -- M1's fallback must not be limited to IOException: Retrofit throws HttpException (a
@@ -321,7 +355,7 @@ class CountryServersInteractorTest {
         val offlineRepo = ServersV2Repository(AlwaysThrowingHttpExceptionServersApi(workingApi))
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
 
-        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false)
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
 
         assertEquals("stale cache must be served instead of throwing", 3, page.servers.size)
         assertFalse(page.hasMore)
@@ -347,7 +381,7 @@ class CountryServersInteractorTest {
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
         // The user only scrolled through the first page (50 of 120) before selecting.
-        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
         assertTrue(firstPage.hasMore)
         assertEquals(50, firstPage.servers.size)
 
@@ -389,7 +423,7 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
         assertTrue(firstPage.hasMore)
 
         interactor.resolveSelection(
@@ -404,7 +438,7 @@ class CountryServersInteractorTest {
         // Simulates the exact race the review demonstrated: FinishWithSelection -> finish() ->
         // ViewModel.onCleared() -> interactor.abandonPagingSession() firing while the backfill
         // just launched by resolveSelection() above is still running.
-        v2Repo.abandonPagingSession(context, "JP")
+        v2Repo.abandonPagingSession("s1")
 
         interactor.lastBackfillJob?.join()
 
@@ -442,7 +476,7 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
         assertTrue(firstPage.hasMore)
 
         interactor.resolveSelection(
@@ -479,7 +513,7 @@ class CountryServersInteractorTest {
         v2Repo.getCountries(context, forceRefresh = true)
         val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
 
-        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false)
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
         assertTrue(firstPage.hasMore)
 
         interactor.resolveSelection(

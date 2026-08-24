@@ -622,7 +622,7 @@ class ServersV2RepositoryTest {
         var hasMore = true
         var pagesFetched = 0
         while (hasMore && pagesFetched < 250) {
-            val page = repo.getServersPage(context, "JP", skip = skip, take = 50)
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50, pagingSessionId = "safety")
             skip = page.nextSkip
             hasMore = page.hasMore
             pagesFetched++
@@ -644,7 +644,7 @@ class ServersV2RepositoryTest {
         var hasMore = true
         var pagesFetched = 0
         while (hasMore && pagesFetched < 250) {
-            val page = repo.getServersPage(context, "JP", skip = skip, take = 50)
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50, pagingSessionId = "safety")
             skip = page.nextSkip
             hasMore = page.hasMore
             pagesFetched++
@@ -671,7 +671,7 @@ class ServersV2RepositoryTest {
 
         // A concurrent onCleared()-style abandon must be a no-op for a non-accumulating session:
         // it never wrote into pageAccumulators in the first place.
-        repo.abandonPagingSession(context, "JP")
+        repo.abandonPagingSession("non-accumulating")
 
         val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, accumulate = false)
         assertFalse(secondPage.hasMore)
@@ -712,9 +712,9 @@ class ServersV2RepositoryTest {
         val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
         val repo = ServersV2Repository(api)
 
-        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3)
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "m6")
         assertTrue(firstPage.hasMore)
-        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "m6")
         assertFalse(secondPage.hasMore)
 
         // Read back the persisted full-list cache via the normal warm-cache path: it must
@@ -722,6 +722,61 @@ class ServersV2RepositoryTest {
         val merged = repo.getServersForCountry(context, "JP", serverCount = 5, forceRefresh = false)
         assertEquals(4, merged.size)
         assertEquals(setOf(1, 2, 3, 4), merged.map { it.id }.toSet())
+    }
+
+    // Review PRRT bveIU/bxsTH -- overlapping paging sessions of the same country+locale must be
+    // fully isolated: B's skip=0 must not clobber A's accumulator, and each session persists its
+    // own COMPLETE list when it reaches its final page.
+    @Test
+    fun paging_sessions_same_country_are_isolated_and_each_persists_its_own_complete_list() = runBlocking {
+        val pageA1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3 -> hasMore=true
+        val pageB1 = buildServersJsonWithIds(listOf(11, 12, 13))
+        val pageA2 = buildServersJsonWithIds(listOf(4)) // rawCount=1 < take -> A completes
+        val pageB2 = buildServersJsonWithIds(listOf(14)) // B completes
+        val api = FakeServersV2Api(serversPageResponses = listOf(pageA1, pageB1, pageA2, pageB2))
+        val repo = ServersV2Repository(api)
+
+        val a1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "A")
+        assertTrue(a1.hasMore)
+        val b1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "B")
+        assertTrue(b1.hasMore)
+
+        val a2 = repo.getServersPage(context, "JP", skip = a1.nextSkip, take = 3, pagingSessionId = "A")
+        assertFalse(a2.hasMore)
+        val mergedAfterA = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals("session A must persist its own complete list", setOf(1, 2, 3, 4), mergedAfterA.map { it.id }.toSet())
+
+        val b2 = repo.getServersPage(context, "JP", skip = b1.nextSkip, take = 3, pagingSessionId = "B")
+        assertFalse(b2.hasMore)
+        val mergedAfterB = repo.getServersForCountry(context, "JP", serverCount = 14, forceRefresh = false)
+        assertEquals("session B's accumulator must have survived A's completion", setOf(11, 12, 13, 14), mergedAfterB.map { it.id }.toSet())
+    }
+
+    // Review PRRT bxsYe/bxsOx -- abandoning session A must release ONLY A's state: session B
+    // keeps its accumulator and persists its own complete list afterwards.
+    @Test
+    fun abandon_session_a_does_not_touch_live_session_b() = runBlocking {
+        val pageA1 = buildServersJsonWithIds(listOf(1, 2, 3))
+        val pageB1 = buildServersJsonWithIds(listOf(11, 12, 13))
+        val pageB2 = buildServersJsonWithIds(listOf(14)) // rawCount=1 < take -> B completes
+        val api = FakeServersV2Api(serversPageResponses = listOf(pageA1, pageB1, pageB2))
+        val repo = ServersV2Repository(api)
+
+        val a1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "A")
+        assertTrue(a1.hasMore)
+        val b1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "B")
+        assertTrue(b1.hasMore)
+
+        repo.abandonPagingSession("A")
+
+        val b2 = repo.getServersPage(context, "JP", skip = b1.nextSkip, take = 3, pagingSessionId = "B")
+        assertFalse(b2.hasMore)
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 14, forceRefresh = false)
+        assertEquals(
+            "abandoned A must not truncate or interfere with live session B",
+            setOf(11, 12, 13, 14),
+            merged.map { it.id }.toSet()
+        )
     }
 
     // M4 -- abandonPagingSession() must actually release the accumulator, not just be a no-op:
@@ -733,12 +788,12 @@ class ServersV2RepositoryTest {
         val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
         val repo = ServersV2Repository(api)
 
-        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3)
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "m4")
         assertTrue(firstPage.hasMore)
 
-        repo.abandonPagingSession(context, "JP")
+        repo.abandonPagingSession("m4")
 
-        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "m4")
         assertFalse(secondPage.hasMore)
 
         // Only the second page's server should have been persisted -- if the abandoned first

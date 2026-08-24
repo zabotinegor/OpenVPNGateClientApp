@@ -47,13 +47,19 @@ interface CountryServersInteractor {
      * preserved). For every other source (VPN Gate/legacy, out of scope per the story), this
      * always returns the complete country list as a single page with `hasMore = false`,
      * matching pre-US-23 behavior exactly.
+     *
+     * @param pagingSessionId identifies THIS screen's paging session; the repository keys its
+     * accumulation state by it so overlapping sessions of the same country stay independent
+     * (review threads PRRT bveIU/bxsTH/bxsYe), and teardown releases exactly this session via
+     * [abandonPagingSession].
      */
     suspend fun getServersPage(
         countryName: String,
         countryCode: String?,
         skip: Int,
         take: Int,
-        cacheOnly: Boolean
+        cacheOnly: Boolean,
+        pagingSessionId: String
     ): CountryServersPage
 
     /**
@@ -77,13 +83,15 @@ interface CountryServersInteractor {
 
     /**
      * Best-effort cleanup hook (US-23 M4): releases any in-memory V2 paging accumulator held
-     * for [countryCode] when the user leaves the country screen before its full list loaded
+     * for [pagingSessionId] when the user leaves the country screen before its full list loaded
      * (and before a selection ever triggered [resolveSelection]'s own backfill, which cleans up
-     * naturally once it completes). No-op for the legacy/VPN Gate source and when [countryCode]
-     * is null -- the paging session was never V2-keyed in that case. Not suspend: intended to be
-     * called from a ViewModel's non-suspend `onCleared()`.
+     * naturally once it completes). No-op for the legacy/VPN Gate source and when no state
+     * exists for this session. Session-keyed (review PRRT bxsOx): cleanup works even when the
+     * screen was opened by name without a country code, because it no longer depends on
+     * resolving one. Not suspend: intended to be called from a ViewModel's non-suspend
+     * `onCleared()`.
      */
-    fun abandonPagingSession(countryCode: String?)
+    fun abandonPagingSession(pagingSessionId: String)
 }
 
 class DefaultCountryServersInteractor(
@@ -175,7 +183,8 @@ class DefaultCountryServersInteractor(
         countryCode: String?,
         skip: Int,
         take: Int,
-        cacheOnly: Boolean
+        cacheOnly: Boolean,
+        pagingSessionId: String
     ): CountryServersPage {
         val source = UserSettingsStore.load(appContext).serverSource
         if (source != ServerSource.DEFAULT_V2) {
@@ -207,27 +216,28 @@ class DefaultCountryServersInteractor(
         }
 
         val page = try {
-            repo.getServersPage(appContext, resolvedCode, skip = skip, take = take)
+            repo.getServersPage(appContext, resolvedCode, skip = skip, take = take, pagingSessionId = pagingSessionId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             if (skip != 0) throw e
-            // US-23 M1/F2: restore the pre-US-23 offline fallback for the cold (skip=0) path.
-            // fetchWithCache()/fetchFromNetworkWithParsing() used to catch Exception broadly
-            // (after rethrowing CancellationException) and fall back to a stale on-disk cache
-            // entry for *any* failure -- not just IOException. Retrofit throws HttpException (a
-            // RuntimeException) for a non-2xx response and Gson throws JsonSyntaxException for a
-            // malformed body; neither is an IOException, so a narrower catch here would still let
-            // a backend 5xx/malformed-body response close the screen despite a usable stale
-            // cache. getServersPage() has no fallback of its own, so route through the
-            // stale-cache-tolerant full fetch instead. Throws (like before) only when neither a
-            // stale cache nor the network is available.
+            // US-23 M1/F2 + review PRRT bveIO: restore the pre-US-23 offline fallback for the
+            // cold (skip=0) path. fetchWithCache()/fetchFromNetworkWithParsing() used to catch
+            // Exception broadly (after rethrowing CancellationException) and fall back to a
+            // stale on-disk cache entry for *any* failure -- not just IOException. Retrofit
+            // throws HttpException (a RuntimeException) for a non-2xx response and Gson throws
+            // JsonSyntaxException for a malformed body; neither is an IOException, so a
+            // narrower catch here would still let a backend 5xx/malformed-body response close
+            // the screen despite a usable stale cache. getServersPage() has no fallback of its
+            // own, so route through the STALE-CACHE-DIRECT read (cacheOnly=true makes the
+            // repository read the stale file with networking disabled) instead of re-attempting
+            // the network -- an offline cold open must not pay a second ~30s timeout here.
             AppLog.w(
                 TAG,
                 "getServersPage: network fetch failed at skip=0 for $countryName, falling back to stale-cache-tolerant full fetch",
                 e
             )
-            val all = getServersForCountryV2(countryName, countryCode, cacheOnly = false)
+            val all = getServersForCountryV2(countryName, countryCode, cacheOnly = true)
             return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
         }
         val legacyServers = page.servers.map { it.toLegacyServer() }
@@ -312,9 +322,10 @@ class DefaultCountryServersInteractor(
         ).firstOrNull { it >= 0 } ?: 0
     }
 
-    override fun abandonPagingSession(countryCode: String?) {
-        val code = countryCode ?: return
-        serversV2Repository?.abandonPagingSession(appContext, code)
+    override fun abandonPagingSession(pagingSessionId: String) {
+        // Session-keyed (review PRRT bxsOx): cleanup no longer depends on resolving a country
+        // code, so screens opened by name without EXTRA_COUNTRY_CODE release their state too.
+        serversV2Repository?.abandonPagingSession(pagingSessionId)
     }
 
     /**
