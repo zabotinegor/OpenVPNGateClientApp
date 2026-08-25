@@ -849,6 +849,53 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Review: a newer same-country backfill (from a rapid re-select) must win over an older
+    // one. The per-country generation counter ensures only the latest backfill may write.
+    @Test
+    fun resolveSelection_v2_backfill_skips_writes_when_generation_drifts() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "g2")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is now suspended at its second page fetch (the gate). Simulate a
+        // newer same-country backfill starting by drifting the generation before releasing.
+        interactor.backfillGenerations["JP"] = (interactor.backfillGenerations["JP"] ?: 0) + 1
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "the older backfill must not overwrite the selection when generation drifted",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        org.junit.Assert.assertFalse(
+            "the older backfill must not persist cache when generation drifted",
+            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+        )
+    }
+
     /** Wraps a [FakeServersV2Api] so the SECOND getServers() call suspends on [gate] before
      * delegating -- letting a test move the selection version while the backfill is
      * suspended mid-flight. */

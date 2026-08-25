@@ -869,6 +869,35 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // Review: foreground paging session must not overwrite a newer sync's full-list cache.
+    // When the selection version moves between the first and last page of a foreground
+    // accumulate session, the final persist must be skipped.
+    @Test
+    fun foregroundPaging_skipsFullListCachePersist_whenVersionMovesBetweenPages() = runBlocking {
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(page1, page2)
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, accumulate = true, pagingSessionId = "fp")
+        assertTrue(first.hasMore)
+
+        // A same-country sync completes while the user is mid-scroll.
+        SelectedCountryVersionSignal.bump()
+
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "fp")
+        assertFalse(second.hasMore)
+
+        val cacheFile = File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json")
+        assertFalse(
+            "full-list cache must not be written when the selection version moved between pages",
+            cacheFile.exists()
+        )
+    }
+
     private fun buildZeroIdConfigJson(ip: String, config: String, total: Int): String {
         val items = """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"$config"}"""
         return """{"items":[$items],"total":$total}"""

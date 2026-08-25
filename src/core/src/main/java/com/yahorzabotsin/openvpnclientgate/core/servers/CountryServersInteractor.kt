@@ -111,6 +111,13 @@ class DefaultCountryServersInteractor(
     // has already finished/cleared following the user's selection.
     private val backfillScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // US-23 Review: per-country backfill generation counter. Each call to launchSilentBackfill
+    // increments this for the target country; the backfill captures the generation at start and
+    // skips its writes when it no longer matches, so a newer same-country backfill always wins.
+    @VisibleForTesting
+    internal val backfillGenerations: java.util.concurrent.ConcurrentHashMap<String, Long> =
+        java.util.concurrent.ConcurrentHashMap()
+
     // Visible for test synchronization only: the M2 backfill is fire-and-forget in production,
     // but a test needs a handle to join() the background coroutine before asserting on
     // SelectedCountryStore's persisted candidate pool.
@@ -368,11 +375,16 @@ class DefaultCountryServersInteractor(
         initialServers: List<Server>
     ) {
         val repo = serversV2Repository ?: return
-        // Generation guard (review PRRT b_dsf): a same-country sync (SSE push, periodic or
-        // foreground refresh) completing while this backfill is in flight must win over the
-        // backfill's older data. Capture the selection version now and skip this backfill's
-        // store/cache writes when it has moved by completion time.
+        val normalizedCode = countryCode?.uppercase() ?: countryName.uppercase()
+        // Generation guard (reviews PRRT b_dsf + b_0hE):
+        // 1. Global signal: a same-country sync (SSE push, periodic or foreground refresh)
+        //    completing while this backfill is in flight must win -- capture the selection
+        //    version now and skip writes when it has moved by completion time.
+        // 2. Per-country generation: a newer same-country backfill (from a rapid re-select)
+        //    must also win -- increment the generation and skip writes when it no longer
+        //    matches at completion time.
         val selectionVersionAtStart = SelectedCountryVersionSignal.version.value
+        val generation = backfillGenerations.merge(normalizedCode, 1L) { prev, _ -> prev + 1L } ?: 1L
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -421,14 +433,16 @@ class DefaultCountryServersInteractor(
                 // would silently strand it truncated for the rest of the TTL, so that persist is
                 // skipped in this case.
                 val backfillIncomplete = hasMore
-                // Generation guard: a newer sync for this country completed while the backfill
-                // was in flight -- its results are fresher, so keep the partial pool as the
-                // selection left it and do not overwrite the store or the full-list cache.
+                // Generation guard: skip writes when either a newer sync moved the global
+                // selection signal OR a newer same-country backfill started (generation drifted).
                 val selectionMovedOn = SelectedCountryVersionSignal.version.value != selectionVersionAtStart
-                if (selectionMovedOn) {
+                val generationDrifted = (backfillGenerations[normalizedCode] ?: generation) != generation
+                val skipWrites = selectionMovedOn || generationDrifted
+                if (skipWrites) {
                     AppLog.w(
                         TAG,
-                        "Silent backfill for country=$countryName skipped its writes: a newer sync completed first"
+                        "Silent backfill for country=$countryName skipped its writes: " +
+                            "selectionMovedOn=$selectionMovedOn generationDrifted=$generationDrifted"
                     )
                 } else {
                     SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())

@@ -60,7 +60,11 @@ class ServersV2Repository(
     // fetchAllPages's MAX_PAGES_SAFETY_LIMIT bound: without it, a backend that reports a wrong
     // or hostile `total` keeps `hasMore=true` forever and the accumulator/adapter/UI state grow
     // without bound. Reset on a fresh skip=0 session and removed alongside the accumulator.
-    private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
+    private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap(),
+    // US-23 Review: captures SelectedCountryVersionSignal.version at skip=0 of each foreground
+    // accumulate session so a full-list cache persist at hasMore=false can be skipped when a
+    // newer same-country sync completed in the meantime.
+    private val pageStartVersions: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
 ) {
 
     private companion object {
@@ -303,6 +307,7 @@ class ServersV2Repository(
             // and yield the same server again at a different offset.
             if (skip == 0) {
                 pageAccumulators[sessionKey] = filtered.toMutableList()
+                pageStartVersions[sessionKey] = SelectedCountryVersionSignal.version.value
             } else {
                 val accumulated = pageAccumulators.getOrPut(sessionKey) { mutableListOf() }
                 // De-dup keys fall back to connection attributes for entries without a stable
@@ -313,10 +318,24 @@ class ServersV2Repository(
             if (!hasMore) {
                 pagesFetchedForSession.remove(sessionKey)
                 val fullList = pageAccumulators.remove(sessionKey).orEmpty()
+                val startVersion = pageStartVersions.remove(sessionKey)
                 // US-23 F6: a stop forced by the safety limit means the accumulated list is
                 // knowingly incomplete -- do not cache it as this country's authoritative full
                 // list, which would otherwise stick for the whole TTL.
-                if (!reachedSafetyLimit) {
+                // US-23 Review: a same-country sync (SSE push, periodic, or foreground refresh)
+                // completing while this paging session was in flight writes a fresher full-list
+                // cache -- do not overwrite it with the paging session's older accumulated data.
+                val selectionMovedOn = startVersion != null &&
+                    SelectedCountryVersionSignal.version.value != startVersion
+                if (reachedSafetyLimit) {
+                    // already logged above
+                } else if (selectionMovedOn) {
+                    AppLog.w(
+                        TAG,
+                        "getServersPage[$countryCode]: skipping full-list cache persist -- " +
+                            "selection version moved (a newer sync completed while paging was in flight)"
+                    )
+                } else {
                     persistFullListCache(context, countryCode, normalizedLocale, fullList)
                 }
             }
