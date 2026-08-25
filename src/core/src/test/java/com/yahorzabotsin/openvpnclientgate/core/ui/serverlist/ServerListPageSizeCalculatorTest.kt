@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * US-23 AC5: page size must be derived from the device's real screen dimensions and the
+ * Page size must be derived from the device's real screen dimensions and the
  * server row's measured/laid-out height at runtime -- no hardcoded item-count constant.
  *
  * These tests exercise [ServerListPageSizeCalculator.computeFromMeasurements], the pure

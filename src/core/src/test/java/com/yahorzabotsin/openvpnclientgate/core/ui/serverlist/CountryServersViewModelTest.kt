@@ -205,17 +205,17 @@ class CountryServersViewModelTest {
         private val loaded: List<Server> = emptyList(),
         private val selectionResult: ServerSelectionResult = ServerSelectionResult("", null, null, "", null),
         private val selectionError: Exception? = null,
-        // --- US-23 paging fixtures ---
+        // --- paging fixtures ---
         // First page (skip == 0) always returns `loaded` with `firstPageHasMore`. Subsequent
         // page requests (skip > 0) return `nextPageServers`/`nextPageHasMore` unless the
         // requested skip matches `pageErrorAtSkip`, in which case `pageError` is thrown instead
-        // (simulates a mid-scroll network failure for AC4 retry tests).
+        // (simulates a mid-scroll network failure for retry tests).
         private val firstPageHasMore: Boolean = false,
-        // M5: overrides the skip==0 page's nextSkip (defaults to the old `loaded.size` behavior)
+        // Overrides the skip==0 page's nextSkip (defaults to the old `loaded.size` behavior)
         // so a test can simulate a raw full page that filters down to zero displayable servers
         // while the backend still reports more pages remain.
         private val firstPageNextSkip: Int? = null,
-        // F4: bounds a would-be-infinite skip==0 retry loop in tests -- once the skip==0 branch
+        // Bounds a would-be-infinite skip==0 retry loop in tests -- once the skip==0 branch
         // has been requested this many times, hasMore flips to false so an *unfixed* loop-
         // detection test still terminates (with a larger, differing call count) instead of
         // hanging forever; a fixed loop stops after the very first call regardless.
@@ -240,12 +240,12 @@ class CountryServersViewModelTest {
         var getServersPageCallCount = 0
             private set
         val requestedSkips = mutableListOf<Int>()
-        // M4: abandonPagingSession call tracking.
+        // AbandonPagingSession call tracking.
         var abandonPagingSessionCallCount = 0
             private set
         var lastAbandonedSessionId: String? = null
             private set
-        // M2: resolveSelection's paging params, recorded for assertions.
+        // resolveSelection's paging params, recorded for assertions.
         var lastResolveSelectionHasMorePages: Boolean? = null
             private set
         var lastResolveSelectionNextSkip: Int? = null
@@ -354,10 +354,10 @@ class CountryServersViewModelTest {
         }
     }
 
-    // --- SUB-03 acceptance criteria: pinned favorites section + long-press toggle ---
+    // --- pinned favorites section + long-press toggle ---
 
     @Test
-    fun `AC1 - pinned favorites section appears above regular list when a favorite server is present`() = runTest {
+    fun `pinned favorites section appears above regular list when a favorite server is present`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -378,10 +378,10 @@ class CountryServersViewModelTest {
         val favoriteRow = items[1] as ServerListItem.ServerRow
         assertEquals(20, favoriteRow.server.id)
         assertTrue(favoriteRow.isFavorite)
-        // SUB-09: second "All servers" header marks the start of the full list below.
+        // second "All servers" header marks the start of the full list below.
         assertTrue(items[2] is ServerListItem.SectionHeader)
         assertFalse((items[2] as ServerListItem.SectionHeader).showFavoriteIcon)
-        // Regular list is additive (mirrors SUB-02 countries screen): it contains ALL
+        // Regular list is additive (mirrors countries screen): it contains ALL
         // servers, with the favorited one still at its normal position, marked favorite.
         assertEquals(10, (items[3] as ServerListItem.ServerRow).server.id)
         assertFalse((items[3] as ServerListItem.ServerRow).isFavorite)
@@ -390,10 +390,10 @@ class CountryServersViewModelTest {
         assertEquals(5, items.size)
     }
 
-    // --- SUB-09: second "All servers" header above the full list ---
+    // --- second "All servers" header above the full list ---
 
     @Test
-    fun `SUB-09 AC3 - second header labeled All servers appears only when favorites section is visible`() = runTest {
+    fun `second header labeled All servers appears only when favorites section is visible`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -417,7 +417,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `SUB-09 AC4 - no second header when there are no favorites`() = runTest {
+    fun `no second header when there are no favorites`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -435,7 +435,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `SUB-09 edge case - every server favorited still shows both headers and the full list below`() = runTest {
+    fun `edge case - every server favorited still shows both headers and the full list below`() = runTest {
         // When 100% of a country's servers are favorited, the pinned block and the "All
         // servers" list below it end up with identical content (minus ordering) - buildItems
         // must not special case this away or crash; both sections should render additively.
@@ -475,7 +475,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC2 - no favorites section when no favorite from this country is available`() = runTest {
+    fun `no favorites section when no favorite from this country is available`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -498,7 +498,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC3 - toggle favorite reflects current state via add then remove`() = runTest {
+    fun `toggle favorite reflects current state via add then remove`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA))
         val favoritesStore = FakeFavoritesServerStore()
@@ -525,7 +525,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC3 - servers with id 0 are not favoritable`() = runTest {
+    fun `servers with id 0 are not favoritable`() = runTest {
         val legacyServer = server("France", "FR", 1, id = 0)
         val interactor = FakeInteractor(loaded = listOf(legacyServer))
         val favoritesStore = FakeFavoritesServerStore()
@@ -546,7 +546,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC4 - tapping a server row in the favorites section selects it like the regular list`() = runTest {
+    fun `tapping a server row in the favorites section selects it like the regular list`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val result = ServerSelectionResult(
             countryName = "France",
@@ -581,7 +581,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC5 - favoriting updates pinned section immediately without reload`() = runTest {
+    fun `favoriting updates pinned section immediately without reload`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(loaded = listOf(serverA, serverB))
@@ -607,7 +607,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC6 - short-tap selection for non-favorite servers is unchanged`() = runTest {
+    fun `short-tap selection for non-favorite servers is unchanged`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val result = ServerSelectionResult(
@@ -642,7 +642,7 @@ class CountryServersViewModelTest {
     }
 
     // --- Additive pinned section (round-5 review): favorite stays in the regular list ---
-    // Mirrors ServerListViewModelTest's SUB-02 expectations: the pinned Favorites section
+    // Mirrors ServerListViewModelTest's expectations: the pinned Favorites section
     // is a shortcut ON TOP of the regular list, which always contains every server.
     @Test
     fun `favorited_server_appears_in_pinned_section_and_regular_list_additive`() = runTest {
@@ -664,7 +664,7 @@ class CountryServersViewModelTest {
         // Expected structure:
         // [0] SectionHeader (Favorites)
         // [1] ServerRow(serverA, isFavorite=true)   <- pinned shortcut
-        // [2] SectionHeader (All servers, SUB-09)
+        // [2] SectionHeader (All servers)
         // [3] ServerRow(serverA, isFavorite=true)   <- still at its normal list position
         // [4] ServerRow(serverB, isFavorite=false)
         assertEquals(5, items.size)
@@ -734,12 +734,12 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    // ==================== US-23: lazy-load servers within a country ====================
+    // ==================== lazy-load servers within a country ====================
 
-    // --- AC1: only the first page loads on open, sized by the caller-supplied pageSize ---
+    // --- only the first page loads on open, sized by the caller-supplied pageSize ---
 
     @Test
-    fun `AC1 - initial load requests skip 0 with the given pageSize as take`() = runTest {
+    fun `initial load requests skip 0 with the given pageSize as take`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = true)
         val vm = CountryServersViewModel(
@@ -758,11 +758,11 @@ class CountryServersViewModelTest {
         assertTrue("hasMorePages must reflect the first page's result", vm.state.value.hasMorePages)
     }
 
-    // --- AC2: scrolling near the loaded end fetches and appends the next page, with a
+    // --- scrolling near the loaded end fetches and appends the next page, with a
     // loading indicator shown while that fetch is in flight ---
 
     @Test
-    fun `AC2 - LoadNextPage appends the next page and clears the loading indicator once done`() = runTest {
+    fun `LoadNextPage appends the next page and clears the loading indicator once done`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
@@ -795,7 +795,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC2 - loading footer is shown while the next page fetch is in flight`() = runTest {
+    fun `loading footer is shown while the next page fetch is in flight`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val gate = CompletableDeferred<Unit>()
@@ -978,12 +978,12 @@ class CountryServersViewModelTest {
         }
     }
 
-    // --- F1 fix: the paging claim must be taken synchronously by the trigger itself, so
+    // --- Fix: the paging claim must be taken synchronously by the trigger itself, so
     // back-to-back triggers cannot double-launch the same skip while the first deferred
     // coroutine is still queued. ---
 
     @Test
-    fun `F1 - two back-to-back LoadNextPage actions produce exactly one page fetch`() = runTest {
+    fun `two back-to-back LoadNextPage actions produce exactly one page fetch`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
@@ -1011,7 +1011,7 @@ class CountryServersViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            "AC2: exactly one fetch per unique skip -- no duplicate for the same trigger burst",
+            "exactly one fetch per unique skip -- no duplicate for the same trigger burst",
             listOf(0, 1),
             interactor.requestedSkips
         )
@@ -1020,7 +1020,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `F1 - double-tap RetryLoadNextPage refetches the failed skip exactly once`() = runTest {
+    fun `double-tap RetryLoadNextPage refetches the failed skip exactly once`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
@@ -1050,7 +1050,7 @@ class CountryServersViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            "AC4: a retry burst must refetch the failed skip exactly once",
+            "a retry burst must refetch the failed skip exactly once",
             listOf(0, 1, 1),
             interactor.requestedSkips
         )
@@ -1280,10 +1280,10 @@ class CountryServersViewModelTest {
         assertFalse(vm.state.value.hasMorePages)
     }
 
-    // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---
+    // --- once every server has loaded, no further fetch is triggered and no indicator shows ---
 
     @Test
-    fun `AC3 - LoadNextPage is a no-op once hasMorePages is false`() = runTest {
+    fun `LoadNextPage is a no-op once hasMorePages is false`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
         val vm = CountryServersViewModel(
@@ -1304,11 +1304,11 @@ class CountryServersViewModelTest {
         assertTrue(vm.state.value.items.none { it is ServerListItem.LoadingFooter })
     }
 
-    // --- AC4: a mid-scroll page failure shows a retry affordance; retrying resumes from the
+    // --- a mid-scroll page failure shows a retry affordance; retrying resumes from the
     // same page ---
 
     @Test
-    fun `AC4 - page fetch failure mid-scroll surfaces retry state instead of a silent stall`() = runTest {
+    fun `page fetch failure mid-scroll surfaces retry state instead of a silent stall`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(
             loaded = listOf(serverA),
@@ -1340,7 +1340,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC4 - RetryLoadNextPage resumes from the same skip that failed`() = runTest {
+    fun `RetryLoadNextPage resumes from the same skip that failed`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(
             loaded = listOf(serverA),
@@ -1369,7 +1369,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `AC4 - RetryLoadNextPage is a no-op without a prior page error`() = runTest {
+    fun `RetryLoadNextPage is a no-op without a prior page error`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
         val vm = CountryServersViewModel(
@@ -1387,11 +1387,11 @@ class CountryServersViewModelTest {
         assertEquals(listOf(0), interactor.requestedSkips)
     }
 
-    // --- AC6: a favorited server appears in the pinned section once its page has loaded,
+    // --- a favorited server appears in the pinned section once its page has loaded,
     // not eagerly before that ---
 
     @Test
-    fun `AC6 - favorited server from a later page appears only once that page has loaded`() = runTest {
+    fun `favorited server from a later page appears only once that page has loaded`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val favoritedServerB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
@@ -1424,11 +1424,11 @@ class CountryServersViewModelTest {
         assertTrue(pinnedRow.isFavorite)
     }
 
-    // --- M4: abandonPagingSession is called on every teardown (session-keyed; a safe no-op
+    // --- onCleared calls abandonPagingSession (session-keyed; a safe no-op
     // for sessions that already completed), and it releases exactly this screen's session. ---
 
     @Test
-    fun `M4 - onCleared calls abandonPagingSession when hasMorePages is true at teardown`() = runTest {
+    fun `onCleared calls abandonPagingSession when hasMorePages is true at teardown`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = true)
         val store = ViewModelStore()
@@ -1454,7 +1454,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `M4 - onCleared abandons unconditionally even when hasMorePages is false`() = runTest {
+    fun `onCleared abandons unconditionally even when hasMorePages is false`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val interactor = FakeInteractor(loaded = listOf(serverA), firstPageHasMore = false)
         val store = ViewModelStore()
@@ -1482,11 +1482,11 @@ class CountryServersViewModelTest {
         )
     }
 
-    // --- M5: an empty-after-filtering first page with hasMore=true must not finish the screen;
+    // --- an empty-after-filtering first page with hasMore=true must not finish the screen;
     // it must keep paging until real servers are found ---
 
     @Test
-    fun `M5 - empty filtered first page with hasMore keeps loading until real servers appear`() = runTest {
+    fun `empty filtered first page with hasMore keeps loading until real servers appear`() = runTest {
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
             loaded = emptyList(),
@@ -1518,11 +1518,11 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    // --- M6: offset-based pagination can re-deliver the same server id at a shifted offset; the
+    // --- offset-based pagination can re-deliver the same server id at a shifted offset; the
     // ViewModel must de-dup by id when appending a newly-fetched page ---
 
     @Test
-    fun `M6 - duplicate server id across two pages does not appear twice in state servers`() = runTest {
+    fun `duplicate server id across two pages does not appear twice in state servers`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverADuplicate = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
@@ -1549,10 +1549,10 @@ class CountryServersViewModelTest {
         assertEquals("the first (earliest-loaded) occurrence must be kept", serverA, vm.state.value.servers[0])
     }
 
-    // --- F4: the M5 loop must not re-issue an identical request when nextSkip does not advance ---
+    // --- the loop must not re-issue an identical request when nextSkip does not advance ---
 
     @Test
-    fun `F4 - empty first page whose nextSkip does not advance stops instead of looping forever`() = runTest {
+    fun `empty first page whose nextSkip does not advance stops instead of looping forever`() = runTest {
         val interactor = FakeInteractor(
             loaded = emptyList(),
             firstPageHasMore = true,
@@ -1584,10 +1584,10 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    // --- F7: pin the ViewModel -> interactor M2 wiring (hasMorePages/nextSkip forwarding) ---
+    // --- pin the ViewModel -> interactor wiring (hasMorePages/nextSkip forwarding) ---
 
     @Test
-    fun `F7 - server selection forwards hasMorePages true and the current nextSkip to resolveSelection`() = runTest {
+    fun `server selection forwards hasMorePages true and the current nextSkip to resolveSelection`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
         val interactor = FakeInteractor(
@@ -1615,7 +1615,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `F7 - server selection from a complete list forwards hasMorePages false`() = runTest {
+    fun `server selection from a complete list forwards hasMorePages false`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
         val interactor = FakeInteractor(
@@ -1639,17 +1639,16 @@ class CountryServersViewModelTest {
         assertEquals(false, interactor.lastResolveSelectionHasMorePages)
     }
 
-    // --- G1: a completed selection must still abandon the foreground paging session in
-    // onCleared(). resolveSelection()'s background backfill (M2) fetches with
-    // accumulate = false (F1), so it is fully session-isolated from ServersV2Repository's shared
+    // --- a completed selection must still abandon the foreground paging session in
+    // onCleared(). resolveSelection()'s background backfill fetches with
+    // accumulate = false, so it is fully session-isolated from ServersV2Repository's shared
     // pageAccumulators and can never release this screen's own accumulator entry on its behalf.
     // onCleared() is therefore the *only* remaining release path, for every teardown reason
-    // including a completed selection -- skipping it here (as a prior fix-cycle's
-    // selectionHandedOffToBackfill flag did) leaked the foreground accumulator's full configData
-    // blobs for the process lifetime on every early selection, the dominant US-23 path. ---
+    // including a completed selection -- skipping it here leaked the foreground accumulator's full configData
+    // blobs for the process lifetime on every early selection. ---
 
     @Test
-    fun `G1 - onCleared abandons paging session after a completed selection with hasMorePages true`() = runTest {
+    fun `onCleared abandons paging session after a completed selection with hasMorePages true`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val result = ServerSelectionResult("France", "FR", "Paris", "cfg", "1.2.3.4")
         val interactor = FakeInteractor(

@@ -113,7 +113,7 @@ class ServerPickerAdapterTest {
         return container
     }
 
-    // --- SUB-03: sealed list items (pinned favorites section + long-press) ---
+    // --- sealed list items (pinned favorites section + long-press) ---
 
     @Test
     fun `renders section header then server rows with correct view types`() {
@@ -239,7 +239,7 @@ class ServerPickerAdapterTest {
         assertEquals(context.getString(R.string.favorites_section_title), titleView.text.toString())
     }
 
-    // --- SUB-09: star icon shown only on the pinned Favorites header ---
+    // --- star icon shown only on the pinned Favorites header ---
 
     @Test
     fun `section header shows star icon only when showFavoriteIcon is true`() {
@@ -261,7 +261,7 @@ class ServerPickerAdapterTest {
         assertEquals(View.GONE, holder2.itemView.findViewById<ImageView>(R.id.section_header_icon).visibility)
     }
 
-    // --- SUB-06: pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
+    // --- pinned section frame boundary (isPinnedSection / pinnedSectionItemCount) ---
 
     @Test
     fun `pinnedSectionItemCount is zero when favorites section is hidden`() {
@@ -309,7 +309,7 @@ class ServerPickerAdapterTest {
         assertEquals(0, adapter.pinnedSectionItemCount())
     }
 
-    // --- SUB-09 AC8: per-row favorite star indicator in the full server list ---
+    // --- per-row favorite star indicator in the full server list ---
 
     @Test
     fun `row shows favorite star only when isFavorite is true`() {
@@ -423,7 +423,7 @@ class ServerPickerAdapterTest {
         assertEquals(null, favoriteStar?.contentDescription)
     }
 
-    // ==================== US-23: loading-footer row (lazy loading) ====================
+    // ==================== loading-footer row (lazy loading) ====================
 
     @Test
     fun `loading footer is the last view type when appended after server rows`() {
@@ -475,7 +475,7 @@ class ServerPickerAdapterTest {
         assertTrue(retried)
     }
 
-    // m8 (US-23 code-review fix cycle, minor/deferred): the test above builds its own
+    // (code-review fix cycle, minor/deferred): the test above builds its own
     // FooterViewHolder by hand with its own separate `onRetry` lambda, so it does not exercise
     // the adapter's own onCreateViewHolder() wiring (`FooterViewHolder(v, onRetryLoadMore)`).
     // Closing that gap properly requires going through the adapter's real onCreateViewHolder(),

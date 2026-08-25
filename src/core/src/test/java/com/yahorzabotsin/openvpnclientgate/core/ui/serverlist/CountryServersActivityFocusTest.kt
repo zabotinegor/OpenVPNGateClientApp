@@ -9,7 +9,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Regression test for DEF-sub03-header-misscroll-on-open.
+ * Regression test for header-misscroll-on-open.
  *
  * With >=1 favorite server in the current country, the pinned "Favorites" section header
  * occupies adapter position 0 and CountryServersViewModel emits FocusFirstItem(1) to skip
@@ -25,11 +25,11 @@ import org.robolectric.annotation.Config
  * launched here because core unit tests run Robolectric in legacy resources mode, which
  * cannot resolve AppCompat/Material library theme resources.
  *
- * Re-verified against US-23 (lazy-loaded first page): [applyFocusFirstItem] only needs the
+ * Re-verified against lazy-loaded first page: [applyFocusFirstItem] only needs the
  * `position` the ViewModel computed from whatever items are currently loaded (position 0 or 1
  * depending on whether a pinned Favorites header exists) -- that computation is unchanged by
  * paging, since the first page is always non-empty by the time FocusFirstItem is emitted (see
- * CountryServersViewModelTest's `AC1 -` and `initialize loads servers and emits focus effect...`
+ * CountryServersViewModelTest's `pinned favorites section appears...` and `initialize loads servers and emits focus effect...`
  * cases, which now drive that emission through the paged getServersPage flow). This file's
  * coverage of the scroll/focus decoupling itself therefore still applies unchanged.
  */
@@ -54,7 +54,7 @@ class CountryServersActivityFocusTest {
         assertTrue(
             "scrollToPosition must NOT be called on touch devices: it would hide the " +
                 "pinned Favorites header at position 0 on open " +
-                "(DEF-sub03-header-misscroll-on-open)",
+                "(header-misscroll-on-open)",
             scrollCalls.isEmpty()
         )
         assertTrue(
@@ -74,7 +74,7 @@ class CountryServersActivityFocusTest {
             focusWhenReady = { calls.add("focus:$it") }
         )
 
-        // Regression test for DEF-4-tv-list-misscroll-on-open: scrolling to `position` (1)
+        // Regression test for tv-list-misscroll-on-open: scrolling to `position` (1)
         // top-aligns the first row and pushes the pinned Favorites header (position 0) out
         // of view on TV. The list must always scroll to 0 first so the header stays fully
         // visible, while D-pad focus still lands on the target row (1).
@@ -87,7 +87,7 @@ class CountryServersActivityFocusTest {
 
         // When there is no pinned Favorites header, the ViewModel emits FocusFirstItem(0)
         // and position 0 is already a regular row, so scroll and focus target the same
-        // position - this case must remain unaffected by the DEF-4 fix.
+        // position - this case must remain unaffected by the header-misscroll fix.
         TvUtils.applyFocusFirstItem(
             isTvDevice = true,
             position = 0,
