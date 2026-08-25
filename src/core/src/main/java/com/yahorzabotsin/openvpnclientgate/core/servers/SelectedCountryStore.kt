@@ -72,6 +72,11 @@ object SelectedCountryStore {
         val previousCurrent = currentServer(ctx)
         val previousCount = getServers(ctx).size
 
+        // Re-check before the write: another selection may have happened between the
+        // initial check and now (e.g. a fire-and-forget backfill racing with the user
+        // selecting a different country). Skip the write if the country changed.
+        if (getSelectedCountry(ctx) != country) return
+
         saveSelection(ctx, country, servers)
 
         if (previousCurrent != null) {
