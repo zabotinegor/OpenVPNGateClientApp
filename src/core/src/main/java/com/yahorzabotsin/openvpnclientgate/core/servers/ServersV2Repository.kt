@@ -16,6 +16,7 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Result of a single lazy-loaded page fetch. [nextSkip] is derived from the raw
@@ -168,6 +169,7 @@ class ServersV2Repository(
                 TAG,
                 "getServersForCountry[$countryCode]: serverCount=$serverCount locale=$normalizedLocale"
             )
+            val networkHit = AtomicBoolean(false)
             val result = fetchWithCache(
                 cacheFile = serversCacheFile(context, countryCode, normalizedLocale),
                 tsKey = cacheKey,
@@ -177,13 +179,14 @@ class ServersV2Repository(
                 cacheOnly = cacheOnly,
                 logPrefix = "getServersForCountry[$countryCode][$normalizedLocale]",
                 parse = ::parseServers,
-                fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
+                fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) },
+                networkHit = networkHit
             )
             // Bump the selection version and per-country generation inside the mutex so
             // that a foreground paging page waiting on this lock sees the updated version
-            // and skips its stale cache persist. Only bump on forceRefresh (actual cache
-            // write), not cache reads.
-            if (result.isNotEmpty() && forceRefresh) {
+            // and skips its stale cache persist. Bump when a network result was committed
+            // (covers both forceRefresh and TTL-expired non-forced refreshes).
+            if (result.isNotEmpty() && networkHit.get()) {
                 SelectedCountryVersionSignal.bump()
                 CountrySyncGenerations.generations.merge(countryCode.uppercase(), 1L) { prev, _ -> prev + 1L }
             }
@@ -535,7 +538,8 @@ class ServersV2Repository(
         cacheOnly: Boolean,
         logPrefix: String,
         parse: (String) -> List<T>,
-        fetchNetwork: suspend () -> String
+        fetchNetwork: suspend () -> String,
+        networkHit: AtomicBoolean? = null
     ): List<T> {
         val ts = prefs.getLong(tsKey, -1L)
         val cacheValid = !forceRefresh && ts > 0L && cacheFile.isFile &&
@@ -553,6 +557,7 @@ class ServersV2Repository(
                     throw IOException("$logPrefix: cache parse error (cacheOnly=true, network disabled)", e)
                 }
                 // Fall through to network fetch below for non-cacheOnly mode.
+                networkHit?.set(true)
                 fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
             }
         }
@@ -570,6 +575,7 @@ class ServersV2Repository(
         }
 
         AppLog.d(TAG, "$logPrefix: fetching from network")
+        networkHit?.set(true)
         return fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
     }
 

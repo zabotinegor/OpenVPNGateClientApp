@@ -214,8 +214,11 @@ class DefaultCountryServersInteractor(
         } else if (cacheOnly) {
             // Honor cache-only mode on every page: VPN connected after first page was
             // loaded -- stop network access but preserve the incomplete paging state so
-            // paging resumes when VPN disconnects.
-            return CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = skip)
+            // paging resumes when VPN disconnects. Return nextSkip = skip + take to avoid
+            // the ViewModel's non-advancing-cursor guard (which abandons the session when
+            // nextSkip <= skip). On the next scroll, the ViewModel requests the advanced
+            // offset, which again hits cache-only and returns the same resumable sentinel.
+            return CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = skip + take)
         }
 
         val page = try {
