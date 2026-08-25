@@ -208,7 +208,17 @@ class CountryServersViewModel(
                 // empty pages here too, otherwise a user already at the loaded end never
                 // triggers another scroll callback and the remaining servers stay unreachable.
                 var lastSkip = skip
-                while (page.servers.isEmpty() && page.hasMore && page.nextSkip > lastSkip) {
+                var drained = 0
+                while (page.hasMore && page.nextSkip > lastSkip && drained < MAX_EMPTY_PAGE_DRAIN) {
+                    // A page can advance without contributing anything new: every entry may
+                    // duplicate servers already shown (cross-page dedup). Keep draining
+                    // through such pages, bounded per trigger -- a hostile or degenerate
+                    // backend must not turn one scroll trigger into an unbounded request
+                    // burst, and the preserved cursor lets the next trigger continue.
+                    val knownKeys = _state.value.servers.mapTo(HashSet()) { dedupKey(it.id, it.ip, it.configData) }
+                    val newRows = page.servers.count { dedupKey(it.id, it.ip, it.configData) !in knownKeys }
+                    if (newRows > 0) break
+                    drained++
                     lastSkip = page.nextSkip
                     page = interactor.getServersPage(
                         countryName = countryName,
@@ -405,3 +415,8 @@ class CountryServersViewModel(
         runCatching { AppLog.i(tag, message) }
     }
 }
+
+/** Upper bound on advancing empty/duplicate-only pages drained within a single load-more
+ * trigger: a degenerate backend must not turn one scroll trigger into an unbounded request
+ * burst. When the bound is hit the cursor is preserved, so the next trigger continues. */
+private const val MAX_EMPTY_PAGE_DRAIN = 10

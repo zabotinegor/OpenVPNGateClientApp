@@ -1206,6 +1206,80 @@ class CountryServersViewModelTest {
         assertFalse(vm.state.value.isLoadingMore)
     }
 
+    // --- Review fix: the drain is bounded per trigger (a degenerate backend must not turn one
+    // scroll trigger into an unbounded request burst), and it continues through pages that
+    // contribute no new rows (duplicate-only pages), preserving the cursor for the next
+    // trigger. ---
+
+    @Test
+    fun `loadNextPage bounds the empty-page drain per trigger and preserves the cursor`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageSequence = (1..12).map { i ->
+                CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = i * 50 + 1)
+            }
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.hasMorePages)
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "drain must stop at the per-trigger bound (initialize + first fetch + MAX_EMPTY_PAGE_DRAIN drains)",
+            12,
+            interactor.requestedSkips.size
+        )
+        assertTrue(
+            "the cursor must be preserved so the next trigger continues draining",
+            vm.state.value.hasMorePages
+        )
+        assertFalse(vm.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `loadNextPage drains pages that contribute only duplicates`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val duplicateOfA = server("France", "FR", 2, id = 10).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val serverB = server("France", "FR", 3, id = 20).copy(ip = "10.0.0.200", configData = "CFG-B")
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageSequence = listOf(
+                CountryServersPage(servers = listOf(duplicateOfA), hasMore = true, nextSkip = 2),
+                CountryServersPage(servers = listOf(serverB), hasMore = false, nextSkip = 3)
+            )
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a duplicate-only page must be drained to reach the later unique server",
+            listOf(0, 1, 2),
+            interactor.requestedSkips
+        )
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+    }
+
     // --- AC3: once every server has loaded, no further fetch is triggered and no indicator shows ---
 
     @Test
