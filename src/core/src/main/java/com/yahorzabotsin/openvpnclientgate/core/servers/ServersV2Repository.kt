@@ -185,8 +185,9 @@ class ServersV2Repository(
             // Bump the selection version and per-country generation inside the mutex so
             // that a foreground paging page waiting on this lock sees the updated version
             // and skips its stale cache persist. Bump when a network result was committed
-            // (covers both forceRefresh and TTL-expired non-forced refreshes).
-            if (result.isNotEmpty() && networkHit.get()) {
+            // (covers both forceRefresh and TTL-expired non-forced refreshes), even if
+            // the committed list is empty (backend may have removed all servers).
+            if (networkHit.get()) {
                 SelectedCountryVersionSignal.bump()
                 CountrySyncGenerations.generations.merge(countryCode.uppercase(), 1L) { prev, _ -> prev + 1L }
             }
@@ -557,8 +558,7 @@ class ServersV2Repository(
                     throw IOException("$logPrefix: cache parse error (cacheOnly=true, network disabled)", e)
                 }
                 // Fall through to network fetch below for non-cacheOnly mode.
-                networkHit?.set(true)
-                fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
+                fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork, networkHit)
             }
         }
 
@@ -575,8 +575,7 @@ class ServersV2Repository(
         }
 
         AppLog.d(TAG, "$logPrefix: fetching from network")
-        networkHit?.set(true)
-        return fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork)
+        return fetchFromNetworkWithParsing(logPrefix, cacheFile, tsKey, prefs, cacheTtlMs, parse, fetchNetwork, networkHit)
     }
 
     private suspend fun <T> fetchFromNetworkWithParsing(
@@ -586,13 +585,15 @@ class ServersV2Repository(
         prefs: SharedPreferences,
         cacheTtlMs: Long,
         parse: (String) -> List<T>,
-        fetchNetwork: suspend () -> String
+        fetchNetwork: suspend () -> String,
+        networkHit: AtomicBoolean? = null
     ): List<T> {
         return try {
             val json = withContext(Dispatchers.IO) { fetchNetwork() }
             val parsed = withContext(Dispatchers.Default) { parse(json) }
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
             prefs.edit().putLong(tsKey, System.currentTimeMillis()).apply()
+            networkHit?.set(true)
             parsed
         } catch (e: CancellationException) {
             throw e

@@ -203,43 +203,53 @@ class CountryServersViewModel(
                     pagingSessionId = pagingSessionId
                 )
                 logger.logLoadSuccess(countryName, page.servers.size)
-                // Mirror the initial-load drain: a raw page can consist entirely of
-                // blank-configData entries while the cursor advances. Keep fetching advancing
-                // empty pages here too, otherwise a user already at the loaded end never
-                // triggers another scroll callback and the remaining servers stay unreachable.
-                var lastSkip = skip
-                var drained = 0
-                while (page.hasMore && page.nextSkip > lastSkip && drained < MAX_EMPTY_PAGE_DRAIN) {
-                    // A page can advance without contributing anything new: every entry may
-                    // duplicate servers already shown (cross-page dedup). Keep draining
-                    // through such pages, bounded per trigger -- a hostile or degenerate
-                    // backend must not turn one scroll trigger into an unbounded request
-                    // burst, and the preserved cursor lets the next trigger continue.
-                    val knownKeys = _state.value.servers.mapTo(HashSet()) { dedupKey(it.id, it.ip, it.configData) }
-                    val newRows = page.servers.count { dedupKey(it.id, it.ip, it.configData) !in knownKeys }
-                    if (newRows > 0) break
-                    drained++
-                    lastSkip = page.nextSkip
-                    page = interactor.getServersPage(
-                        countryName = countryName,
-                        countryCode = countryCode,
-                        skip = page.nextSkip,
-                        take = pageSize,
-                        cacheOnly = cacheOnly,
-                        pagingSessionId = pagingSessionId
-                    )
-                    logger.logLoadSuccess(countryName, page.servers.size)
-                }
-                // A misbehaving backend can also return a page whose cursor does not advance
-                // while still reporting more (total > skip). Committing that cursor would
-                // re-fetch the identical offset on every near-end scroll until the safety
-                // limit -- stop paging instead, mirroring the cursor guards used elsewhere.
-                val nonAdvancingCursor = page.hasMore && page.nextSkip <= lastSkip
-                if (nonAdvancingCursor) {
-                    runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$lastSkip, nextSkip=${page.nextSkip}) -- stopping paging") }
-                    // The session is terminal here: release its repository state immediately
-                    // instead of waiting for teardown.
-                    interactor.abandonPagingSession(pagingSessionId)
+                // When the page is blocked (cache-only during VPN connected), skip the
+                // drain loop and non-advancing cursor guard: the cursor must stay at the
+                // last real offset so the next scroll retries the same page after VPN
+                // disconnects, instead of advancing past real servers.
+                var nonAdvancingCursor = false
+                if (!page.blocked) {
+                    // Mirror the initial-load drain: a raw page can consist entirely of
+                    // blank-configData entries while the cursor advances. Keep fetching
+                    // advancing empty pages here too, otherwise a user already at the loaded
+                    // end never triggers another scroll callback and the remaining servers
+                    // stay unreachable.
+                    var lastSkip = skip
+                    var drained = 0
+                    while (page.hasMore && page.nextSkip > lastSkip && drained < MAX_EMPTY_PAGE_DRAIN) {
+                        // A page can advance without contributing anything new: every entry
+                        // may duplicate servers already shown (cross-page dedup). Keep
+                        // draining through such pages, bounded per trigger -- a hostile or
+                        // degenerate backend must not turn one scroll trigger into an
+                        // unbounded request burst, and the preserved cursor lets the next
+                        // trigger continue.
+                        val knownKeys = _state.value.servers.mapTo(HashSet()) { dedupKey(it.id, it.ip, it.configData) }
+                        val newRows = page.servers.count { dedupKey(it.id, it.ip, it.configData) !in knownKeys }
+                        if (newRows > 0) break
+                        drained++
+                        lastSkip = page.nextSkip
+                        page = interactor.getServersPage(
+                            countryName = countryName,
+                            countryCode = countryCode,
+                            skip = page.nextSkip,
+                            take = pageSize,
+                            cacheOnly = cacheOnly,
+                            pagingSessionId = pagingSessionId
+                        )
+                        logger.logLoadSuccess(countryName, page.servers.size)
+                    }
+                    // A misbehaving backend can also return a page whose cursor does not
+                    // advance while still reporting more (total > skip). Committing that
+                    // cursor would re-fetch the identical offset on every near-end scroll
+                    // until the safety limit -- stop paging instead, mirroring the cursor
+                    // guards used elsewhere.
+                    nonAdvancingCursor = page.hasMore && page.nextSkip <= lastSkip
+                    if (nonAdvancingCursor) {
+                        runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$lastSkip, nextSkip=${page.nextSkip}) -- stopping paging") }
+                        // The session is terminal here: release its repository state
+                        // immediately instead of waiting for teardown.
+                        interactor.abandonPagingSession(pagingSessionId)
+                    }
                 }
                 updateState {
                     it.copy(

@@ -58,13 +58,14 @@ object SelectedCountryStore {
                 .put(KEY_JSON_SERVER_ID, s.id)
             arr.put(o)
         }
-        // When expectedCountry is provided, verify the selection hasn't changed during
-        // JSONArray serialization (large lists can take measurable time). Check right
-        // before the write to minimize the race window.
+        // Serialize before checking to close the race window: if expectedCountry changed
+        // during serialization, the check below discards the stale result. The serialized
+        // string is reused in the write so the check and write see the same payload.
+        val serialized = arr.toString()
         if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
         prefs(ctx).edit()
             .putString(KEY_COUNTRY, country)
-            .putString(KEY_SERVERS, arr.toString())
+            .putString(KEY_SERVERS, serialized)
             .putInt(KEY_INDEX, 0)
             .apply()
     }
