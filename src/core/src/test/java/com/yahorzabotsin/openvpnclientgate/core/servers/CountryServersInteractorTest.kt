@@ -833,8 +833,8 @@ class CountryServersInteractorTest {
         assertTrue(interactor.lastBackfillJob != null)
 
         // The backfill is now suspended fetching its first page (the gate). A newer sync
-        // completes right now -- modeled as the selection version moving on.
-        SelectedCountryVersionSignal.bump()
+        // completes right now -- modeled as the per-country generation bumping.
+        CountrySyncGenerations.generations.merge("JP", 1L) { prev, _ -> prev + 1L }
         gate.complete(Unit)
         interactor.lastBackfillJob?.join()
 
@@ -881,7 +881,7 @@ class CountryServersInteractorTest {
 
         // The backfill is now suspended at its second page fetch (the gate). Simulate a
         // newer same-country backfill starting by drifting the generation before releasing.
-        interactor.backfillGenerations["JP"] = (interactor.backfillGenerations["JP"] ?: 0) + 1
+        CountrySyncGenerations.generations["JP"] = (CountrySyncGenerations.generations["JP"] ?: 0) + 1
         gate.complete(Unit)
         interactor.lastBackfillJob?.join()
 

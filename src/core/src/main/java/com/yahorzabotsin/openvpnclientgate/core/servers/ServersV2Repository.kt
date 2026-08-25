@@ -49,19 +49,19 @@ class ServersV2Repository(
     // Accumulates filtered ServerV2 items across a lazy-loading paging session (keyed by
     // country+locale), so the full merged list can be written to the same on-disk cache that
     // fetchAllPages() writes once the session reaches its last page (hasMore=false) -- matching
-    // AC8 "cached full list served fast" for the *next* time this country is opened, without
+    // "cached full list served fast" for the *next* time this country is opened, without
     // requiring the current screen to drain every page up front. Entries are removed once a
     // session completes (hasMore=false) or is explicitly abandoned via [abandonPagingSession]
-    // (US-23 M4) -- a country left mid-scroll before either of those would otherwise retain its
+    // -- a country left mid-scroll before either of those would otherwise retain its
     // accumulated ServerV2 list, including full configData blobs, for the process lifetime.
     private val pageAccumulators: ConcurrentHashMap<String, MutableList<ServerV2>> = ConcurrentHashMap(),
 
-    // Per-session page counter (US-23 M3), keyed the same as [pageAccumulators]. Mirrors
+    // Per-session page counter, keyed the same as [pageAccumulators]. Mirrors
     // fetchAllPages's MAX_PAGES_SAFETY_LIMIT bound: without it, a backend that reports a wrong
     // or hostile `total` keeps `hasMore=true` forever and the accumulator/adapter/UI state grow
     // without bound. Reset on a fresh skip=0 session and removed alongside the accumulator.
     private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap(),
-    // US-23 Review: captures SelectedCountryVersionSignal.version at skip=0 of each foreground
+    // Captures SelectedCountryVersionSignal.version at skip=0 of each foreground
     // accumulate session so a full-list cache persist at hasMore=false can be skipped when a
     // newer same-country sync completed in the meantime.
     private val pageStartVersions: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
@@ -179,7 +179,7 @@ class ServersV2Repository(
                 parse = ::parseServers,
                 fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
             )
-            // US-23 Review: bump the selection version inside the mutex so that a foreground
+            // Bump the selection version inside the mutex so that a foreground
             // paging page waiting on this lock sees the updated version and skips its stale
             // cache persist (the signal was previously bumped outside the mutex by the
             // coordinator, leaving a window for the foreground page to slip in).
@@ -194,7 +194,7 @@ class ServersV2Repository(
     /**
      * Returns the cached server list for [countryCode] only if a non-expired (still within
      * TTL) cache entry exists, without ever making a network call -- used by the lazy-loading
-     * screen (US-23 AC8) to take the existing "already fast" warm-cache path unchanged. Returns
+     * screen to take the existing "already fast" warm-cache path unchanged. Returns
      * null when the cache is absent, expired, or fails to parse (caller falls back to genuine
      * paged fetching in that case).
      */
@@ -277,13 +277,13 @@ class ServersV2Repository(
             val nextSkip = skip + rawCount
 
             if (!accumulate) {
-                // US-23 F1: a session-isolated fetch (currently only the silent background
+                // A session-isolated fetch (currently only the silent background
                 // backfill in CountryServersInteractor). Deliberately does not touch
                 // pageAccumulators/pagesFetchedForSession or persist the on-disk cache -- those
                 // are shared per country+locale across every foreground paging session, and a
                 // caller that mixed into them could have its pages wiped by an unrelated
-                // abandonPagingSession() call from a screen teardown racing this fetch (F1), or
-                // collide with a second concurrently-open session on the same country (F3). The
+                // abandonPagingSession() call from a screen teardown racing this fetch, or
+                // collide with a second concurrently-open session on the same country. The
                 // caller owns its own accumulation, its own safety-limit bound, and -- once
                 // done -- persisting the merged list via [persistFullServerList].
                 val hasMore = if (page.total > 0) !reachedApiTotal else rawCount >= take
@@ -294,7 +294,7 @@ class ServersV2Repository(
                 return@withLock ServersV2Page(servers = filtered, hasMore = hasMore, nextSkip = nextSkip)
             }
 
-            // US-23 M3: bound the number of pages fetched per session the same way
+            // Bound the number of pages fetched per session the same way
             // fetchAllPages does, so a wrong or hostile `total` from the backend cannot keep
             // hasMore=true (and this accumulator/the UI list) growing forever.
             // Accumulation is keyed by the caller's
@@ -310,7 +310,7 @@ class ServersV2Repository(
                 AppLog.w(TAG, "getServersPage[$countryCode]: stopped by safety page limit ($MAX_PAGES_SAFETY_LIMIT)")
             }
 
-            // US-23 M6: de-duplicate by server id when accumulating. Pages are now requested
+            // De-duplicate by server id when accumulating. Pages are now requested
             // seconds-to-minutes apart (the user scrolling) instead of the old eager loop's
             // milliseconds, so the backend's active-server cache can shift between page fetches
             // and yield the same server again at a different offset.
@@ -328,10 +328,10 @@ class ServersV2Repository(
                 pagesFetchedForSession.remove(sessionKey)
                 val fullList = pageAccumulators.remove(sessionKey).orEmpty()
                 val startVersion = pageStartVersions.remove(sessionKey)
-                // US-23 F6: a stop forced by the safety limit means the accumulated list is
+                // A stop forced by the safety limit means the accumulated list is
                 // knowingly incomplete -- do not cache it as this country's authoritative full
                 // list, which would otherwise stick for the whole TTL.
-                // US-23 Review: a same-country sync (SSE push, periodic, or foreground refresh)
+                // A same-country sync (SSE push, periodic, or foreground refresh)
                 // completing while this paging session was in flight writes a fresher full-list
                 // cache -- do not overwrite it with the paging session's older accumulated data.
                 val selectionMovedOn = startVersion != null &&
@@ -358,19 +358,30 @@ class ServersV2Repository(
     }
 
     /**
-     * US-23 F1: persists [servers] as [countryCode]'s complete on-disk server list cache -- the
+     * Persists [servers] as [countryCode]'s complete on-disk server list cache -- the
      * same file/timestamp key [getServersForCountry]/[getFreshCachedServers] read -- on behalf
      * of a caller (the silent background backfill) that fetched its pages via [getServersPage]
      * with `accumulate = false` and therefore built its own merged list instead of relying on
      * [pageAccumulators]. Acquires this country+locale's paging lock itself. No-op for an empty
      * list (mirrors [persistFullListCache]'s own guard).
      */
-    suspend fun persistFullServerList(context: Context, countryCode: String, servers: List<ServerV2>) {
+    suspend fun persistFullServerList(
+        context: Context,
+        countryCode: String,
+        servers: List<ServerV2>,
+        shouldPersist: (() -> Boolean)? = null
+    ) {
         val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))
         val normalizedCountryCode = normalizeCountryCode(countryCode)
         val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
         mutex.withLock {
+            // Re-check via caller-provided predicate: a newer same-country backfill or
+            // sync may have started while we waited for the mutex.
+            if (shouldPersist != null && !shouldPersist()) {
+                AppLog.w(TAG, "persistFullServerList[$countryCode]: skipping write -- caller predicate declined")
+                return
+            }
             persistFullListCache(context, countryCode, normalizedLocale, servers)
         }
     }

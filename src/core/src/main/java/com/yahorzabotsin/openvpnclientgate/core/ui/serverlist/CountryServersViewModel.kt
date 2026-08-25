@@ -27,7 +27,7 @@ class CountryServersViewModel(
     private val connectionStateProvider: VpnConnectionStateProvider,
     private val logger: CountryServersLogger,
     private val favoritesStore: FavoritesServerStore,
-    // D1 fix: paging state mutations must never execute inline inside RecyclerView's
+    // Paging state mutations must never execute inline inside RecyclerView's
     // scroll-callback frame. viewModelScope uses Dispatchers.Main.immediate, which runs
     // synchronously when already on main -- so a LoadNextPage triggered from onScrolled
     // appended the LoadingFooter via notifyDataSetChanged() during an active measure &
@@ -38,7 +38,7 @@ class CountryServersViewModel(
     private val pagingScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 ) : ViewModel() {
 
-    // F1 fix: the state-based duplicate-trigger guards (isLoadingMore) are only updated from
+    // The state-based duplicate-trigger guards (isLoadingMore) are only updated from
     // inside the deferred paging coroutine, so two back-to-back triggers landing in the same
     // frame both pass them and double-fetch the same skip. This claim is checked-and-set
     // SYNCHRONOUSLY in loadNextPage() -- the caller's frame -- closing that window entirely;
@@ -106,12 +106,12 @@ class CountryServersViewModel(
                     cacheOnly = cacheOnly,
                     pagingSessionId = pagingSessionId
                 )
-                // M5: a raw page can filter down to zero displayable servers (e.g. a page made
+                // A raw page can filter down to zero displayable servers (e.g. a page made
                 // entirely of blank-configData entries) while more pages remain. Mirror
-                // fetchAllPages' pre-US-23 guard (ServersV2Repository's raw-page-size exit
+                // fetchAllPages' guard (ServersV2Repository's raw-page-size exit
                 // condition) and keep paging past such pages instead of treating this as "no
                 // servers for this country", which would incorrectly close the screen.
-                // F4: guard against a page whose nextSkip does not advance past the skip that
+                // Guard against a page whose nextSkip does not advance past the skip that
                 // produced it (an empty `items` array while the backend still reports
                 // total > skip) -- without this, the loop above would re-issue the identical
                 // request, bounded only by the repository's 200-page safety limit.
@@ -168,7 +168,7 @@ class CountryServersViewModel(
         val countryName = snapshot.countryName
         if (countryName.isNullOrBlank()) return
         // Guard against duplicate triggers: repeated onScrolled callbacks near the bottom,
-        // an in-flight page fetch, or a page that already reported the list is complete (AC3).
+        // an in-flight page fetch, or a page that already reported the list is complete.
         if (snapshot.isLoading || snapshot.isLoadingMore || snapshot.pageLoadError) return
         if (!snapshot.hasMorePages) return
         loadNextPage(countryName, snapshot.countryCode, snapshot.nextSkip, snapshot.pageSize)
@@ -184,8 +184,8 @@ class CountryServersViewModel(
     }
 
     private fun loadNextPage(countryName: String, countryCode: String?, skip: Int, pageSize: Int) {
-        // D1 fix: run on pagingScope (non-immediate main), never inline in the scroll frame.
-        // F1 fix: claim synchronously BEFORE dispatching -- the state-based guards above were
+        // Run on pagingScope (non-immediate main), never inline in the scroll frame.
+        // Claim synchronously BEFORE dispatching -- the state-based guards above were
         // read before this call and isLoadingMore only becomes true once the deferred body
         // runs, so back-to-back triggers could both launch. The atomic claim closes that.
         if (!pageFetchInFlight.compareAndSet(false, true)) return
@@ -250,13 +250,13 @@ class CountryServersViewModel(
                     )
                 }
             } catch (e: Exception) {
-                // AC4: surface a retry affordance instead of silently stalling; keep nextSkip
+                // Surface a retry affordance instead of silently stalling; keep nextSkip
                 // untouched so retry resumes from the same page.
                 logger.logLoadError(countryName, e)
                 updateState { it.copy(pageLoadError = true) }
             } finally {
                 updateState { it.copy(isLoadingMore = false) }
-                // F1 fix: release only after the fetch settles so a trigger racing this
+                // Release only after the fetch settles so a trigger racing this
                 // coroutine's tail frames cannot double-fire.
                 pageFetchInFlight.set(false)
             }
@@ -276,7 +276,7 @@ class CountryServersViewModel(
                     countryCode = snapshot.countryCode,
                     servers = snapshot.servers,
                     selectedServer = server,
-                    // M2: lets the interactor kick off a silent background backfill of the
+                    // Lets the interactor kick off a silent background backfill of the
                     // remaining pages when the user selects before the full list has loaded.
                     hasMorePages = snapshot.hasMorePages,
                     nextSkip = snapshot.nextSkip
@@ -311,15 +311,15 @@ class CountryServersViewModel(
     }
 
     /**
-     * M4: releases the V2 repository's in-memory paging accumulator when the user leaves this
+     * Releases the V2 repository's in-memory paging accumulator when the user leaves this
      * screen (back navigation, process death, or a completed server selection) before the
      * country's full list finished loading. Without this, a country left mid-scroll retained its
      * accumulated servers -- including full configData blobs -- for the entire process lifetime
      * (the repository is a Koin singleton). A session that reaches hasMore=false already cleans
      * up on its own inside ServersV2Repository.getServersPage().
      *
-     * US-23 F1/G1: as of the accumulate=false fix, resolveSelection()'s silent background
-     * backfill (M2) is fully session-isolated -- it fetches into its own local accumulator and
+     * As of the accumulate=false fix, resolveSelection()'s silent background
+     * backfill is fully session-isolated -- it fetches into its own local accumulator and
      * never reads or writes this screen's paging state. That means the backfill can never clean
      * up the foreground accumulator on this screen's behalf, so onCleared() is the *only*
      * release path left, for every teardown reason including a completed selection.
@@ -336,7 +336,7 @@ class CountryServersViewModel(
      */
     override fun onCleared() {
         interactor.abandonPagingSession(pagingSessionId)
-        // D1 fix: the paging scope is not viewModelScope, so it must be cancelled explicitly
+        // The paging scope is not viewModelScope, so it must be cancelled explicitly
         // to keep an in-flight deferred page fetch from outliving the ViewModel.
         pagingScope.cancel()
         super.onCleared()
@@ -346,7 +346,7 @@ class CountryServersViewModel(
         _state.value = block(_state.value).derived()
     }
 
-    /** M6: de-duplicates by server id when appending a newly-fetched page onto the servers
+    /** De-duplicates by server id when appending a newly-fetched page onto the servers
      * already loaded, keeping the first (earliest-loaded) occurrence. Offset-based pagination
      * over the backend's live active-server cache can otherwise yield the same server again at
      * a shifted offset once pages are fetched seconds-to-minutes apart (user scrolling) instead
@@ -376,7 +376,7 @@ class CountryServersViewModel(
     ): List<ServerListItem> {
         if (servers.isEmpty()) return emptyList()
 
-        // Mirrors ServerListViewModel.buildItems() (SUB-02 countries screen): the pinned
+        // Mirrors ServerListViewModel.buildItems() (countries screen): the pinned
         // favorites section is purely additive — favorited servers also stay at their
         // normal position in the regular list below, marked favorite by O(1) id lookup.
         val favorites = FavoritesFilter.filterFavoriteServers(favoriteServerIds, servers)
@@ -392,7 +392,7 @@ class CountryServersViewModel(
             favorites.forEach { server ->
                 items.add(ServerListItem.ServerRow(server, isFavorite = true, isPinnedSection = true))
             }
-            // SUB-09 AC3/AC4: second header above the full list below, only shown alongside
+            // Second header above the full list below, only shown alongside
             // the pinned Favorites block. Labeled "All servers" (not "Other") since favorited
             // servers still also appear in the list that follows.
             items.add(ServerListItem.SectionHeader(UiText.Res(R.string.all_servers_section_title)))
@@ -400,8 +400,8 @@ class CountryServersViewModel(
         servers.forEach { server ->
             items.add(ServerListItem.ServerRow(server, isFavorite = server.id in favoriteServerIds))
         }
-        // AC2/AC4: loading-footer row appended while a next-page fetch is in flight or has
-        // failed mid-scroll. AC3 (no footer once every server has loaded) falls out naturally
+        // Loading-footer row appended while a next-page fetch is in flight or has
+        // failed mid-scroll. No footer once every server has loaded falls out naturally
         // since neither flag is ever true once hasMorePages is false.
         if (isLoadingMore) {
             items.add(ServerListItem.LoadingFooter(FooterState.LOADING))

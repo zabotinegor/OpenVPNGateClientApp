@@ -6,8 +6,8 @@ import android.view.ViewGroup
 import kotlin.math.ceil
 
 /**
- * Computes how many servers to request per lazy-loaded page on the country servers screen
- * (US-23 AC5), derived at runtime from the device's actual screen dimensions and the server
+ * Computes how many servers to request per lazy-loaded page on the country servers screen,
+ * derived at runtime from the device's actual screen dimensions and the server
  * row's real measured/laid-out height -- there is no hardcoded item-count constant driving the
  * page size itself. Requests enough rows to fill a few screens ahead so scrolling feels
  * seamless well before the next network fetch is needed, and the result scales naturally with

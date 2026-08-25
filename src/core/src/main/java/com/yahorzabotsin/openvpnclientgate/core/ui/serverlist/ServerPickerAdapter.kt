@@ -20,7 +20,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
  */
 sealed interface ServerListItem {
     /**
-     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header;
      * the "All servers" header shown below the pinned block does not get the star icon.
      */
     data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : ServerListItem
@@ -30,7 +30,7 @@ sealed interface ServerListItem {
      * "Favorites" block at the top of the list (immediately after [SectionHeader]). A
      * favorited server also appears a second time at its normal position in the regular
      * list below with [isPinnedSection] = false (see [ServerPickerAdapter] doc). Used
-     * purely for visual framing (SUB-06); does not affect click/long-click behavior.
+     * purely for visual framing; does not affect click/long-click behavior.
      */
     data class ServerRow(
         val server: Server,
@@ -40,7 +40,7 @@ sealed interface ServerListItem {
 
     /**
      * Loading-footer row appended after the regular list while a lazy-loaded next page is in
-     * flight or has failed (US-23 AC2/AC4). Always the last adapter item when present; never
+     * flight or has failed. Always the last adapter item when present; never
      * counted by [ServerPickerAdapter.pinnedSectionItemCount].
      */
     data class LoadingFooter(val state: FooterState) : ServerListItem
@@ -118,8 +118,8 @@ class ServerPickerAdapter(
      * Number of leading items (the [ServerListItem.SectionHeader] plus its pinned
      * [ServerListItem.ServerRow] entries) that make up the pinned "Favorites" block, or 0
      * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
-     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
-     * "All servers" header inserted below the pinned block (SUB-09) is a [ServerListItem.SectionHeader],
+     * to draw a filled card behind exactly that block. The second
+     * "All servers" header inserted below the pinned block is a [ServerListItem.SectionHeader],
      * not a pinned [ServerListItem.ServerRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
@@ -198,10 +198,10 @@ class ServerPickerAdapter(
                     SignalStrength.WEAK -> R.drawable.signal_weak
                 }
             )
-            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Per-row favorite indicator, shown on this row both inside the pinned
             // Favorites card and again at its normal position in the full list below.
             favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
-            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            // Announce favorite state to accessibility services
             favoriteStar?.contentDescription = if (isFavorite) {
                 itemView.context.getString(R.string.favorites_section_title)
             } else {

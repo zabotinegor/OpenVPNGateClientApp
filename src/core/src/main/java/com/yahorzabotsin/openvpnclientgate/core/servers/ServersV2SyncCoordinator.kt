@@ -132,6 +132,11 @@ class DefaultServersV2SyncCoordinator(
         // Preserve index and current server identity against the currently stored selection key.
         SelectedCountryStore.saveSelectionPreservingIndex(context, rawSelectedCountry!!, legacyServers)
 
+        // Bump the per-country generation so any in-flight backfill for this country
+        // sees the drift and skips its stale writes.
+        val normalizedCode = countryV2.code.uppercase()
+        CountrySyncGenerations.generations.merge(normalizedCode, 1L) { prev, _ -> prev + 1L }
+
         // Relocalize display name after server list alignment.
         if (rawSelectedCountry != localizedCountryName) {
             val renamed = SelectedCountryStore.updateSelectedCountryNameIfCurrent(

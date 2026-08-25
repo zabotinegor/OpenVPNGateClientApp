@@ -16,7 +16,7 @@ import java.io.IOException
 
 /**
  * Result of a single lazy-loaded page request against [CountryServersInteractor.getServersPage]
- * (US-23), expressed in the legacy [Server] shape used throughout the UI layer.
+ *, expressed in the legacy [Server] shape used throughout the UI layer.
  *
  * @param servers the servers for this page (or the full list, when [ServersV2Repository]'s
  * warm-cache fast path is taken -- see [getServersPage] doc).
@@ -38,15 +38,15 @@ interface CountryServersInteractor {
     ): List<Server>
 
     /**
-     * Lazy-loading entry point (US-23): fetches one page of servers for [countryName]/
+     * Lazy-loading entry point: fetches one page of servers for [countryName]/
      * [countryCode] starting at [skip], up to [take] items.
      *
      * For the default V2 source, this genuinely fetches only the requested page over the
-     * network when no fresh full-list cache exists (AC1/AC2), or serves the complete cached
-     * list unchanged in one shot when a fresh cache is present (AC8 -- the already-fast path is
-     * preserved). For every other source (VPN Gate/legacy, out of scope per the story), this
+     * network when no fresh full-list cache exists, or serves the complete cached
+     * list unchanged in one shot when a fresh cache is present (the already-fast path is
+     * preserved). For every other source (VPN Gate/legacy, out of scope), this
      * always returns the complete country list as a single page with `hasMore = false`,
-     * matching pre-US-23 behavior exactly.
+     * matching pre-existing behavior exactly.
      *
      * @param pagingSessionId identifies THIS screen's paging session; the repository keys its
      * accumulation state by it so overlapping sessions of the same country stay independent
@@ -64,7 +64,7 @@ interface CountryServersInteractor {
 
     /**
      * @param hasMorePages true when the page(s) backing [servers] are not yet the country's
-     * complete list (US-23 M2): the caller selected a server before every page finished
+     * complete list: the caller selected a server before every page finished
      * loading. When true, a silent background fetch of the remaining pages is kicked off so
      * [SelectedCountryStore]'s persisted candidate pool for [ServerAutoSwitcher]
      * (`vpn.ServerAutoSwitcher`) becomes complete shortly after selection, without blocking or
@@ -82,7 +82,7 @@ interface CountryServersInteractor {
     ): ServerSelectionResult
 
     /**
-     * Best-effort cleanup hook (US-23 M4): releases any in-memory V2 paging accumulator held
+     * Best-effort cleanup hook: releases any in-memory V2 paging accumulator held
      * for [pagingSessionId] when the user leaves the country screen before its full list loaded
      * (and before a selection ever triggered [resolveSelection]'s own backfill, which cleans up
      * naturally once it completes). No-op for the legacy/VPN Gate source and when no state
@@ -99,26 +99,17 @@ class DefaultCountryServersInteractor(
     private val serverRepository: ServerRepository,
     private val serversV2Repository: ServersV2Repository? = null
 ) : CountryServersInteractor {
-    private companion object {
+    companion object {
         private val TAG = LogTags.APP + ":CountryServersInteractor"
-        // US-23 M3 parity: bounds the silent background backfill (M2) the same way
-        // ServersV2Repository bounds the foreground paged path, in case of a wrong/hostile total.
         private const val MAX_BACKFILL_PAGES_SAFETY_LIMIT = 200
     }
 
-    // Outlives any single screen/ViewModel on purpose (US-23 M2): the backfill triggered by
+    // Outlives any single screen/ViewModel on purpose: the backfill triggered by
     // resolveSelection() must keep running after the country screen (and its viewModelScope)
     // has already finished/cleared following the user's selection.
     private val backfillScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // US-23 Review: per-country backfill generation counter. Each call to launchSilentBackfill
-    // increments this for the target country; the backfill captures the generation at start and
-    // skips its writes when it no longer matches, so a newer same-country backfill always wins.
-    @VisibleForTesting
-    internal val backfillGenerations: java.util.concurrent.ConcurrentHashMap<String, Long> =
-        java.util.concurrent.ConcurrentHashMap()
-
-    // Visible for test synchronization only: the M2 backfill is fire-and-forget in production,
+    // Visible for test synchronization only: the backfill is fire-and-forget in production,
     // but a test needs a handle to join() the background coroutine before asserting on
     // SelectedCountryStore's persisted candidate pool.
     @VisibleForTesting
@@ -196,7 +187,7 @@ class DefaultCountryServersInteractor(
         val source = UserSettingsStore.load(appContext).serverSource
         if (source != ServerSource.DEFAULT_V2) {
             // Out of scope for lazy loading (VPN Gate/legacy source): always the full list in
-            // one shot, exactly as before US-23.
+            // one shot.
             val all = getServersForCountry(countryName, countryCode, cacheOnly)
             return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
         }
@@ -228,7 +219,7 @@ class DefaultCountryServersInteractor(
             throw e
         } catch (e: Exception) {
             if (skip != 0) throw e
-            // Offline fallback: restore the pre-US-23 offline fallback for the
+            // Offline fallback: restore the pre-existing offline fallback for the
             // cold (skip=0) path. fetchWithCache()/fetchFromNetworkWithParsing() used to catch
             // Exception broadly (after rethrowing CancellationException) and fall back to a
             // stale on-disk cache entry for *any* failure -- not just IOException. Retrofit
@@ -282,7 +273,7 @@ class DefaultCountryServersInteractor(
 
         SelectedCountryStore.saveSelection(appContext, countryName, resolvedServers)
         if (source == ServerSource.DEFAULT_V2 && hasMorePages) {
-            // US-23 M2 (product decision): backfill the remaining pages silently in the
+            // Backfill the remaining pages silently in the
             // background so the auto-switch candidate pool completes shortly after selection,
             // without making the user's connect action wait on it.
             launchSilentBackfill(countryName, countryCode, nextSkip, resolvedServers)
@@ -336,7 +327,7 @@ class DefaultCountryServersInteractor(
     }
 
     /**
-     * US-23 M2: continues fetching this country's remaining pages on [backfillScope] --
+     * Continues fetching this country's remaining pages on [backfillScope] --
      * independent of any ViewModel/screen scope, so it keeps running after the country screen
      * has already finished. Once the last page is reached, persists the full merged candidate
      * pool via [SelectedCountryStore.saveSelectionPreservingIndex] (preserves the just-set
@@ -346,7 +337,7 @@ class DefaultCountryServersInteractor(
      * backfill leaves the already-completed selection and its partial candidate pool untouched,
      * matching the "must not affect the completed selection" requirement.
      *
-     * US-23 F1 fix: fetches every page with `accumulate = false`
+     * Fetches every page with `accumulate = false`
      * ([ServersV2Repository.getServersPage]'s session-isolation parameter), so this backfill
      * never reads or writes [ServersV2Repository]'s shared `pageAccumulators`. Before this fix,
      * the backfill reused that shared per-country accumulator -- the same one the foreground
@@ -359,7 +350,7 @@ class DefaultCountryServersInteractor(
      * method now owns its own local merge (seeded from [initialServers], the pages the
      * foreground screen had already loaded) and persists it independently, so it can no longer
      * be disturbed by -- or interfere with -- any other session on the same country (also
-     * closing F3's concurrent-session hazard). This also makes F5's "accumulator leaked on
+     * closing the concurrent-session hazard). This also makes the "accumulator leaked on
      * failure" concern moot: there is no repository-side accumulator entry for this session to
      * leak in the first place, so no `finally { abandonPagingSession(...) }` is needed here --
      * the local maps below are ordinary coroutine-local state, reclaimed on completion or
@@ -376,15 +367,10 @@ class DefaultCountryServersInteractor(
     ) {
         val repo = serversV2Repository ?: return
         val normalizedCode = countryCode?.uppercase() ?: countryName.uppercase()
-        // Generation guard (reviews PRRT b_dsf + b_0hE):
-        // 1. Global signal: a same-country sync (SSE push, periodic or foreground refresh)
-        //    completing while this backfill is in flight must win -- capture the selection
-        //    version now and skip writes when it has moved by completion time.
-        // 2. Per-country generation: a newer same-country backfill (from a rapid re-select)
-        //    must also win -- increment the generation and skip writes when it no longer
-        //    matches at completion time.
-        val selectionVersionAtStart = SelectedCountryVersionSignal.version.value
-        val generation = backfillGenerations.merge(normalizedCode, 1L) { prev, _ -> prev + 1L } ?: 1L
+        // Per-country generation guard: a newer same-country backfill (from a rapid
+        // re-select) must win -- increment the generation and skip writes when it no
+        // longer matches at completion time.
+        val generation = CountrySyncGenerations.generations.merge(normalizedCode, 1L) { prev, _ -> prev + 1L } ?: 1L
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -423,31 +409,30 @@ class DefaultCountryServersInteractor(
                     skip = page.nextSkip
                     hasMore = pageHasMore
                 }
-                // G2: mirror F6 (ServersV2Repository.getServersPage's own safety-limit guard).
+                // Mirror ServersV2Repository.getServersPage's own safety-limit guard.
                 // hasMore is still true here only when the loop above exited early -- either the
                 // MAX_BACKFILL_PAGES_SAFETY_LIMIT bound was hit, or the non-advancing-cursor guard
-                // (G3) broke out of it -- so the accumulated list is knowingly incomplete. The
+                // (the non-advancing-cursor guard) broke out of it -- so the accumulated list is knowingly incomplete. The
                 // partial candidate pool is still useful to ServerAutoSwitcher, so
                 // saveSelectionPreservingIndex always runs; but persisting an incomplete list as
                 // this country's authoritative on-disk full-list cache (with a fresh TTL stamp)
                 // would silently strand it truncated for the rest of the TTL, so that persist is
                 // skipped in this case.
                 val backfillIncomplete = hasMore
-                // Generation guard: skip writes when either a newer sync moved the global
-                // selection signal OR a newer same-country backfill started (generation drifted).
-                val selectionMovedOn = SelectedCountryVersionSignal.version.value != selectionVersionAtStart
-                val generationDrifted = (backfillGenerations[normalizedCode] ?: generation) != generation
-                val skipWrites = selectionMovedOn || generationDrifted
-                if (skipWrites) {
+                // Per-country generation guard: skip writes when a newer same-country
+                // backfill started (generation drifted).
+                val generationDrifted = (CountrySyncGenerations.generations[normalizedCode] ?: generation) != generation
+                if (generationDrifted) {
                     AppLog.w(
                         TAG,
-                        "Silent backfill for country=$countryName skipped its writes: " +
-                            "selectionMovedOn=$selectionMovedOn generationDrifted=$generationDrifted"
+                        "Silent backfill for country=$countryName skipped its writes: generation drifted"
                     )
                 } else {
                     SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
                     if (!backfillIncomplete) {
-                        repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
+                        repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
+                            (CountrySyncGenerations.generations[normalizedCode] ?: generation) == generation
+                        }
                     } else {
                         AppLog.w(
                             TAG,

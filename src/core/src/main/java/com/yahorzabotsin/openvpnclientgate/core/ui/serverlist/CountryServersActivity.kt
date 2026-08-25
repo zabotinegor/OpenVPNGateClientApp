@@ -47,12 +47,12 @@ class CountryServersActivity : AppCompatActivity() {
         contentBinding.serversRecyclerView.addItemDecoration(
             MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin))
         )
-        // SUB-09: filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
+        // Filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
         // (no drawing) whenever the pinned Favorites section is hidden.
         contentBinding.serversRecyclerView.addItemDecoration(
             FavoritesSectionCardDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
         )
-        // US-23 AC2/AC7: fires for both touch fling and D-pad-driven scroll (RecyclerView's
+        // Fires for both touch fling and D-pad-driven scroll (RecyclerView's
         // scroll callback is input-method agnostic — a D-pad focus move that scrolls the list
         // to bring the next row into view goes through the same onScrolled path).
         contentBinding.serversRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -73,7 +73,7 @@ class CountryServersActivity : AppCompatActivity() {
         )
     }
 
-    /** US-23 AC5: page size derived from the device's real screen dimensions and the server
+    /** Page size derived from the device's real screen dimensions and the server
      * row's measured/laid-out height — no hardcoded item-count constant. Safe to call before
      * the RecyclerView has been laid out (`onCreate`): falls back to the display width when
      * the view's own width isn't known yet. See [ServerListPageSizeCalculator]. */
@@ -84,9 +84,9 @@ class CountryServersActivity : AppCompatActivity() {
         screenWidthPx = resources.displayMetrics.widthPixels
     )
 
-    /** AC2: triggers the next page fetch once the user has scrolled within
+    /** Triggers the next page fetch once the user has scrolled within
      * [LOAD_MORE_TRIGGER_THRESHOLD] rows of the currently loaded end. This is a scroll-trigger
-     * distance, not a page-size constant (AC5) — it only decides *when* to ask for more, never
+     * distance, not a page-size constant — it only decides *when* to ask for more, never
      * *how many* servers a page contains. The ViewModel itself is idempotent against repeated
      * triggers (no-ops while already loading or once the list is complete), so no local
      * debouncing state is needed here. */
@@ -151,7 +151,7 @@ class CountryServersActivity : AppCompatActivity() {
         when (FavoriteActionDialog.resolvePresentation(
             isTvDevice = TvUtils.isTvDevice(this),
             // Servers with id == 0 (legacy/un-synced) cannot be favorited — known limitation
-            // carried forward from SUB-01/SUB-02.
+            // carried forward from legacy limitations.
             canFavorite = server.id > 0
         )) {
             FavoriteActionDialog.Presentation.NONE -> return
@@ -186,7 +186,7 @@ class CountryServersActivity : AppCompatActivity() {
 
     /**
      * TV (D-pad) presentation of the favorites toggle: a self-contained, remote-navigable
-     * AlertDialog opened by holding OK/center on a focused row (SUB-04). Short-press
+     * AlertDialog opened by holding OK/center on a focused row. Short-press
      * select/connect behavior is untouched — this only runs on long-press.
      */
     private fun showTvFavoriteDialog(server: Server, isFavorite: Boolean) {
@@ -277,7 +277,7 @@ class CountryServersActivity : AppCompatActivity() {
         const val EXTRA_COUNTRY_NAME = "EXTRA_COUNTRY_NAME"
         const val EXTRA_COUNTRY_CODE = "EXTRA_COUNTRY_CODE"
 
-        /** Row-count distance from the loaded end that triggers the next page fetch (AC2) —
+        /** Row-count distance from the loaded end that triggers the next page fetch —
          * a scroll-trigger threshold, not the page size itself (see [maybeLoadNextPage] doc). */
         private const val LOAD_MORE_TRIGGER_THRESHOLD = 5
     }
