@@ -156,9 +156,9 @@ class CountryServersInteractorTest {
         assertEquals("JP", api.lastRequestedCountryCode)
     }
 
-    // ==================== US-23: getServersPage (lazy loading) ====================
+    // ==================== getServersPage (lazy loading) ====================
 
-    // AC1/AC2 -- cold cache: the interactor requests exactly one page from the network, not
+    // Cold cache: the interactor requests exactly one page from the network, not
     // the whole country, and reports hasMore/nextSkip from that single response.
     @Test
     fun getServersPage_v2_cold_cache_fetches_only_the_requested_page() = runBlocking {
@@ -181,7 +181,7 @@ class CountryServersInteractorTest {
         assertEquals(50, page.nextSkip)
     }
 
-    // AC2 -- a second page request uses the caller-supplied skip offset, not a re-derived one.
+    // A second page request uses the caller-supplied skip offset, not a re-derived one.
     @Test
     fun getServersPage_v2_second_page_uses_the_given_skip_offset() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -204,7 +204,7 @@ class CountryServersInteractorTest {
         assertFalse("last page reached (50 + 20 == total 70)", page2.hasMore)
     }
 
-    // AC8 -- a fresh full-list cache (written by a prior completed session, or by the legacy
+    // A fresh full-list cache (written by a prior completed session, or by the legacy
     // eager fetch) is served in one shot, unchanged, without a network call.
     @Test
     fun getServersPage_v2_skip0_uses_fresh_cache_fast_path_without_network_call() = runBlocking {
@@ -244,7 +244,7 @@ class CountryServersInteractorTest {
         assertEquals(1, page.nextSkip)
     }
 
-    // AC4 -- a network failure on a genuine (non-first) page propagates so the ViewModel can
+    // A network failure on a genuine (non-first) page propagates so the ViewModel can
     // surface the retry affordance, instead of being swallowed here.
     @Test(expected = IOException::class)
     fun getServersPage_v2_network_failure_mid_scroll_propagates(): Unit = runBlocking {
@@ -263,13 +263,13 @@ class CountryServersInteractorTest {
         interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
     }
 
-    // ==================== US-23 code review fix cycle ====================
+    // ==================== Code review fix cycle ====================
 
-    // M1 -- a stale (expired) on-disk cache plus a failing network call at skip==0 must fall
+    // A stale (expired) on-disk cache plus a failing network call at skip==0 must fall
     // back to the stale cache and return it, instead of throwing and closing the screen.
-    // Restores the pre-US-23 fetchWithCache() stale-cache fallback for the paged cold path.
-    // Also covers minor m9: the existing AC8 cache test (above) only primes a *fresh* cache,
-    // which is exactly why M1 slipped through review undetected.
+    // Restores the pre-fetchWithCache() stale-cache fallback for the paged cold path.
+    // Also covers minor m9: the existing cache test (above) only primes a *fresh* cache,
+    // which is exactly why this slipped through review undetected.
     @Test
     fun getServersPage_v2_skip0_stale_cache_and_network_failure_falls_back_to_stale_list() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -330,10 +330,10 @@ class CountryServersInteractorTest {
         )
     }
 
-    // F2 -- M1's fallback must not be limited to IOException: Retrofit throws HttpException (a
+    // The fallback must not be limited to IOException: Retrofit throws HttpException (a
     // RuntimeException) for a non-2xx response, and Gson throws JsonSyntaxException for a
     // malformed body. Both must still fall back to a stale on-disk cache at skip==0, exactly
-    // like IOException does above -- restoring the pre-US-23 fetchFromNetworkWithParsing()
+    // like IOException does above -- restoring the pre-fetchFromNetworkWithParsing()
     // behavior, which caught Exception broadly (after rethrowing CancellationException).
     @Test
     fun getServersPage_v2_skip0_stale_cache_and_http_exception_falls_back_to_stale_list() = runBlocking {
@@ -362,7 +362,7 @@ class CountryServersInteractorTest {
         assertFalse(page.hasMore)
     }
 
-    // M2 -- product decision: selecting a server from a country whose full list has not yet
+    // Product decision: selecting a server from a country whose full list has not yet
     // loaded (hasMorePages=true) must kick off a silent background fetch of the remaining
     // pages, so SelectedCountryStore's persisted candidate pool for ServerAutoSwitcher
     // eventually becomes complete -- without the selection call itself waiting on it.
@@ -402,7 +402,7 @@ class CountryServersInteractorTest {
         assertEquals("full candidate pool must be persisted once the backfill completes", 120, stored.size)
     }
 
-    // F1 -- an onCleared()-style abandon of the *foreground* paging session, firing while
+    // An onCleared()-style abandon of the *foreground* paging session, firing while
     // resolveSelection()'s own background backfill is still mid-flight, must not truncate the
     // persisted full-list on-disk cache (nor the SelectedCountryStore candidate pool). Before the
     // fix, the backfill shared ServersV2Repository's pageAccumulators with the foreground
@@ -460,7 +460,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // G2 -- mirrors ServersV2Repository's F6 guard, but for the backfill's own safety limit
+    // Mirrors ServersV2Repository's safety limit guard, but for the backfill's own safety limit
     // (CountryServersInteractor.MAX_BACKFILL_PAGES_SAFETY_LIMIT). When the backfill loop itself
     // stops because it hit that limit while the backend still claims more data exists, the
     // accumulated list is knowingly incomplete and must not be cached as this country's
@@ -498,7 +498,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // G3 -- mirrors ViewModel.loadFirstPage's F4 non-advancing-cursor guard, but for the
+    // Mirrors ViewModel.loadFirstPage's non-advancing-cursor guard, but for the
     // backfill loop. A page with an empty `items` array while the backend still reports
     // total > skip yields nextSkip == skip with hasMore still true; without a guard the
     // backfill would re-issue the identical request, unattended, up to its safety limit.
@@ -542,7 +542,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    /** G2 test support: an ever-growing page API with a total far beyond any bounded loop --
+    /** Test support: an ever-growing page API with a total far beyond any bounded loop --
      * mirrors ServersV2RepositoryTest's RepeatingPageApi but also serves getCountries() so
      * DefaultCountryServersInteractor can resolve the country by code. */
     private class HostileTotalServersApi(
@@ -574,9 +574,9 @@ class CountryServersInteractorTest {
         }
     }
 
-    /** G3 test support: serves the scripted [firstPageJson] on the first call, then an
+    /** Test support: serves the scripted [firstPageJson] on the first call, then an
      * empty-items page that still reports [stuckTotal] (> skip) on every later call -- the
-     * pathological "cursor does not advance" shape G3 guards against. */
+     * pathological "cursor does not advance" shape this guards against. */
     private class StuckCursorServersApi(
         private val countriesJson: String,
         private val firstPageJson: String,
@@ -617,7 +617,7 @@ class CountryServersInteractorTest {
         ): ServersPageResponse = throw IOException("simulated offline network failure")
     }
 
-    /** F2: throws retrofit2.HttpException (RuntimeException, not IOException) for every server
+    /** Throws retrofit2.HttpException (RuntimeException, not IOException) for every server
      * page request, simulating a backend 5xx response while a stale cache exists. */
     private class AlwaysThrowingHttpExceptionServersApi(private val delegate: ServersV2Api) : ServersV2Api {
         override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
@@ -690,7 +690,7 @@ class CountryServersInteractorTest {
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
-        // US-23: when set, each successive getServers() call returns the next entry (indexed
+        // When set, each successive getServers() call returns the next entry (indexed
         // by call order), so a test can script a distinct response per page/skip.
         private val serversPageResponses: List<String>? = null
     ) : ServersV2Api {

@@ -179,13 +179,13 @@ class ServersV2Repository(
                 parse = ::parseServers,
                 fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
             )
-            // Bump the selection version inside the mutex so that a foreground
-            // paging page waiting on this lock sees the updated version and skips its stale
-            // cache persist (the signal was previously bumped outside the mutex by the
-            // coordinator, leaving a window for the foreground page to slip in).
-            // Only bump on forceRefresh (actual cache write), not cache reads.
+            // Bump the selection version and per-country generation inside the mutex so
+            // that a foreground paging page waiting on this lock sees the updated version
+            // and skips its stale cache persist. Only bump on forceRefresh (actual cache
+            // write), not cache reads.
             if (result.isNotEmpty() && forceRefresh) {
                 SelectedCountryVersionSignal.bump()
+                CountrySyncGenerations.generations.merge(countryCode.uppercase(), 1L) { prev, _ -> prev + 1L }
             }
             result
         }

@@ -609,9 +609,9 @@ class ServersV2RepositoryTest {
         }
     }
 
-    // ==================== US-23 code review fix cycle: getServersPage() ====================
+    // ==================== getServersPage() ====================
 
-    // M3 -- a backend that reports a wrong/hostile `total` must not keep hasMore=true forever;
+    // A backend that reports a wrong/hostile `total` must not keep hasMore=true forever;
     // getServersPage() must stop at MAX_PAGES_SAFETY_LIMIT (200) the same way fetchAllPages does.
     @Test
     fun getServersPage_stops_at_safety_limit_when_backend_total_is_hostile() = runBlocking {
@@ -632,7 +632,7 @@ class ServersV2RepositoryTest {
         assertFalse("hasMore must be forced false once the safety limit is hit", hasMore)
     }
 
-    // F6 -- when the safety limit forces hasMore=false, the accumulated list is knowingly
+    // When the safety limit forces hasMore=false, the accumulated list is knowingly
     // incomplete and must NOT be cached as this country's authoritative full list (it would
     // otherwise stick, wrongly, for the whole TTL).
     @Test
@@ -655,7 +655,7 @@ class ServersV2RepositoryTest {
         assertTrue("a safety-limit stop must not cache a knowingly-incomplete list", cached.isNullOrEmpty())
     }
 
-    // F1 -- accumulate=false must not touch the shared pageAccumulators/pagesFetchedForSession
+    // accumulate=false must not touch the shared pageAccumulators/pagesFetchedForSession
     // state, and must not be affected by (or affect) a concurrent abandonPagingSession() call on
     // the same lockKey -- the whole point of the session-isolation parameter.
     @Test
@@ -683,7 +683,7 @@ class ServersV2RepositoryTest {
         assertTrue("accumulate=false must not persist the disk cache on its own", cached.isNullOrEmpty())
     }
 
-    // F1 -- persistFullServerList lets a session-isolated caller (the silent background
+    // persistFullServerList lets a session-isolated caller (the silent background
     // backfill) write the same on-disk cache file/timestamp key that a normal accumulating
     // session would have, so the country takes the warm-cache fast path on its next open.
     @Test
@@ -702,7 +702,7 @@ class ServersV2RepositoryTest {
         assertEquals(setOf(1, 2), cached.map { it.id }.toSet())
     }
 
-    // M6 -- pages fetched seconds-to-minutes apart (user scrolling) can see the backend's
+    // Pages fetched seconds-to-minutes apart (user scrolling) can see the backend's
     // active-server cache shift, yielding the same server again at a different offset.
     // getServersPage() must de-duplicate by server id when accumulating for the persisted cache.
     @Test
@@ -779,7 +779,7 @@ class ServersV2RepositoryTest {
         )
     }
 
-    // M4 -- abandonPagingSession() must actually release the accumulator, not just be a no-op:
+    // abandonPagingSession() must actually release the accumulator, not just be a no-op:
     // resuming the same session after an abandon call must not resurrect the earlier pages.
     @Test
     fun abandonPagingSession_clears_accumulator_so_earlier_pages_do_not_resurface() = runBlocking {
@@ -918,7 +918,7 @@ class ServersV2RepositoryTest {
     }
 
     /** Returns a fresh, ever-growing page of [pageSize] items with a `total` far beyond what
-     * any bounded loop will reach -- simulates a wrong/hostile backend `total` for M3. */
+     * any bounded loop will reach -- simulates a wrong/hostile backend `total`. */
     private class RepeatingPageApi(
         private val pageSize: Int,
         private val hostileTotal: Int

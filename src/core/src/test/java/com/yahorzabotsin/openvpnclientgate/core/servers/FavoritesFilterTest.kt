@@ -37,7 +37,7 @@ class FavoritesFilterTest {
         id = id
     )
 
-    // --- Countries: all-present (AC3) ---
+    // --- Countries: all-present ---
 
     @Test
     fun filterFavoriteCountries_allFavoritesPresent_returnsAllFavorites() {
@@ -51,7 +51,7 @@ class FavoritesFilterTest {
         assertTrue(result.any { it.code == "DE" })
     }
 
-    // --- Countries: some-absent (AC3) ---
+    // --- Countries: some-absent ---
 
     @Test
     fun filterFavoriteCountries_someFavoritesAbsent_excludesAbsentOnesButKeepsPersisted() {
@@ -103,7 +103,7 @@ class FavoritesFilterTest {
         }
     }
 
-    // --- Countries: restoration after re-appearance (AC4) ---
+    // --- Countries: restoration after re-appearance ---
 
     @Test
     fun filterFavoriteCountries_restoresFavoriteOnceItReappearsInLaterSync() {
@@ -152,7 +152,7 @@ class FavoritesFilterTest {
         assertEquals("US", result[0].code)
     }
 
-    // --- Servers: all-present (AC3) ---
+    // --- Servers: all-present ---
 
     @Test
     fun filterFavoriteServers_allFavoritesPresent_returnsAllFavorites() {
@@ -166,7 +166,7 @@ class FavoritesFilterTest {
         assertTrue(result.any { it.id == 2 })
     }
 
-    // --- Servers: some-absent (AC3) ---
+    // --- Servers: some-absent ---
 
     @Test
     fun filterFavoriteServers_someFavoritesAbsent_excludesAbsentOnesButKeepsPersisted() {
@@ -194,7 +194,7 @@ class FavoritesFilterTest {
         assertTrue(result.isEmpty())
     }
 
-    // --- Servers: restoration after re-appearance (AC4) ---
+    // --- Servers: restoration after re-appearance ---
 
     @Test
     fun filterFavoriteServers_restoresFavoriteOnceItReappearsInLaterSync() {
