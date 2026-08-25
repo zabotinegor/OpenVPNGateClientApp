@@ -168,7 +168,7 @@ class ServersV2Repository(
                 TAG,
                 "getServersForCountry[$countryCode]: serverCount=$serverCount locale=$normalizedLocale"
             )
-            fetchWithCache(
+            val result = fetchWithCache(
                 cacheFile = serversCacheFile(context, countryCode, normalizedLocale),
                 tsKey = cacheKey,
                 prefs = prefs,
@@ -179,6 +179,15 @@ class ServersV2Repository(
                 parse = ::parseServers,
                 fetchNetwork = { Gson().toJson(fetchAllPages(countryCode, serverCount, normalizedLocale)) }
             )
+            // US-23 Review: bump the selection version inside the mutex so that a foreground
+            // paging page waiting on this lock sees the updated version and skips its stale
+            // cache persist (the signal was previously bumped outside the mutex by the
+            // coordinator, leaving a window for the foreground page to slip in).
+            // Only bump on forceRefresh (actual cache write), not cache reads.
+            if (result.isNotEmpty() && forceRefresh) {
+                SelectedCountryVersionSignal.bump()
+            }
+            result
         }
     }
 
@@ -389,6 +398,7 @@ class ServersV2Repository(
      */
     fun abandonPagingSession(pagingSessionId: String) {
         pagesFetchedForSession.remove(pagingSessionId)
+        pageStartVersions.remove(pagingSessionId)
         if (pageAccumulators.remove(pagingSessionId) != null) {
             AppLog.d(TAG, "abandonPagingSession[session=$pagingSessionId]: cleared accumulator for abandoned session")
         }
