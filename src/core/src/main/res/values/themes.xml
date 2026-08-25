@@ -24,7 +24,7 @@
         <item name="ovpnDialogSurfaceBackground">@color/dialog_surface_background</item>
         <item name="ovpnDialogSurfaceStroke">@color/dialog_surface_stroke</item>
 
-        <!-- Section: SUB-08 themed favorite action affordances (PopupMenu on mobile,
+        <!-- Section: Themed favorite action affordances (PopupMenu on mobile,
              AlertDialog on TV) — styling only, presentation gate/behavior unchanged. -->
         <item name="android:popupMenuStyle">@style/Widget.OpenVPNClientGate.PopupMenu</item>
         <item name="alertDialogTheme">@style/ThemeOverlay.OpenVPNClientGate.AlertDialog</item>
@@ -60,7 +60,7 @@
         <item name="android:stateListAnimator">?attr/ovpnFocusableStateListAnimator</item>
     </style>
 
-    <!-- Section: SUB-08 themed favorite long-press affordances -->
+    <!-- Section: Themed favorite long-press affordances -->
     <!-- Mobile PopupMenu (android.widget.PopupMenu, anchored favorite-toggle menu in
          ServerListActivity/CountryServersActivity): app-styled background (ovpnPopupMenuBackground,
          item_corner_radius) and elevation instead of the stock platform popup appearance.

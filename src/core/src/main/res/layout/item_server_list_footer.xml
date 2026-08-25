@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SUB-23: loading-footer row appended to the server list while a lazy-loaded page is
+<!-- Loading-footer row appended to the server list while a lazy-loaded page is
      in flight (progress) or failed (error + retry). Rendered by ServerPickerAdapter as the
      final adapter item; never part of the pinned Favorites block. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"

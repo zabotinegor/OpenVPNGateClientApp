@@ -38,7 +38,7 @@ fun ServerV2.toLegacyServer(): Server = Server(
 
 /**
  * Reconstructs the [ServerV2] shape from a legacy [Server] originally produced by
- * [ServerV2.toLegacyServer] (US-23 F1): the silent background backfill
+ * [ServerV2.toLegacyServer]: the silent background backfill
  * (`CountryServersInteractor.launchSilentBackfill`) seeds its merged accumulator from servers
  * the foreground screen already held before the user selected one -- those are only available
  * as legacy [Server], but the on-disk full-list cache it must persist via

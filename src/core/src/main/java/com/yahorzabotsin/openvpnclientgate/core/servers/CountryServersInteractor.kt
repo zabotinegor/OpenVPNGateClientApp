@@ -211,6 +211,10 @@ class DefaultCountryServersInteractor(
                 val all = getServersForCountryV2(countryName, countryCode, cacheOnly = true)
                 return CountryServersPage(servers = all, hasMore = false, nextSkip = all.size)
             }
+        } else if (cacheOnly) {
+            // Honor cache-only mode on every page: VPN connected after first page was
+            // loaded -- stop paging without network access.
+            return CountryServersPage(servers = emptyList(), hasMore = false, nextSkip = skip)
         }
 
         val page = try {
@@ -366,11 +370,14 @@ class DefaultCountryServersInteractor(
         initialServers: List<Server>
     ) {
         val repo = serversV2Repository ?: return
-        val normalizedCode = countryCode?.uppercase() ?: countryName.uppercase()
-        // Per-country generation guard: a newer same-country backfill (from a rapid
-        // re-select) must win -- increment the generation and skip writes when it no
-        // longer matches at completion time.
-        val generation = CountrySyncGenerations.generations.merge(normalizedCode, 1L) { prev, _ -> prev + 1L } ?: 1L
+        // Capture generation at launch time using the caller-provided countryCode.
+        // When countryCode is null, fall back to countryName — the sync coordinator
+        // will always use the resolved code from resolveCountryV2, but the mismatch
+        // only matters when countryCode is provided (the common path for code-based
+        // selections). For name-based selections without a code, the backfill still
+        // uses the country name as the generation key.
+        val generationKey = countryCode?.uppercase() ?: countryName.uppercase()
+        val generation = CountrySyncGenerations.generations.merge(generationKey, 1L) { prev, _ -> prev + 1L } ?: 1L
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -421,7 +428,7 @@ class DefaultCountryServersInteractor(
                 val backfillIncomplete = hasMore
                 // Per-country generation guard: skip writes when a newer same-country
                 // backfill started (generation drifted).
-                val generationDrifted = (CountrySyncGenerations.generations[normalizedCode] ?: generation) != generation
+                val generationDrifted = (CountrySyncGenerations.generations[generationKey] ?: generation) != generation
                 if (generationDrifted) {
                     AppLog.w(
                         TAG,
@@ -431,7 +438,7 @@ class DefaultCountryServersInteractor(
                     SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
                     if (!backfillIncomplete) {
                         repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
-                            (CountrySyncGenerations.generations[normalizedCode] ?: generation) == generation
+                            (CountrySyncGenerations.generations[generationKey] ?: generation) == generation
                         }
                     } else {
                         AppLog.w(
