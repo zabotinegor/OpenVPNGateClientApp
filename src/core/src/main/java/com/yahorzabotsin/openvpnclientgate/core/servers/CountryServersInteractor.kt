@@ -368,6 +368,11 @@ class DefaultCountryServersInteractor(
         initialServers: List<Server>
     ) {
         val repo = serversV2Repository ?: return
+        // Generation guard (review PRRT b_dsf): a same-country sync (SSE push, periodic or
+        // foreground refresh) completing while this backfill is in flight must win over the
+        // backfill's older data. Capture the selection version now and skip this backfill's
+        // store/cache writes when it has moved by completion time.
+        val selectionVersionAtStart = SelectedCountryVersionSignal.version.value
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -416,19 +421,30 @@ class DefaultCountryServersInteractor(
                 // would silently strand it truncated for the rest of the TTL, so that persist is
                 // skipped in this case.
                 val backfillIncomplete = hasMore
-                SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
-                if (!backfillIncomplete) {
-                    repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
-                } else {
+                // Generation guard: a newer sync for this country completed while the backfill
+                // was in flight -- its results are fresher, so keep the partial pool as the
+                // selection left it and do not overwrite the store or the full-list cache.
+                val selectionMovedOn = SelectedCountryVersionSignal.version.value != selectionVersionAtStart
+                if (selectionMovedOn) {
                     AppLog.w(
                         TAG,
-                        "Silent backfill for country=$countryName stopped early (incomplete) after pagesFetched=$pagesFetched; not caching as the country's full list"
+                        "Silent backfill for country=$countryName skipped its writes: a newer sync completed first"
+                    )
+                } else {
+                    SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
+                    if (!backfillIncomplete) {
+                        repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList())
+                    } else {
+                        AppLog.w(
+                            TAG,
+                            "Silent backfill for country=$countryName stopped early (incomplete) after pagesFetched=$pagesFetched; not caching as the country's full list"
+                        )
+                    }
+                    AppLog.i(
+                        TAG,
+                        "Silent backfill complete: country=$countryName totalServers=${accumulatedLegacy.size} pagesFetched=$pagesFetched incomplete=$backfillIncomplete"
                     )
                 }
-                AppLog.i(
-                    TAG,
-                    "Silent backfill complete: country=$countryName totalServers=${accumulatedLegacy.size} pagesFetched=$pagesFetched incomplete=$backfillIncomplete"
-                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

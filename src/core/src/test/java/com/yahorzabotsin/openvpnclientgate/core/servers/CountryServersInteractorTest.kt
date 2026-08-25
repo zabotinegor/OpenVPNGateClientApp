@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -797,6 +798,77 @@ class CountryServersInteractorTest {
             100,
             cachedFullList.size
         )
+    }
+
+    // Review -- a same-country sync completing while the silent backfill is in flight must
+    // win: the backfill captures the selection version at start and skips its store/cache
+    // writes when that version has moved by completion time (otherwise its older pages would
+    // overwrite the newer sync results for the whole cache TTL).
+    @Test
+    fun resolveSelection_v2_backfill_skips_writes_when_a_newer_sync_moved_the_selection_version() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "g")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is now suspended fetching its first page (the gate). A newer sync
+        // completes right now -- modeled as the selection version moving on.
+        SelectedCountryVersionSignal.bump()
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "the backfill must not overwrite the selection with its older pages",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        org.junit.Assert.assertFalse(
+            "the backfill must not persist its full-list cache after a newer sync won",
+            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+        )
+    }
+
+    /** Wraps a [FakeServersV2Api] so the SECOND getServers() call suspends on [gate] before
+     * delegating -- letting a test move the selection version while the backfill is
+     * suspended mid-flight. */
+    private class GatedOnSecondCallServersApi(
+        private val delegate: FakeServersV2Api,
+        private val gate: CompletableDeferred<Unit>
+    ) : ServersV2Api {
+        private var callCount = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            callCount++
+            if (callCount == 2) gate.await()
+            return delegate.getServers(locale, countryCode, isActive, skip, take)
+        }
     }
 
     private fun buildZeroIdServersJson(ips: List<String>, total: Int): String {
