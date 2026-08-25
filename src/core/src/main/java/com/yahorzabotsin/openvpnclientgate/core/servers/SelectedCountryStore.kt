@@ -46,7 +46,12 @@ object SelectedCountryStore {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun saveSelection(ctx: Context, country: String, servers: List<Server>) {
+    fun saveSelection(ctx: Context, country: String, servers: List<Server>, expectedCountry: String? = null) {
+        // When expectedCountry is provided, verify the selection hasn't changed during
+        // JSONArray serialization (large lists can take measurable time). This makes the
+        // check-to-write path atomic for fire-and-forget backfills racing with user selects.
+        if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
+
         val arr = JSONArray()
         servers.forEach { s ->
             val o = JSONObject()
@@ -77,7 +82,7 @@ object SelectedCountryStore {
         // selecting a different country). Skip the write if the country changed.
         if (getSelectedCountry(ctx) != country) return
 
-        saveSelection(ctx, country, servers)
+        saveSelection(ctx, country, servers, expectedCountry = country)
 
         if (previousCurrent != null) {
             ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)

@@ -831,17 +831,17 @@ class CountryServersViewModelTest {
         assertEquals(listOf(serverA, serverB), vm.state.value.servers)
     }
 
-    // --- D1 defect fix: paging mutations must be deferred out of RecyclerView's scroll-callback
+    // --- Paging mutations must be deferred out of RecyclerView's scroll-callback
     // frame. Production injects CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // (non-immediate => always dispatches through the main queue). These tests pin that
     // contract with a controlled scheduler.
     // Falsifiability: reverting loadNextPage() to viewModelScope.launch (keeping the unused
-    // constructor param) makes D1-inline test fail -- under an unconfined Main the whole
+    // constructor param) makes the inline test fail -- under an unconfined Main the whole
     // footer update then runs inline inside onAction(), which the synchronous assertions
     // below detect via requestedSkips/isLoadingMore. ---
 
     @Test
-    fun `D1 - LoadNextPage does not mutate state inline within the triggering call frame`() = runTest {
+    fun `LoadNextPage does not mutate state inline within the triggering call frame`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val interactor = FakeInteractor(
@@ -886,7 +886,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `D1 - onCleared cancels an in-flight deferred page fetch so it never appends after teardown`() = runTest {
+    fun `onCleared cancels an in-flight deferred page fetch so it never appends after teardown`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)
         val serverB = server("France", "FR", 2, id = 20)
         val gate = CompletableDeferred<Unit>()
@@ -931,7 +931,7 @@ class CountryServersViewModelTest {
     }
 
     @Test
-    fun `D1 - paging mutation stays off the caller frame even when Main runs inline`() = runTest {
+    fun `paging mutation stays off the caller frame even when Main runs inline`() = runTest {
         // Reproduces the production condition of the defect: real Android Main behaves like an
         // immediate dispatcher, so the pre-fix code (viewModelScope.launch) executed the entire
         // LoadNextPage state update synchronously inside onScrolled. Swap Main to an unconfined

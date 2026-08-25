@@ -213,8 +213,9 @@ class DefaultCountryServersInteractor(
             }
         } else if (cacheOnly) {
             // Honor cache-only mode on every page: VPN connected after first page was
-            // loaded -- stop paging without network access.
-            return CountryServersPage(servers = emptyList(), hasMore = false, nextSkip = skip)
+            // loaded -- stop network access but preserve the incomplete paging state so
+            // paging resumes when VPN disconnects.
+            return CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = skip)
         }
 
         val page = try {
