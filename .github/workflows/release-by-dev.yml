@@ -35,9 +35,14 @@ jobs:
             exit 0
           fi
 
-          echo "Comparing HEAD against parent commit..."
+          echo "Comparing the complete pushed range..."
 
-          CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            CHANGED_FILES=$(git diff --name-only "${{ github.event.after }}^" "${{ github.event.after }}" 2>/dev/null || echo "")
+          else
+            CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.event.after }}" 2>/dev/null || echo "")
+          fi
+
           if [[ -z "$CHANGED_FILES" ]]; then
             echo "No changes detected (first commit or empty diff)"
             echo "has_code_changes=true" >> $GITHUB_OUTPUT
@@ -47,34 +52,10 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          CODE_PATTERNS=(
-            '\.kt$'
-            '\.java$'
-            '\.xml$'
-            '\.gradle$'
-            '\.gradle\.kts$'
-            '\.properties$'
-            '\.pro$'
-            '\.so$'
-            '\.aar$'
-            '\.jar$'
-            'Makefile$'
-            'CMakeLists\.txt$'
-            '\.cpp$'
-            '\.c$'
-            '\.h$'
-            '\.hpp$'
-          )
-
           HAS_CODE=false
-          while IFS= read -r file; do
-            for pattern in "${CODE_PATTERNS[@]}"; do
-              if [[ "$file" =~ $pattern ]]; then
-                HAS_CODE=true
-                break 2
-              fi
-            done
-          done <<< "$CHANGED_FILES"
+          if echo "$CHANGED_FILES" | grep -q '^src/'; then
+            HAS_CODE=true
+          fi
 
           if [[ "$HAS_CODE" == "true" ]]; then
             echo "has_code_changes=true" >> $GITHUB_OUTPUT
