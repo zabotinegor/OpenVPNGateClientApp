@@ -6,6 +6,7 @@ on:
       - 'dev'
     paths:
       - 'src/**'
+      - 'media/**'
   workflow_dispatch:
 
 concurrency:
