@@ -36,7 +36,7 @@ jobs:
           echo "Comparing the complete pushed range..."
 
           if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
-            CHANGED_FILES=$(git diff --name-only "${{ github.event.after }}^" "${{ github.event.after }}" 2>/dev/null || echo "")
+            CHANGED_FILES=$(git log --name-only --pretty=format:"" -r "${{ github.event.after }}" 2>/dev/null | sort -u | sed '/^$/d')
           else
             CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.event.after }}" 2>/dev/null || echo "")
           fi
