@@ -11,8 +11,80 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  detect-changes:
+    name: Detect Code Changes
+    runs-on: ubuntu-latest
+    outputs:
+      has_code_changes: ${{ steps.check.outputs.has_code_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Detect code changes
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger — always proceed with release"
+            echo "has_code_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Comparing the complete pushed range..."
+
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            CHANGED_FILES=$(git log --name-only --pretty=format:"" -r "${{ github.event.after }}" 2>/dev/null | sort -u | sed '/^$/d')
+          else
+            CHANGED_FILES=$(git diff --no-renames --name-only "${{ github.event.before }}" "${{ github.event.after }}" 2>/dev/null || echo "")
+          fi
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "No changes detected (first commit or empty diff)"
+            echo "has_code_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          HAS_CODE=false
+          if echo "$CHANGED_FILES" | grep -qE '^(src/|media)'; then
+            HAS_CODE=true
+          fi
+
+          if [[ "$HAS_CODE" == "true" ]]; then
+            echo "has_code_changes=true" >> $GITHUB_OUTPUT
+            {
+              echo "## Release Decision: PROCEED"
+              echo ""
+              echo "Code changes detected. Release build will proceed."
+              echo ""
+              echo "### Changed Files"
+              echo '```'
+              echo "$CHANGED_FILES"
+              echo '```'
+            } >> $GITHUB_STEP_SUMMARY
+          else
+            echo "has_code_changes=false" >> $GITHUB_OUTPUT
+            {
+              echo "## Release Decision: SKIP"
+              echo ""
+              echo "No code changes detected — only non-code files changed."
+              echo ""
+              echo "### Changed Files"
+              echo '```'
+              echo "$CHANGED_FILES"
+              echo '```'
+            } >> $GITHUB_STEP_SUMMARY
+          fi
+
   build:
     name: Build and Release
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_code_changes == 'true'
     runs-on: ubuntu-latest
     env:
       ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}

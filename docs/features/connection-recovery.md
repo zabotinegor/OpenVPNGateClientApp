@@ -96,8 +96,7 @@ Two things worth knowing before changing any of this:
 
 - **The counter is not sticky in general.** A transition that the watchdog did not cause still resets
   it. `transitionOutsideRecovery_stillResetsAttempts` guards that distinction.
-- **`ServerAutoSwitcher` still clears its own `cycleStartIndex` on `LEVEL_CONNECTED`**
-  (`ServerAutoSwitcher.kt:124`), so the switcher's one-full-pass bound is per connect, not per
+- **`ServerAutoSwitcher` still clears its own `cycleStartIndex` on `LEVEL_CONNECTED`**, so the switcher's one-full-pass bound is per connect, not per
   session. That hole is now closed *behind* the watchdog rather than in the switcher: the fail-safe
   disconnect ends the chain before the switcher's reset matters. If the watchdog cap is ever removed,
   this reopens.
