@@ -73,7 +73,7 @@ open class ServerListActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         contentBinding.serversRecyclerView.layoutManager = LinearLayoutManager(this)
         contentBinding.serversRecyclerView.addItemDecoration(MarginItemDecoration(resources.getDimensionPixelSize(R.dimen.server_item_margin)))
-        // SUB-09: filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
+        // Filled card drawn purely from adapter.pinnedSectionItemCount(); returns 0
         // (no drawing) whenever the pinned Favorites section is hidden.
         contentBinding.serversRecyclerView.addItemDecoration(
             FavoritesSectionCardDecoration(this) { adapter?.pinnedSectionItemCount() ?: 0 }
@@ -142,7 +142,7 @@ open class ServerListActivity : AppCompatActivity() {
 
     /**
      * TV (D-pad) presentation of the favorites toggle: a self-contained, remote-navigable
-     * AlertDialog opened by holding OK/center on a focused row (SUB-04). Short-press
+     * AlertDialog opened by holding OK/center on a focused row. Short-press
      * select/connect behavior is untouched — this only runs on long-press.
      */
     private fun showTvFavoriteDialog(country: Country, isFavorite: Boolean) {

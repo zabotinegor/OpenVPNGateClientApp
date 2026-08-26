@@ -12,8 +12,8 @@ import com.yahorzabotsin.openvpnclientgate.core.R
 
 /**
  * Draws a filled, rounded-rect card behind the pinned "Favorites" block (section header +
- * pinned rows) at the top of a country/server RecyclerView list (SUB-09). Replaces the
- * SUB-06 stroke-border framing (formerly `FavoritesSectionFrameDecoration`) with a filled
+ * pinned rows) at the top of a country/server RecyclerView list. Replaces the
+ * stroke-border framing (formerly `FavoritesSectionFrameDecoration`) with a filled
  * colorSurface-variant tone card (no stroke) and internal padding around the block, matching
  * the app's other "info card" surfaces.
  *
@@ -22,14 +22,14 @@ import com.yahorzabotsin.openvpnclientgate.core.R
  * long-click listeners, or layout, so existing row content, tap navigation, and long-press
  * favorite actions (PopupMenu / TV [FavoriteActionDialog]) are unaffected. It draws nothing
  * when [pinnedItemCount] returns 0 (section hidden, matching the existing show/hide behavior
- * from SUB-02/SUB-03), and nothing when none of the pinned items are currently laid out (e.g.
+ * from the Favorites section), and nothing when none of the pinned items are currently laid out (e.g.
  * scrolled out of view).
  *
  * @param pinnedItemCount supplies the number of leading adapter positions (0 until this
  * count, exclusive) that belong to the pinned block. Both [com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.CountryListAdapter]
  * and [com.yahorzabotsin.openvpnclientgate.core.ui.serverlist.ServerPickerAdapter] expose
  * `pinnedSectionItemCount()` for this purpose. The second, non-pinned "All countries"/"All
- * servers" header inserted below the pinned block (SUB-09) is never included in this count,
+ * servers" header inserted below the pinned block is never included in this count,
  * so the card never extends past the pinned Favorites rows.
  */
 class FavoritesSectionCardDecoration(

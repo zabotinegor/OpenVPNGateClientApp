@@ -174,6 +174,7 @@ This exemption is **mechanically enforced**, not just documented: `check-session
 - Do not create persistent handoff or prompt artifact files such as `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, `CODE_REVIEW_HANDOFF_*.md`, or chat handoff markdown files unless the user explicitly asks for a file. Return handoffs in chat output or handoff buttons instead.
 - If a handoff/prompt artifact file is created accidentally, remove it before final output and return the same handoff content in chat or a handoff button. Do not report success while forbidden handoff artifacts remain in the worktree.
 - Real product, test, or helper scripts are allowed when required by the requested implementation or validation; do not create script-like prompt files just to pass instructions between agents.
+- Do not reference user story numbers, acceptance criteria identifiers, SDLC step names, or internal tracking IDs in code comments, commit messages, or PR descriptions.
 
 ## Validation Rules
 

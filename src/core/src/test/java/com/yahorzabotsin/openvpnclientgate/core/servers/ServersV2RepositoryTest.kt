@@ -609,6 +609,343 @@ class ServersV2RepositoryTest {
         }
     }
 
+    // ==================== getServersPage() ====================
+
+    // A backend that reports a wrong/hostile `total` must not keep hasMore=true forever;
+    // getServersPage() must stop at MAX_PAGES_SAFETY_LIMIT (200) the same way fetchAllPages does.
+    @Test
+    fun getServersPage_stops_at_safety_limit_when_backend_total_is_hostile() = runBlocking {
+        val api = RepeatingPageApi(pageSize = 50, hostileTotal = 1_000_000)
+        val repo = ServersV2Repository(api)
+
+        var skip = 0
+        var hasMore = true
+        var pagesFetched = 0
+        while (hasMore && pagesFetched < 250) {
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50, pagingSessionId = "safety")
+            skip = page.nextSkip
+            hasMore = page.hasMore
+            pagesFetched++
+        }
+
+        assertEquals("must stop at the safety limit, not the hostile total", 200, pagesFetched)
+        assertFalse("hasMore must be forced false once the safety limit is hit", hasMore)
+    }
+
+    // When the safety limit forces hasMore=false, the accumulated list is knowingly
+    // incomplete and must NOT be cached as this country's authoritative full list (it would
+    // otherwise stick, wrongly, for the whole TTL).
+    @Test
+    fun getServersPage_safety_limit_stop_does_not_persist_incomplete_list_as_full_cache() = runBlocking {
+        val api = RepeatingPageApi(pageSize = 50, hostileTotal = 1_000_000)
+        val repo = ServersV2Repository(api)
+
+        var skip = 0
+        var hasMore = true
+        var pagesFetched = 0
+        while (hasMore && pagesFetched < 250) {
+            val page = repo.getServersPage(context, "JP", skip = skip, take = 50, pagingSessionId = "safety")
+            skip = page.nextSkip
+            hasMore = page.hasMore
+            pagesFetched++
+        }
+        assertEquals(200, pagesFetched)
+
+        val cached = repo.getFreshCachedServers(context, "JP")
+        assertTrue("a safety-limit stop must not cache a knowingly-incomplete list", cached.isNullOrEmpty())
+    }
+
+    // accumulate=false must not touch the shared pageAccumulators/pagesFetchedForSession
+    // state, and must not be affected by (or affect) a concurrent abandonPagingSession() call on
+    // the same lockKey -- the whole point of the session-isolation parameter.
+    @Test
+    fun getServersPage_accumulate_false_ignores_concurrent_abandonPagingSession_and_does_not_self_persist() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3))
+        val page2 = buildServersJsonWithIds(listOf(4))
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, accumulate = false)
+        assertTrue(firstPage.hasMore)
+        assertEquals(listOf(1, 2, 3), firstPage.servers.map { it.id })
+
+        // A concurrent onCleared()-style abandon must be a no-op for a non-accumulating session:
+        // it never wrote into pageAccumulators in the first place.
+        repo.abandonPagingSession("non-accumulating")
+
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, accumulate = false)
+        assertFalse(secondPage.hasMore)
+        assertEquals(listOf(4), secondPage.servers.map { it.id })
+
+        // A non-accumulating call must not have written the on-disk full-list cache itself --
+        // that is the caller's own responsibility via persistFullServerList.
+        val cached = repo.getFreshCachedServers(context, "JP")
+        assertTrue("accumulate=false must not persist the disk cache on its own", cached.isNullOrEmpty())
+    }
+
+    // persistFullServerList lets a session-isolated caller (the silent background
+    // backfill) write the same on-disk cache file/timestamp key that a normal accumulating
+    // session would have, so the country takes the warm-cache fast path on its next open.
+    @Test
+    fun persistFullServerList_writes_the_same_cache_getServersForCountry_reads() = runBlocking {
+        val api = FakeServersV2Api()
+        val repo = ServersV2Repository(api)
+        val servers = listOf(
+            ServerV2(ip = "1.1.1.1", countryCode = "JP", countryName = "Japan", configData = "CFG1", id = 1),
+            ServerV2(ip = "2.2.2.2", countryCode = "JP", countryName = "Japan", configData = "CFG2", id = 2)
+        )
+
+        repo.persistFullServerList(context, "JP", servers)
+
+        val cached = repo.getServersForCountry(context, "JP", serverCount = 2, forceRefresh = false)
+        assertEquals(2, cached.size)
+        assertEquals(setOf(1, 2), cached.map { it.id }.toSet())
+    }
+
+    // Pages fetched seconds-to-minutes apart (user scrolling) can see the backend's
+    // active-server cache shift, yielding the same server again at a different offset.
+    // getServersPage() must de-duplicate by server id when accumulating for the persisted cache.
+    @Test
+    fun getServersPage_deduplicates_accumulated_servers_by_id_across_pages() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3, rawCount=3 -> hasMore=true
+        val page2 = buildServersJsonWithIds(listOf(3, 4)) // id 3 repeats; rawCount=2 < take=3 -> hasMore=false
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "m6")
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "m6")
+        assertFalse(secondPage.hasMore)
+
+        // Read back the persisted full-list cache via the normal warm-cache path: it must
+        // contain each distinct id once (4), not the 5 raw entries fetched across both pages.
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 5, forceRefresh = false)
+        assertEquals(4, merged.size)
+        assertEquals(setOf(1, 2, 3, 4), merged.map { it.id }.toSet())
+    }
+
+    // Overlapping paging sessions of the same country+locale must be
+    // fully isolated: B's skip=0 must not clobber A's accumulator, and each session persists its
+    // own COMPLETE list when it reaches its final page.
+    @Test
+    fun paging_sessions_same_country_are_isolated_and_each_persists_its_own_complete_list() = runBlocking {
+        val pageA1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3 -> hasMore=true
+        val pageB1 = buildServersJsonWithIds(listOf(11, 12, 13))
+        val pageA2 = buildServersJsonWithIds(listOf(4)) // rawCount=1 < take -> A completes
+        val pageB2 = buildServersJsonWithIds(listOf(14)) // B completes
+        val api = FakeServersV2Api(serversPageResponses = listOf(pageA1, pageB1, pageA2, pageB2))
+        val repo = ServersV2Repository(api)
+
+        val a1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "A")
+        assertTrue(a1.hasMore)
+        val b1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "B")
+        assertTrue(b1.hasMore)
+
+        val a2 = repo.getServersPage(context, "JP", skip = a1.nextSkip, take = 3, pagingSessionId = "A")
+        assertFalse(a2.hasMore)
+        val mergedAfterA = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals("session A must persist its own complete list", setOf(1, 2, 3, 4), mergedAfterA.map { it.id }.toSet())
+
+        val b2 = repo.getServersPage(context, "JP", skip = b1.nextSkip, take = 3, pagingSessionId = "B")
+        assertFalse(b2.hasMore)
+        val mergedAfterB = repo.getServersForCountry(context, "JP", serverCount = 14, forceRefresh = false)
+        assertEquals("session B's accumulator must have survived A's completion", setOf(11, 12, 13, 14), mergedAfterB.map { it.id }.toSet())
+    }
+
+    // Abandoning session A must release ONLY A's state: session B
+    // keeps its accumulator and persists its own complete list afterwards.
+    @Test
+    fun abandon_session_a_does_not_touch_live_session_b() = runBlocking {
+        val pageA1 = buildServersJsonWithIds(listOf(1, 2, 3))
+        val pageB1 = buildServersJsonWithIds(listOf(11, 12, 13))
+        val pageB2 = buildServersJsonWithIds(listOf(14)) // rawCount=1 < take -> B completes
+        val api = FakeServersV2Api(serversPageResponses = listOf(pageA1, pageB1, pageB2))
+        val repo = ServersV2Repository(api)
+
+        val a1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "A")
+        assertTrue(a1.hasMore)
+        val b1 = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "B")
+        assertTrue(b1.hasMore)
+
+        repo.abandonPagingSession("A")
+
+        val b2 = repo.getServersPage(context, "JP", skip = b1.nextSkip, take = 3, pagingSessionId = "B")
+        assertFalse(b2.hasMore)
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 14, forceRefresh = false)
+        assertEquals(
+            "abandoned A must not truncate or interfere with live session B",
+            setOf(11, 12, 13, 14),
+            merged.map { it.id }.toSet()
+        )
+    }
+
+    // abandonPagingSession() must actually release the accumulator, not just be a no-op:
+    // resuming the same session after an abandon call must not resurrect the earlier pages.
+    @Test
+    fun abandonPagingSession_clears_accumulator_so_earlier_pages_do_not_resurface() = runBlocking {
+        val page1 = buildServersJsonWithIds(listOf(1, 2, 3)) // take=3, rawCount=3 -> hasMore=true
+        val page2 = buildServersJsonWithIds(listOf(4)) // rawCount=1 < take=3 -> hasMore=false
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "m4")
+        assertTrue(firstPage.hasMore)
+
+        repo.abandonPagingSession("m4")
+
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "m4")
+        assertFalse(secondPage.hasMore)
+
+        // Only the second page's server should have been persisted -- if the abandoned first
+        // page's accumulator had survived, this would be 4 servers (ids 1-4) instead of 1.
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals(1, merged.size)
+        assertEquals(4, merged[0].id)
+    }
+
+    // The session-id requirement must be validated BEFORE any network activity:
+    // a default-args accumulate caller must fail fast without paying a real request.
+    @Test
+    fun getServersPage_requires_session_id_before_any_network_call() = runBlocking {
+        val api = FakeServersV2Api(serversJson = buildServersJsonWithIds(listOf(1, 2, 3)))
+        val repo = ServersV2Repository(api)
+
+        try {
+            repo.getServersPage(context, "JP", skip = 0, take = 3)
+            org.junit.Assert.fail("expected IllegalArgumentException for accumulate=true without pagingSessionId")
+        } catch (expected: IllegalArgumentException) {
+            // fast-fail is the contract
+        }
+
+        assertEquals(
+            "no network call may happen before validation",
+            0,
+            api.serversCallCount
+        )
+    }
+
+    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
+    // onto one entry or get discarded across pages: distinct connections stay, the duplicate
+    // connection is dropped, and the persisted full-list cache keeps all of them.
+    @Test
+    fun getServersPage_zero_id_servers_are_kept_across_pages() = runBlocking {
+        val page1 = buildZeroIdJson(listOf("10.0.0.1", "10.0.0.2"), total = 3)
+        val page2 = buildZeroIdJson(listOf("10.0.0.1", "10.0.0.3"), total = 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "z")
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "z")
+        assertFalse(secondPage.hasMore)
+
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 3, forceRefresh = false)
+        assertEquals(
+            listOf("10.0.0.1", "10.0.0.2", "10.0.0.3"),
+            merged.map { it.ip }
+        )
+    }
+
+    // Review -- the zero-id fallback key must carry the FULL connection attributes: two
+    // zero-id servers with the same ip and hash-colliding configs (classic `Aa` / `BB`)
+    // are distinct connections and both must survive accumulation.
+    @Test
+    fun getServersPage_zero_id_hash_colliding_configs_are_kept_distinct() = runBlocking {
+        val page1 = buildZeroIdConfigJson(ip = "10.0.0.1", config = "Aa", total = 2)
+        val page2 = buildZeroIdConfigJson(ip = "10.0.0.1", config = "BB", total = 2)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val firstPage = repo.getServersPage(context, "JP", skip = 0, take = 3, pagingSessionId = "k")
+        assertTrue(firstPage.hasMore)
+        val secondPage = repo.getServersPage(context, "JP", skip = firstPage.nextSkip, take = 3, pagingSessionId = "k")
+        assertFalse(secondPage.hasMore)
+
+        val merged = repo.getServersForCountry(context, "JP", serverCount = 2, forceRefresh = false)
+        assertEquals(
+            "hash-colliding configs must not collapse into one row",
+            setOf("Aa", "BB"),
+            merged.map { it.configData }.toSet()
+        )
+    }
+
+    // Review: foreground paging session must not overwrite a newer sync's full-list cache.
+    // When the selection version moves between the first and last page of a foreground
+    // accumulate session, the final persist must be skipped.
+    @Test
+    fun foregroundPaging_skipsFullListCachePersist_whenVersionMovesBetweenPages() = runBlocking {
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(page1, page2)
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, accumulate = true, pagingSessionId = "fp")
+        assertTrue(first.hasMore)
+
+        // A same-country sync completes while the user is mid-scroll.
+        SelectedCountryVersionSignal.bump()
+
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "fp")
+        assertFalse(second.hasMore)
+
+        val cacheFile = File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json")
+        assertFalse(
+            "full-list cache must not be written when the selection version moved between pages",
+            cacheFile.exists()
+        )
+    }
+
+    private fun buildZeroIdConfigJson(ip: String, config: String, total: Int): String {
+        val items = """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"$config"}"""
+        return """{"items":[$items],"total":$total}"""
+    }
+
+    private fun buildZeroIdJson(ips: List<String>, total: Int): String {
+        val items = ips.joinToString(",") { ip ->
+            """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
+    private fun buildServersJsonWithIds(ids: List<Int>): String {
+        val items = ids.joinToString(",") { id ->
+            """{"ip":"10.0.0.$id","countryCode":"JP","countryName":"Japan","configData":"CFG$id","id":$id}"""
+        }
+        return """{"items":[$items]}"""
+    }
+
+    /** Returns a fresh, ever-growing page of [pageSize] items with a `total` far beyond what
+     * any bounded loop will reach -- simulates a wrong/hostile backend `total`. */
+    private class RepeatingPageApi(
+        private val pageSize: Int,
+        private val hostileTotal: Int
+    ) : ServersV2Api {
+        private var counter = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = emptyList()
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            val items = (0 until pageSize).map {
+                counter++
+                ServerV2(
+                    ip = "10.0.0.$counter",
+                    countryCode = countryCode,
+                    countryName = countryCode,
+                    configData = "CFG$counter",
+                    id = counter
+                )
+            }
+            return ServersPageResponse(items = items, total = hostileTotal)
+        }
+    }
+
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",

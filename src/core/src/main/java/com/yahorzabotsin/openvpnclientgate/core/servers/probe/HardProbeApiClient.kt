@@ -7,7 +7,7 @@ import java.io.IOException
  * Wraps [ProbeApi] and maps raw HTTP responses to [ProbeResult].
  *
  * This is a thin client responsible only for HTTP→domain mapping.
- * Retry scheduling and WorkManager wiring belong to SUB-02 ([WorkManagerProbeRequestQueue]).
+ * Retry scheduling and WorkManager wiring belong to WorkManagerProbeRequestQueue.
  */
 class HardProbeApiClient(private val probeApi: ProbeApi) {
 

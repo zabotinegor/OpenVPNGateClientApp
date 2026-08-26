@@ -46,7 +46,7 @@ object SelectedCountryStore {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun saveSelection(ctx: Context, country: String, servers: List<Server>) {
+    fun saveSelection(ctx: Context, country: String, servers: List<Server>, expectedCountry: String? = null) {
         val arr = JSONArray()
         servers.forEach { s ->
             val o = JSONObject()
@@ -58,9 +58,14 @@ object SelectedCountryStore {
                 .put(KEY_JSON_SERVER_ID, s.id)
             arr.put(o)
         }
+        // Serialize before checking to close the race window: if expectedCountry changed
+        // during serialization, the check below discards the stale result. The serialized
+        // string is reused in the write so the check and write see the same payload.
+        val serialized = arr.toString()
+        if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
         prefs(ctx).edit()
             .putString(KEY_COUNTRY, country)
-            .putString(KEY_SERVERS, arr.toString())
+            .putString(KEY_SERVERS, serialized)
             .putInt(KEY_INDEX, 0)
             .apply()
     }
@@ -72,7 +77,12 @@ object SelectedCountryStore {
         val previousCurrent = currentServer(ctx)
         val previousCount = getServers(ctx).size
 
-        saveSelection(ctx, country, servers)
+        // Re-check before the write: another selection may have happened between the
+        // initial check and now (e.g. a fire-and-forget backfill racing with the user
+        // selecting a different country). Skip the write if the country changed.
+        if (getSelectedCountry(ctx) != country) return
+
+        saveSelection(ctx, country, servers, expectedCountry = country)
 
         if (previousCurrent != null) {
             ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)

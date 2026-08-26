@@ -3,18 +3,18 @@
     <!-- Section: App theme attributes (centralized color tokens for app-specific parts) -->
     <attr name="ovpnNavBarColor" format="color" />
     <attr name="ovpnFocusableStateListAnimator" format="reference" />
-    <!-- SUB-09: fill color for the pinned Favorites section card (colorSurface-variant tone,
+    <!-- Fill color for the pinned Favorites section card (colorSurface-variant tone,
          distinct from ?attr/colorSurface so the card reads as a raised block behind the
          colorSurface row cards). -->
     <attr name="ovpnFavoritesCardBackground" format="color" />
-    <!-- SUB-08 defect fix: background for the mobile favorite-toggle PopupMenu. Must be
+    <!-- Background for the mobile favorite-toggle PopupMenu. Must be
          distinct from ?attr/colorSurface (used by row cards) so the popup reads as a raised
          surface instead of blending into the list behind it. -->
     <attr name="ovpnPopupMenuBackground" format="color" />
-    <!-- SUB-08 defect fix: subtle border color for the PopupMenu background, adding definition
+    <!-- Subtle border color for the PopupMenu background, adding definition
          against the page/list without relying on elevation shadow alone. -->
     <attr name="ovpnPopupMenuStroke" format="color" />
-    <!-- SUB-08 defect fix: background for app AlertDialogs (TV FavoriteActionDialog,
+    <!-- Background for app AlertDialogs (TV FavoriteActionDialog,
          MainActivityCore.showUpdateDialog, etc.), distinct from ?attr/colorSurface so dialogs
          read as raised surfaces instead of blending into the page/background behind them.
          Concrete, non-self-referencing value (see round-1/round-3 review history for why a

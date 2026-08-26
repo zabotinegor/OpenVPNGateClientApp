@@ -4,14 +4,20 @@ import android.content.Context
 import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import retrofit2.HttpException
+import retrofit2.Response
 import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
@@ -150,6 +156,524 @@ class CountryServersInteractorTest {
         assertEquals("JP", api.lastRequestedCountryCode)
     }
 
+    // ==================== getServersPage (lazy loading) ====================
+
+    // Cold cache: the interactor requests exactly one page from the network, not
+    // the whole country, and reports hasMore/nextSkip from that single response.
+    @Test
+    fun getServersPage_v2_cold_cache_fetches_only_the_requested_page() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 50, total = 120))
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals(1, api.serversCallCount)
+        assertEquals(listOf(0), api.requestedSkips)
+        assertEquals(50, api.lastTake)
+        assertEquals(50, page.servers.size)
+        assertTrue("more pages remain (only 50 of 120 fetched)", page.hasMore)
+        assertEquals(50, page.nextSkip)
+    }
+
+    // A second page request uses the caller-supplied skip offset, not a re-derived one.
+    @Test
+    fun getServersPage_v2_second_page_uses_the_given_skip_offset() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":70}]""",
+            serversPageResponses = listOf(
+                buildServersJsonWithTotal("JP", 50, total = 70),
+                buildServersJsonWithTotal("JP", 20, total = 70)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        val page2 = interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals(listOf(0, 50), api.requestedSkips)
+        assertEquals(20, page2.servers.size)
+        assertFalse("last page reached (50 + 20 == total 70)", page2.hasMore)
+    }
+
+    // A fresh full-list cache (written by a prior completed session, or by the legacy
+    // eager fetch) is served in one shot, unchanged, without a network call.
+    @Test
+    fun getServersPage_v2_skip0_uses_fresh_cache_fast_path_without_network_call() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        // Prime the warm cache exactly as the pre-existing eager path would.
+        v2Repo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+        val callsAfterPriming = api.serversCallCount
+
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals("cache hit must not make another network call", callsAfterPriming, api.serversCallCount)
+        assertEquals(3, page.servers.size)
+        assertFalse("full cached list means nothing more to fetch", page.hasMore)
+    }
+
+    // Out of scope source (VPN Gate/legacy): always the full list as a single page, unchanged.
+    @Test
+    fun getServersPage_non_v2_source_returns_full_list_as_single_page() = runBlocking {
+        setSource(ServerSource.VPNGATE)
+        val csv = "TITLE, SAMPLE\nHEADER, IGNORE\n" +
+            "legacy,9.9.9.9,0,10,0,Japan,JP,0,0,0,0,L,op,msg,cfg"
+        val legacyRepo = ServerRepository(FixedApi(csv))
+        val interactor = DefaultCountryServersInteractor(context, legacyRepo, serversV2Repository = null)
+
+        val page = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals(1, page.servers.size)
+        assertEquals("9.9.9.9", page.servers[0].ip)
+        assertFalse(page.hasMore)
+        assertEquals(1, page.nextSkip)
+    }
+
+    // A network failure on a genuine (non-first) page propagates so the ViewModel can
+    // surface the retry affordance, instead of being swallowed here.
+    @Test(expected = IOException::class)
+    fun getServersPage_v2_network_failure_mid_scroll_propagates(): Unit = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 50, total = 120))
+            // only one scripted response: the 2nd call falls back to the Fake's default empty
+            // page, which is not what we want here -- use a throwing fake instead below.
+        )
+        val v2Repo = ServersV2Repository(ThrowingOnSecondPageApi(api))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
+    }
+
+    // ==================== Code review fix cycle ====================
+
+    // A stale (expired) on-disk cache plus a failing network call at skip==0 must fall
+    // back to the stale cache and return it, instead of throwing and closing the screen.
+    // Restores the pre-fetchWithCache() stale-cache fallback for the paged cold path.
+    // Also covers minor m9: the existing cache test (above) only primes a *fresh* cache,
+    // which is exactly why this slipped through review undetected.
+    @Test
+    fun getServersPage_v2_skip0_stale_cache_and_network_failure_falls_back_to_stale_list() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val workingApi = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val primingRepo = ServersV2Repository(workingApi)
+        primingRepo.getCountries(context, forceRefresh = true)
+        primingRepo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+
+        // Expire the just-primed server cache (file stays on disk, timestamp is now stale).
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_de_${currentLocaleCode()}", 1L).commit()
+
+        // A second repository instance sharing the same on-disk cache, but whose network calls
+        // for servers always fail -- simulates the network being down while a stale cache exists.
+        val offlineRepo = ServersV2Repository(AlwaysThrowingServersApi(workingApi))
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
+
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals("stale cache must be served instead of throwing", 3, page.servers.size)
+        assertFalse(page.hasMore)
+    }
+
+    // The offline fallback must READ the stale cache directly with
+    // networking disabled, not re-attempt the network before falling back: an offline cold open
+    // already paid one full network timeout at skip==0, and the old fallback (cacheOnly=false)
+    // paid a second one before serving the same stale file.
+    @Test
+    fun getServersPage_v2_skip0_offline_fallback_reads_stale_cache_without_a_second_network_attempt() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val workingApi = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val primingRepo = ServersV2Repository(workingApi)
+        primingRepo.getCountries(context, forceRefresh = true)
+        primingRepo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+        val serversCallsAfterPriming = workingApi.serversCallCount
+        assertTrue(serversCallsAfterPriming > 0)
+
+        // Expire the just-primed server cache (file stays on disk, timestamp is now stale).
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_de_${currentLocaleCode()}", 1L).commit()
+
+        val offlineRepo = ServersV2Repository(AlwaysThrowingServersApi(workingApi))
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
+
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "offline")
+
+        assertEquals("stale cache must still be served", 3, page.servers.size)
+        assertEquals(
+            "fallback must not re-attempt the network: no getServers() call beyond priming",
+            serversCallsAfterPriming,
+            workingApi.serversCallCount
+        )
+    }
+
+    // The fallback must not be limited to IOException: Retrofit throws HttpException (a
+    // RuntimeException) for a non-2xx response, and Gson throws JsonSyntaxException for a
+    // malformed body. Both must still fall back to a stale on-disk cache at skip==0, exactly
+    // like IOException does above -- restoring the pre-fetchFromNetworkWithParsing()
+    // behavior, which caught Exception broadly (after rethrowing CancellationException).
+    @Test
+    fun getServersPage_v2_skip0_stale_cache_and_http_exception_falls_back_to_stale_list() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val workingApi = FakeServersV2Api(
+            countriesJson = """[{"code":"DE","name":"Germany","serverCount":3}]""",
+            serversJson = buildServersJson("DE", 3)
+        )
+        val primingRepo = ServersV2Repository(workingApi)
+        primingRepo.getCountries(context, forceRefresh = true)
+        primingRepo.getServersForCountry(context, "DE", serverCount = 3, forceRefresh = true)
+
+        // Expire the just-primed server cache (file stays on disk, timestamp is now stale).
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .edit().putLong("ts_servers_de_${currentLocaleCode()}", 1L).commit()
+
+        // A second repository instance sharing the same on-disk cache, but whose network calls
+        // for servers always throw a non-IOException RuntimeException -- simulates a backend
+        // 5xx response while a stale cache exists.
+        val offlineRepo = ServersV2Repository(AlwaysThrowingHttpExceptionServersApi(workingApi))
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), offlineRepo)
+
+        val page = interactor.getServersPage("Germany", "DE", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+
+        assertEquals("stale cache must be served instead of throwing", 3, page.servers.size)
+        assertFalse(page.hasMore)
+    }
+
+    // Product decision: selecting a server from a country whose full list has not yet
+    // loaded (hasMorePages=true) must kick off a silent background fetch of the remaining
+    // pages, so SelectedCountryStore's persisted candidate pool for ServerAutoSwitcher
+    // eventually becomes complete -- without the selection call itself waiting on it.
+    @Test
+    fun resolveSelection_v2_partial_list_triggers_background_backfill_of_full_candidate_pool() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 1),
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 51),
+                buildServersJsonWithTotalAndIds("JP", 20, total = 120, startId = 101)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        // The user only scrolled through the first page (50 of 120) before selecting.
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        assertTrue(firstPage.hasMore)
+        assertEquals(50, firstPage.servers.size)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+
+        assertTrue("selecting from a partial list must trigger a background backfill", interactor.lastBackfillJob != null)
+        interactor.lastBackfillJob?.join()
+
+        val stored = SelectedCountryStore.getServers(context)
+        assertEquals("full candidate pool must be persisted once the backfill completes", 120, stored.size)
+    }
+
+    // An onCleared()-style abandon of the *foreground* paging session, firing while
+    // resolveSelection()'s own background backfill is still mid-flight, must not truncate the
+    // persisted full-list on-disk cache (nor the SelectedCountryStore candidate pool). Before the
+    // fix, the backfill shared ServersV2Repository's pageAccumulators with the foreground
+    // session; the abandon call cleared that shared accumulator out from under the backfill,
+    // whose own last page then persisted only its own tail as the "complete" list with a fresh
+    // cache timestamp.
+    @Test
+    fun resolveSelection_v2_backfill_survives_concurrent_abandonPagingSession_without_truncating_cache() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            serversPageResponses = listOf(
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 1),
+                buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 51),
+                buildServersJsonWithTotalAndIds("JP", 20, total = 120, startId = 101)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+
+        // Simulates the exact race the review demonstrated: FinishWithSelection -> finish() ->
+        // ViewModel.onCleared() -> interactor.abandonPagingSession() firing while the backfill
+        // just launched by resolveSelection() above is still running.
+        v2Repo.abandonPagingSession("s1")
+
+        interactor.lastBackfillJob?.join()
+
+        val storedSelection = SelectedCountryStore.getServers(context)
+        assertEquals(
+            "candidate pool must still be the complete 120, not just the backfilled tail",
+            120,
+            storedSelection.size
+        )
+
+        // The on-disk full-list cache -- what the *next* open of this country reads -- must also
+        // be complete, not truncated to whatever the backfill alone fetched after the abandon.
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 120, forceRefresh = false)
+        assertEquals(
+            "persisted full-list cache must not be truncated by the concurrent abandon",
+            120,
+            cachedFullList.size
+        )
+    }
+
+    // Mirrors ServersV2Repository's safety limit guard, but for the backfill's own safety limit
+    // (CountryServersInteractor.MAX_BACKFILL_PAGES_SAFETY_LIMIT). When the backfill loop itself
+    // stops because it hit that limit while the backend still claims more data exists, the
+    // accumulated list is knowingly incomplete and must not be cached as this country's
+    // authoritative full list.
+    @Test
+    fun resolveSelection_v2_backfill_hitting_its_own_safety_limit_does_not_persist_incomplete_full_list_cache() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = HostileTotalServersApi(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":1000000}]""",
+            pageSize = 50,
+            hostileTotal = 1_000_000
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        val cachedFullList = v2Repo.getFreshCachedServers(context, "JP")
+        assertTrue(
+            "a backfill that hits its own safety limit must not cache a knowingly-incomplete " +
+                "list as the country's full list",
+            cachedFullList.isNullOrEmpty()
+        )
+    }
+
+    // Mirrors ViewModel.loadFirstPage's non-advancing-cursor guard, but for the
+    // backfill loop. A page with an empty `items` array while the backend still reports
+    // total > skip yields nextSkip == skip with hasMore still true; without a guard the
+    // backfill would re-issue the identical request, unattended, up to its safety limit.
+    @Test
+    fun resolveSelection_v2_backfill_stops_instead_of_looping_forever_when_cursor_does_not_advance() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = StuckCursorServersApi(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":120}]""",
+            firstPageJson = buildServersJsonWithTotalAndIds("JP", 50, total = 120, startId = 1),
+            stuckTotal = 120
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a non-advancing cursor must stop the backfill after a single extra request, not " +
+                "re-issue it up to the safety limit",
+            2,
+            api.callCount
+        )
+        assertEquals(listOf(0, 50), api.requestedSkips)
+
+        val cachedFullList = v2Repo.getFreshCachedServers(context, "JP")
+        assertTrue(
+            "a backfill stopped by a non-advancing cursor must not cache the incomplete list",
+            cachedFullList.isNullOrEmpty()
+        )
+    }
+
+    /** Test support: an ever-growing page API with a total far beyond any bounded loop --
+     * mirrors ServersV2RepositoryTest's RepeatingPageApi but also serves getCountries() so
+     * DefaultCountryServersInteractor can resolve the country by code. */
+    private class HostileTotalServersApi(
+        private val countriesJson: String,
+        private val pageSize: Int,
+        private val hostileTotal: Int
+    ) : ServersV2Api {
+        private var counter = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> =
+            Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            val items = (0 until pageSize).map {
+                counter++
+                ServerV2(
+                    ip = "10.0.0.$counter",
+                    countryCode = countryCode,
+                    countryName = countryCode,
+                    configData = "CFG$counter",
+                    id = counter
+                )
+            }
+            return ServersPageResponse(items = items, total = hostileTotal)
+        }
+    }
+
+    /** Test support: serves the scripted [firstPageJson] on the first call, then an
+     * empty-items page that still reports [stuckTotal] (> skip) on every later call -- the
+     * pathological "cursor does not advance" shape this guards against. */
+    private class StuckCursorServersApi(
+        private val countriesJson: String,
+        private val firstPageJson: String,
+        private val stuckTotal: Int
+    ) : ServersV2Api {
+        var callCount = 0
+            private set
+        val requestedSkips = mutableListOf<Int>()
+
+        override suspend fun getCountries(locale: String): List<CountryV2> =
+            Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
+
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            requestedSkips.add(skip)
+            callCount++
+            return if (callCount == 1) {
+                Gson().fromJson(firstPageJson, ServersPageResponse::class.java)
+            } else {
+                ServersPageResponse(items = emptyList(), total = stuckTotal)
+            }
+        }
+    }
+
+    private class AlwaysThrowingServersApi(private val delegate: ServersV2Api) : ServersV2Api {
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse = throw IOException("simulated offline network failure")
+    }
+
+    /** Throws retrofit2.HttpException (RuntimeException, not IOException) for every server
+     * page request, simulating a backend 5xx response while a stale cache exists. */
+    private class AlwaysThrowingHttpExceptionServersApi(private val delegate: ServersV2Api) : ServersV2Api {
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse = throw HttpException(
+            Response.error<Any>(500, "simulated server error".toResponseBody("text/plain".toMediaTypeOrNull()))
+        )
+    }
+
+    private fun buildServersJsonWithTotal(code: String, count: Int, total: Int): String {
+        val items = (1..count).joinToString(",") { i ->
+            """{"ip":"10.$i.0.$code","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$i"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
+    private fun buildServersJsonWithTotalAndIds(code: String, count: Int, total: Int, startId: Int): String {
+        val items = (0 until count).joinToString(",") { i ->
+            val id = startId + i
+            """{"ip":"10.$id.0.$code","countryCode":"$code","countryName":"Country$code","configData":"CONFIG$id","id":$id}"""
+        }
+        return """{"items":[$items],"total":$total}"""
+    }
+
+    private fun currentLocaleCode(): String =
+        UserSettingsStore.resolvePreferredLocale(UserSettingsStore.load(context).language)
+
+    private class FixedApi(private val body: String) : VpnServersApi {
+        override suspend fun getServers(url: String): okhttp3.ResponseBody =
+            body.toResponseBody("text/plain".toMediaTypeOrNull())
+    }
+
+    /** Wraps a [FakeServersV2Api] to throw on the 2nd+ getServers() call, simulating a
+     * mid-scroll network failure on a genuine (non-first) page while keeping the first call's
+     * scripted success response intact. */
+    private class ThrowingOnSecondPageApi(private val delegate: FakeServersV2Api) : ServersV2Api {
+        private var callCount = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            callCount++
+            if (callCount > 1) throw IOException("simulated mid-scroll network failure")
+            return delegate.getServers(locale, countryCode, isActive, skip, take)
+        }
+    }
+
     // --------------- helpers ---------------
 
     private fun setSource(source: ServerSource) {
@@ -165,9 +689,16 @@ class CountryServersInteractorTest {
 
     private class FakeServersV2Api(
         private val countriesJson: String = "[]",
-        private val serversJson: String = "{\"items\":[]}"
+        private val serversJson: String = "{\"items\":[]}",
+        // When set, each successive getServers() call returns the next entry (indexed
+        // by call order), so a test can script a distinct response per page/skip.
+        private val serversPageResponses: List<String>? = null
     ) : ServersV2Api {
         var lastRequestedCountryCode: String? = null
+        var serversCallCount = 0
+            private set
+        val requestedSkips = mutableListOf<Int>()
+        var lastTake: Int? = null
 
         override suspend fun getCountries(locale: String): List<CountryV2> =
             Gson().fromJson(countriesJson, Array<CountryV2>::class.java).toList()
@@ -179,8 +710,219 @@ class CountryServersInteractorTest {
             take: Int
         ): ServersPageResponse {
             lastRequestedCountryCode = countryCode
-            return Gson().fromJson(serversJson, ServersPageResponse::class.java)
+            requestedSkips.add(skip)
+            lastTake = take
+            val json = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
+            serversCallCount++
+            return Gson().fromJson(json, ServersPageResponse::class.java)
         }
+    }
+
+    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
+    // onto one entry in the silent backfill's merged pool: distinct connections stay, the
+    // duplicate connection is dropped, and the persisted full-list cache keeps all of them.
+    @Test
+    fun resolveSelection_v2_backfill_keeps_zero_id_servers_distinct() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "z")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 3, forceRefresh = false)
+        assertEquals(
+            listOf("10.0.0.1", "10.0.0.2", "10.0.0.3"),
+            cachedFullList.map { it.ip }
+        )
+    }
+
+    // Review -- when the API omits `total` and the count is an exact multiple of the page
+    // size, the final probe legitimately returns an empty page with hasMore=false and
+    // nextSkip == skip. That is successful completion: the full-list cache must be persisted,
+    // not skipped as an incomplete backfill.
+    @Test
+    fun resolveSelection_v2_backfill_persists_full_list_when_count_is_exact_multiple_of_page_size() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":100}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson((1..50).map { "10.0.0.$it" }, total = 0),
+                buildZeroIdServersJson((51..100).map { "10.0.0.$it" }, total = 0),
+                buildZeroIdServersJson(emptyList(), total = 0)
+            )
+        )
+        val v2Repo = ServersV2Repository(api)
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "em")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "candidate pool",
+            100,
+            SelectedCountryStore.getServers(context).size
+        )
+        val cachedFullList = v2Repo.getServersForCountry(context, "JP", serverCount = 100, forceRefresh = false)
+        assertEquals(
+            "an exact-multiple completion must persist the full list",
+            100,
+            cachedFullList.size
+        )
+    }
+
+    // Review -- a same-country sync completing while the silent backfill is in flight must
+    // win: the backfill captures the selection version at start and skips its store/cache
+    // writes when that version has moved by completion time (otherwise its older pages would
+    // overwrite the newer sync results for the whole cache TTL).
+    @Test
+    fun resolveSelection_v2_backfill_skips_writes_when_a_newer_sync_moved_the_selection_version() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "g")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is now suspended fetching its first page (the gate). A newer sync
+        // completes right now -- modeled as the per-country generation bumping.
+        CountrySyncGenerations.generations.merge("JP", 1L) { prev, _ -> prev + 1L }
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "the backfill must not overwrite the selection with its older pages",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        org.junit.Assert.assertFalse(
+            "the backfill must not persist its full-list cache after a newer sync won",
+            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+        )
+    }
+
+    // Review: a newer same-country backfill (from a rapid re-select) must win over an older
+    // one. The per-country generation counter ensures only the latest backfill may write.
+    @Test
+    fun resolveSelection_v2_backfill_skips_writes_when_generation_drifts() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "g2")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is now suspended at its second page fetch (the gate). Simulate a
+        // newer same-country backfill starting by drifting the generation before releasing.
+        CountrySyncGenerations.generations["JP"] = (CountrySyncGenerations.generations["JP"] ?: 0) + 1
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "the older backfill must not overwrite the selection when generation drifted",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        org.junit.Assert.assertFalse(
+            "the older backfill must not persist cache when generation drifted",
+            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+        )
+    }
+
+    /** Wraps a [FakeServersV2Api] so the SECOND getServers() call suspends on [gate] before
+     * delegating -- letting a test move the selection version while the backfill is
+     * suspended mid-flight. */
+    private class GatedOnSecondCallServersApi(
+        private val delegate: FakeServersV2Api,
+        private val gate: CompletableDeferred<Unit>
+    ) : ServersV2Api {
+        private var callCount = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse {
+            callCount++
+            if (callCount == 2) gate.await()
+            return delegate.getServers(locale, countryCode, isActive, skip, take)
+        }
+    }
+
+    private fun buildZeroIdServersJson(ips: List<String>, total: Int): String {
+        val items = ips.joinToString(",") { ip ->
+            """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"CFG-$ip"}"""
+        }
+        return """{"items":[$items],"total":$total}"""
     }
 
     private class FailingVpnServersApi : VpnServersApi {

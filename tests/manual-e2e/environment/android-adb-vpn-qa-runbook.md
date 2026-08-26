@@ -245,5 +245,36 @@ runs against the freshly-written file rather than an already-loaded in-memory va
 verification -- simulated a `server_source=LEGACY` + orphaned `custom_server_url` key install, force-
 stopped, relaunched, confirmed silent fold to `DEFAULT_V2` with no crash and a non-empty server list.)
 
+## Forcing a cold paging path: clear the v2 server-list cache via run-as
+
+Warm-cache fast paths plus the periodic selected-country sync can silently mask scroll-triggered paging
+tests: opening a country whose full list was persisted within TTL loads everything instantly through the
+`warm-cache fast path` with zero page fetches. To QA lazy paging deterministically on a debug build,
+force-stop first (so the store is not rewritten from memory), then delete the cache store and launch:
+```
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
+adb shell run-as com.yahorzabotsin.openvpnclientgate rm shared_prefs/servers_v2_cache.xml
+```
+A cold open then logs `getServersPage[<CC>]: skip=0 take=<pageSize> ... hasMore=true`; a warm open logs
+`getServersPage: warm-cache fast path country=... servers=<total>` instead.
+(Discovered 2026-08-24, US-23 manual QA.)
+
+## MIBOX4 drops DPAD key events at short injection intervals
+
+Injecting `KEYCODE_DPAD_DOWN` faster than roughly one event per 200 ms on the MIBOX4 TV loses keys
+silently — focus advances fewer rows than injected, so scroll-triggered paging looks stalled and row-count
+assertions undercount. Use >=350-400 ms per event, or verify paging by the logcat fetch-line progression
+(`getServersPage[<CC>]: skip=...`) instead of counting injected presses.
+(Discovered 2026-08-24, US-23 manual QA.)
+
+## Matching uiautomator dumps in non-ASCII locales (ru/pl)
+
+Console output mangles Cyrillic text from UI dumps; grepping rendered strings from PowerShell produces
+false negatives. Pull the dump file and read it with `Get-Content -Encoding UTF8`, match substrings
+programmatically (`$xml.Contains('Корея')`) inside the script, and print only ASCII booleans/bounds to the
+console. Related ClickUp gotcha: comment timestamps are UTC server-side — never derive an evidence
+`SinceUtc` window from the device-local clock (device clocks in this environment are not UTC).
+(Discovered 2026-08-24, US-23 manual QA.)
+
 ## Last validated
-2026-08-22, against `feature/release/21.08.2026` HEAD `828dc1454b18af2ff0253b2714347951e693e758`.
+2026-08-24, against `feature/us-23-lazy-load-country-servers` HEAD `c68ba0a5f91e7a97201cd2dd182d14604a1ec3c2`.
