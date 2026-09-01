@@ -40,9 +40,9 @@
 ## Скриншоты
 
 <p>
-  <img src="docs/assets/readme/phone-main.png" alt="Главный экран" width="30%" />
-  <img src="docs/assets/readme/phone-server-list.png" alt="Список серверов" width="30%" />
   <img src="docs/assets/readme/phone-connected.png" alt="Состояние подключения" width="30%" />
+  <img src="docs/assets/readme/phone-server-list.png" alt="Список серверов" width="30%" />
+  <img src="docs/assets/readme/phone-main.png" alt="Главный экран" width="30%" />
 </p>
 
 ## Где скачать
