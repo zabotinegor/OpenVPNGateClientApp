@@ -1,6 +1,6 @@
 # Client for OpenVPN Gate
 
-[🇬🇧 English](README.md) | [🇷🇺 Русский](README.ru.md) | Polski
+[🇬🇧 English](README.md) | [🇷🇺 Русский](README.ru.md) | 🇵🇱 Polski
 
 ### Darmowy dostęp bez żadnych haczyków.
 
