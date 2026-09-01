@@ -1,6 +1,6 @@
 # Client for OpenVPN Gate
 
-[🇬🇧 English](README.md) | [🇷🇺 Русский](README.ru.md) | 🇵🇱 Polski
+[🇺🇸 English](README.md) | [🇷🇺 Русский](README.ru.md) | 🇵🇱 Polski
 
 ### Darmowy dostęp bez żadnych haczyków.
 
@@ -39,9 +39,9 @@ rozwijana aplikacja — po prostu powstała w inny sposób niż większość.
 ## Zrzuty ekranu
 
 <p>
-  <img src="docs/assets/readme/phone-connected.png" alt="Stan połączenia" width="30%" />
-  <img src="docs/assets/readme/phone-server-list.png" alt="Lista serwerów" width="30%" />
-  <img src="docs/assets/readme/phone-main.png" alt="Ekran główny" width="30%" />
+  <img src="docs/assets/readme/phone-connected-pl.png" alt="Stan połączenia" width="30%" />
+  <img src="docs/assets/readme/phone-server-list-pl.png" alt="Lista serwerów" width="30%" />
+  <img src="docs/assets/readme/phone-favourites-pl.png" alt="Ulubione" width="30%" />
 </p>
 
 ## Gdzie pobrać

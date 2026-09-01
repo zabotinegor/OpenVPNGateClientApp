@@ -1,6 +1,6 @@
 # Client for OpenVPN Gate
 
-🇬🇧 English | [🇷🇺 Русский](README.ru.md) | [🇵🇱 Polski](README.pl.md)
+🇺🇸 English | [🇷🇺 Русский](README.ru.md) | [🇵🇱 Polski](README.pl.md)
 
 ### Free access, no strings attached.
 
@@ -37,9 +37,9 @@ with a different process than most.
 ## Screenshots
 
 <p>
-  <img src="docs/assets/readme/phone-connected.png" alt="Connected state" width="30%" />
-  <img src="docs/assets/readme/phone-server-list.png" alt="Server list" width="30%" />
-  <img src="docs/assets/readme/phone-main.png" alt="Main screen" width="30%" />
+  <img src="docs/assets/readme/phone-connected-en.png" alt="Connected state" width="30%" />
+  <img src="docs/assets/readme/phone-server-list-en.png" alt="Server list" width="30%" />
+  <img src="docs/assets/readme/phone-favourites-en.png" alt="Favorites" width="30%" />
 </p>
 
 ## Get it
