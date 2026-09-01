@@ -1,6 +1,6 @@
 ---
 description: "Mirror-sync agent/skill/tool assets from CopilotTools into target repository."
-mode: all
+mode: subagent
 permission:
   edit: allow
   bash: allow
