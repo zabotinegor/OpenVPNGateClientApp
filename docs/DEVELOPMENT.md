@@ -13,6 +13,26 @@ The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two lau
 - Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
 - License: [GPL-2.0-only](../LICENSE)
 
+## Index
+
+Read this list first and jump to the one relevant heading — do not read the whole file.
+
+- [Repository Layout](#repository-layout)
+- [Tech Stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Required Build Configuration](#required-build-configuration)
+- [Signing Configuration (release)](#signing-configuration-release)
+- [Media Assets](#media-assets)
+- [Build and Test](#build-and-test)
+- [Documentation](#documentation)
+- [Runtime Behavior (from current code)](#runtime-behavior-from-current-code)
+- [Logging and Diagnostics](#logging-and-diagnostics)
+- [AI Agent Documentation](#ai-agent-documentation)
+- [Legal and Privacy](#legal-and-privacy)
+- [Licensing](#licensing)
+
+---
+
 ## Repository Layout
 - `src/core` - shared UI, networking, settings, VPN orchestration.
 - `src/mobile` - phone/tablet launcher.
