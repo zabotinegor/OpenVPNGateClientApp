@@ -131,61 +131,22 @@ All SDLC handoff and execution outputs must include: what was done, what went wr
 - On a fresh checkout these local-only files are absent. Provision them by running the `agent-sync` skill (or ask the user to run the CopilotTools mirror sync) before following any instruction that invokes them — including the "MANDATORY FIRST STEP — Session Limit Check" section below.
 - If the scripts remain unavailable after attempting provisioning, treat the session-limit bootstrap steps as not applicable, report the missing tooling to the user, and continue only with work that does not depend on them.
 
-<!-- BEGIN AGENT SYNC -->
-## Claude Session Recovery (Optional, Claude Code Only)
+<!-- BEGIN COPILOT SYNC -->
+## MANDATORY FIRST STEP — Session Recovery Check
 
-Claude session recovery is an **optional Claude Code-only capability**, disabled by default. It is controlled by a single canonical setting:
-
-```text
-claude_session_recovery_enabled = false   (default)
-```
-
-The setting lives in `.copilottools/config.json` (synced to client repos by `agent-sync`). Agent Sync is the sole owner: it applies the setting, installs/removes hooks, and verifies the result. No other agent or script should modify this setting.
-
-**When OFF (default):** Claude Code does not run any session-recovery scripts, does not create recovery crons, does not check usage windows, and does not gate tools on recovery state. Claude Code's native Auto Continue handles usage-limit continuation. No `.sdlc/session.json` is created for session recovery. Generic SDLC checkpointing via `.sdlc/status.json` and generic cron/scheduling (bot-review-loop, idle-guard, long-operation wakeups) remain fully available.
-
-**When ON:** The existing Claude-specific session/recovery mechanism is active. This is the behavior that was previously universal — now explicitly opt-in and Claude Code only.
-
-### Session Recovery — check the flag before step 1, not after
-
-**Do this check before running anything below, not as something to notice afterward:** the setting
-is OFF by default, and the block below describes what happens only when it is explicitly ON. A
-session that reads "every Claude Code agent must: 1. Run init-session.ps1" without first resolving
-the flag will run it regardless — including its downstream effects (tracker Chrome windows, CDP
-sessions) — for a feature the repository has disabled. `init-session.ps1` itself now also no-ops
-when the flag is off (defense in depth), but do not rely on that alone: resolve the flag first.
-
-```
-pwsh -File .github/scripts/get-copilottools-config.ps1 -Setting claude_session_recovery_enabled
-```
-
-If that prints anything other than `True` (default; also true for the CopilotTools source repo
-itself, and for non-Claude runtimes), **the entire "Mandatory First Step" list below is inactive.**
-Do not run `init-session.ps1`, `resume-session.ps1`, `manage-session-resume.ps1`, or any other
-session-recovery script; do not arm a recovery cron. Continue straight to the actual task. Only when
-the flag reads `True` does the numbered list apply:
-
-### Session Recovery ON — Mandatory First Step
-
-Before reading any other file or taking any action, every **Claude Code** agent must:
+Before reading any other file or taking any action, every agent must:
 
 1. Run `pwsh -File .github/scripts/init-session.ps1` — creates/refreshes `.sdlc/session.json` with `resetsAtUtc` (when the current usage window resets). There is no usage-percentage tracking or polling: no continuous CDP/Chrome fetch, no background watchdog, no per-tool-call check. `resetsAtUtc` only gets a rare live refresh (inside `init-session.ps1` itself) when there is no valid cached window boundary.
-2. **Top-level unfinished work must arm recovery before normal tools, unconditionally — not gated on any usage level:** register the canonical resume command with `manage-session-resume.ps1 -Action SetIntent`, obey its directive, create one one-shot `CronCreate` for `resetsAtUtc + 2 minutes`, verify the job with `CronList`, and record it with `-Action Confirm`. Do not continue merely because the transcript says `Used ScheduleWakeup`; provider listing plus `Confirm` is required. **If the PreToolUse gate denies a call, never answer it by retrying that call** - run `manage-session-resume.ps1 -Action Directive` and execute its `steps` array in order, exactly as written. Those steps are the remedy as literal ordered tool calls with every argument already filled in, and `Confirm` derives the rest, so you only supply the recovery key and the job id `CronList` just reported. Subagents remain schedule-free — the orchestrator owns this **unconditionally, regardless of which tools the subagent happens to have loaded**: a subagent that has loaded `CronCreate`/`CronDelete`/`CronList`/`manage-session-resume.ps1 -Action Confirm|SetIntent|Complete` via the same `ToolSearch` mechanism the orchestrator uses must still never call them for a flow's recovery key — tool availability is not a structural guarantee that a caller is the orchestrator, only the top-level orchestrator session may arm, confirm, or replace a flow's recovery cron. **If the PreToolUse gate denies a subagent's own tool call with this same reset-recovery message anyway** (it cannot tell a subagent's calls apart from the orchestrator's own — both share one session file), the remedy above is still not the subagent's to run, whether or not it could technically load the tools to attempt it. Do not retry it and do not attempt the remedy. Read stays available and Write is available for checkpoint/evidence paths (`.sdlc/`, `docs/qa-evidence/`) even while denied — checkpoint what is done there, then end the turn and return the incomplete result to the parent.
+2. **Top-level unfinished work must arm recovery before normal tools, unconditionally — not gated on any usage level:** register the canonical resume command with `manage-session-resume.ps1 -Action SetIntent`, obey its directive, create one one-shot `CronCreate` for `resetsAtUtc + 2 minutes`, verify the job with `CronList`, and record it with `-Action Confirm`. Do not continue merely because the transcript says `Used ScheduleWakeup`; provider listing plus `Confirm` is required. **If the PreToolUse gate denies a call, never answer it by retrying that call** - run `manage-session-resume.ps1 -Action Directive` and execute its `steps` array in order, exactly as written. Those steps are the remedy as literal ordered tool calls with every argument already filled in, and `Confirm` derives the rest, so you only supply the recovery key and the job id `CronList` just reported. Subagents remain schedule-free — the orchestrator owns this **unconditionally, regardless of which tools the subagent happens to have loaded**: a subagent that has loaded `CronCreate`/`CronDelete`/`CronList`/`manage-session-resume.ps1 -Action Confirm|SetIntent|Complete` via the same `ToolSearch` mechanism the orchestrator uses must still never call them for a flow's recovery key — tool availability is not a structural guarantee that a caller is the orchestrator, only the top-level orchestrator session may arm, confirm, or replace a flow's recovery cron. **If the PreToolUse gate denies a subagent's own tool call with this same reset-recovery message anyway** (it cannot tell a subagent's calls apart from the orchestrator's own — both share one session file), the remedy above is still not the subagent's to run, whether or not it could technically load the tools to attempt it. Do not retry it and do not attempt the remedy. Read stays available and Write is available for checkpoint/evidence paths (`.sdlc/`, `docs/qa-evidence/`) even while denied — checkpoint what is done there, then end the turn and return `GATE: BLOCKED`, `REASON: reset-recovery-unconfirmed` (same convention as the lease-conflict case in item 3) so the orchestrator can re-arm and re-spawn. Checkpoint unfinished work via `.sdlc/status.json` substeps as you go — that checkpoint trail, plus the always-armed cron, is what makes work resumable, not a percentage trip-wire. For SDLC orchestrators, **flow start means invocation, not branch creation**: a `FlowId` is a branch name and does not exist yet during intake, reproduction, BA, or story approval, so arm a `-Type task -ResumeAgent <flow-slash-command>` intent as the first action after `init-session.ps1` and let the later `-Type flow -FlowId <branch>` call promote it — the manager retires the placeholder and re-attaches its cron as `staleJobId`, so the directive comes back as `replace` and the usual CronDelete → CronCreate → Confirm completes the handover.
 3. **Flow lease (enforced):** every flow carries a 15-minute lease enforced by `update-sdlc-status.ps1`. Capture your `sessionId` once at flow start and pass `-SessionId` on every status write. At flow start/resume/wakeup: `-Lease check -SessionId <yours>`; exit 0 → `-Lease acquire` and proceed; exit 2 → another session is live — do not touch the flow; schedule a fresh wakeup (~15 min) or ask the user. Use `-Lease acquire -TakeOver` only on an explicit user handoff. A status write rejected with exit 2 means the lease was lost — stop immediately, cancel your own scheduled wakeups/cron jobs for the flow, report the handoff in one line. Before asking the user a blocking question, run `-Lease renew -WaitingForUser` — a waiting lease never expires and can only be displaced by an explicit `-TakeOver`; when the answer arrives, re-run `-Lease check` before acting (the next status write clears the mark). A session hitting a waiting lease reports the pending question to the user instead of scheduling retry wakeups. Run `-Lease release` at flow completion and when checkpointing for a long sleep. Subagents never take over; on exit 2 they return `GATE: BLOCKED`, `REASON: lease-conflict`.
 4. **Recovery and user-wait guard:** unfinished top-level work keeps one verified reset cron, waiting on the user or not. Before `AskUserQuestion`, mark the lease `WaitingForUser` and suspend (this only records the pending question — it does not touch the cron). Waiting for user input is normal, never `blocked`, and does not exempt the flow from needing a current, confirmed cron: if the window rolls over during the wait, a rearm is required exactly as it would be for active work. On reply, clear waiting state and re-read SDLC state; rearm only if the directive shows the cron went stale during the wait. The PreToolUse gate denies ordinary work while a registered intent lacks a confirmed current-window cron, and the Stop hook refuses to end the turn on one, so an unarmed flow is stopped rather than losing its recovery silently. If the gate reports the due time has already passed, the window boundary is stale: run `init-session.ps1` (exempt from the gate for exactly that reason) rather than arming another cron against the same dead reset. If scheduling fails, retry once then record the manual fallback without claiming automatic recovery.
 5. After ANY wakeup, auto-resume, or session restore: re-read `.sdlc/status.json` (steps, substeps, `lastUpdatedUtc`) and re-derive the entry step from the flow's resume table before acting — never resume from wakeup reason text, conversation memory, or `checkpoint.currentStep` alone; another session (possibly another account) may have advanced the flow while this one slept.
 
 This applies whether the agent is invoked inside an orchestrator flow or independently by the user.
 
-### Exemptions
+**One exemption: `agent-sync`.** It skips this entire section — no `init-session.ps1`, no usage or reset-time lookup, no recovery cron, no `.sdlc/status.json` checkpoint, no lease, no `check-tracking-preflight.ps1`. Agent Sync installs the session-tracking stack; it does not run on it, and gating a short idempotent file copy behind Chrome launches and account questions cost more than the interruption it was protecting against. An interrupted sync is recovered by re-running it. No other agent has this exemption.
 
-**`agent-sync`** is always exempt — no `init-session.ps1`, no usage or reset-time lookup, no recovery cron, no `.sdlc/status.json` checkpoint, no lease, no `check-tracking-preflight.ps1`. Agent Sync installs the session-tracking stack; it does not run on it. No other agent has this exemption.
-
-**CopilotTools source repository:** When `.agenttools-source` exists at the repo root, the entire session-recovery stack is skipped regardless of the setting.
-
-**Non-Claude runtimes (OpenCode, Codex, Copilot, Gemini, other CLI agents):** Session recovery is a Claude Code-only capability. Non-Claude runtimes never consume session-recovery scripts, never create recovery crons, and never gate on session state. They use generic SDLC checkpointing (`.sdlc/status.json`) and generic scheduling (bot-review-loop, idle-guard) as needed.
-
-**When OFF:** The entire "Session Recovery ON" section above is inactive. Agents skip `init-session.ps1`, do not arm recovery crons, and do not gate on session recovery state. The flow lease (item 3) and SDLC checkpoint patterns remain available as generic SDLC infrastructure — they are not session-recovery-specific.
+This exemption is **mechanically enforced**, not just documented: `check-session-before-tool.ps1` allows a subagent spawn whose prompt opens with `/agent-sync`, plus the sync/setup toolchain commands themselves, so a sync still runs when an unrelated flow on the same branch has unarmed or stale recovery. Agent Sync therefore never needs to arm a cron, acquire a lease, resolve another flow's recovery state, or switch branches to get itself unblocked — if a sync appears blocked by flow machinery, that is a bug in the gate, not a state the agent should try to satisfy. Outward-facing git (`push`, `commit`, `merge`) stays gated for it exactly as for everyone else, which is consistent with Agent Sync never committing.
 
 ## Core Principles
 
@@ -213,6 +174,7 @@ This applies whether the agent is invoked inside an orchestrator flow or indepen
 - Do not create persistent handoff or prompt artifact files such as `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, `CODE_REVIEW_HANDOFF_*.md`, or chat handoff markdown files unless the user explicitly asks for a file. Return handoffs in chat output or handoff buttons instead.
 - If a handoff/prompt artifact file is created accidentally, remove it before final output and return the same handoff content in chat or a handoff button. Do not report success while forbidden handoff artifacts remain in the worktree.
 - Real product, test, or helper scripts are allowed when required by the requested implementation or validation; do not create script-like prompt files just to pass instructions between agents.
+- Do not reference user story numbers, acceptance criteria identifiers, SDLC step names, or internal tracking IDs in code comments, commit messages, or PR descriptions.
 
 ## Validation Rules
 
@@ -244,32 +206,17 @@ This applies whether the agent is invoked inside an orchestrator flow or indepen
 
 ## Session Recovery Rules
 
-Claude session recovery is optional, Claude Code only, and disabled by default (`claude_session_recovery_enabled = false` in `.copilottools/config.json`). When OFF, no session-recovery scripts run, no recovery crons are created, and no tools are gated on recovery state. Generic SDLC checkpointing and scheduling remain available.
+Every agent must keep unfinished work checkpointed and its reset-recovery cron armed. See the **MANDATORY FIRST STEP** section above and `.github/skills/shared/operational-rules.md` for the authoritative rules.
 
-When enabled (explicit opt-in):
+Summary:
 - No usage-percentage tracking or polling — `resetsAtUtc` comes from `init-session.ps1`'s rare live refresh, not continuous checks.
 - Unfinished top-level work keeps one verified reset cron, always — recovery arming does not depend on any usage level, and waiting on the user does not exempt it either.
 - On new session: run `pwsh -File .github/scripts/resume-session.ps1` to detect and auto-resume from checkpoint.
-- `agent-sync` is exempt from all of the above — it owns the setting and installs/removes the recovery wiring.
+- `agent-sync` is exempt from all of the above — see the exemption note in **MANDATORY FIRST STEP**.
 - Full workflow: `.github/skills/session-limit-tracking/SKILL.md`.
-
-Non-Claude runtimes (OpenCode, Codex, Copilot, Gemini, etc.) never consume session-recovery scripts.
 
 ## Git Rules
 
-- **CopilotTools-synced paths never get a direct fix in a client repository.** Before staging or
-  committing any change to a path under `.github/agents/`, `.github/skills/`, `.github/tools/`,
-  `.github/scripts/`, `.github/hooks/`, `.githooks/`, `.claude/commands/`, `.claude/settings.json`,
-  `.opencode/commands/`, `.opencode/agents/`, `opencode.jsonc`, `.mcp.json`, or `.copilottools/` in a
-  **client** repository (a repo without a `.agenttools-source` marker), stop: that content is owned by
-  CopilotTools and is overwritten by the next `agent-sync`, so a fix committed here is silently lost
-  and never reaches the other repos it is synced into. This applies regardless of which flow
-  discovered the defect — an accepted PR review-bot comment, a code-review or quality-gate fix cycle,
-  or any other in-flight step. Route the fix through `/tools-fix` instead: it edits the CopilotTools
-  source checkout directly, validates, pushes to CopilotTools `main`, and offers to sync the result
-  back into the current worktree so the running flow can pick it up. The one exception is the
-  CopilotTools repository's own session (where `.agenttools-source` exists) — there, edits to these
-  paths are the normal, direct way of working.
 - Use clear commit messages in past tense.
 - Commit only relevant files.
 - Do not rewrite history unless explicitly requested.
@@ -441,4 +388,4 @@ A task is done when all points are true:
 ### Update-SDLC Status
 - Never invoke `.github/scripts/update-sdlc-status.ps1` using positional shorthand (e.g., `steps.story.status ready`).
 - Always use named parameters (`-FlowId`, `-Branch`, `-Step`, `-Status`, plus required step-specific parameters).
-<!-- END AGENT SYNC -->
+<!-- END COPILOT SYNC -->
