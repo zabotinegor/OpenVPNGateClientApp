@@ -20,8 +20,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
         exit 1
       fi
-      # git invokes pre-push with the destination remote name as $1.
-      remote_name="${1:-origin}"
+      # Derive the remote name from the branch's tracking config rather than
+      # hard-coding 'origin', so the hook works for non-default remotes.
+      branch_name="${remote_ref#refs/heads/}"
+      remote_name=$(git config --get "branch.$branch_name.remote" 2>/dev/null || echo "origin")
       if [ "$local_sha" = "$zero" ]; then
         # Deleting dev: use remote_sha directly (the actual remote tip from
         # the push) rather than resolving a potentially stale local tracking
