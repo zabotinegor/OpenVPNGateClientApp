@@ -60,7 +60,6 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -152,9 +151,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var sessionAttempt: Int = 0
     private var currentAttemptStartMs: Long = 0L
     private var currentAttemptStartElapsedRealtimeMs: Long = 0L
-    private val connectionAttemptGeneration = AtomicInteger(0)
-
-    @Volatile private var reconnectDispatchPendingGeneration: Int = -1
+    // See ReconnectDispatchGuard's class-level KDoc for the state machine this replaces (six
+    // interacting fields layered on across ClickUp 86cb35fbt's 17 fix cycles), the LEVEL_VPNPAUSED
+    // decoupling exception (QG8-1), and why the enqueue-point window class (QG8-4) is closed.
+    private val reconnectDispatchGuard = ReconnectDispatchGuard()
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -491,7 +491,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         ignoreConnectedUntilNotConnected = false
         userInitiatedStop = false
-        connectionAttemptGeneration.incrementAndGet()
+        reconnectDispatchGuard.beginNewAttempt()
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
@@ -806,10 +806,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 currentAttemptStartMs = watchdogNowMs()
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
-                val attemptGeneration = connectionAttemptGeneration.incrementAndGet()
+                val attemptGeneration = reconnectDispatchGuard.beginNewAttempt()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
                 if (isReconnect) {
-                    reconnectDispatchPendingGeneration = attemptGeneration
+                    reconnectDispatchGuard.armPending(attemptGeneration)
                 }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -836,16 +836,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     val dispatchGeneration = attemptGeneration
                     statusHandler.postAtTime(Runnable {
                         fun clearMarkerIfOwn() {
-                            if (reconnectDispatchPendingGeneration == dispatchGeneration) {
-                                reconnectDispatchPendingGeneration = -1
-                            }
+                            reconnectDispatchGuard.clearPendingIfOwnedBy(dispatchGeneration)
                         }
                         if (userInitiatedStop || serviceDestroyed) {
                             clearMarkerIfOwn()
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
                             return@Runnable
                         }
-                        if (connectionAttemptGeneration.get() != dispatchGeneration) {
+                        if (reconnectDispatchGuard.currentGeneration != dispatchGeneration) {
                             clearMarkerIfOwn()
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
                             return@Runnable
@@ -875,7 +873,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
-                    connectionAttemptGeneration.incrementAndGet()
+                    reconnectDispatchGuard.beginNewAttempt()
                     // Sweep the reconnect engine-dispatch token too (defence in depth alongside the
                     // generation bump above) -- see reconnectEngineDispatchToken's declaration comment.
                     statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
@@ -2122,9 +2120,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // While a reconnect engine-dispatch buffer is pending for the current generation, no new
         // engine process has been asked to start yet, so any level received right now is
         // necessarily a stray delivery from the just-stopped previous engine -- forwarding it would
-        // let it skip the selected server without ever trying it. See
-        // reconnectDispatchPendingGeneration's declaration comment.
-        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+        // let it skip the selected server without ever trying it. See ReconnectDispatchGuard's
+        // class-level KDoc.
+        if (reconnectDispatchGuard.isBufferPendingForCurrentGeneration()) {
             AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
             return
         }
@@ -2139,10 +2137,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             false
         }
         // Snapshot the attempt generation valid right now, at the moment this level was received --
-        // see connectionAttemptGeneration's declaration comment. If a fresh ACTION_START bumps the
-        // live counter before the runnable below actually executes, the mismatch proves a newer
-        // attempt has begun since this dispatch was queued.
-        val dispatchedForGeneration = connectionAttemptGeneration.get()
+        // see ReconnectDispatchGuard's class-level KDoc. If a fresh ACTION_START bumps the live
+        // counter before the runnable below actually executes, the mismatch proves a newer attempt
+        // has begun since this dispatch was queued.
+        val dispatchedForGeneration = reconnectDispatchGuard.currentGeneration
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
@@ -2154,17 +2152,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // ACTION_START clears it back to false as part of starting the new attempt, even
             // though this dispatch was queued for a now-superseded attempt. A generation mismatch
             // means exactly that happened, so skip unconditionally regardless of the flag above.
-            if (connectionAttemptGeneration.get() != dispatchedForGeneration) return@Runnable
+            if (reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) return@Runnable
             // Re-evaluate the same suppression predicate checked above, but here at execution time
-            // rather than trusting the capture-time read: reconnectDispatchPendingGeneration and
-            // connectionAttemptGeneration are updated by two separate statements in ACTION_START, so
-            // a level captured strictly between the generation bump and the marker arm can observe
-            // a torn (marker=stale, generation=G) snapshot and evade suppression at the earlier
-            // check. This Runnable always executes on statusHandler's main looper -- the same
-            // thread that owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) --
-            // so if onStartCommand() has since armed the marker to match the live generation, this
+            // rather than trusting the capture-time read (R19-1): a level captured strictly between
+            // ReconnectDispatchGuard's generation bump and its marker arm can observe a torn
+            // (marker=stale, generation=G) snapshot and evade suppression at the earlier check.
+            // This Runnable always executes on statusHandler's main looper -- the same thread that
+            // owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) -- so if
+            // onStartCommand() has since armed the marker to match the live generation, this
             // catches it even though the capture-time check could not.
-            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+            if (reconnectDispatchGuard.isBufferPendingForCurrentGeneration()) {
                 AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
                 return@Runnable
             }

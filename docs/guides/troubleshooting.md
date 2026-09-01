@@ -1555,6 +1555,57 @@ toggling while connected, producing four genuine stop-then-restart cycles in ~4.
 server in the test country was genuinely attempted, none was silently skipped, no stuck-Connecting
 state was observed, and no crash or ANR occurred anywhere in a 238k-line logcat sweep.
 
+### Addendum (fix-cycle 23, ClickUp 86cb5y61z): the two fields extracted into one testable class
+
+**Status: DONE.** Quality gate 8's QG8-3 escalation (six interacting guards, ~1 defect per guard
+across fix-cycles 9-22) was addressed by extracting `connectionAttemptGeneration` and
+`reconnectDispatchPendingGeneration` -- the two fields at the center of the reconnect-dispatch
+defect family (R7-1, R9-1, R14-1, R16-1, R18-1, R19-1, R20-1, R21-1) -- into a dedicated
+`ReconnectDispatchGuard` class
+(`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuard.kt`) with
+an explicit `State` enum (`IDLE` / `BUFFER_PENDING`) and named methods (`beginNewAttempt()`,
+`armPending()`, `clearPendingIfOwnedBy()`, `isBufferPendingForCurrentGeneration()`) replacing every
+direct field read/write across `OpenVpnService.kt`'s ~14 call sites. The other four guards named in
+QG8-3 (`retryCommitInFlight`, `waitingStopForRetry` in `ServerAutoSwitcher.kt`, `isInstanceAlive`,
+`rollBackFailedRetryDispatch`) are a separate subsystem with its own guard rationale, cited in QG8-3
+as historical context for why this class of bug recurred, not as fields sharing statement-level
+coupling with the two extracted here -- they are out of this story's scope.
+
+The class's own KDoc is now the authoritative design record for the two items quality gate 8 flagged
+as documentation gaps:
+
+- **QG8-1 (`LEVEL_VPNPAUSED` decoupling exception):** the class-level KDoc's "The LEVEL_VPNPAUSED
+  decoupling exception" section names the exact chain -- `startUserStopTeardown()`'s marker sweep
+  without a generation bump, a stale `LEVEL_VPNPAUSED` clearing `ignoreConnectedUntilNotConnected`
+  as a side effect of being ignored, then a stale `LEVEL_CONNECTED` clearing `userInitiatedStop`
+  with no bump of its own -- explicitly, replacing the prior comment's overclaim that the latch is
+  benign "because `userInitiatedStop` is true throughout the latched interval" for all four sweep
+  sites.
+- **QG8-4 (enqueue-point window):** already closed structurally by fix-cycles 18-22 (see the
+  addendum above), not merely re-narrowed by this extraction. The class's "The enqueue-point window
+  (QG8-4) -- CLOSED, not merely narrowed" section records the `:1189`-era early-return hazard
+  analysis (why arming the marker before the blank-config early return would create a worse,
+  permanently-latching defect, per gate-9's mutation proof) alongside why the execution-time
+  re-check (R19-1) closes the window CLASS independently of any one call site's exact statement
+  ordering.
+
+`OpenVpnServiceReconnectEngineDispatchTest.kt`'s fix-cycle-16/17 acceptance tests
+(`strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer`,
+`overlappingReconnectBuffers_earlierBufferResolutionDoesNotClearNewerBuffersGuard`) were re-anchored
+per QG8-2: each now also asserts the capture-time suppression log line
+(`"...while reconnect engine-dispatch buffer is pending"`) fired, not just the outcome
+(`hasEngineStartLog()`), so a mutation that reverts the guard AND stubs
+`ServerAutoSwitcher.onEngineLevel()` inert simultaneously (gate-8's Probe B) now fails both
+assertions independently instead of passing vacuously on the log-line one. A new
+`ReconnectDispatchGuardTest.kt` covers the extracted class's own state transitions directly, with
+no `Robolectric`/`OpenVpnService` instance required -- the literal "unit-testable transitions"
+acceptance criterion.
+
+Every reflection-based test that previously reached into `OpenVpnService`'s own
+`connectionAttemptGeneration`/`reconnectDispatchPendingGeneration` fields now reaches one hop
+further, into the `reconnectDispatchGuard` field's own `attemptGeneration`/`pendingGeneration`
+fields, preserving each test's exact prior semantics.
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
@@ -1603,14 +1654,16 @@ state was observed, and no crash or ANR occurred anywhere in a 238k-line logcat 
   (`onStartCommand`, `foregroundNotificationVisible`, `showNotification`) — read-only; do not edit
   incidentally, see `docs/conventions/engine-submodule.md`.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
-  (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`,
-  `connectionAttemptGeneration`, `reconnectDispatchPendingGeneration`, `engineConnection`,
-  `requestStopIcsOpenVpn`, `finishStopFlowConfirmed`)
+  (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`, `reconnectDispatchGuard`,
+  `engineConnection`, `requestStopIcsOpenVpn`, `finishStopFlowConfirmed`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuard.kt` --
+  the extracted state machine (fix-cycle 23, 86cb5y61z)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuardTest.kt`
 - ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-22; tech-debt follow-up
   [86cb5y61z](https://app.clickup.com/t/86cb5y61z) (guard extraction into an explicit, testable
-  state machine; an interleaving-driven test harness; the remaining minor/deferred findings from
-  reviews 19-22 and quality gate 11)
+  state machine -- DONE, fix-cycle 23; an interleaving-driven test harness and the remaining
+  minor/deferred findings from reviews 19-22 and quality gate 11 remain open follow-up items)
 
 ---
 

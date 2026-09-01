@@ -2782,8 +2782,11 @@ class OpenVpnServiceStatusSyncTest {
             // going through onStartCommand.
             // R20-1 (fix-cycle 21): connectionAttemptGeneration is now an AtomicInteger, not a
             // plain Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch
-            // the existing AtomicInteger instance and mutate it in place instead.
-            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(1)
+            // the existing AtomicInteger instance and mutate it in place instead. Fix-cycle 23
+            // (86cb5y61z): the generation counter now lives on the extracted
+            // ReconnectDispatchGuard, reached via one extra reflection hop.
+            val reconnectDispatchGuard = ReflectionHelpers.getField<ReconnectDispatchGuard>(service, "reconnectDispatchGuard")
+            ReflectionHelpers.getField<AtomicInteger>(reconnectDispatchGuard, "attemptGeneration").set(1)
 
             // Race step 2: the main thread runs the REAL user-stop sweep via a genuine ACTION_STOP
             // intent (startUserStopTeardown()), which sets userInitiatedStop=true and cancels
@@ -2825,7 +2828,7 @@ class OpenVpnServiceStatusSyncTest {
             // ACTION_START mutates for this purpose (see onStartCommand's ACTION_START branch),
             // for the same Robolectric-FGS reason as step 0 above.
             ReflectionHelpers.setField(service, "userInitiatedStop", false)
-            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(2)
+            ReflectionHelpers.getField<AtomicInteger>(reconnectDispatchGuard, "attemptGeneration").set(2)
 
             // Prime the NEW attempt's OWN switch timer with a genuinely fresh CONNECTING callback
             // on the main/test thread (dispatched synchronously, generation 2 matches generation
