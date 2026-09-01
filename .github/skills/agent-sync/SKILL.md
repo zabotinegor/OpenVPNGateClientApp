@@ -1,6 +1,6 @@
 ---
 name: agent-sync
-description: "Mirror-sync agent customization assets, Claude slash commands, and OpenCode agents/commands from the latest zabotinegor/CopilotTools main commit into a target repository with deterministic stale-file deletion, exact-path .gitignore policy, and verification reporting."
+description: "Mirror-sync Copilot customization assets and Claude slash commands from the latest zabotinegor/CopilotTools main commit into a target repository with deterministic stale-file deletion, exact-path .gitignore policy, and verification reporting."
 argument-hint: "what should be synced from CopilotTools and to which target paths"
 ---
 
@@ -14,16 +14,16 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 
 ## When to use
 
-- Mirror-sync agents, skills, tools, scripts, hooks, Claude slash commands, and OpenCode agents/commands into another repository.
+- Mirror-sync Copilot agents, skills, tools, scripts, Copilot/Claude hooks, Git hooks, or Claude slash commands into another repository.
 - Reconcile stale synced files in a target repository.
 - Update target `.gitignore` entries for synced non-agent-sync files.
-- Add target `.gitignore` entries for transient agent handoff/prompt artifacts, runtime `.sdlc/status.json`, `.sdlc/operations/`, `.claude/launch.json`, and `.claude/settings.local.json`.
+- Add target `.gitignore` entries for transient Copilot handoff/prompt artifacts, runtime `.sdlc/status.json`, `.sdlc/operations/`, `.claude/launch.json`, and `.claude/settings.local.json`.
 - Propagate universal agent governance rules from CopilotTools into client repo `AGENTS.md` without overwriting client-specific content.
 
 ## Expected input
 
 - Target repository/worktree.
-- Requested sync scope or default scope (`.github/agents`, `.github/skills`, `.github/tools`, `.github/scripts`, `.github/hooks`, `.githooks`, `.claude/commands`, `.claude/settings.json`, `.opencode/commands`, `.opencode/agents`, `opencode.jsonc`).
+- Requested sync scope or default scope (`.github/agents`, `.github/skills`, `.github/tools`, `.github/scripts`, `.github/hooks`, `.githooks`, `.claude/commands`, `.claude/settings.json`).
 - Any paths that must be excluded from sync.
 
 ## Blocking gates
@@ -34,8 +34,8 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 - Verify the target branch/worktree state before changing files.
 - Agent Sync works exclusively in the current branch — never creates, switches to, or checks out a different branch, including `main`/`dev`. The sync must apply to whatever branch is currently checked out, no exceptions.
 - Agent Sync never commits, stages, or pushes — it only syncs file contents into the working tree. The user commits when ready.
-- If `sync-agent-assets.ps1` (or any sync step) fails for any reason, do not work around it by creating a branch, committing, or pushing. Report the exact error and stop — creating a branch to route around a blocker is itself a violation of the two rules above.
-- Protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) are blocked from full-file sync by default and require explicit user approval plus script flag `-AllowRootMdSync`. Exception: the script always injects the universal governance section from `.github/skills/shared/agents-core-rules.md` into a target `AGENTS.md` that already exists, using `<!-- BEGIN AGENT SYNC --> … <!-- END AGENT SYNC -->` markers — client content outside the markers is never modified.
+- If `sync-copilot-assets.ps1` (or any sync step) fails for any reason, do not work around it by creating a branch, committing, or pushing. Report the exact error and stop — creating a branch to route around a blocker is itself a violation of the two rules above.
+- Protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) are blocked from full-file sync by default and require explicit user approval plus script flag `-AllowRootMdSync`. Exception: the script always injects the universal governance section from `.github/skills/shared/agents-core-rules.md` into a target `AGENTS.md` that already exists, using `<!-- BEGIN COPILOT SYNC --> … <!-- END COPILOT SYNC -->` markers — client content outside the markers is never modified.
 - Do not delegate sync execution or comparison to a subagent. Run Agent Sync in the current chat because subagents may not receive terminal tools or the target workspace context.
 - Do not run sync through VS Code task labels or other task launchers. For Agent Sync, use `run_in_terminal` first and `runCommands` second for foreground PowerShell. Task launchers are not reliable for required sync because cancellation/completion may not return script output, source SHA, file counts, or exit code.
 - Do not infer that terminal execution is unavailable. Report terminal/command execution unavailable only after an actual terminal-capable tool call fails with an unavailable-tool/capability error.
@@ -45,25 +45,25 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 
 1. Read `AGENTS.md`, `.github/AGENTS-REGISTRY.md`, and target worktree state. Confirm the current branch and proceed — do not create or switch branches.
 2. Resolve the latest source commit SHA from the configured `SourceRepo`/`SourceRef`.
-3. Prefer `.github/scripts/sync-agent-assets.ps1`; perform manual mirror-sync only after real failures of `run_in_terminal` and `runCommands` prove direct script execution is unavailable.
+3. Prefer `.github/scripts/sync-copilot-assets.ps1`; perform manual mirror-sync only after real failures of `run_in_terminal` and `runCommands` prove direct script execution is unavailable.
    Run the script with `run_in_terminal` first (foreground PowerShell), not as a VS Code task:
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-agent-assets.ps1 -DryRun`
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-copilot-assets.ps1 -DryRun`
    If `run_in_terminal` is unavailable, retry the same command with `runCommands`.
    Keep root markdown protection enabled by default; include `-AllowRootMdSync` only when user explicitly approved syncing protected root markdown files.
    Then run the apply command only after reviewing the dry-run JSON:
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-agent-assets.ps1`
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-copilot-assets.ps1`
 4. If direct script execution is unavailable, use manual fallback through authenticated GitHub connector/API tools at the resolved source revision; compare source and target assets in scope by relative path and content. Do not use unauthenticated browser pages as source evidence for private repositories.
    **HARD STOP — manual fallback is GitHub connector/API tools only.** When `run_in_terminal` and `runCommands` are unavailable, never attempt `git clone`, `git sparse-checkout`, or any other git command as a substitute. Those require terminal access that has already failed. Use only read/search/edit tools plus authenticated GitHub connector/API calls (e.g. `github/get_file_contents`) to retrieve and compare source files at the resolved commit SHA.
 5. Verify differences before editing, especially frequently changed agent/skill files.
 6. Apply add/update/delete operations only inside the agreed sync scope.
-7. Delete target files in scope that do not exist in source, except paths containing `agent-sync` or `sync-agent-assets`.
-8. Update target root `.gitignore` with exact synced file paths, excluding paths containing `agent-sync` or `sync-agent-assets`.
-   **Rebuild the whole managed block from the full in-scope source file list — never append only the files this run happened to touch.** The block is regenerated wholesale between the `# BEGIN synced-agent-assets` / `# END synced-agent-assets` markers; a run that adds new scripts but leaves the block at its previous contents produces exactly the observed failure mode — freshly synced scripts sitting untracked in the client repo, showing up as local changes in every git client.
+7. Delete target files in scope that do not exist in source, except paths containing `agent-sync` or `sync-copilot-assets`.
+8. Update target root `.gitignore` with exact synced file paths, excluding paths containing `agent-sync` or `sync-copilot-assets`.
+   **Rebuild the whole managed block from the full in-scope source file list — never append only the files this run happened to touch.** The block is regenerated wholesale between the `# BEGIN synced-copilot-assets` / `# END synced-copilot-assets` markers; a run that adds new scripts but leaves the block at its previous contents produces exactly the observed failure mode — freshly synced scripts sitting untracked in the client repo, showing up as local changes in every git client.
    **This step is mandatory on the manual-fallback path too.** It is the step most easily lost when files are copied with edit tools instead of the script, because it is the only one with no per-file edit to prompt it. After finishing the copies, enumerate every in-scope source path and write the block in one pass, then also untrack anything git still tracks despite now being ignored (`git rm --cached <path>`, which leaves the file on disk).
-   **Verify before reporting:** the count of entries in the managed block must equal the number of in-scope synced files minus the `agent-sync`/`sync-agent-assets` exclusions, and `git status` must show no untracked files under the synced scope. Report both numbers.
+   **Verify before reporting:** the count of entries in the managed block must equal the number of in-scope synced files minus the `agent-sync`/`sync-copilot-assets` exclusions, and `git status` must show no untracked files under the synced scope. Report both numbers.
 9. Update target root `.gitignore` with transient artifact ignores for `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, `CODE_REVIEW_HANDOFF_*.md`, `.sdlc/status.json` at any depth, `.sdlc/operations/`, `.claude/launch.json`, and `.claude/settings.local.json` at any depth.
-10. Keep `.github/hooks/`, `.githooks/`, and the protected-branch guard scripts trackable so project-level hooks can work from the client repository default branch.
-11. Verify the source-only root `.agenttools-source` marker was not synchronized; its presence would disable the client-only guards.
+10. Keep `.github/hooks/`, `.githooks/`, and the protected-branch guard scripts trackable so project-level Copilot hooks can work from the client repository default branch.
+11. Verify the source-only root `.copilottools-source` marker was not synchronized; its presence would disable the client-only guards.
 12. Configure target local Git with `core.hooksPath=.githooks` and report whether it was configured, already configured, or unavailable because the target is not a Git worktree.
 13. Report forbidden handoff/prompt artifacts and nested `.sdlc/status.json` files found in the target worktree; do not silently delete them unless the user requested cleanup.
 14. Re-check synced files against the resolved source commit after edits. With manual fallback, verify by content comparison for every changed file and clearly mark script verification as not run.
@@ -97,14 +97,14 @@ Then handle what it reports:
    3. Do not paste it into chat, into a tracked file, or into a shell environment variable — a variable exported in an interactive shell does not reach separately spawned processes, which is where the scripts run.
    4. Re-run `setup-clickup.ps1 -Probe`.
 7. **`token.tracked` FAIL** — the token is in the git index. Tell the user to run `git rm --cached .sdlc/clickup-token`, confirm the ignore rule, and **rotate the token in ClickUp**, since it has been committed.
-8. **`gitignore` FAIL** — re-run the sync; `sync-agent-assets.ps1` rebuilds the transient-artifact block, which covers the config, template, token, and migration map.
+8. **`gitignore` FAIL** — re-run the sync; `sync-copilot-assets.ps1` rebuilds the transient-artifact block, which covers the config, template, token, and migration map.
 9. **`probe.<list>` FAIL with `ITEM_246`** — that List has permanently spent the workspace-lifetime "custom task types" quota and can never accept another new task. Apply the fix in [../shared/clickup-integration.md](../shared/clickup-integration.md#free-plan-limits-exhausted-custom-task-types-quota---separate-from-custom-fields): provision a fresh List directly in the `QA` Folder (never from a template), set its 3-status pipeline explicitly, point the config at the new ID, and re-probe. Leave the exhausted List in place — its existing tasks stay valid.
 10. **`statuses.<list>` FAIL** — a configured status name does not exist on the board, so every push of that key would be rejected at runtime. The check prints the board's actual names; correct the config to match exactly.
 11. **Report the resolved mode** so the user knows which workflow the synced skills will take.
 
 ## Output format
 
-Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by agent, Claude, and branch-guard asset types), stale-file deletion status, `removedDeadHooks` (hook entries dropped from `.claude/settings.json` because the `.github/scripts/` file they invoke no longer exists — name each one, since a retired hook that survives a merge looks configured and guards nothing), `agentsCoreRulesInjection` action for the `AGENTS.md` governance section (added-markers, replaced-section, no-change, or skipped), post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions.
+Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by Copilot, Claude, and branch-guard asset types), stale-file deletion status, `removedDeadHooks` (hook entries dropped from `.claude/settings.json` because the `.github/scripts/` file they invoke no longer exists — name each one, since a retired hook that survives a merge looks configured and guards nothing), `agentsCoreRulesInjection` action for the `AGENTS.md` governance section (added-markers, replaced-section, no-change, or skipped), post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions.
 
 Also report the ClickUp setup outcome, taken from `setup-clickup.ps1`'s JSON: `artifactMode` (`clickup` or `local`), overall `status`, and every non-`OK` check with its remediation — at minimum `clickupMcpEntry`, `clickupConfig` (absent, scaffolded, valid, or malformed), `clickupToken` (present, missing, or tracked-by-git), `clickupIgnore`, `clickupStatusNames`, and `clickupListProbe` (per-List pass/fail for every `qa_suites_list`/`qa_cases_list`, naming any List that hit `ITEM_246` and whether it was reprovisioned).
 
@@ -112,7 +112,7 @@ End the ClickUp section with an explicit **"what you must do yourself"** list �
 
 ## Constraints or rules
 
-- Never delete `agent-sync.agent.md`, `.github/scripts/sync-agent-assets.ps1`, or any path containing `agent-sync` or `sync-agent-assets`; update those files only when source differs.
+- Never delete `agent-sync.agent.md`, `.github/scripts/sync-copilot-assets.ps1`, or any path containing `agent-sync` or `sync-copilot-assets`; update those files only when source differs.
 - Never add broad ignore patterns such as `/.github/agents/**`, `/.github/skills/**`, `/.github/tools/**`, or `/.github/scripts/**`.
 - Never hide agent-sync-related files through `.gitignore`.
 - Never hide `.github/hooks/`, `.githooks/`, or protected-branch guard scripts through the managed synced-assets `.gitignore` block.
@@ -139,4 +139,4 @@ End the ClickUp section with an explicit **"what you must do yourself"** list �
 ## References and related skills
 
 - Registry: [../../AGENTS-REGISTRY.md](../../AGENTS-REGISTRY.md)
-- Sync helper: [../../scripts/sync-agent-assets.ps1](../../scripts/sync-agent-assets.ps1)
+- Sync helper: [../../scripts/sync-copilot-assets.ps1](../../scripts/sync-copilot-assets.ps1)
