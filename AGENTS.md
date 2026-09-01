@@ -104,7 +104,7 @@ Update SDLC flow state through `.github/scripts/update-sdlc-status.ps1` using na
 All SDLC handoff and execution outputs must include: what was done, what went wrong or failed (or explicit `none`), what was fixed or changed, evidence, what remains or next actions, and blockers or errors (or explicit `none`). Role-specific extras are allowed.
 
 ## Docs to Link Instead of Rewriting
-- `README.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
+- `docs/DEVELOPMENT.md` for repository layout, prerequisites, signing, media assets, runtime behavior, and release commands.
 - `docs/INDEX.md` for the full technical knowledge-base catalog — flow/behavior docs, bug postmortems, how-to guides, and device QA runbooks. This is the one entry point; read the relevant catalog row rather than re-deriving or re-documenting something the catalog already covers.
 - `PRIVACY_POLICY.md` and `TERMS.md` for user-facing policy text.
 - `LICENSE` and `src/external/OpenVPNEngine/doc/LICENSE.txt` for redistribution and licensing context.

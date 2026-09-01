@@ -9,6 +9,12 @@ Loading is two-tier: **this catalog → the file's own `## Index` → one `##` e
 
 ---
 
+## Project Setup — build and development foundations
+
+| Doc | Covers |
+|---|---|
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Repository layout, tech stack, prerequisites, build configuration, and getting started |
+
 ## Features — how the app behaves
 
 Current behaviour, not change history.

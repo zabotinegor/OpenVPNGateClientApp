@@ -19,6 +19,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 - [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
+- [README language variants and the canonical technical entry point](#readme-language-variants-and-the-canonical-technical-entry-point)
 
 ---
 
@@ -953,3 +954,29 @@ draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400m
 deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
 327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
 to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.
+
+---
+
+## README language variants and the canonical technical entry point
+
+**What changed**
+
+This repository's documentation was split into:
+- **Public README** (user-facing): `README.md` (English) + `README.ru.md` (Russian) + `README.pl.md` (Polish), each with a manual language switcher nav (a plain Markdown line at the top of the file)
+- **Technical entry point** (developer-facing): `docs/DEVELOPMENT.md` carrying all the prior technical build, configuration, and architecture content that lived in the root `README.md`
+
+**Why this matters**
+
+GitHub cannot auto-detect visitor language on static Markdown, so the public README is served in one language; translations live as separate files in the same directory with a manual switcher in the source. Any agent or human adding new developer documentation should direct them to `docs/DEVELOPMENT.md` (or the appropriate `docs/` subdirectory per [docs/INDEX.md](../INDEX.md)) instead of the root README.
+
+**Reference files**
+
+- `README.md` — public, user-facing introduction (English)
+- `README.ru.md` — public translation (Russian)
+- `README.pl.md` — public translation (Polish)
+- `docs/DEVELOPMENT.md` — canonical technical reference (prerequisites, build config, architecture, repository layout)
+- `docs/INDEX.md` — the catalog linking all developer documentation, including the new `docs/DEVELOPMENT.md`
+
+**First documented**
+
+US-25 (`feature/us-25-friendly-readme-and-dev-docs`) — split the single README into friendly public variants + technical development guide.

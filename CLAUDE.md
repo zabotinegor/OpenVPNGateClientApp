@@ -90,7 +90,7 @@ media/     ← app icon/banner assets (submodule)
 
 ## Reference Docs
 
-- [README.md](README.md) — prerequisites, signing, media assets, runtime behavior, release commands
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — prerequisites, signing, media assets, runtime behavior, release commands
 - [AGENTS.md](AGENTS.md) — full agent/contributor operational rules
 - [docs/INDEX.md](docs/INDEX.md) — full technical knowledge-base catalog (flow docs, bug postmortems, how-to guides, device QA runbooks); read this first for anything not covered above
 - Manual QA techniques and device notes are catalogued in [docs/INDEX.md](docs/INDEX.md); per-story QA artifacts live in ClickUp
