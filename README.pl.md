@@ -17,7 +17,7 @@ pomysł świetny, ale oficjalne klienty wydały mi się przestarzałe i niewygod
 zbudować lepszy.
 
 Jedna rzecz, o której warto powiedzieć wprost: ta aplikacja powstała w stylu "vibe-codingu". Opisywałem,
-czego potrzebuję, a większość kodu, testów i dokumentacji napisały asystenty AI — ja natomiast
+czego potrzebuję, a większość kodu, testów i dokumentacji napisali asystenci AI — ja natomiast
 sprawdzałem, kierowałem i wydawałem każdą zmianę. Mimo to jest to prawdziwa, działająca i aktywnie
 rozwijana aplikacja — po prostu powstała w inny sposób niż większość.
 
