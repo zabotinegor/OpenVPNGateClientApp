@@ -1,15 +1,9 @@
 #!/bin/sh
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -f "$root/.copilottools-source" ]; then
+if [ -f "$root/.agenttools-source" ]; then
   exit 0
 fi
-
-# git invokes pre-push with the destination remote's name and URL as $1/$2
-# (see githooks(5)): use the actual remote name for remote-specific lookups
-# below instead of assuming "origin", so this stays correct when pushing to
-# a differently-named remote.
-remote_name="${1:-origin}"
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
@@ -26,48 +20,48 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
         exit 1
       fi
+      # Derive the remote name from the branch's tracking config rather than
+      # hard-coding 'origin', so the hook works for non-default remotes.
+      branch_name="${remote_ref#refs/heads/}"
+      remote_name=$(git config --get "branch.$branch_name.remote" 2>/dev/null || echo "origin")
       if [ "$local_sha" = "$zero" ]; then
-        # Deleting dev: an old archive ref is not enough - require an
-        # archive/archive-dev-* ref at the ACTUAL remote dev tip. Use
-        # remote_sha as reported on stdin for THIS ref (per githooks(5)'s
-        # pre-push input format: "<local ref> <local sha> <remote ref>
-        # <remote sha>"), not a local refs/remotes/<remote>/dev tracking ref.
-        # That tracking ref is only refreshed on fetch and can be stale: if
-        # it still points at an old, already-archived commit A while the
-        # real remote tip has since moved on to a newer, unarchived commit
-        # B, checking the stale local ref would find A's archive and
-        # wrongly allow deleting the real (unarchived) tip B.
-        dev_sha="$remote_sha"
+        # Deleting dev: use remote_sha directly (the actual remote tip from
+        # the push) rather than resolving a potentially stale local tracking
+        # ref.  Require an archive/archive-dev-* ref at that tip so unmerged
+        # dev work can never lose its last remote reference.
         archived_match=""
-        if [ -n "$dev_sha" ] && [ "$dev_sha" != "$zero" ]; then
+        if [ -n "$remote_sha" ]; then
           for sha in $(git for-each-ref --format='%(objectname)' "refs/remotes/$remote_name/archive/archive-dev-*" 2>/dev/null); do
-            if [ "$sha" = "$dev_sha" ]; then
+            if [ "$sha" = "$remote_sha" ]; then
               archived_match=1
               break
             fi
           done
         fi
         if [ -z "$archived_match" ]; then
-          echo "BLOCKED: deleting refs/heads/dev requires an archive/archive-dev-* ref at the current dev tip (${dev_sha:-unknown}); archive dev first (release-flow archive step)." >&2
+          echo "BLOCKED: deleting refs/heads/dev requires an archive/archive-dev-* ref at the current dev tip (${remote_sha:-unknown}); archive dev first (release-flow archive step)." >&2
           exit 1
         fi
       fi
       if [ "$local_sha" != "$zero" ]; then
+        # Recreating dev: the local push must match the current remote main
+        # tip AND an archive must exist at that tip (same guard as deletion).
         main_sha=$(git rev-parse "$remote_name/main" 2>/dev/null || echo "")
         if [ -z "$main_sha" ] || [ "$local_sha" != "$main_sha" ]; then
           echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
           exit 1
         fi
-        # Recreating dev from scratch (remote dev absent, so remote_sha was
-        # zero above) is the same release-flow archive step as deletion, and
-        # must carry the same guarantee: some archive/archive-dev-* ref must
-        # exist, proving a prior dev was actually archived. Without this, the
-        # tip-match check alone widens the narrow release-flow exception into
-        # blanket permission to recreate the protected dev branch from
-        # scratch any time it happens to be missing on the remote.
-        archive_exists=$(git for-each-ref --format='%(objectname)' "refs/remotes/$remote_name/archive/archive-dev-*" 2>/dev/null | head -n 1)
-        if [ -z "$archive_exists" ]; then
-          echo "BLOCKED: recreating refs/heads/dev requires an existing archive/archive-dev-* ref (release-flow archive step); archive the prior dev before recreating it." >&2
+        archived_match=""
+        if [ -n "$main_sha" ]; then
+          for sha in $(git for-each-ref --format='%(objectname)' "refs/remotes/$remote_name/archive/archive-dev-*" 2>/dev/null); do
+            if [ "$sha" = "$main_sha" ]; then
+              archived_match=1
+              break
+            fi
+          done
+        fi
+        if [ -z "$archived_match" ]; then
+          echo "BLOCKED: recreating refs/heads/dev requires an archive/archive-dev-* ref at the current main tip (${main_sha:-unknown}); archive dev first (release-flow archive step)." >&2
           exit 1
         fi
       fi
