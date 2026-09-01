@@ -962,7 +962,7 @@ to `DISCONNECTED` only after the first deadline, pinning the first guard specifi
 **What changed**
 
 This repository's documentation was split into:
-- **Public README** (user-facing): `README.md` (English) + `README.ru.md` (Russian) + `README.pl.md` (Polish), each with a manual language switcher nav in the HTML comments
+- **Public README** (user-facing): `README.md` (English) + `README.ru.md` (Russian) + `README.pl.md` (Polish), each with a manual language switcher nav (a plain Markdown line at the top of the file)
 - **Technical entry point** (developer-facing): `docs/DEVELOPMENT.md` carrying all the prior technical build, configuration, and architecture content that lived in the root `README.md`
 
 **Why this matters**
