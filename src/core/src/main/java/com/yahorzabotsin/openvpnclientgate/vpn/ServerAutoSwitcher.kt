@@ -30,6 +30,20 @@ object ServerAutoSwitcher {
     @Volatile private var timerLevel: ConnectionStatus? = null
     internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
     internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
+    // Fix-cycle 6 (docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md,
+    // F1): a SEPARATE dispatcher from `stopper` above, used only by the blank-config fall-through
+    // below. `stopper` routes through VpnManager.stopVpn() -> OpenVpnService's full user-stop
+    // teardown (startUserStopTeardown()), which unconditionally calls
+    // ConnectionStateManager.updateState(DISCONNECTING) -- correct when the engine is still live
+    // (the no-alternative path below, requestSwitchNow()'s full-cycle-exhausted branch), but wrong
+    // here: the blank-config branch is only reached after the engine has ALREADY reported
+    // LEVEL_NOTCONNECTED, so there is nothing left to tear down and no guaranteed further engine
+    // event to resolve DISCONNECTING back to DISCONNECTED. `idleNotificationStopper` routes through
+    // the pre-existing, already-tested VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE
+    // path instead, which only clears the retained controller foreground notification and stops
+    // the service -- it never touches ConnectionStateManager at all, so it cannot force the
+    // DISCONNECTED -> DISCONNECTING -> (possible STOP_FAILED latch) sequence review-5 proved.
+    internal var idleNotificationStopper: (Context) -> Unit = { ctx -> VpnManager.stopControllerIfIdle(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
     // selected-country server list is empty. The callback must hydrate the list and then
     // invoke the provided completion action on the main thread.
@@ -129,10 +143,9 @@ object ServerAutoSwitcher {
                     // exitControllerForeground()). Clearing only the hint afterward does not undo
                     // either of those -- nothing re-evaluates app state once the hint flips, and
                     // with no retry and no later engine level ever arriving, both the UI state and
-                    // the controller notification would stay latched forever. Mirror the
-                    // no-alternative path (see requestSwitchNow's full-cycle-exhausted branch
-                    // below): reset the cycle, force the state back to DISCONNECTED, and dispatch
-                    // an explicit stop so the controller notification actually clears.
+                    // the controller notification would stay latched forever. Reset the cycle and
+                    // force the state back to DISCONNECTED here, then clear the controller
+                    // notification below.
                     // Copilot PR #140 review (thread PRRT_kwDOONeEXM6ef1jb).
                     cancel(resetCycle = true)
                     try {
@@ -141,11 +154,31 @@ object ServerAutoSwitcher {
                     } catch (e: Exception) {
                         AppLog.w(TAG, "Failed to reset state on blank-config fall-through", e)
                     }
+                    // Fix-cycle 6 (review-5 F1): this branch is NOT a mirror of the no-alternative
+                    // path below (requestSwitchNow()'s full-cycle-exhausted branch), despite an
+                    // earlier fix-cycle claiming otherwise. On the no-alternative path the engine is
+                    // still CONNECTING, so a full stopper()/ACTION_STOP dispatch is correct -- there
+                    // is a live attempt to tear down and a genuine NOTCONNECTED follows to resolve
+                    // OpenVpnService's startUserStopTeardown() DISCONNECTING transition. Here the
+                    // engine has ALREADY reported LEVEL_NOTCONNECTED (that report is the precondition
+                    // for reaching this branch at all), so there is nothing left to tear down and no
+                    // guaranteed further engine event. Routing this through stopper() would force
+                    // ConnectionStateManager.updateState(DISCONNECTING) unconditionally
+                    // (startUserStopTeardown(), OpenVpnService.kt) -- allowedFromDisconnected DOES
+                    // include DISCONNECTING (ConnectionState.kt), so that transition is ACCEPTED, not
+                    // rejected as a no-op as previously (incorrectly) claimed -- and if the engine
+                    // then declines the redundant stop dispatch, state can latch at DISCONNECTING
+                    // with a spurious STOP_FAILED error instead of resolving back to DISCONNECTED.
+                    // idleNotificationStopper() routes through the pre-existing, already-tested
+                    // VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE path instead: it only
+                    // clears the retained controller foreground notification (the state above is
+                    // already correctly DISCONNECTED) and never touches ConnectionStateManager, so it
+                    // cannot reintroduce that latch.
                     try {
-                        AppLog.d(TAG, "Requesting explicit engine stop (blank-config fall-through)")
-                        stopper(appContext)
+                        AppLog.d(TAG, "Requesting controller notification cleanup (blank-config fall-through)")
+                        idleNotificationStopper(appContext)
                     } catch (e: Exception) {
-                        AppLog.w(TAG, "Failed to request engine stop on blank-config fall-through", e)
+                        AppLog.w(TAG, "Failed to request controller notification cleanup on blank-config fall-through", e)
                     }
                 }
             } else {

@@ -30,9 +30,11 @@ class ServerAutoSwitcherTest {
     private val source = "VPN_STATUS"
     private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Unit)? = null
+    private var originalIdleNotificationStopper: ((android.content.Context) -> Unit)? = null
     private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
     private val calls = mutableListOf<Call>()
     private var stopCalls = 0
+    private var idleNotificationStopCalls = 0
 
     @Before
     fun setUp() {
@@ -45,6 +47,8 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1 }
+        originalIdleNotificationStopper = ServerAutoSwitcher.idleNotificationStopper
+        ServerAutoSwitcher.idleNotificationStopper = { _ -> idleNotificationStopCalls += 1 }
         val servers = listOf(
             Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
             Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
@@ -53,12 +57,14 @@ class ServerAutoSwitcherTest {
         SelectedCountryStore.resetIndex(appContext)
         calls.clear()
         stopCalls = 0
+        idleNotificationStopCalls = 0
     }
 
     @After
     fun tearDown() {
         originalStarter?.let { ServerAutoSwitcher.starter = it }
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
+        originalIdleNotificationStopper?.let { ServerAutoSwitcher.idleNotificationStopper = it }
         ServerAutoSwitcher.resetNoReplyThreshold()
         ServerAutoSwitcher.resetRepliedThreshold()
         ServerAutoSwitcher.setProbeRequestQueueForTest(null)
@@ -161,9 +167,27 @@ class ServerAutoSwitcherTest {
     // Pre-fix, cancel(resetCycle = false) never touched the hint, latching reconnectingHint=true with
     // no retry in flight -- which keeps OpenVpnService's reconnectPending guard satisfied and the
     // controller foreground-service notification retained indefinitely. Fixed by explicitly clearing
-    // the hint in the blank-config fall-through branch itself.
+    // the hint, forcing state to DISCONNECTED, and clearing the controller notification in the
+    // blank-config fall-through branch itself.
+    //
+    // Fix-cycle 6 (docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md,
+    // F1/F2/F4): fix-cycle 5's version of this test asserted `stopCalls == 1`, i.e. that the
+    // full stopper() (VpnManager.stopVpn() -> ACTION_STOP -> OpenVpnService's user-stop teardown)
+    // was dispatched, on the claim that the resulting DISCONNECTED -> DISCONNECTING transition
+    // would be rejected as a no-op. Review-5 proved that claim false by direct trace of
+    // ConnectionState.kt's allowedFromDisconnected set (DISCONNECTING IS in it) and by an
+    // empirical probe test -- the transition is accepted, and in the adverse case (engine declines
+    // the redundant stop) settles at a latched DISCONNECTING with a spurious STOP_FAILED error
+    // instead of DISCONNECTED. The assertion below was blind to this because the fake `stopper`
+    // is a bare counter that never runs the real teardown chain (review-5 F2). The fix now routes
+    // this path through the SEPARATE idleNotificationStopper (VpnManager.stopControllerIfIdle() ->
+    // ACTION_STOP_IF_IDLE), which never touches ConnectionStateManager at all -- see
+    // OpenVpnServiceNotificationTest's blankConfigIdleStop_* tests below for real-path coverage of
+    // that specific safety claim (not a fake). This test asserts stopper() (the ACTION_STOP /
+    // DISCONNECTING-capable dispatcher) is NEVER invoked, and idleNotificationStopper is invoked
+    // exactly once.
     @Test
-    fun blankConfigFallThrough_clearsReconnectingHintWithNoRetryInFlight() {
+    fun blankConfigFallThrough_clearsReconnectingHintAndUsesIdleNotificationStopperNotFullStop() {
         val blankConfigServers = listOf(
             Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
             Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
@@ -209,11 +233,20 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.state.value
         )
         assertEquals(
-            "the blank-config fall-through must dispatch an explicit engine stop so the " +
-                "controller's foreground notification actually clears, mirroring the " +
-                "no-alternative path's final controller stop",
-            1,
+            "the blank-config fall-through must NOT dispatch the full stopper() (ACTION_STOP -> " +
+                "OpenVpnService.startUserStopTeardown()) -- that path forces " +
+                "ConnectionStateManager.updateState(DISCONNECTING) unconditionally against an " +
+                "engine that has already stopped, which review-5 F1 proved can latch state at " +
+                "DISCONNECTING with a spurious STOP_FAILED error instead of settling at DISCONNECTED",
+            0,
             stopCalls
+        )
+        assertEquals(
+            "the blank-config fall-through must dispatch idleNotificationStopper() exactly once so " +
+                "the controller's foreground notification actually clears, without going through " +
+                "the full user-stop state machine (review-5 F1 remediation option (b))",
+            1,
+            idleNotificationStopCalls
         )
     }
 

@@ -61,6 +61,72 @@ class OpenVpnServiceNotificationTest {
         assertTrue(shadowOf(service).isStoppedBySelf)
     }
 
+    // Regression test for fix-cycle 6 (docs/qa-evidence/
+    // feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md, F1): ServerAutoSwitcher's
+    // blank-config fall-through now routes its controller-notification cleanup through
+    // VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE (its `idleNotificationStopper`)
+    // instead of the full `stopper()` (VpnManager.stopVpn() -> ACTION_STOP -> OpenVpnService's
+    // user-stop teardown), specifically because the full teardown's startUserStopTeardown()
+    // unconditionally calls ConnectionStateManager.updateState(DISCONNECTING) -- a transition
+    // review-5 proved IS accepted from DISCONNECTED (ConnectionState.kt's allowedFromDisconnected
+    // includes DISCONNECTING), not rejected as a no-op as an earlier fix-cycle incorrectly claimed,
+    // and which can latch state at DISCONNECTING with a spurious STOP_FAILED error if the engine
+    // then declines the redundant stop dispatch.
+    //
+    // This drives the REAL dispatch end to end (VpnManager.stopControllerIfIdle() -> the actual
+    // onStartCommand(ACTION_STOP_IF_IDLE) branch), not a fake stopper counter -- review-5 F2's
+    // complaint about the prior regression test was exactly that a fake stopper can never observe
+    // this class of defect -- and asserts the controller notification is cleared while
+    // ConnectionStateManager never leaves DISCONNECTED, proving the new path's central safety claim
+    // that the old ACTION_STOP-based dispatch got wrong.
+    @Test
+    fun blankConfigIdleStop_realStopControllerIfIdlePath_clearsNotificationWithoutEnteringDisconnecting() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        // Mirrors the state ServerAutoSwitcher's blank-config fall-through has already established
+        // (cancel(resetCycle=true) + setReconnectingHint(false) + updateState(DISCONNECTED)) before
+        // it calls idleNotificationStopper().
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        simulateEnteredControllerForeground(service)
+        assertFalse("Precondition: notification must be posted", shadowNotificationManager.allNotifications.isEmpty())
+
+        Shadows.shadowOf(app).clearStartedServices()
+
+        // The real dispatcher ServerAutoSwitcher.idleNotificationStopper wraps in production.
+        val dispatched = VpnManager.stopControllerIfIdle(app)
+        assertTrue("Precondition: stopControllerIfIdle() must dispatch while state is DISCONNECTED", dispatched)
+
+        val startedIntent = Shadows.shadowOf(app).nextStartedService
+        assertTrue(
+            "Precondition: stopControllerIfIdle() must dispatch ACTION_STOP_IF_IDLE",
+            startedIntent != null &&
+                startedIntent.getStringExtra(VpnManager.actionKey(service)) == VpnManager.ACTION_STOP_IF_IDLE
+        )
+
+        service.onStartCommand(startedIntent, 0, 1)
+
+        assertTrue(
+            "The real ACTION_STOP_IF_IDLE path must clear the retained controller foreground " +
+                "notification, exactly as the fix-cycle-5 blank-config fix intended",
+            shadowNotificationManager.allNotifications.isEmpty()
+        )
+        assertTrue("The real ACTION_STOP_IF_IDLE path must stop the service", shadowOf(service).isStoppedBySelf)
+        assertEquals(
+            "ConnectionStateManager must never leave DISCONNECTED for this path -- unlike the full " +
+                "stopper()/ACTION_STOP path, ACTION_STOP_IF_IDLE's handler never calls " +
+                "updateState() at all, so it cannot force the DISCONNECTED -> DISCONNECTING " +
+                "sequence review-5 F1 proved was reachable from the old dispatch",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+    }
+
     @Test
     fun syncStatusActionExitsControllerForegroundWhenDisconnected() {
         val app: Application = RuntimeEnvironment.getApplication()
