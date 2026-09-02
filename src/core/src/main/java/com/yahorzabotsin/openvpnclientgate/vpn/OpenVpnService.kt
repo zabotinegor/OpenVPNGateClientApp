@@ -173,8 +173,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
     @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
-    // R21-4: written to 0 on the AIDL binder thread (updateStateString, :1383) and
-    // read-increment-written on the main thread inside the snapshot-poll path below (trySyncStatusSnapshot).
+    // R21-4: written to 0 on the AIDL binder thread (the statusCallbacks.updateStateString
+    // callback) and read-increment-written on the main thread inside the snapshot-poll path
+    // below (trySyncStatusSnapshot).
     // Same cross-thread visibility requirement as the other status-tracking fields above.
     @Volatile private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }

@@ -1594,12 +1594,17 @@ as documentation gaps:
 `overlappingReconnectBuffers_earlierBufferResolutionDoesNotClearNewerBuffersGuard`) were re-anchored
 per QG8-2: each now also asserts the capture-time suppression log line
 (`"...while reconnect engine-dispatch buffer is pending"`) fired, not just the outcome
-(`hasEngineStartLog()`), so a mutation that reverts the guard AND stubs
-`ServerAutoSwitcher.onEngineLevel()` inert simultaneously (gate-8's Probe B) now fails both
-assertions independently instead of passing vacuously on the log-line one. A new
-`ReconnectDispatchGuardTest.kt` covers the extracted class's own state transitions directly, with
-no `Robolectric`/`OpenVpnService` instance required -- the literal "unit-testable transitions"
-acceptance criterion.
+(`hasEngineStartLog()`). Under gate-8's Probe B (stubbing `ServerAutoSwitcher.onEngineLevel()` inert
+so nothing cancels the deferred dispatch), `hasEngineStartLog()` stays green **by construction** --
+that half was never at risk. It is the newly added suppression-log assertion that actually fires and
+catches the mutation, which is what converts the test from an outcome-only assertion into a
+mechanism-anchored one. A new `ReconnectDispatchGuardTest.kt` covers the extracted class's own state
+transitions directly, with no `Robolectric`/`OpenVpnService` instance required -- the literal
+"unit-testable transitions" acceptance criterion. A further
+`OpenVpnServiceReconnectDispatchInterleavingHarnessTest.kt` (added fix-cycle 23, independently
+mutation-verified by review round 2) drives the real `onStartCommand()`, the real
+`finishStopFlowConfirmed()` from a genuine background thread, and the real AIDL `statusCallbacks`
+stub across five interleaving scenarios asserting the suppression protocol's composite invariant.
 
 Every reflection-based test that previously reached into `OpenVpnService`'s own
 `connectionAttemptGeneration`/`reconnectDispatchPendingGeneration` fields now reaches one hop
@@ -1660,10 +1665,12 @@ fields, preserving each test's exact prior semantics.
   the extracted state machine (fix-cycle 23, 86cb5y61z)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuardTest.kt`
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectDispatchInterleavingHarnessTest.kt`
 - ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-22; tech-debt follow-up
   [86cb5y61z](https://app.clickup.com/t/86cb5y61z) (guard extraction into an explicit, testable
-  state machine -- DONE, fix-cycle 23; an interleaving-driven test harness and the remaining
-  minor/deferred findings from reviews 19-22 and quality gate 11 remain open follow-up items)
+  state machine -- DONE, fix-cycle 23. The interleaving-driven test harness (QG11-1), QG11-3, R19-4
+  and R21-4 are also DONE as of fix-cycle 23. Only R22-2, R20-3 and R20-5 remain open follow-up
+  items; QG11-2's reachability risk is accepted and documented, not open.)
 
 ---
 
