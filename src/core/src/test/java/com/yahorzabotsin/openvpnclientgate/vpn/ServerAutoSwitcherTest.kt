@@ -179,6 +179,17 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
 
+        // Simulates what OpenVpnService.syncEngineState() already did on the AIDL binder thread,
+        // synchronously and BEFORE this (deferred, main-thread) onEngineLevel callback runs:
+        // ConnectionStateManager.updateFromEngine() maps a terminal AIDL level to DISCONNECTED,
+        // but since reconnectingHint is still true at that moment it re-maps the effective state to
+        // CONNECTING instead (the "chained switch in progress, don't flash DISCONNECTED" rule) --
+        // see ConnectionState.kt's updateFromEngine(). Reproducing that pre-latched state here is
+        // what pins the Copilot PR #140 regression (thread PRRT_kwDOONeEXM6ef1jb): a fall-through
+        // that only cleared the hint left this CONNECTING state with no later engine event ever
+        // arriving to unstick it, since no retry was dispatched and the engine had already stopped.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
 
@@ -188,6 +199,21 @@ class ServerAutoSwitcherTest {
                 "settles with no retry in flight -- otherwise the controller FGS notification is " +
                 "retained with nothing pending to justify it",
             ConnectionStateManager.reconnectingHint.value
+        )
+        assertEquals(
+            "app state must reach a terminal DISCONNECTED, not stay latched at the CONNECTING " +
+                "value syncEngineState()'s updateFromEngine() call had already retained before " +
+                "this fall-through ran -- with no retry and no later engine event, nothing else " +
+                "would ever move it off CONNECTING",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "the blank-config fall-through must dispatch an explicit engine stop so the " +
+                "controller's foreground notification actually clears, mirroring the " +
+                "no-alternative path's final controller stop",
+            1,
+            stopCalls
         )
     }
 

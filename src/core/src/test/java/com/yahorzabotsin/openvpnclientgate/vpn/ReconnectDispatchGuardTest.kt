@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -206,7 +206,13 @@ class ReconnectDispatchGuardTest {
         val threadCount = 64
         val iterationsPerThread = 500
         val expectedTotal = threadCount * iterationsPerThread
-        val returnedValues = CopyOnWriteArrayList<Int>()
+        // CopyOnWriteArrayList copies its entire backing array on every write, making the
+        // 32,000 concurrent adds below quadratic in allocation/copy cost -- expensive enough to
+        // make the 30s timeout flaky on constrained CI workers. Only distinct-value membership is
+        // needed here (see the assertions below), so a concurrent set is a direct, cheaper
+        // drop-in: ConcurrentHashMap.newKeySet() adds are O(1) amortized, no whole-collection copy.
+        // Copilot PR #140 review (thread PRRT_kwDOONeEXM6ef1j0).
+        val returnedValues = ConcurrentHashMap.newKeySet<Int>()
         val startLatch = CountDownLatch(1)
         val doneLatch = CountDownLatch(threadCount)
         val executor = Executors.newFixedThreadPool(threadCount)
@@ -236,7 +242,7 @@ class ReconnectDispatchGuardTest {
                 "No two concurrent callers may observe the same returned generation -- each " +
                     "beginNewAttempt() call must own a distinct value",
                 expectedTotal,
-                returnedValues.toSet().size
+                returnedValues.size
             )
         } finally {
             executor.shutdownNow()

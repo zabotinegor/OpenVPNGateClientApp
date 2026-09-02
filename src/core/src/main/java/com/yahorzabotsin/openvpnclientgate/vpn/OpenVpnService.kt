@@ -60,6 +60,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -176,8 +177,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Written to 0 on the AIDL binder thread (the statusCallbacks.updateStateString callback)
     // and read-increment-written on the main thread inside the snapshot-poll path below
     // (trySyncStatusSnapshot).
-    // Same cross-thread visibility requirement as the other status-tracking fields above.
-    @Volatile private var staleSnapshotCount: Int = 0
+    // @Volatile alone only guarantees cross-thread VISIBILITY of the latest write -- it does not
+    // make `staleSnapshotCount += 1` atomic. That is a genuine read-modify-write: the binder
+    // thread's reset to 0 can land between the main thread's read of the old count and its write
+    // of the incremented value, silently losing the reset. A retained pre-reset count can then
+    // reach the 3-snapshot threshold before a live status callback should have re-armed it (the
+    // grace window this counter exists to gate). AtomicInteger's set()/incrementAndGet() make both
+    // operations atomic with respect to each other, closing that window. Copilot PR #140 review
+    // (thread PRRT_kwDOONeEXM6ef1im).
+    private val staleSnapshotCount = AtomicInteger(0)
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
@@ -1407,7 +1415,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
-            staleSnapshotCount = 0
+            staleSnapshotCount.set(0)
             updateStatusSource(StatusSource.AIDL, "AIDL update")
             logEngineStateChange("AIDL", level, state)
             try {
@@ -1999,9 +2007,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
                 }
-                AppLog.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=${staleSnapshotCount + 1}")
-                staleSnapshotCount += 1
-                if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
+                val staleCount = staleSnapshotCount.incrementAndGet()
+                AppLog.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=$staleCount")
+                if (staleCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
                 }
                 return
@@ -2022,7 +2030,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - ageMs
             }
         }
-        staleSnapshotCount = 0
+        staleSnapshotCount.set(0)
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
         // isAidlFresh() also covers boundToStatus and lastLiveStatusMs > 0 (a live push has ever

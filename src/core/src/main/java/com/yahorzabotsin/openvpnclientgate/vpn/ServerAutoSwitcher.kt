@@ -119,17 +119,33 @@ object ServerAutoSwitcher {
                     return
                 } else {
                     // A blank next.config falls through here instead of dispatching a doomed
-                    // ACTION_START. No retry will be attempted, so clear the hint explicitly rather
-                    // than letting it fall through to the else branch below with
-                    // reconnectingHint still true -- that combination (resetCycle=false via
-                    // shouldKeepCycle) previously latched reconnectingHint=true with no retry in
-                    // flight, keeping OpenVpnService's reconnectPending guard satisfied and the
-                    // controller FGS notification retained until the next unrelated engine level or
-                    // user action.
+                    // ACTION_START. No retry will be attempted, so this branch must complete the
+                    // abort the same way the no-alternative path below does, not merely clear the
+                    // hint: OpenVpnService.syncEngineState() computes reconnectPending and calls
+                    // ConnectionStateManager.updateFromEngine() SYNCHRONOUSLY on the AIDL binder
+                    // thread, before this deferred main-thread callback ever runs (this level was
+                    // captured with reconnectingHint still true, so updateFromEngine() already
+                    // latched the app state at CONNECTING and syncEngineState() already skipped
+                    // exitControllerForeground()). Clearing only the hint afterward does not undo
+                    // either of those -- nothing re-evaluates app state once the hint flips, and
+                    // with no retry and no later engine level ever arriving, both the UI state and
+                    // the controller notification would stay latched forever. Mirror the
+                    // no-alternative path (see requestSwitchNow's full-cycle-exhausted branch
+                    // below): reset the cycle, force the state back to DISCONNECTED, and dispatch
+                    // an explicit stop so the controller notification actually clears.
+                    // Copilot PR #140 review (thread PRRT_kwDOONeEXM6ef1jb).
+                    cancel(resetCycle = true)
                     try {
                         ConnectionStateManager.setReconnectingHint(false)
+                        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
                     } catch (e: Exception) {
-                        AppLog.w(TAG, "Failed to clear reconnecting hint on blank-config fall-through", e)
+                        AppLog.w(TAG, "Failed to reset state on blank-config fall-through", e)
+                    }
+                    try {
+                        AppLog.d(TAG, "Requesting explicit engine stop (blank-config fall-through)")
+                        stopper(appContext)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "Failed to request engine stop on blank-config fall-through", e)
                     }
                 }
             } else {
