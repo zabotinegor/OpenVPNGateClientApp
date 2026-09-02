@@ -2,9 +2,9 @@ param(
     [string]$SourceRepo = 'https://github.com/zabotinegor/CopilotTools.git',
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
-    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.mcp.json'),
-    [string[]]$PreservePattern = @('agent-sync', 'sync-copilot-assets'),
-    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-copilot-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
+    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', 'opencode.jsonc', '.github/runtime-parity.json', '.mcp.json', '.copilottools'),
+    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets'),
+    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
     [string[]]$MergeJsonPaths = @('.claude/settings.json', '.mcp.json'),
     [switch]$DryRun,
     [switch]$AllowRootMdSync
@@ -78,8 +78,8 @@ function Write-AllLinesUtf8WithRetry {
 function Get-SectionFromSourceFile {
     param(
         [string]$SourcePath,
-        [string]$BeginMarker = '<!-- BEGIN COPILOT SYNC -->',
-        [string]$EndMarker = '<!-- END COPILOT SYNC -->'
+        [string]$BeginMarker = '<!-- BEGIN AGENT SYNC -->',
+        [string]$EndMarker = '<!-- END AGENT SYNC -->'
     )
 
     if (-not (Test-Path -LiteralPath $SourcePath)) {
@@ -107,8 +107,8 @@ function Set-FileSectionByMarkers {
     param(
         [string]$TargetPath,
         [string]$SourceSectionPath,
-        [string]$BeginMarker = '<!-- BEGIN COPILOT SYNC -->',
-        [string]$EndMarker = '<!-- END COPILOT SYNC -->',
+        [string]$BeginMarker = '<!-- BEGIN AGENT SYNC -->',
+        [string]$EndMarker = '<!-- END AGENT SYNC -->',
         [switch]$DryRun
     )
 
@@ -132,6 +132,28 @@ function Set-FileSectionByMarkers {
     $beginIdx = $targetLines.IndexOf($BeginMarker)
     $endIdx = $targetLines.IndexOf($EndMarker)
 
+    # Migration: a target last synced before the runtime-agnostic marker
+    # rename (b44b291, '<!-- BEGIN/END COPILOT SYNC -->' -> '.../AGENT SYNC
+    # -->') still carries the OLD marker pair and no new one. Searching only
+    # for the new markers found nothing, treated the file as unmarked, and hit
+    # the 'added-markers' branch below - appending a SECOND, complete
+    # governance section while the legacy-marked one stayed in place untouched
+    # and increasingly stale on every subsequent sync. Fall back to the legacy
+    # markers as the existing section to replace when the new ones are not
+    # present; using them as $beginIdx/$endIdx here means the 'replaced-section'
+    # branch below writes the section back out under the NEW marker names, so
+    # migration happens in this same pass.
+    if ($beginIdx -lt 0 -or $endIdx -lt 0 -or $endIdx -le $beginIdx) {
+        $legacyBeginMarker = '<!-- BEGIN COPILOT SYNC -->'
+        $legacyEndMarker = '<!-- END COPILOT SYNC -->'
+        $legacyBeginIdx = $targetLines.IndexOf($legacyBeginMarker)
+        $legacyEndIdx = $targetLines.IndexOf($legacyEndMarker)
+        if ($legacyBeginIdx -ge 0 -and $legacyEndIdx -gt $legacyBeginIdx) {
+            $beginIdx = $legacyBeginIdx
+            $endIdx = $legacyEndIdx
+        }
+    }
+
     if ($beginIdx -lt 0 -or $endIdx -lt 0 -or $endIdx -le $beginIdx) {
         $newLines = @($targetLines)
         if ($newLines.Count -gt 0 -and $newLines[$newLines.Count - 1] -ne '') {
@@ -145,6 +167,13 @@ function Set-FileSectionByMarkers {
     else {
         $prefix = @($targetLines[0..$beginIdx])
         $suffix = @($targetLines[$endIdx..($targetLines.Count - 1)])
+        # Normalize the marker lines themselves to the canonical (new) names -
+        # a no-op when $beginIdx/$endIdx already pointed at $BeginMarker/
+        # $EndMarker, and the migration step when they came from the legacy
+        # fallback above. Doing it here, in the same write, means a
+        # legacy-marked file only ever needs migrating once.
+        $prefix[$prefix.Count - 1] = $BeginMarker
+        $suffix[0] = $EndMarker
         $newLines = @()
         $newLines += $prefix
         $newLines += $sourceSection
@@ -223,9 +252,11 @@ function Set-ExactGitignoreEntries {
     )
 
     $gitignorePath = Join-Path $Root '.gitignore'
-    $beginMarker = '# BEGIN synced-copilot-assets'
-    $endMarker = '# END synced-copilot-assets'
-    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**')
+    $beginMarker = '# BEGIN synced-agent-assets'
+    $endMarker = '# END synced-agent-assets'
+    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**')
+    $beginMarkers = @('# BEGIN synced-agent-assets', '# BEGIN synced-copilot-assets')
+    $endMarkers = @('# END synced-agent-assets', '# END synced-copilot-assets')
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
         $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
@@ -248,7 +279,7 @@ function Set-ExactGitignoreEntries {
     $next = New-Object System.Collections.Generic.List[string]
     $insideManagedBlock = $false
     foreach ($line in $existing) {
-        if ($line -eq $beginMarker) {
+        if ($line -in $beginMarkers) {
             $insideManagedBlock = $true
             # Drop the separator blank line(s) a previous sync added before the
             # block, so re-syncs do not accumulate blank lines mid-file.
@@ -259,7 +290,7 @@ function Set-ExactGitignoreEntries {
         }
 
         if ($insideManagedBlock) {
-            if ($line -eq $endMarker) {
+            if ($line -in $endMarkers) {
                 $insideManagedBlock = $false
             }
             continue
@@ -290,8 +321,10 @@ function Set-TransientCopilotArtifactGitignoreEntries {
     param([string]$Root)
 
     $gitignorePath = Join-Path $Root '.gitignore'
-    $beginMarker = '# BEGIN transient-copilot-artifacts'
-    $endMarker = '# END transient-copilot-artifacts'
+    $beginMarker = '# BEGIN transient-agent-artifacts'
+    $endMarker = '# END transient-agent-artifacts'
+    $beginMarkers = @('# BEGIN transient-agent-artifacts', '# BEGIN transient-copilot-artifacts')
+    $endMarkers = @('# END transient-agent-artifacts', '# END transient-copilot-artifacts')
     $entries = @(
         '*_HANDOFF*.md',
         '*_PROMPT*.md',
@@ -326,8 +359,8 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         # issue, since two open repairs in one session is ordinary now); the flat
         # file is the pre-dispatch layout, kept so a repo synced before the change
         # does not start tracking a leftover.
-        '/.sdlc/copilottools-source.json',
-        '**/.sdlc/copilottools-source.json',
+        '/.sdlc/agenttools-source.json',
+        '**/.sdlc/agenttools-source.json',
         '/.sdlc/tools-fix/',
         '**/.sdlc/tools-fix/',
         '/.sdlc/tools-fix.json',
@@ -344,7 +377,7 @@ function Set-TransientCopilotArtifactGitignoreEntries {
     $next = New-Object System.Collections.Generic.List[string]
     $insideManagedBlock = $false
     foreach ($line in $existing) {
-        if ($line -eq $beginMarker) {
+        if ($line -in $beginMarkers) {
             $insideManagedBlock = $true
             # Drop the separator blank line(s) a previous sync added before the
             # block, so re-syncs do not accumulate blank lines mid-file.
@@ -355,7 +388,7 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         }
 
         if ($insideManagedBlock) {
-            if ($line -eq $endMarker) {
+            if ($line -in $endMarkers) {
                 $insideManagedBlock = $false
             }
             continue
@@ -476,8 +509,14 @@ function Merge-PsObjects {
 function Get-HookCommands {
     param([pscustomobject]$Settings)
 
+    # Comma-wrap every return: a HashSet written bare to the output stream is
+    # enumerated by the pipeline, so the caller gets loose strings instead of the
+    # set. PowerShell's binder does coerce that array back into a
+    # HashSet[string] for -SourceCommands, but an EMPTY set enumerates to nothing
+    # and arrives as $null, and every non-empty case pays for a rebuilt copy.
+    # Returning the set as a single object keeps the contract exact.
     $commands = New-Object System.Collections.Generic.HashSet[string]
-    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return $commands }
+    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return , $commands }
 
     foreach ($event in @($Settings.hooks.PSObject.Properties)) {
         foreach ($entry in @($event.Value)) {
@@ -489,14 +528,15 @@ function Get-HookCommands {
         }
     }
 
-    return $commands
+    return , $commands
 }
 
 function Remove-DeadHookEntries {
     param(
         [pscustomobject]$Settings,
         [string]$Root,
-        [System.Collections.Generic.HashSet[string]]$SourceCommands
+        [System.Collections.Generic.HashSet[string]]$SourceCommands,
+        [System.Collections.Generic.HashSet[string]]$PendingDeletions
     )
 
     # Hook arrays are merged by union (see Merge-PsObjects) so client-added
@@ -536,8 +576,17 @@ function Remove-DeadHookEntries {
                 $declaredBySource = $null -ne $SourceCommands -and $SourceCommands.Contains($command)
                 $scriptRef = [regex]::Match($command, '(?i)\.github[\\/]scripts[\\/]([A-Za-z0-9._-]+)')
                 if ($scriptRef.Success -and -not $declaredBySource) {
+                    $scriptRelPath = ".github/scripts/$($scriptRef.Groups[1].Value)"
                     $scriptPath = Join-Path $Root (Join-Path '.github/scripts' $scriptRef.Groups[1].Value)
-                    if (-not (Test-Path -LiteralPath $scriptPath)) {
+                    # Stale-file deletion runs BEFORE this merge in a real apply,
+                    # but a dry run leaves the file on disk. Testing only the disk
+                    # made -DryRun report "no dead hooks" for a hook whose script
+                    # the very next real apply deletes - and that apply then also
+                    # rewrote settings.json, a change the mandatory dry-run preview
+                    # never showed. Treat a script already scheduled for deletion
+                    # as gone so preview and apply agree.
+                    $scheduledForDeletion = $null -ne $PendingDeletions -and $PendingDeletions.Contains($scriptRelPath)
+                    if ($scheduledForDeletion -or -not (Test-Path -LiteralPath $scriptPath)) {
                         $removed.Add($command)
                         $entryChanged = $true
                         continue
@@ -561,11 +610,208 @@ function Remove-DeadHookEntries {
     return $removed
 }
 
+function Remove-SessionRecoveryHooks {
+    <#
+    .SYNOPSIS
+        Remove Claude session-recovery hooks from a settings object when
+        claude_session_recovery_enabled is false.
+    .DESCRIPTION
+        Precisely targets only session-recovery hook commands:
+        - init-session.ps1 (UserPromptUse)
+        - check-session-before-tool.ps1 (PreToolUse)
+        - update-session-from-hook.ps1 (Stop)
+        - record-scheduler-evidence.ps1 (PostToolUse)
+        Preserves all other hooks (git safety guards, client hooks, etc.).
+    #>
+    param(
+        [pscustomobject]$Settings
+    )
+
+    $sessionHookScripts = @(
+        'init-session.ps1',
+        'check-session-before-tool.ps1',
+        'update-session-from-hook.ps1',
+        'record-scheduler-evidence.ps1'
+    )
+
+    $removed = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return $removed }
+
+    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
+        $entries = @($event.Value)
+        if ($entries.Count -eq 0) { continue }
+
+        $keptEntries = New-Object System.Collections.Generic.List[object]
+        $entryChanged = $false
+
+        foreach ($entry in $entries) {
+            if ($null -eq $entry -or $null -eq $entry.hooks) {
+                $keptEntries.Add($entry)
+                continue
+            }
+
+            $keptHooks = New-Object System.Collections.Generic.List[object]
+            foreach ($hook in @($entry.hooks)) {
+                $command = [string]$hook.command
+                $isSessionHook = $false
+                foreach ($scriptName in $sessionHookScripts) {
+                    if ($command -match [regex]::Escape($scriptName)) {
+                        $isSessionHook = $true
+                        break
+                    }
+                }
+                if ($isSessionHook) {
+                    $removed.Add("${($event.Name)}: $command")
+                } else {
+                    $keptHooks.Add($hook)
+                }
+            }
+
+            if ($keptHooks.Count -eq 0) { continue }
+            if ($keptHooks.Count -ne @($entry.hooks).Count) {
+                $entry.hooks = [object[]]$keptHooks.ToArray()
+            }
+            $keptEntries.Add($entry)
+        }
+
+        if ($entryChanged -or $keptEntries.Count -ne @($entries).Count) {
+            $event.Value = [object[]]$keptEntries.ToArray()
+        }
+    }
+
+    # Clean up empty hook event arrays
+    $emptyEvents = @()
+    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
+        $entries = @($event.Value)
+        if ($entries.Count -eq 0) {
+            $emptyEvents += $event.Name
+        }
+    }
+    foreach ($eventName in $emptyEvents) {
+        $Settings.hooks.PSObject.Properties.Remove($eventName)
+    }
+    if ($Settings.hooks.PSObject.Properties.Count -eq 0) {
+        $Settings.PSObject.Properties.Remove('hooks')
+    }
+
+    return $removed
+}
+
+function Add-SessionRecoveryHooks {
+    <#
+    .SYNOPSIS
+        Add Claude session-recovery hooks to a settings object when
+        claude_session_recovery_enabled is true.
+    .DESCRIPTION
+        Ensures exactly one copy of each session-recovery hook exists.
+        Preserves all existing hooks (git safety guards, client hooks, etc.).
+    #>
+    param(
+        [pscustomobject]$Settings
+    )
+
+    $added = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Settings) { return $added }
+
+    # Ensure hooks property exists
+    if ($null -eq $Settings.hooks) {
+        $Settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{})
+    }
+
+    $sessionHooks = @(
+        @{
+            Event = 'UserPromptSubmit'
+            Entry = @{
+                hooks = @(
+                    @{
+                        type = 'command'
+                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/init-session.ps1"'
+                    }
+                )
+            }
+        },
+        @{
+            Event = 'Stop'
+            Entry = @{
+                hooks = @(
+                    @{
+                        type = 'command'
+                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/update-session-from-hook.ps1"'
+                    }
+                )
+            }
+        },
+        @{
+            Event = 'PostToolUse'
+            Entry = @{
+                hooks = @(
+                    @{
+                        type = 'command'
+                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/record-scheduler-evidence.ps1"'
+                    }
+                )
+            }
+        },
+        @{
+            Event = 'PreToolUse'
+            Entry = @{
+                hooks = @(
+                    @{
+                        type = 'command'
+                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/check-session-before-tool.ps1"'
+                    }
+                )
+            }
+        }
+    )
+
+    foreach ($hookDef in $sessionHooks) {
+        $event = $hookDef.Event
+        $newEntry = $hookDef.Entry
+
+        # Check if this hook already exists
+        $eventProp = $Settings.hooks.PSObject.Properties[$event]
+        $existingEntries = @()
+        if ($null -ne $eventProp) {
+            $existingEntries = @($eventProp.Value)
+        }
+
+        $alreadyExists = $false
+        foreach ($entry in $existingEntries) {
+            if ($null -eq $entry -or $null -eq $entry.hooks) { continue }
+            foreach ($hook in @($entry.hooks)) {
+                $command = [string]$hook.command
+                if ($command -match 'init-session\.ps1' -and $event -eq 'UserPromptSubmit') { $alreadyExists = $true; break }
+                if ($command -match 'check-session-before-tool\.ps1' -and $event -eq 'PreToolUse') { $alreadyExists = $true; break }
+                if ($command -match 'update-session-from-hook\.ps1' -and $event -eq 'Stop') { $alreadyExists = $true; break }
+                if ($command -match 'record-scheduler-evidence\.ps1' -and $event -eq 'PostToolUse') { $alreadyExists = $true; break }
+            }
+            if ($alreadyExists) { break }
+        }
+
+        if (-not $alreadyExists) {
+            $entriesList = New-Object System.Collections.Generic.List[object]
+            foreach ($entry in $existingEntries) { $entriesList.Add($entry) }
+            $entriesList.Add([pscustomobject]$newEntry)
+
+            if ($null -eq $eventProp) {
+                $Settings.hooks | Add-Member -MemberType NoteProperty -Name $event -Value ([object[]]$entriesList.ToArray())
+            } else {
+                $eventProp.Value = [object[]]$entriesList.ToArray()
+            }
+            $added.Add("${event}: $($newEntry.hooks[0].command)")
+        }
+    }
+
+    return $added
+}
+
 function Merge-JsonSettings {
     param(
         [string]$SourcePath,
         [string]$TargetPath,
         [string]$RepoRoot,
+        [System.Collections.Generic.HashSet[string]]$PendingDeletions,
         [switch]$DryRun
     )
 
@@ -605,7 +851,8 @@ function Merge-JsonSettings {
         $removedHooks = @(Remove-DeadHookEntries `
             -Settings $targetObj `
             -Root $RepoRoot `
-            -SourceCommands (Get-HookCommands -Settings $sourceObj))
+            -SourceCommands (Get-HookCommands -Settings $sourceObj) `
+            -PendingDeletions $PendingDeletions)
         if ($removedHooks.Count -gt 0) { $changed = $true }
     }
 
@@ -678,8 +925,8 @@ function Set-RepositoryGitHooksPath {
 }
 
 $targetRootResolved = (Resolve-Path -LiteralPath $TargetRoot).Path
-if (Test-Path -LiteralPath (Join-Path $targetRootResolved '.copilottools-source')) {
-    throw "Target contains source-only marker '.copilottools-source'. Remove it before syncing client-repository guards."
+if (Test-Path -LiteralPath (Join-Path $targetRootResolved '.agenttools-source')) {
+    throw "Target contains source-only marker '.agenttools-source'. Remove it before syncing client-repository guards."
 }
 
 $targetBranch = ''
@@ -753,7 +1000,7 @@ if (-not $sourceCommit -or $sourceCommit.Length -lt 40) {
     throw "Unable to parse source commit from git ls-remote output."
 }
 
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("copilottools-sync-" + [System.Guid]::NewGuid().ToString('N'))
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agenttools-sync-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 try {
@@ -863,6 +1110,12 @@ try {
 
     $mergedJsonFiles = New-Object System.Collections.Generic.List[string]
     $removedDeadHooks = New-Object System.Collections.Generic.List[string]
+    # Stale-file deletion above has already run on disk for a real apply but is
+    # only planned during -DryRun. Hand the planned set to the merge so dead-hook
+    # detection sees the same post-deletion world in both modes and the mandatory
+    # dry-run JSON is a faithful preview of the apply.
+    $pendingDeletions = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($deletedPath in $deleted) { $pendingDeletions.Add($deletedPath) | Out-Null }
     foreach ($mergeRelPath in $normalizedMergeJsonPaths) {
         $inScope = @($normalizedScope | Where-Object {
             $mergeRelPath -ieq $_ -or
@@ -876,6 +1129,7 @@ try {
             -SourcePath $sourceMergePath `
             -TargetPath $targetMergePath `
             -RepoRoot $targetRootResolved `
+            -PendingDeletions $pendingDeletions `
             -DryRun:$DryRun
         if ($mergeResult.changed) {
             $mergedJsonFiles.Add($mergeRelPath)
@@ -885,6 +1139,69 @@ try {
         }
         foreach ($deadHook in @($mergeResult.removedDeadHooks)) {
             $removedDeadHooks.Add("${mergeRelPath}: $deadHook")
+        }
+    }
+
+    # Session hook migration: read the CopilotTools config from the cloned
+    # source and conditionally add/remove session-recovery hooks in the
+    # target .claude/settings.json.  This is deterministic and idempotent:
+    # OFF removes the four session hooks, ON ensures exactly one copy of each.
+    $sessionHookMigrationResult = $null
+    $configPath = Join-Path $tempRoot '.copilottools/config.json'
+    $sessionRecoveryEnabled = $false
+    if (Test-Path -LiteralPath $configPath) {
+        try {
+            $configRaw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
+            $configObj = $configRaw | ConvertFrom-Json
+            if ($null -ne $configObj -and $null -ne $configObj.PSObject.Properties['claude_session_recovery_enabled']) {
+                $sessionRecoveryEnabled = [bool]$configObj.claude_session_recovery_enabled
+            }
+        } catch {
+            Write-Warning "Failed to read session recovery config: $_"
+        }
+    }
+
+    if (-not $DryRun) {
+        $targetSettingsPath = Join-Path $targetRootResolved '.claude/settings.json'
+        if (Test-Path -LiteralPath $targetSettingsPath) {
+            $targetSettingsRaw = Get-Content -LiteralPath $targetSettingsPath -Raw -Encoding UTF8
+            $targetSettings = $null
+            try {
+                $targetSettings = $targetSettingsRaw | ConvertFrom-Json
+            } catch {
+                Write-Warning "Failed to parse target settings for session migration: $_"
+            }
+
+            if ($null -ne $targetSettings) {
+                $migrationRemoved = @()
+                $migrationAdded = @()
+
+                if (-not $sessionRecoveryEnabled) {
+                    $migrationRemoved = @(Remove-SessionRecoveryHooks -Settings $targetSettings)
+                } else {
+                    $migrationAdded = @(Add-SessionRecoveryHooks -Settings $targetSettings)
+                }
+
+                $migrationChanged = $migrationRemoved.Count -gt 0 -or $migrationAdded.Count -gt 0
+                if ($migrationChanged -and -not $DryRun) {
+                    $json = ConvertTo-Json -InputObject $targetSettings -Depth 10
+                    $encoding = New-Object System.Text.UTF8Encoding($false)
+                    [System.IO.File]::WriteAllText($targetSettingsPath, ($json + "`r`n"), $encoding)
+                }
+
+                $sessionHookMigrationResult = [pscustomobject]@{
+                    sessionRecoveryEnabled = $sessionRecoveryEnabled
+                    removed = @($migrationRemoved)
+                    added = @($migrationAdded)
+                    changed = $migrationChanged
+                }
+
+                if ($migrationRemoved.Count -gt 0) {
+                    foreach ($r in $migrationRemoved) {
+                        $removedDeadHooks.Add("session-recovery: $r")
+                    }
+                }
+            }
         }
     }
 
@@ -982,6 +1299,24 @@ try {
         }
     }
 
+    $categoryCounts = [ordered]@{
+        githubCopilot = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        claude = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        openCode = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        shared = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        branchGuards = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+    }
+    foreach ($kind in @(@('added', $added), @('changed', $changed), @('deleted', $deleted))) {
+        foreach ($path in $kind[1]) {
+            if ($path -like '.opencode/*' -or $path -eq 'opencode.jsonc') { $category = 'openCode' }
+            elseif ($path -like '.claude/*') { $category = 'claude' }
+            elseif ($path -like '.github/hooks/*' -or $path -like '.githooks/*') { $category = 'branchGuards' }
+            elseif ($path -like '.github/agents/*') { $category = 'githubCopilot' }
+            else { $category = 'shared' }
+            $categoryCounts[$category][$kind[0]]++
+        }
+    }
+
     $result = [ordered]@{
         sourceRepo = $SourceRepo
         sourceRef = $SourceRef
@@ -996,6 +1331,7 @@ try {
         added = @($added)
         changed = @($changed)
         deleted = @($deleted)
+        categoryCounts = $categoryCounts
         mergedJsonFiles = @($mergedJsonFiles)
         removedDeadHooks = @($removedDeadHooks)
         agentsCoreRulesInjection = $agentsCoreRulesInjection
@@ -1006,6 +1342,7 @@ try {
         nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
         verification = $(if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' })
         mismatches = @($mismatches)
+        sessionHookMigration = $sessionHookMigrationResult
     }
 
     $result | ConvertTo-Json -Depth 5

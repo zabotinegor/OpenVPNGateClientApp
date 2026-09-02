@@ -22,7 +22,14 @@
 set -eu
 
 if command -v pwsh >/dev/null 2>&1; then
-    exec pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1
+    # -Shell bash tells the guard which grammar the command line it is about to
+    # judge will actually be executed under. bash and PowerShell disagree on
+    # backslash escaping ('\;' is one literal semicolon in bash, an argument plus
+    # a real statement separator in PowerShell), and that decides where one
+    # command ends and the next begins. The guard also reads the payload's
+    # tool_name and defaults to the stricter PowerShell rules, so this is a hint,
+    # not a requirement.
+    exec pwsh -NoProfile -NonInteractive -File .github/scripts/protect-agent-git-command.ps1 -Shell bash
 fi
 
 printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protect-agent-git-command: pwsh (PowerShell 7+) was not found on PATH, so the protected-branch guard cannot run on this host. Install pwsh (https://aka.ms/install-powershell) before running git commands here - refusing to allow this command ungated rather than letting it through unguarded."}}'
