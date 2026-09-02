@@ -250,6 +250,80 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // TIMEOUT TWIN of blankConfigFallThrough_clearsReconnectingHintAndUsesIdleNotificationStopperNotFullStop
+    // above. Fix-cycle 7 (docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-
+    // review-6.md, F1-6): before this fix, scheduleStopRetryTimeout()'s runnable had a log-only
+    // `else` branch for pendingConfig == null, so if the stop-retry timeout fired instead of
+    // NOTCONNECTED arriving, reconnectingHint stayed true, state stayed CONNECTING, and the
+    // controller FGS notification was retained forever -- the identical latch F1/F1-6's
+    // NOTCONNECTED sibling fixes, just reached via the timeout path.
+    //
+    // Unlike that sibling, this path must NOT route through idleNotificationStopper(): the timeout
+    // fired precisely because there is no confirmation the engine is actually idle (the earlier
+    // stop was dispatched with preserveReconnectHint = true, which never arms OpenVpnService's own
+    // confirmation/retry machinery). This asserts the opposite dispatcher pairing from the
+    // NOTCONNECTED sibling: stopper() (the real ACTION_STOP / DISCONNECTING-capable, self-resolving
+    // teardown) is invoked exactly once, and idleNotificationStopper() is NEVER invoked.
+    @Test
+    fun stopRetryTimeoutBlankConfig_clearsReconnectingHintAndDispatchesRealStopperNotIdleNotification() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        assertTrue(
+            "precondition: requestSwitchNow() must have set the hint true for the (blank-config) switch",
+            ConnectionStateManager.reconnectingHint.value
+        )
+
+        // Simulates what OpenVpnService.syncEngineState() would have done had a stray engine level
+        // arrived while reconnectingHint was still true -- see the NOTCONNECTED sibling test's
+        // comment for the full mechanism. Reproducing that pre-latched state here is what proves
+        // this branch, not just the hint clear alone, resolves the latch.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // No NOTCONNECTED ever arrives; only the STOP_RETRY_TIMEOUT_MS (5s) fallback can resolve
+        // this cycle.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals("no retry should ever have been dispatched (config was blank)", 0, calls.size)
+        assertFalse(
+            "reconnectingHint must not remain latched true once the stop-retry timeout settles " +
+                "with no retry in flight -- otherwise the controller FGS notification is retained " +
+                "with nothing pending to justify it",
+            ConnectionStateManager.reconnectingHint.value
+        )
+        assertEquals(
+            "app state must reach a terminal DISCONNECTED, not stay latched at the CONNECTING " +
+                "value a stray engine level could have left behind -- with no retry and no " +
+                "NOTCONNECTED, nothing else would ever move it off CONNECTING",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "the stop-retry-timeout branch must dispatch the REAL stopper() (ACTION_STOP -> " +
+                "OpenVpnService's self-resolving user-stop teardown) exactly once -- unlike the " +
+                "NOTCONNECTED sibling, this path has no confirmation the engine is actually idle, " +
+                "so idleNotificationStopper()'s notification-only, no-engine-contact remedy is not " +
+                "safe to reuse here",
+            1,
+            stopCalls
+        )
+        assertEquals(
+            "idleNotificationStopper() must NEVER be invoked from the stop-retry-timeout branch -- " +
+                "that dispatcher's whole premise is that the engine has already confirmed idle, " +
+                "which does not hold when the timeout (not NOTCONNECTED) is what resolved this cycle",
+            0,
+            idleNotificationStopCalls
+        )
+    }
+
     @Test
     fun startsTimerForServerRepliedAndSwitches() {
         // Trigger timer on SERVER_REPLIED

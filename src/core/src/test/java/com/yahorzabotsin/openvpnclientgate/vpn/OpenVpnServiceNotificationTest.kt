@@ -127,6 +127,82 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
+    // Regression test for F1-6 (fix-cycle 7, docs/qa-evidence/
+    // feature-86cb5y61z-reconnect-dispatch-state-machine-review-6.md): the TIMEOUT TWIN of the
+    // blank-config fall-through above (ServerAutoSwitcher's scheduleStopRetryTimeout() runnable,
+    // reached when the stop-retry timeout fires instead of NOTCONNECTED) must dispatch the REAL
+    // engine-stop teardown -- stopper() -> VpnManager.stopVpn() -> ACTION_STOP, non-preserve --
+    // NOT idleNotificationStopper() -> ACTION_STOP_IF_IDLE. The reason is the opposite of the
+    // sibling above: idleNotificationStopper()'s premise (engine already confirmed idle, so a
+    // notification-only cleanup with no engine contact is safe) does NOT hold on the timeout path,
+    // because the timeout firing IS the absence of that confirmation -- the earlier stop was
+    // dispatched with preserveReconnectHint = true, which never arms OpenVpnService's own
+    // confirmation-timeout/retry machinery (that only exists on the non-preserve
+    // startUserStopTeardown() path).
+    //
+    // This drives the REAL dispatch end to end (VpnManager.stopVpn() -> the actual
+    // onStartCommand(ACTION_STOP) branch), not a fake stopper counter, and asserts both that the
+    // controller notification is cleared (exitControllerForeground() runs unconditionally at
+    // ACTION_STOP entry, before the preserve/non-preserve branch split) and that the app genuinely
+    // enters DISCONNECTING -- proving a real engine-stop was requested, not merely a notification
+    // cleanup masquerading as one. DISCONNECTING here is the correct, intentional outcome (not a
+    // repeat of the review-5 F1 latch): OpenVpnService's startUserStopTeardown() arms
+    // STOP_CONFIRMATION_TIMEOUT_MS/STOP_DISPATCH_MAX_ATTEMPTS, so this always resolves -- either to
+    // DISCONNECTED on a genuine NOTCONNECTED, or to the documented STOP_FAILED error state after
+    // repeated engine silence -- never a silent permanent latch.
+    @Test
+    fun stopRetryTimeoutBlankConfig_realStopVpnPath_clearsNotificationAndEntersDisconnecting() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        // Mirrors the state ServerAutoSwitcher's stop-retry-timeout branch has already established
+        // (cancel(resetCycle=true) + setReconnectingHint(false) + updateState(DISCONNECTED)) before
+        // it calls stopper() -- the fix's dispatcher, distinct from the NOTCONNECTED sibling's
+        // idleNotificationStopper().
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java)
+        val service = controller.create().get()
+        simulateEnteredControllerForeground(service)
+        assertFalse("Precondition: notification must be posted", shadowNotificationManager.allNotifications.isEmpty())
+
+        Shadows.shadowOf(app).clearStartedServices()
+
+        // The real dispatcher ServerAutoSwitcher.stopper wraps in production.
+        val dispatched = VpnManager.stopVpn(app)
+        assertTrue("Precondition: stopVpn() must dispatch", dispatched)
+
+        val startedIntent = Shadows.shadowOf(app).nextStartedService
+        assertTrue(
+            "Precondition: stopVpn() must dispatch ACTION_STOP with preserveReconnectHint=false " +
+                "(the non-preserve, full-teardown branch)",
+            startedIntent != null &&
+                startedIntent.getStringExtra(VpnManager.actionKey(service)) == VpnManager.ACTION_STOP &&
+                !startedIntent.getBooleanExtra(VpnManager.extraPreserveReconnectKey(service), false)
+        )
+
+        service.onStartCommand(startedIntent, 0, 1)
+
+        assertTrue(
+            "The real ACTION_STOP path must clear the retained controller foreground notification " +
+                "-- exitControllerForeground() runs unconditionally at ACTION_STOP entry, so " +
+                "choosing the real teardown over idleNotificationStopper does not regress " +
+                "notification cleanup",
+            shadowNotificationManager.allNotifications.isEmpty()
+        )
+        assertEquals(
+            "Unlike idleNotificationStopper's ACTION_STOP_IF_IDLE (which never mutates connection " +
+                "state), the real stopper()/ACTION_STOP dispatch must force a genuine DISCONNECTING " +
+                "transition here -- proving an actual engine-stop was requested rather than only a " +
+                "notification cleanup, which is the whole point of not reusing idleNotificationStopper " +
+                "on this path (no confirmation the engine is actually idle)",
+            ConnectionState.DISCONNECTING,
+            ConnectionStateManager.state.value
+        )
+    }
+
     @Test
     fun syncStatusActionExitsControllerForegroundWhenDisconnected() {
         val app: Application = RuntimeEnvironment.getApplication()

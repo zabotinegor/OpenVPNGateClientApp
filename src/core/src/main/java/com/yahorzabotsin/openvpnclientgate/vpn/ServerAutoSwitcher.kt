@@ -41,8 +41,13 @@ object ServerAutoSwitcher {
     // event to resolve DISCONNECTING back to DISCONNECTED. `idleNotificationStopper` routes through
     // the pre-existing, already-tested VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE
     // path instead, which only clears the retained controller foreground notification and stops
-    // the service -- it never touches ConnectionStateManager at all, so it cannot force the
+    // the service -- it never mutates connection state (its only interaction with
+    // ConnectionStateManager is reading state.value as a guard), so it cannot force the
     // DISCONNECTED -> DISCONNECTING -> (possible STOP_FAILED latch) sequence review-5 proved.
+    // F3-6 (fix-cycle 7): "never touches ConnectionStateManager at all" was imprecise --
+    // ACTION_STOP_IF_IDLE's handler reads ConnectionStateManager.state.value as a guard
+    // (OpenVpnService.kt) and stopControllerIfIdle() reads it again (VpnManager.kt); both reads are
+    // harmless. The accurate claim is "never mutates connection state / never calls updateState()".
     internal var idleNotificationStopper: (Context) -> Unit = { ctx -> VpnManager.stopControllerIfIdle(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
     // selected-country server list is empty. The callback must hydrate the list and then
@@ -172,8 +177,8 @@ object ServerAutoSwitcher {
                     // idleNotificationStopper() routes through the pre-existing, already-tested
                     // VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE path instead: it only
                     // clears the retained controller foreground notification (the state above is
-                    // already correctly DISCONNECTED) and never touches ConnectionStateManager, so it
-                    // cannot reintroduce that latch.
+                    // already correctly DISCONNECTED) and never mutates connection state (it only
+                    // reads it as a guard), so it cannot reintroduce that latch.
                     try {
                         AppLog.d(TAG, "Requesting controller notification cleanup (blank-config fall-through)")
                         idleNotificationStopper(appContext)
@@ -574,7 +579,57 @@ object ServerAutoSwitcher {
                 retryCommitInFlight = true
                 handler.postDelayed(startR, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
+                // F1-6 (fix-cycle 7, docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-
+                // machine-review-6.md): this is the TIMEOUT TWIN of the blank-config fall-through in
+                // onEngineLevel() above (fixed in fix-cycle 6) -- both are reached with
+                // pendingConfig == null after `config.takeIf { it.isNotBlank() }`, but this one fires
+                // because NOTCONNECTED never arrived within STOP_RETRY_TIMEOUT_MS, not because it
+                // did. Before this fix the branch only logged, so reconnectingHint stayed true,
+                // state stayed CONNECTING (the stop was dispatched with preserveReconnectHint = true,
+                // so ACTION_STOP took the "preserve" branch and never ran startUserStopTeardown()),
+                // and the controller FGS notification was retained -- with no retry in flight and no
+                // further event able to resolve any of it. The identical permanent latch this whole
+                // fix cycle exists to close, just reached via the timeout path instead of
+                // NOTCONNECTED.
+                //
+                // This branch must NOT reuse the NOTCONNECTED sibling's idleNotificationStopper()
+                // remedy. That remedy's entire premise is that the engine has ALREADY reported
+                // LEVEL_NOTCONNECTED, so forcing state to DISCONNECTED matches reality, and
+                // idleNotificationStopper() -> ACTION_STOP_IF_IDLE dispatches no engine stop at all
+                // (VpnManager.stopControllerIfIdle() only clears the notification and stops the
+                // controller service -- it guards on ConnectionStateManager already being
+                // DISCONNECTED before it even builds the intent). Here that premise does not hold:
+                // the timeout fired precisely because there is no confirmation the engine ever
+                // stopped, and the earlier preserve-branch stop armed none of OpenVpnService's
+                // confirmation-timeout/retry machinery (that machinery only exists on the
+                // startUserStopTeardown() path). Forcing ConnectionStateManager to DISCONNECTED and
+                // only clearing the notification here could both lie about a possibly still-live
+                // tunnel and stopSelf() a service that may still own a real VPN interface.
+                //
+                // Instead this mirrors requestSwitchNow()'s no-alternative path below (stopper() /
+                // ACTION_STOP, non-preserve): treat the engine as potentially still live and dispatch
+                // a REAL stop. startUserStopTeardown() force-sets DISCONNECTING, genuinely requests
+                // the engine to stop, and exitControllerForeground() clears the notification
+                // unconditionally at ACTION_STOP entry regardless of which branch runs next -- and,
+                // unlike the already-dispatched preserve-branch stop, it arms OpenVpnService's own
+                // confirmation-timeout/retry machinery (STOP_CONFIRMATION_TIMEOUT_MS,
+                // STOP_DISPATCH_MAX_ATTEMPTS). The outcome is always bounded: a genuine NOTCONNECTED
+                // resolves it to DISCONNECTED, or repeated engine silence resolves it to the
+                // documented STOP_FAILED error state -- never a silent permanent latch.
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
+                cancel(resetCycle = true)
+                try {
+                    ConnectionStateManager.setReconnectingHint(false)
+                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                } catch (e: Exception) {
+                    AppLog.w(TAG, "Failed to reset state on stop-retry timeout with blank config", e)
+                }
+                try {
+                    AppLog.d(TAG, "Requesting explicit engine stop (stop-retry timeout, no engine confirmation)")
+                    stopper(appContext)
+                } catch (e: Exception) {
+                    AppLog.w(TAG, "Failed to request engine stop on stop-retry timeout with blank config", e)
+                }
             }
         }
         stopRetryTimeoutRunnable = r
