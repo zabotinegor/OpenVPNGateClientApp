@@ -1583,7 +1583,7 @@ as documentation gaps:
   sites.
 - **QG8-4 (enqueue-point window):** already closed structurally by fix-cycles 18-22 (see the
   addendum above), not merely re-narrowed by this extraction. The class's "The enqueue-point window
-  (QG8-4) -- CLOSED, not merely narrowed" section records the `:1189`-era early-return hazard
+  -- CLOSED, not merely narrowed" section records the `:1189`-era early-return hazard
   analysis (why arming the marker before the blank-config early return would create a worse,
   permanently-latching defect, per gate-9's mutation proof) alongside why the execution-time
   re-check (R19-1) closes the window CLASS independently of any one call site's exact statement
