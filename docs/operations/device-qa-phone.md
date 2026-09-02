@@ -123,6 +123,24 @@ adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(c
 adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(CountryServersInteractor|MainViewModel|MainConnectionInteractor|SelectedCountryStore|OpenVpnService)" | grep -E "(chosenIndex|ensureIndex|Session attempt|Server sel|getLastSuccessful|saveLastStart|prepareStart)"
 ```
 
+### Reconnect-dispatch single-attempt verification (ReconnectDispatchGuard / OpenVpnService)
+When testing reconnect/disconnect churn against `OpenVpnService`'s reconnect-dispatch guard
+(the subsystem behind ClickUp 86cb35fbt's fix-cycle history and 86cb5y61z's state-machine
+extraction), each `ACTION_START`/`stop_flow` pair should show exactly one dispatch attempt —
+a duplicate engine start or an orphaned dispatch is the defect shape this subsystem exists to
+prevent. Capture per-scenario logcats and check both the start and stop sides:
+```
+adb -s <your-device-serial> logcat -d 2>&1 | grep -E "(ACTION_START|Session attempt|stop_flow|dispatch_result|dispatch=sent|confirm=)"
+```
+Expect exactly one `Session attempt 1` per `ACTION_START`, and exactly one `stop_flow ... attempt=1
+dispatch_result=true` per stop, with `attempts=1 dispatch=sent confirm=true` — never a second
+attempt/dispatch line for the same start/stop pair. Also check the tail for a stray `ACTION_START`
+appearing several seconds after a clean disconnect (indicates a suppressed-guard defect rather than
+a genuine reconnect). Used across the 5-scenario acceptance pass (clean connect/disconnect, rapid
+churn, manual server switch while connected, background/foreground during connect) for
+86cb5y61z fix-cycle 23, commit `329f9a2`, Samsung device at `192.168.1.94:5555` — see
+`docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-qa.md` for the full logs.
+
 ### Git Bash mangles `/sdcard/...` paths in `adb pull`/`push`
 On Windows with Git Bash, `adb pull /sdcard/ui.xml <dest>` fails with
 `failed to stat remote object 'C:/Program Files/Git/sdcard/ui.xml'` because Git Bash's POSIX-path
