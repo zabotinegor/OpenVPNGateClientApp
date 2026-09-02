@@ -173,7 +173,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
     @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
-    private var staleSnapshotCount: Int = 0
+    // R21-4: written to 0 on the AIDL binder thread (updateStateString, :1383) and
+    // read-increment-written on the main thread inside the snapshot-poll path below (trySyncStatusSnapshot).
+    // Same cross-thread visibility requirement as the other status-tracking fields above.
+    @Volatile private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
@@ -834,6 +837,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 suppressEngineState = false
                 if (isReconnect) {
                     val dispatchGeneration = attemptGeneration
+                    // QG11-2 (accepted residual risk, pre-existing, not introduced or widened by
+                    // 86cb5y61z): this check-then-act pair (userInitiatedStop read here, then
+                    // startIcsOpenVpn() below) races startUserStopTeardown() when the latter is
+                    // reached synchronously from the AIDL binder thread via
+                    // maybeStartStaleStopReconciliation()'s stale_relaunch path. If this Runnable
+                    // has already passed this check on the main thread when the binder-thread
+                    // teardown begins, statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+                    // in startUserStopTeardown() cannot recall a Runnable already executing, so
+                    // startIcsOpenVpn() below can still run. The generation guard does not help
+                    // here either, because startUserStopTeardown() deliberately does not call
+                    // reconnectDispatchGuard.beginNewAttempt() (a user-initiated stop must not
+                    // itself count as a superseding attempt). Not fixed here: the window is
+                    // sub-millisecond, requires the specific stale_relaunch reconciliation path (not
+                    // a plain user Disconnect, which arrives on main), and is bounded/self-healing --
+                    // startUserStopTeardown() unconditionally calls requestStopIcsOpenVpn()
+                    // afterwards, so an engine started in the window is stopped by the same
+                    // teardown, and finishStopFlowConfirmed()'s stopSelf() is independently gated by
+                    // VpnManager.hasRecentActionStartDispatch(). A real fix would need to make
+                    // startUserStopTeardown() and this Runnable agree through a single synchronized
+                    // check-and-clear rather than two independent reads, which risks destabilizing a
+                    // subsystem that has already taken 22 fix cycles to reach its current verified
+                    // state; left as documented risk per quality-gate-11's QG11-2 and gate 86cb5y61z's
+                    // explicit direction to fix-or-document. See
+                    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-11.md (QG11-2).
                     statusHandler.postAtTime(Runnable {
                         fun clearMarkerIfOwn() {
                             reconnectDispatchGuard.clearPendingIfOwnedBy(dispatchGeneration)

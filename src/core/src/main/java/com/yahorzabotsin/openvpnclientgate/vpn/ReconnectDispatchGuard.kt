@@ -31,17 +31,29 @@ import java.util.concurrent.atomic.AtomicInteger
  * R18-1/R19-1/R20-1/R21-1 was a different way for that pair to observe a torn (inconsistent)
  * snapshot across a thread boundary -- a capture-time-only check, a non-atomic `+= 1` racing a
  * binder-thread writer, and a compound `.get()` pair racing a bump between the two reads. Wrapping
- * both values in one class with methods that always operate on the SAME captured generation (never
- * two independent live reads for what must be one logical attempt) makes the R21-1 class of bug a
- * type error to reintroduce, not merely a convention to remember.
+ * both values in one class gives the subsystem a single auditable owner and one implementation of
+ * the suppression predicate instead of four open-coded copies, and it is unit-testable in isolation
+ * for the first time. It does NOT make the R21-1 shape a type error: [currentGeneration] is a
+ * public getter and [armPending] takes a plain `Int`, so `guard.armPending(guard.currentGeneration)`
+ * -- R21-1 reintroduced verbatim -- compiles without complaint, and [state]'s own getter below
+ * performs the same two independent live reads the R21-1 fix avoids at the call site. The
+ * discipline of always threading ONE captured generation through both [armPending] and a caller's
+ * own local, rather than re-reading [currentGeneration], remains a calling convention enforced by
+ * review and by this file's tests -- not by the compiler.
  *
  * ## The LEVEL_VPNPAUSED decoupling exception (QG8-1)
  *
  * [armPending] is called only from a reconnect `ACTION_START`, and [State.BUFFER_PENDING] is
  * therefore always released by one of three paired bump sites: a fresh `ACTION_START`, the
  * `preserveReconnect ACTION_STOP` branch, or `finishStopFlowConfirmed()` -- all three bump
- * [beginNewAttempt] in the same code path that clears `OpenVpnService.userInitiatedStop`, so the
- * two stay coupled by construction at those three sites.
+ * [beginNewAttempt] on the same normal-path statement sequence that clears
+ * `OpenVpnService.userInitiatedStop`. This is a documented calling convention the three sites
+ * follow, not a guarantee the type system enforces, and it has two known decoupling paths where an
+ * early return can land between the clear and the bump: the `ACTION_START` site's
+ * `enterControllerForeground()` early return (`if (!enterControllerForeground()) return
+ * START_NOT_STICKY`, which sits between the clear and the bump and fires on any `Throwable` from
+ * `startForeground()`), and the `LEVEL_VPNPAUSED` decoupling below. Both are bounded and
+ * self-healing (see below); neither is prevented by construction.
  *
  * `OpenVpnService.startUserStopTeardown()` is a FOURTH site that removes the still-pending
  * deferred Runnable (via `reconnectEngineDispatchToken`) WITHOUT calling [beginNewAttempt] --
@@ -72,6 +84,19 @@ import java.util.concurrent.atomic.AtomicInteger
  * generation bump), never a stuck foreground notification (governed by the independent
  * `userInitiatedStart` flag) or a crash. See gate-8's QG8-1
  * (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-8.md`) for the full trace.
+ *
+ * ## The `finishStopFlowConfirmed()` clear-then-bump ordering (QG11-3)
+ *
+ * `finishStopFlowConfirmed()` -- reachable on the AIDL binder thread -- clears
+ * `OpenVpnService.userInitiatedStop` back to `false` one statement BEFORE it calls
+ * [beginNewAttempt]. Between those two statements another thread reading both values (e.g. the
+ * main thread, via `@Volatile`) can observe `userInitiatedStop == false` while [state] is still
+ * latched at [State.BUFFER_PENDING] for the not-yet-superseded generation. The marker's benignity
+ * in that instant is NOT "`userInitiatedStop` is true throughout the latched interval" -- it isn't,
+ * for this one statement pair -- the correct reason is that the still-latched marker itself keeps
+ * suppressing at [isBufferPendingForCurrentGeneration] regardless of the flag's value, which is the
+ * safe direction (over-suppression during a stop, never evasion), and the very next statement
+ * closes the window by bumping the generation.
  *
  * ## The enqueue-point window (QG8-4) -- CLOSED, not merely narrowed
  *

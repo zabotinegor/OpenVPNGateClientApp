@@ -155,6 +155,43 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // R19-4 (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-19.md): the blank-config
+    // fall-through above (QG9-3's hardening) leaves the NOTCONNECTED level to reach the non-timeout
+    // `else` branch in onEngineLevel(), where resetCycle = !shouldKeepCycle -- and shouldKeepCycle
+    // reads reconnectingHint, which requestSwitchNow() had just set true for the (aborted) switch.
+    // Pre-fix, cancel(resetCycle = false) never touched the hint, latching reconnectingHint=true with
+    // no retry in flight -- which keeps OpenVpnService's reconnectPending guard satisfied and the
+    // controller foreground-service notification retained indefinitely. Fixed by explicitly clearing
+    // the hint in the blank-config fall-through branch itself.
+    @Test
+    fun blankConfigFallThrough_clearsReconnectingHintWithNoRetryInFlight() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        assertTrue(
+            "precondition: requestSwitchNow() must have set the hint true for the (blank-config) switch",
+            ConnectionStateManager.reconnectingHint.value
+        )
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+
+        assertEquals("no retry should ever have been dispatched", 0, calls.size)
+        assertFalse(
+            "reconnectingHint must not remain latched true once the blank-config fall-through " +
+                "settles with no retry in flight -- otherwise the controller FGS notification is " +
+                "retained with nothing pending to justify it",
+            ConnectionStateManager.reconnectingHint.value
+        )
+    }
+
     @Test
     fun startsTimerForServerRepliedAndSwitches() {
         // Trigger timer on SERVER_REPLIED

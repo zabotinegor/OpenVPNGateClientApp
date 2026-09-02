@@ -117,6 +117,21 @@ object ServerAutoSwitcher {
                     retryCommitInFlight = true
                     handler.postDelayed(r, START_AFTER_STOP_DELAY_MS.toLong())
                     return
+                } else {
+                    // R19-4: a blank next.config falls through here instead of dispatching a doomed
+                    // ACTION_START. No retry will be attempted, so clear the hint explicitly rather
+                    // than letting it fall through to the else branch below with
+                    // reconnectingHint still true -- that combination (resetCycle=false via
+                    // shouldKeepCycle) previously latched reconnectingHint=true with no retry in
+                    // flight, keeping OpenVpnService's reconnectPending guard satisfied and the
+                    // controller FGS notification retained until the next unrelated engine level or
+                    // user action. See docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-19.md
+                    // (R19-4).
+                    try {
+                        ConnectionStateManager.setReconnectingHint(false)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "Failed to clear reconnecting hint on blank-config fall-through", e)
+                    }
                 }
             } else {
                 AppLog.i(TAG, "Ignoring level=$level (source=$source) while waiting for stop-before-retry confirmation")

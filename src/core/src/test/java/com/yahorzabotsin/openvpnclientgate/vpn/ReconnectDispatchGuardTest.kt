@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Direct, plain-JVM unit tests for [ReconnectDispatchGuard]'s state transitions -- no Robolectric,
@@ -187,5 +191,56 @@ class ReconnectDispatchGuardTest {
                 "without an explicit clear -- the marker no longer equals the live generation",
             guard.isBufferPendingForCurrentGeneration()
         )
+    }
+
+    @Test
+    fun beginNewAttempt_concurrentCallsFromMultipleThreads_loseNoIncrementAndReturnDistinctValues() {
+        // QG-1 (quality gate on 86cb5y61z): beginNewAttempt() is the single choke point all three
+        // production bump sites now flow through -- including finishStopFlowConfirmed(), which runs
+        // on the AIDL binder thread -- so it MUST be atomic under genuine cross-thread contention,
+        // not merely typed as an AtomicInteger. Unlike the old R20-1 regression test (which
+        // increments a reflected AtomicInteger field directly, bypassing this method and pinning
+        // only the field's TYPE), this test races real calls to beginNewAttempt() itself and would
+        // fail immediately if the method were reverted to a non-atomic read-modify-write such as:
+        //   val next = attemptGeneration.get() + 1; attemptGeneration.set(next); return next
+        val guard = ReconnectDispatchGuard()
+        val threadCount = 64
+        val iterationsPerThread = 500
+        val expectedTotal = threadCount * iterationsPerThread
+        val returnedValues = CopyOnWriteArrayList<Int>()
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(threadCount)
+        val executor = Executors.newFixedThreadPool(threadCount)
+
+        try {
+            repeat(threadCount) {
+                executor.submit {
+                    startLatch.await()
+                    repeat(iterationsPerThread) {
+                        returnedValues.add(guard.beginNewAttempt())
+                    }
+                    doneLatch.countDown()
+                }
+            }
+
+            startLatch.countDown()
+            val finished = doneLatch.await(30, TimeUnit.SECONDS)
+
+            assertTrue("All $threadCount threads must complete within the timeout", finished)
+            assertEquals(
+                "Every increment must be observed exactly once -- no increment may be lost to a " +
+                    "torn read-modify-write across threads",
+                expectedTotal,
+                guard.currentGeneration
+            )
+            assertEquals(
+                "No two concurrent callers may observe the same returned generation -- each " +
+                    "beginNewAttempt() call must own a distinct value",
+                expectedTotal,
+                returnedValues.toSet().size
+            )
+        } finally {
+            executor.shutdownNow()
+        }
     }
 }
