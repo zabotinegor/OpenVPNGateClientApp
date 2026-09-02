@@ -129,11 +129,10 @@ class OpenVpnServiceReconnectEngineDispatchTest {
     // The capture-time suppression log emitted by dispatchAutoSwitcherOnEngineLevel() when
     // ReconnectDispatchGuard.isBufferPendingForCurrentGeneration() is true (see
     // OpenVpnService.kt's "Ignoring AIDL level=... while reconnect engine-dispatch buffer is
-    // pending" line). Fix-cycle 23 (86cb5y61z, QG8-2): asserting this log line fired is
-    // MECHANISM-anchored -- it can only be true if the guard's own suppression branch executed --
-    // unlike hasEngineStartLog() alone, which is OUTCOME-anchored and stays vacuously true even
-    // when the guard never ran, as long as nothing downstream happened to cancel the deferred
-    // dispatch for an unrelated reason (gate-8's Probe B).
+    // pending" line). Asserting this log line fired is MECHANISM-anchored -- it can only be true
+    // if the guard's own suppression branch executed -- unlike hasEngineStartLog() alone, which is
+    // OUTCOME-anchored and stays vacuously true even when the guard never ran, as long as nothing
+    // downstream happened to cancel the deferred dispatch for an unrelated reason.
     private val reconnectDispatchSuppressionLog = "while reconnect engine-dispatch buffer is pending"
 
     private fun hasEngineStartLog(): Boolean =
@@ -383,16 +382,16 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "skipping the originally selected server without ever trying it",
             hasEngineStartLog()
         )
-        // Fix-cycle 23 (86cb5y61z, QG8-2): mechanism-anchored, not just outcome-anchored. Gate-8's
-        // Probe B proved the assertion above alone can go vacuously green -- it stays true even
-        // with the guard reverted AND ServerAutoSwitcher.onEngineLevel() stubbed inert, since the
-        // deferred dispatch is then never cancelled for an unrelated reason. Asserting the
+        // Mechanism-anchored, not just outcome-anchored. A mutation probe proved the assertion
+        // above alone can go vacuously green -- it stays true even with the guard reverted AND
+        // ServerAutoSwitcher.onEngineLevel() stubbed inert, since the deferred dispatch is then
+        // never cancelled for an unrelated reason. Asserting the
         // suppression log line directly pins that the guard's own suppression branch executed,
         // which is false in both halves of that compound mutation.
         assertTrue(
             "The suppression guard itself must have logged that it dropped the stray level -- " +
                 "proving the guard's own branch executed, not merely that the engine start survived " +
-                "for some unrelated reason (QG8-2)",
+                "for some unrelated reason",
             hasReconnectDispatchSuppressionLog()
         )
     }
@@ -477,15 +476,15 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "whichever Runnable happens to resolve first",
             hasEngineStartLog()
         )
-        // Fix-cycle 23 (86cb5y61z, QG8-2): mechanism-anchored companion assertion -- see
+        // Mechanism-anchored companion assertion -- see
         // strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer above for why the outcome-only
-        // assertion above can go vacuously green under gate-8's Probe B (R16-1 reverted AND
-        // ServerAutoSwitcher.onEngineLevel() stubbed inert simultaneously).
+        // assertion above can go vacuously green under the mutation probe (the ownership-scoped
+        // clear reverted AND ServerAutoSwitcher.onEngineLevel() stubbed inert simultaneously).
         assertTrue(
             "The suppression guard itself must have logged that it dropped the stray level while " +
                 "buffer B's marker was still live, proving the guard's own branch executed for " +
                 "buffer B's generation -- not merely that the engine start survived for some " +
-                "unrelated reason (QG8-2)",
+                "unrelated reason",
             hasReconnectDispatchSuppressionLog()
         )
     }
@@ -810,11 +809,10 @@ class OpenVpnServiceReconnectEngineDispatchTest {
 
         // Step 1: model the state right after the generation bump but before the marker arm --
         // generation already bumped to a live value, marker still at its "no buffer pending"
-        // default. R20-1 (fix-cycle 21): the generation counter is an AtomicInteger, not a plain
-        // Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch the
-        // existing AtomicInteger instance and mutate it in place instead. Fix-cycle 23
-        // (86cb5y61z): both fields now live on the extracted ReconnectDispatchGuard, reached via
-        // one extra reflection hop.
+        // default. The generation counter is an AtomicInteger, not a plain Int field, so it
+        // cannot be overwritten via ReflectionHelpers.setField -- fetch the existing AtomicInteger
+        // instance and mutate it in place instead. Both fields live on the extracted
+        // ReconnectDispatchGuard, reached via one extra reflection hop.
         val guard = ReflectionHelpers.getField<ReconnectDispatchGuard>(service, "reconnectDispatchGuard")
         ReflectionHelpers.getField<AtomicInteger>(guard, "attemptGeneration").set(7)
         ReflectionHelpers.setField(guard, "pendingGeneration", -1)

@@ -155,8 +155,7 @@ class ServerAutoSwitcherTest {
         )
     }
 
-    // R19-4 (docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-review-19.md): the blank-config
-    // fall-through above (QG9-3's hardening) leaves the NOTCONNECTED level to reach the non-timeout
+    // The blank-config fall-through above leaves the NOTCONNECTED level to reach the non-timeout
     // `else` branch in onEngineLevel(), where resetCycle = !shouldKeepCycle -- and shouldKeepCycle
     // reads reconnectingHint, which requestSwitchNow() had just set true for the (aborted) switch.
     // Pre-fix, cancel(resetCycle = false) never touched the hint, latching reconnectingHint=true with

@@ -152,8 +152,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var currentAttemptStartMs: Long = 0L
     private var currentAttemptStartElapsedRealtimeMs: Long = 0L
     // See ReconnectDispatchGuard's class-level KDoc for the state machine this replaces (six
-    // interacting fields layered on across ClickUp 86cb35fbt's 17 fix cycles), the LEVEL_VPNPAUSED
-    // decoupling exception (QG8-1), and why the enqueue-point window class (QG8-4) is closed.
+    // interacting fields layered on over a long series of fixes), the LEVEL_VPNPAUSED decoupling
+    // exception, and why the enqueue-point window class is closed.
     private val reconnectDispatchGuard = ReconnectDispatchGuard()
 
     // Byte count tracking for local listener vs AIDL callbacks
@@ -173,9 +173,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
     @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
-    // R21-4: written to 0 on the AIDL binder thread (the statusCallbacks.updateStateString
-    // callback) and read-increment-written on the main thread inside the snapshot-poll path
-    // below (trySyncStatusSnapshot).
+    // Written to 0 on the AIDL binder thread (the statusCallbacks.updateStateString callback)
+    // and read-increment-written on the main thread inside the snapshot-poll path below
+    // (trySyncStatusSnapshot).
     // Same cross-thread visibility requirement as the other status-tracking fields above.
     @Volatile private var staleSnapshotCount: Int = 0
     private enum class StatusSource { AIDL, VPN_STATUS }
@@ -838,8 +838,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 suppressEngineState = false
                 if (isReconnect) {
                     val dispatchGeneration = attemptGeneration
-                    // QG11-2 (accepted residual risk, pre-existing, not introduced or widened by
-                    // 86cb5y61z): this check-then-act pair (userInitiatedStop read here, then
+                    // Accepted residual risk, pre-existing and not widened by the extraction of
+                    // ReconnectDispatchGuard: this check-then-act pair (userInitiatedStop read here, then
                     // startIcsOpenVpn() below) races startUserStopTeardown() when the latter is
                     // reached synchronously from the AIDL binder thread via
                     // maybeStartStaleStopReconciliation()'s stale_relaunch path. If this Runnable
@@ -859,9 +859,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // startUserStopTeardown() and this Runnable agree through a single synchronized
                     // check-and-clear rather than two independent reads, which risks destabilizing a
                     // subsystem that has already taken 22 fix cycles to reach its current verified
-                    // state; left as documented risk per quality-gate-11's QG11-2 and gate 86cb5y61z's
-                    // explicit direction to fix-or-document. See
-                    // docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-11.md (QG11-2).
+                    // state; left as a documented risk instead. See docs/guides/troubleshooting.md
+                    // for this subsystem's full defect history.
                     statusHandler.postAtTime(Runnable {
                         fun clearMarkerIfOwn() {
                             reconnectDispatchGuard.clearPendingIfOwnedBy(dispatchGeneration)
@@ -2182,7 +2181,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // means exactly that happened, so skip unconditionally regardless of the flag above.
             if (reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) return@Runnable
             // Re-evaluate the same suppression predicate checked above, but here at execution time
-            // rather than trusting the capture-time read (R19-1): a level captured strictly between
+            // rather than trusting the capture-time read: a level captured strictly between
             // ReconnectDispatchGuard's generation bump and its marker arm can observe a torn
             // (marker=stale, generation=G) snapshot and evade suppression at the earlier check.
             // This Runnable always executes on statusHandler's main looper -- the same thread that
@@ -2190,7 +2189,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // onStartCommand() has since armed the marker to match the live generation, this
             // catches it even though the capture-time check could not.
             if (reconnectDispatchGuard.isBufferPendingForCurrentGeneration()) {
-                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
+                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine)")
                 return@Runnable
             }
             try {

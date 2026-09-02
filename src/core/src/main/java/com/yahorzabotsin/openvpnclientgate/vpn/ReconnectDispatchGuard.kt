@@ -5,12 +5,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Owns the reconnect-dispatch state that used to be two separately-declared fields on
  * [OpenVpnService] -- `connectionAttemptGeneration` and `reconnectDispatchPendingGeneration` --
- * plus the ~14 call sites across that file that read or wrote them directly. Introduced by
- * ClickUp [86cb5y61z](https://app.clickup.com/t/86cb5y61z), filed by the quality gate for
- * [86cb35fbt](https://app.clickup.com/t/86cb35fbt) (finding QG8-3) after nine review rounds
- * (R7-1, R9-1, R14-1, R16-1, R18-1, R19-1, R20-1, R21-1, plus two bot-found variants) each
- * discovered a different reachable interleaving of the same two implicit flags. The state is now
- * represented as one explicit [State] with unit-testable transitions instead.
+ * plus the ~14 call sites across that file that read or wrote them directly. It was extracted
+ * after nine successive review rounds each found a different reachable interleaving of the same
+ * two implicit flags. The state is now represented as one explicit [State] with unit-testable
+ * transitions instead.
  *
  * ## What this guards against
  *
@@ -27,21 +25,21 @@ import java.util.concurrent.atomic.AtomicInteger
  * ## Why one class instead of two fields
  *
  * The two values are a *pair* that must be read and written together for one logical connection
- * attempt, but they used to be independent fields updated by separate statements. Every one of
- * R18-1/R19-1/R20-1/R21-1 was a different way for that pair to observe a torn (inconsistent)
+ * attempt, but they used to be independent fields updated by separate statements. Every historical
+ * defect in this family was a different way for that pair to observe a torn (inconsistent)
  * snapshot across a thread boundary -- a capture-time-only check, a non-atomic `+= 1` racing a
  * binder-thread writer, and a compound `.get()` pair racing a bump between the two reads. Wrapping
  * both values in one class gives the subsystem a single auditable owner and one implementation of
  * the suppression predicate instead of four open-coded copies, and it is unit-testable in isolation
- * for the first time. It does NOT make the R21-1 shape a type error: [currentGeneration] is a
+ * for the first time. It does NOT make the torn-read shape a type error: [currentGeneration] is a
  * public getter and [armPending] takes a plain `Int`, so `guard.armPending(guard.currentGeneration)`
- * -- R21-1 reintroduced verbatim -- compiles without complaint, and [state]'s own getter below
- * performs the same two independent live reads the R21-1 fix avoids at the call site. The
- * discipline of always threading ONE captured generation through both [armPending] and a caller's
- * own local, rather than re-reading [currentGeneration], remains a calling convention enforced by
- * review and by this file's tests -- not by the compiler.
+ * -- that defect reintroduced verbatim -- compiles without complaint, and [state]'s own getter
+ * below performs the same two independent live reads that call sites must avoid. The discipline of
+ * always threading ONE captured generation through both [armPending] and a caller's own local,
+ * rather than re-reading [currentGeneration], remains a calling convention enforced by review and
+ * by this file's tests -- not by the compiler.
  *
- * ## The LEVEL_VPNPAUSED decoupling exception (QG8-1)
+ * ## The LEVEL_VPNPAUSED decoupling exception
  *
  * [armPending] is called only from a reconnect `ACTION_START`, and [State.BUFFER_PENDING] is
  * therefore always released by one of three paired bump sites: a fresh `ACTION_START`, the
@@ -82,10 +80,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * stop, arriving while a stop teardown is in flight -- not a normal engine sequence. The worst
  * outcome is a bounded, self-healing missed auto-switch (the latch cannot outlive the next
  * generation bump), never a stuck foreground notification (governed by the independent
- * `userInitiatedStart` flag) or a crash. See gate-8's QG8-1
- * (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-8.md`) for the full trace.
+ * `userInitiatedStart` flag) or a crash. See `docs/guides/troubleshooting.md` for the full trace.
  *
- * ## The `finishStopFlowConfirmed()` clear-then-bump ordering (QG11-3)
+ * ## The `finishStopFlowConfirmed()` clear-then-bump ordering
  *
  * `finishStopFlowConfirmed()` -- reachable on the AIDL binder thread -- clears
  * `OpenVpnService.userInitiatedStop` back to `false` one statement BEFORE it calls
@@ -98,47 +95,47 @@ import java.util.concurrent.atomic.AtomicInteger
  * safe direction (over-suppression during a stop, never evasion), and the very next statement
  * closes the window by bumping the generation.
  *
- * ## The enqueue-point window (QG8-4) -- CLOSED, not merely narrowed
+ * ## The enqueue-point window -- CLOSED, not merely narrowed
  *
- * Gate-8 also flagged the gap between `OpenVpnService`'s generation bump and this guard's marker
- * being armed for that same generation: at the time of that gate, ~34 lines of synchronous
+ * An earlier audit flagged the gap between `OpenVpnService`'s generation bump and this guard's
+ * marker being armed for that same generation: at that time, ~34 lines of synchronous
  * `SharedPreferences` I/O sat between the two statements, and a stray level landing in that window
  * captured the already-bumped generation while the marker still held the previous one -- evading
- * suppression. Fix-cycles 18-22 (R18-1, R19-1, R20-1, R21-1; see
- * `docs/guides/troubleshooting.md`'s "Addendum (fix-cycles 18-22)") closed this CLASS of window
- * structurally rather than by repeatedly narrowing one instance's position:
+ * suppression. Three changes (see `docs/guides/troubleshooting.md`'s addendum on this subsystem)
+ * closed this CLASS of window structurally rather than by repeatedly narrowing one instance's
+ * position:
  *
  * - [isBufferPendingForCurrentGeneration] is re-evaluated a SECOND time, at execution time, inside
- *   the deferred Runnable immediately before it would forward a level to `ServerAutoSwitcher`
- *   (R19-1). By execution time the marker has necessarily been armed for the live generation if an
+ *   the deferred Runnable immediately before it would forward a level to `ServerAutoSwitcher`.
+ *   By execution time the marker has necessarily been armed for the live generation if an
  *   attempt is genuinely in flight, so a stray level that slipped past the capture-time check is
  *   still caught here.
  * - [beginNewAttempt] returns the new generation from one atomic `incrementAndGet()`
- *   (`AtomicInteger`, not a plain `@Volatile Int` -- R20-1, since one of the three bump call sites
+ *   (`AtomicInteger`, not a plain `@Volatile Int`, since one of the three bump call sites
  *   runs on the AIDL binder thread via `finishStopFlowConfirmed()`, and `+= 1` is not atomic under
  *   a genuine cross-thread race).
  * - Callers MUST thread that single returned value through to both [armPending] and their own
  *   locally-captured `dispatchGeneration` -- never re-read [currentGeneration] a second time for
- *   what must be the same logical attempt (R21-1: two independent `.get()` calls can observe
+ *   what must be the same logical attempt: two independent `.get()` calls can observe
  *   different values if a binder-thread bump lands between them, even though each individual call
- *   is atomic).
+ *   is atomic.
  *
  * `OpenVpnService`'s own enqueue call site now arms the marker immediately after the generation
  * bump (separated only by the mandatory `config.isNullOrBlank() -> stopSelf()` early return, which
  * intentionally sits BEFORE the arm -- arming before that check would latch the marker with no
- * buffer ever pending on the early-return path, a worse, permanently-latching defect gate-9 proved
- * by mutation; see `reconnectStartWithBlankConfig_doesNotLatchDispatchMarkerToNewGeneration` in
- * `OpenVpnServiceReconnectEngineDispatchTest.kt`). Between the bump and the arm there is no longer
- * any interceptable window at all on that path, and the execution-time re-check above independently
- * closes the class for any window that could exist anywhere else in the sequence. Quality gate 11
- * (`docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-11.md`) assessed this specific
- * mechanism closed at high confidence (~85%) -- moderate confidence (~60%) only on the broader,
- * unbounded claim that no interleaving anywhere in the six-guard family (including the
- * `ServerAutoSwitcher`-side guards this class does not own) can defeat suppression. That residual
- * risk is accepted, not chased further here: quality gate 11 independently verified the outcome is
- * bounded to an availability/UX risk (a skipped or delayed auto-switch) in every case, never a
- * false-safe "connected" state, because `ConnectionState.CONNECTED` has exactly two direct writers
- * outside the engine's own state-update path and both require an actual engine `LEVEL_CONNECTED`.
+ * buffer ever pending on the early-return path, a worse, permanently-latching defect proved
+ * reachable by mutation; see `reconnectStartWithBlankConfig_doesNotLatchDispatchMarkerToNewGeneration`
+ * in `OpenVpnServiceReconnectEngineDispatchTest.kt`). Between the bump and the arm there is no
+ * longer any interceptable window at all on that path, and the execution-time re-check above
+ * independently closes the class for any window that could exist anywhere else in the sequence.
+ * This specific mechanism is assessed closed at high confidence; the broader, unbounded claim that
+ * no interleaving anywhere in the six-guard family (including the `ServerAutoSwitcher`-side guards
+ * this class does not own) can defeat suppression is held only at moderate confidence. That
+ * residual risk is accepted, not chased further here, because the outcome was independently
+ * verified to be bounded to an availability/UX risk (a skipped or delayed auto-switch) in every
+ * case, never a false-safe "connected" state: `ConnectionState.CONNECTED` has exactly two direct
+ * writers outside the engine's own state-update path and both require an actual engine
+ * `LEVEL_CONNECTED`.
  */
 internal class ReconnectDispatchGuard {
 
@@ -169,7 +166,7 @@ internal class ReconnectDispatchGuard {
      * READ. Always a fresh comparison against the current [currentGeneration], never cached --
      * callers that need to check this twice for the same stray level (once at capture time, once
      * at execution time; see [isBufferPendingForCurrentGeneration]) must call it twice, not reuse
-     * an earlier result, or the execution-time re-check (R19-1) that closes the enqueue-point
+     * an earlier result, or the execution-time re-check that closes the enqueue-point
      * window class loses its value.
      */
     val state: State
@@ -181,8 +178,8 @@ internal class ReconnectDispatchGuard {
      * supersedes whatever this guard was previously tracking: any Runnable holding an older
      * captured generation will find `currentGeneration != itsCapturedGeneration` from this point
      * on. Callers that also need to [armPending] for this SAME attempt must reuse the single
-     * returned value -- see this class's KDoc, "The enqueue-point window (QG8-4)", for why a
-     * second independent [currentGeneration] read is unsafe here (R21-1).
+     * returned value -- see this class's KDoc, "The enqueue-point window", for why a
+     * second independent [currentGeneration] read is unsafe here.
      */
     fun beginNewAttempt(): Int = attemptGeneration.incrementAndGet()
 
@@ -197,7 +194,7 @@ internal class ReconnectDispatchGuard {
 
     /**
      * Clears the pending marker, but ONLY if it still belongs to [generation] -- i.e. only this
-     * Runnable's own buffer, never a newer buffer's still-live marker. Fixes R16-1: an earlier,
+     * Runnable's own buffer, never a newer buffer's still-live marker. An earlier,
      * superseded buffer's Runnable resolving first must not be able to disable suppression for a
      * still-pending newer buffer by clearing a marker it does not own.
      */
@@ -213,7 +210,7 @@ internal class ReconnectDispatchGuard {
      * predicate for call sites that only need the boolean. Deliberately NOT memoized: this is
      * meant to be called twice per stray level (once when the level is captured, once again at
      * execution time inside the deferred Runnable) so the two calls can observe different answers
-     * if a bump landed in between -- that is what closes the enqueue-point window class (R19-1).
+     * if a bump landed in between -- that is what closes the enqueue-point window class.
      */
     fun isBufferPendingForCurrentGeneration(): Boolean = state == State.BUFFER_PENDING
 

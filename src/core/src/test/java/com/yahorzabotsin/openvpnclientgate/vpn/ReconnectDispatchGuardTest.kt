@@ -11,10 +11,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Direct, plain-JVM unit tests for [ReconnectDispatchGuard]'s state transitions -- no Robolectric,
- * no Android context, no [OpenVpnService] instance required. This is the concrete demonstration of
- * ClickUp 86cb5y61z's primary acceptance criterion: the reconnect-dispatch state is now "one
- * explicit state enum/class with unit-testable transitions", verifiable in complete isolation from
- * the surrounding service. [OpenVpnServiceReconnectEngineDispatchTest] continues to cover the
+ * no Android context, no [OpenVpnService] instance required. It demonstrates that the
+ * reconnect-dispatch state is now one explicit state class with unit-testable transitions,
+ * verifiable in complete isolation from the surrounding service. [OpenVpnServiceReconnectEngineDispatchTest] continues to cover the
  * integration behavior (real `onStartCommand()`/AIDL callback wiring, log lines, production
  * call-site ordering); this file covers the guard's own contract.
  */
@@ -83,7 +82,7 @@ class ReconnectDispatchGuardTest {
 
     @Test
     fun clearPendingIfOwnedBy_nonMatchingGeneration_leavesMarkerIntact() {
-        // R16-1 regression: a superseded (earlier) buffer's Runnable resolving first must not be
+        // Regression: a superseded (earlier) buffer's Runnable resolving first must not be
         // able to clear a still-pending NEWER buffer's marker.
         val guard = ReconnectDispatchGuard()
         val bufferA = guard.beginNewAttempt()
@@ -149,7 +148,7 @@ class ReconnectDispatchGuardTest {
 
     @Test
     fun captureTimeAndExecutionTimeChecksCanDisagree_closingTheEnqueuePointWindowClass() {
-        // R19-1's structural fix: isBufferPendingForCurrentGeneration() is deliberately NOT
+        // The structural fix: isBufferPendingForCurrentGeneration() is deliberately NOT
         // memoized, so a capture-time read taken before armPending() and an execution-time read
         // taken after it observe different answers for the exact same stray level -- this is what
         // lets the execution-time re-check catch what the capture-time check missed.
@@ -162,7 +161,7 @@ class ReconnectDispatchGuardTest {
 
         assertFalse(
             "Capture-time read taken before the marker is armed must see IDLE -- this is the torn " +
-                "read the enqueue-point window exposed pre-fix-cycle-20",
+                "read the enqueue-point window used to expose",
             capturedBeforeArm
         )
         assertTrue(
@@ -195,10 +194,10 @@ class ReconnectDispatchGuardTest {
 
     @Test
     fun beginNewAttempt_concurrentCallsFromMultipleThreads_loseNoIncrementAndReturnDistinctValues() {
-        // QG-1 (quality gate on 86cb5y61z): beginNewAttempt() is the single choke point all three
-        // production bump sites now flow through -- including finishStopFlowConfirmed(), which runs
-        // on the AIDL binder thread -- so it MUST be atomic under genuine cross-thread contention,
-        // not merely typed as an AtomicInteger. Unlike the old R20-1 regression test (which
+        // beginNewAttempt() is the single choke point all three production bump sites now flow
+        // through -- including finishStopFlowConfirmed(), which runs on the AIDL binder thread --
+        // so it MUST be atomic under genuine cross-thread contention, not merely typed as an
+        // AtomicInteger. Unlike the older regression test (which
         // increments a reflected AtomicInteger field directly, bypassing this method and pinning
         // only the field's TYPE), this test races real calls to beginNewAttempt() itself and would
         // fail immediately if the method were reverted to a non-atomic read-modify-write such as:

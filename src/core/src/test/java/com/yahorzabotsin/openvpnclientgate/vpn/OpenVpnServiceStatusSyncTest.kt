@@ -2780,10 +2780,9 @@ class OpenVpnServiceStatusSyncTest {
             // and is infrastructure unrelated to the race under test -- the same reason the
             // existing currentAttemptStartMs-based tests above set that field directly instead of
             // going through onStartCommand.
-            // R20-1 (fix-cycle 21): connectionAttemptGeneration is now an AtomicInteger, not a
-            // plain Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch
-            // the existing AtomicInteger instance and mutate it in place instead. Fix-cycle 23
-            // (86cb5y61z): the generation counter now lives on the extracted
+            // The attempt generation is an AtomicInteger, not a plain Int field, so it cannot be
+            // overwritten via ReflectionHelpers.setField -- fetch the existing AtomicInteger
+            // instance and mutate it in place instead. The counter lives on the extracted
             // ReconnectDispatchGuard, reached via one extra reflection hop.
             val reconnectDispatchGuard = ReflectionHelpers.getField<ReconnectDispatchGuard>(service, "reconnectDispatchGuard")
             ReflectionHelpers.getField<AtomicInteger>(reconnectDispatchGuard, "attemptGeneration").set(1)

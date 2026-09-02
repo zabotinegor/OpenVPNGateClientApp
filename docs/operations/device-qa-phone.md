@@ -124,22 +124,31 @@ adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(C
 ```
 
 ### Reconnect-dispatch single-attempt verification (ReconnectDispatchGuard / OpenVpnService)
-When testing reconnect/disconnect churn against `OpenVpnService`'s reconnect-dispatch guard
-(the subsystem behind ClickUp 86cb35fbt's fix-cycle history and 86cb5y61z's state-machine
-extraction), each `ACTION_START`/`stop_flow` pair should show exactly one dispatch attempt —
-a duplicate engine start or an orphaned dispatch is the defect shape this subsystem exists to
-prevent. Capture per-scenario logcats and check both the start and stop sides:
+When testing reconnect/disconnect churn against `OpenVpnService`'s reconnect-dispatch guard, the
+invariant to check is **one successful engine dispatch per logical attempt** — a second engine
+start for a single attempt, or an engine start for an attempt that was already superseded, is the
+defect shape this subsystem exists to prevent. Capture per-scenario logcats and check both sides:
 ```
-adb -s <your-device-serial> logcat -d 2>&1 | grep -E "(ACTION_START|Session attempt|stop_flow|dispatch_result|dispatch=sent|confirm=)"
+adb -s <your-device-serial> logcat -d 2>&1 | grep -E "(ACTION_START|Session attempt|Requested engine start|stop_flow|dispatch_result|dispatch=|confirm=)"
 ```
-Expect exactly one `Session attempt 1` per `ACTION_START`, and exactly one `stop_flow ... attempt=1
-dispatch_result=true` per stop, with `attempts=1 dispatch=sent confirm=true` — never a second
-attempt/dispatch line for the same start/stop pair. Also check the tail for a stray `ACTION_START`
-appearing several seconds after a clean disconnect (indicates a suppressed-guard defect rather than
-a genuine reconnect). Used across the 5-scenario acceptance pass (clean connect/disconnect, rapid
-churn, manual server switch while connected, background/foreground during connect) for
-86cb5y61z fix-cycle 23, commit `329f9a2`, Samsung device at `192.168.1.94:5555` — see
-`docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-qa.md` for the full logs.
+Correlate by identity, not by counter value — the counters legitimately advance within a scenario:
+
+- **Stops** all carry `requestId=<id>`. Group the `stop_flow` lines by that id: one group is one
+  logical stop, and it must end in exactly one `dispatch=sent confirm=true`. Intermediate
+  `retry=true`, `dispatch=failed` or `attempt=N` lines with N > 1 *inside the same group* are the
+  supported retry path (the stop flow retries after a bind, dispatch or confirmation failure), not
+  duplicate dispatches.
+- **Starts:** each `ACTION_START` should be followed by exactly one `Requested engine start`.
+  `Session attempt N` deliberately increments across reconnect retries within one connection
+  session, so a rising N is expected recovery behaviour — assert on the number of engine starts per
+  `ACTION_START`, never on the attempt counter equalling 1.
+- Two `Requested engine start` lines with no `ACTION_START` between them, or one appearing several
+  seconds after a clean disconnect with no matching `ACTION_START`, indicates a suppression defect
+  rather than a genuine reconnect.
+
+Run this across the acceptance scenarios: clean connect/disconnect, rapid connect/disconnect churn,
+manual server switch while connected, and backgrounding/foregrounding during connect. Attach the
+per-scenario logs to the story's QA evidence rather than to this runbook.
 
 ### Git Bash mangles `/sdcard/...` paths in `adb pull`/`push`
 On Windows with Git Bash, `adb pull /sdcard/ui.xml <dest>` fails with
