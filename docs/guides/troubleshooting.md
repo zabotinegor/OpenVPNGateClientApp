@@ -1611,6 +1611,73 @@ Every reflection-based test that previously reached into `OpenVpnService`'s own
 further, into the `reconnectDispatchGuard` field's own `attemptGeneration`/`pendingGeneration`
 fields, preserving each test's exact prior semantics.
 
+### Addendum (fix-cycles 5-7, ClickUp 86cb5y61z): blank-config abort's two twin resolution paths and the atomicity hardening
+
+**Status: DONE.** Fix-cycles 5-7 resolved three findings from PR #140 Copilot review, two of which
+re-entered the blank-config abort branch's newly added machinery (fix-cycle 5) and surfaced that the
+abort had **two** independent trigger paths — a NOTCONNECTED-confirmed sibling and a stop-retry-timeout
+twin — that must be handled asymmetrically.
+
+#### Finding 1 (fix-cycle 5): `staleSnapshotCount` atomicity
+
+The binder thread's `resetStaleSnapshotCount()` and the main thread's `incrementAndGet()` competed on
+a plain `@Volatile Int`, losing increments when both threads read, then both write. Converted to
+`AtomicInteger.incrementAndGet()` and `set(0)` at all call sites (`OpenVpnService.kt:1418, 2010, 2033`).
+The race is genuine (a stale count can reach the force-rebind threshold early) but gated by an
+independent AND-condition (`now - lastLiveStatusMs > staleSnapshotMaxAgeMs`), so a lost reset alone
+cannot trigger a spurious rebind. Quality gate QG4-1 verified the fix is correct but left a documented
+follow-up: add a dedicated stress test mirroring `ReconnectDispatchGuardTest.beginNewAttempt_concurrent...`
+to pin the atomicity itself (currently only the downstream gate is tested).
+
+#### Finding 2 (fix-cycles 6-7): the blank-config abort's twin paths are deliberately asymmetric
+
+The blank-config scenario arms two mutually exclusive resolvers: a NOTCONNECTED-confirmed branch
+(`onEngineLevel()`, lines 134-183) and a stop-retry-timeout branch (`scheduleStopRetryTimeout()`,
+lines 552-578). Fix-cycle 5 added abort handling to the NOTCONNECTED sibling but did not mirror it
+to the timeout twin; fix-cycle 6's code review (finding F1-6) caught the twin inconsistency, and
+fix-cycle 7 completed the timeout twin's abort handling. The two paths now share the first half
+(`cancel(resetCycle=true)`, `setReconnectingHint(false)`, `updateState(DISCONNECTED)`) but diverge
+on the second half:
+
+- **NOTCONNECTED twin (engine-confirmed idle):** calls `idleNotificationStopper(appContext)` → 
+  `ACTION_STOP_IF_IDLE` (notification-only cleanup). This is safe because the engine has already 
+  reported `LEVEL_NOTCONNECTED` — no tunnel is live — and a redundant `ACTION_STOP` dispatch would 
+  strand the state at `DISCONNECTING` with a spurious `STOP_FAILED` error (per fix-cycle 5 finding F1). 
+  Documented in `ServerAutoSwitcher.kt:145-149`.
+- **Stop-retry-timeout twin (engine-unconfirmed):** calls `stopper(appContext)` → real `ACTION_STOP` 
+  dispatch. This is necessary because the timeout fired precisely because no NOTCONNECTED confirmation 
+  arrived — the engine state is unknown, not confirmed idle. Dispatching a real stop brings its own 
+  bounded terminator (`STOP_CONFIRMATION_TIMEOUT_MS` + `STOP_DISPATCH_MAX_ATTEMPTS` via 
+  `startUserStopTeardown()`), so the branch self-resolves to `DISCONNECTED` or visible `STOP_FAILED` 
+  within ~27 s, never a silent permanent latch. Documented in `ServerAutoSwitcher.kt:603-607`.
+
+The asymmetry is precondition-driven: the discriminator is whether the engine's state is already confirmed
+down. Quality gate QG4-3 assessed it as coherent and maintainable because the two paths are pinned by
+falsifying tests from both directions. The twin asymmetry does not reopen the defect family — it
+specializes the abort into the two cases the family originally collapsed into one broken fix.
+
+**References:**
+- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md` — F1 (false 
+  safety claim in NOTCONNECTED sibling) and F2 (incomplete regression test).
+- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-6.md` — F1-6 (timeout 
+  twin missing the same abort handling).
+- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-7.md` — verification of 
+  the F1-6 remediation, all load-bearing claims independently re-derived.
+- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-gate-4.md` — QG4-3 assessment 
+  of the twin asymmetry's coherence.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (lines 
+  134-183, 552-578 — the twin abort paths).
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` (lines 1418, 
+  2010, 2033 — `staleSnapshotCount` atomic sites).
+
+#### Finding 3 (fix-cycle 5, verified): stress-test collection change
+
+`ReconnectDispatchGuardTest.beginNewAttempt_concurrentCallsFromMultipleThreads_loseNoIncrementAndReturnDistinctValues`
+swapped `CopyOnWriteArrayList<Int>` to `ConcurrentHashMap.newKeySet<Int>()` (dedupe on insert rather
+than post-collect). Mutation-tested by reverting to a non-atomic read-modify-write: the test
+correctly failed at the lost-increment assertion, proving the test detects the defect it was written
+to catch. No behavior change; verification recorded in review-5's "Verified correct" section.
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
