@@ -333,5 +333,57 @@ device. However, two things are not automatic on a fresh Google-Play x86_64 AVD 
 (Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 2,
 AVD `Medium_Phone_API_36.1`.)
 
+---
+
+## Forcing a persisted-server-list "blank config" scenario — neutralize sync, don't race it
+
+`SelectedCountryStore`'s persisted server list (`shared_prefs/vpn_selection_prefs.xml`, key
+`selected_country_servers`) can hold a non-null entry with a blank `config` string — a real,
+reachable data-shape condition (`ServerAutoSwitcher`'s blank-config fall-through) — but a naive
+`run-as`-edit repro attempt gets defeated by two independent self-heal mechanisms:
+1. **Live-process cache**: editing the SharedPreferences XML on disk via an external `run-as` shell
+   while the app process is alive is invisible to that process — `SharedPreferencesImpl` serves reads
+   from an in-memory map loaded at first access, not the file. The edit only takes effect on the next
+   process start.
+2. **Sync self-heal on restart**: even after force-stop + edit + relaunch, `ServersV2SyncCoordinator
+   .syncSelectedCountryServers()` (splash preload and/or the first SSE `servers-changed` push, usually
+   within a few seconds) re-fetches the country's server list — from network if reachable, else from
+   the local `cache/v2_servers_<code>_<locale>.json` file — and overwrites the array via
+   `saveSelectionPreservingIndex()`. `ServersV2Repository` explicitly filters/logs
+   (`"Server X has empty configData — skipping"`) any blank-`configData` entry from either source, so
+   a blanked entry never survives a completed sync, whether the sync went to the network or just hit
+   the local cache.
+
+Reliable technique (confirmed working, 2026-09-03): don't race the sync — make it permanently skip
+the selected country instead, by corrupting its *identity*, not just the config payload:
+1. Force-stop the app: `adb shell am force-stop com.yahorzabotsin.openvpnclientgate`.
+2. Edit **both** `shared_prefs/vpn_selection_prefs.xml`'s `selected_country_servers` JSON array *and*
+   the matching `cache/v2_servers_<code>_<locale>.json` file (also under `run-as`): blank the target
+   server's `config`/`configData`, and set **every** server's `code`/`countryCode` field to a value
+   not present in the live API (e.g. `"ZZ"`).
+3. Also corrupt the top-level `<string name="selected_country">` value (e.g. append `"-QA"`).
+   `syncSelectedCountryServers`'s country lookup is
+   `countries.firstOrNull{it.code==selectedCountryCode} ?: countries.firstOrNull{it.name==selectedCountry}`
+   — corrupting both the code and the name-fallback makes it permanently hit
+   `"not in country list, skipping"`, so the blanked entry is never restored. No timing race needed
+   after this; verify with `run-as cat shared_prefs/vpn_selection_prefs.xml`. Cosmetic side effect:
+   UI shows a generic "?" flag and the corrupted country name — expected and harmless for the test.
+4. Relaunch, connect to the (untouched, real) other server in the same country, then reproduce the
+   drop via the airplane-mode/reconnect-timing technique in
+   [operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) ("Airplane-mode
+   toggle for forcing a connection drop"). In practice, simply re-tapping Connect within ~1-2s of
+   disabling airplane mode reliably lands on that doc's documented transient
+   `LEVEL_NONETWORK`-right-after-reconnect window, which drives `ServerAutoSwitcher`'s
+   `shouldSwitchImmediately` path straight into the blanked next-circular server before any tunnel is
+   even established.
+5. `adb shell pm clear com.yahorzabotsin.openvpnclientgate` afterward to remove the injected
+   corruption and local cache files, then relaunch once to confirm a clean fresh state.
+
+Applied successfully to verify the `ServerAutoSwitcher` blank-config fall-through (NOTCONNECTED-
+confirmed path) for `feature/86cb5y61z-reconnect-dispatch-state-machine` — see
+`docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-qa-2.md` for the full logcat.
+(Discovered 2026-09-03, device serial `b6e8f6bd`.)
+
 ## Last validated
-2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `3f3abdc`.
+2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `f11551a`
+(docs-only commit; app code identical to `3f3abdc`).
