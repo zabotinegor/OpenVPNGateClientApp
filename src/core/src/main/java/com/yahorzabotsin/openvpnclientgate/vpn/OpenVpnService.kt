@@ -784,6 +784,31 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistPendingStopIntent(false)
                     AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
                 }
+                // F2-9 (fix-cycle 9, PR #140 round 4, Codex thread PRRT_kwDOONeEXM6e2oec): a fresh
+                // start supersedes any stop-retry-timeout re-dispatch ServerAutoSwitcher still has
+                // armed from an earlier, REJECTED blank-config stop. Without this, that retry fires
+                // up to TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later and dispatches a real,
+                // non-preserve ACTION_STOP against THIS start -- which reaches
+                // startUserStopTeardown() and, through its cancelForUserStop(), tears down the new
+                // cycle as well as the tunnel.
+                //
+                // Placed here, in the block above that already discards every other piece of
+                // pending-stop bookkeeping (userInitiatedStop, the stop retry/confirmation/bind
+                // runnables, clearStopFailure(), the persisted pending-stop intent), because this is
+                // where a fresh start declares that no earlier stop is owed any more. Deliberately
+                // NOT deferred until after enterControllerForeground(): that block has already run
+                // by then, so leaving the switcher's re-dispatch armed past this point would be
+                // inconsistent -- the service would have forgotten the stop while the switcher was
+                // still retrying it, and the retry would land as a brand-new
+                // startUserStopTeardown("user_action", forceReset = true) against a service with no
+                // record of what it was finishing.
+                //
+                // Deliberately the narrow cancel, not cancelForUserStop(): see that method's KDoc
+                // for why resetting the switch cycle here would regress nextServerCircular's wrap
+                // detection on every auto-switch retry commit (which reaches ACTION_START through
+                // ServerAutoSwitcher.starter). onStartCommand() runs on the main looper, matching
+                // ServerAutoSwitcher's single-main-looper-caller invariant.
+                ServerAutoSwitcher.cancelPendingStopDispatchForFreshStart()
                 if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false

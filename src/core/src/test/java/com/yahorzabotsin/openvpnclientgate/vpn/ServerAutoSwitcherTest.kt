@@ -31,7 +31,7 @@ class ServerAutoSwitcherTest {
     private val source = "VPN_STATUS"
     private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Boolean)? = null
-    private var originalIdleNotificationStopper: ((android.content.Context) -> Unit)? = null
+    private var originalIdleNotificationStopper: ((android.content.Context) -> Boolean)? = null
     private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
     private val calls = mutableListOf<Call>()
     private var stopCalls = 0
@@ -42,6 +42,9 @@ class ServerAutoSwitcherTest {
     // rejecting Context so both the fake-driven and the real-dispatch route are covered.
     private var stopDispatchResult = true
     private var idleNotificationStopCalls = 0
+    // F3-9 (fix-cycle 9): idleNotificationStopper is now (Context) -> Boolean like `stopper`, so a
+    // rejected ACTION_STOP_IF_IDLE dispatch is reproducible here. Defaults to true (accepted).
+    private var idleNotificationStopResult = true
 
     @Before
     fun setUp() {
@@ -55,7 +58,7 @@ class ServerAutoSwitcherTest {
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; stopDispatchResult }
         originalIdleNotificationStopper = ServerAutoSwitcher.idleNotificationStopper
-        ServerAutoSwitcher.idleNotificationStopper = { _ -> idleNotificationStopCalls += 1 }
+        ServerAutoSwitcher.idleNotificationStopper = { _ -> idleNotificationStopCalls += 1; idleNotificationStopResult }
         val servers = listOf(
             Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
             Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf2")
@@ -66,6 +69,7 @@ class ServerAutoSwitcherTest {
         stopCalls = 0
         stopDispatchResult = true
         idleNotificationStopCalls = 0
+        idleNotificationStopResult = true
         // ConnectionStateManager is a process-wide object: the F1-8 stop-dispatch-rejected test
         // deliberately leaves DISCONNECTING + STOP_FAILED behind, so every test in this class starts
         // from a clean, explicitly known baseline instead of whatever ran before it.
@@ -314,12 +318,31 @@ class ServerAutoSwitcherTest {
                 "with nothing pending to justify it",
             ConnectionStateManager.reconnectingHint.value
         )
+        // F1-9 (fix-cycle 9, Kody thread PRRT_kwDOONeEXM6e2mam) changed this assertion. Through
+        // fix-cycle 8 this branch published DISCONNECTED itself the instant stopper() returned true.
+        // But `true` from VpnManager.stopVpn() only means Context.startService() ACCEPTED the intent
+        // for delivery; OpenVpnService.onStartCommand() has not run, so nothing has begun tearing
+        // the tunnel down yet. Publishing DISCONNECTED there was a false idle report for the whole
+        // delivery window. The branch now publishes nothing on an accepted dispatch and leaves the
+        // state where it was until the controller reports otherwise. The fake `stopper` here never
+        // delivers the intent to a service, so CONNECTING is what a caller observes -- and that is
+        // the point: this class must not be the one to move it.
+        //
+        // The latch this branch exists to close is still closed, just by the controller rather than
+        // by this class: OpenVpnServiceNotificationTest's
+        // stopRetryTimeoutBlankConfig_acceptedStopDispatch_* tests drive the delivered ACTION_STOP
+        // end to end and prove CONNECTING -> DISCONNECTING -> DISCONNECTED.
         assertEquals(
-            "app state must reach a terminal DISCONNECTED, not stay latched at the CONNECTING " +
-                "value a stray engine level could have left behind -- with no retry and no " +
-                "NOTCONNECTED, nothing else would ever move it off CONNECTING",
-            ConnectionState.DISCONNECTED,
+            "an ACCEPTED stop dispatch must leave connection state untouched -- startService() " +
+                "returning true is a delivery acknowledgment, not a teardown confirmation, and " +
+                "anticipating it with DISCONNECTED reports a still-live tunnel as stopped",
+            ConnectionState.CONNECTING,
             ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "an accepted dispatch is not a stop failure",
+            ConnectionStateManager.VpnError.NONE,
+            ConnectionStateManager.error.value
         )
         assertEquals(
             "the stop-retry-timeout branch must dispatch the REAL stopper() (ACTION_STOP -> " +
@@ -429,8 +452,15 @@ class ServerAutoSwitcherTest {
     // F1-8 companion: the dispatch-failure path must be observably DIFFERENT from the success path,
     // and the bounded re-dispatch must be a real re-dispatch (not just a delayed give-up). Same
     // real VpnManager.stopVpn() route as above; the rejection is lifted between attempts.
+    //
+    // F1-9 (fix-cycle 9) narrowed what "different" means. The observable difference is no longer
+    // "DISCONNECTED vs DISCONNECTING+STOP_FAILED": an accepted dispatch now publishes NOTHING and
+    // hands the outcome to OpenVpnService. The difference is that an EXHAUSTED dispatch still
+    // surfaces DISCONNECTING + STOP_FAILED from here (nothing else can -- the intent never reached
+    // the service), while an accepted one leaves state alone and stops re-dispatching. This test
+    // pins the accepted half: the retry chain must stop, and no stop failure may be surfaced.
     @Test
-    fun stopRetryTimeoutBlankConfig_rejectedStopDispatchRetriesAndSettlesDisconnectedOnceAccepted() {
+    fun stopRetryTimeoutBlankConfig_rejectedStopDispatchRetriesAndStopsEscalatingOnceAccepted() {
         val blankConfigServers = listOf(
             Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
             Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
@@ -457,13 +487,20 @@ class ServerAutoSwitcherTest {
 
         // The restriction lifts (e.g. the app is foregrounded again) before the bounded retry runs.
         dispatchContext.rejecting = false
+        val dispatchesBeforeAcceptedRetry = dispatchContext.startServiceCalls
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
 
         assertEquals(
-            "once ACTION_STOP is actually accepted by the controller, OpenVpnService's user-stop " +
-                "teardown owns the outcome and this branch may settle the app state, closing the " +
-                "permanent CONNECTING latch the branch exists to close",
-            ConnectionState.DISCONNECTED,
+            "the bounded retry must be a real re-dispatch, and the accepted attempt is the last one",
+            1,
+            dispatchContext.startServiceCalls - dispatchesBeforeAcceptedRetry
+        )
+        assertEquals(
+            "once ACTION_STOP is accepted by the controller, OpenVpnService's user-stop teardown " +
+                "owns the outcome -- this branch must publish no state of its own (F1-9). It has " +
+                "not been delivered to a service here, so CONNECTING is what remains; the delivered " +
+                "continuation is covered end to end in OpenVpnServiceNotificationTest",
+            ConnectionState.CONNECTING,
             ConnectionStateManager.state.value
         )
         assertEquals(
@@ -471,7 +508,166 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.VpnError.NONE,
             ConnectionStateManager.error.value
         )
+        assertFalse(
+            "an accepted dispatch must end the bounded re-dispatch chain -- leaving it armed is " +
+                "the F2-9 defect (a stale ACTION_STOP fired against whatever runs next)",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // Falsification guard for the assertion above: had the chain stayed armed, a further
+        // TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS would produce another dispatch.
+        val dispatchesAfterAccept = dispatchContext.startServiceCalls
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertEquals(
+            "no further stop must be dispatched after one was accepted",
+            dispatchesAfterAccept,
+            dispatchContext.startServiceCalls
+        )
         assertEquals("no retry start should ever have been dispatched (config was blank)", 0, calls.size)
+    }
+
+    // F2-9 (fix-cycle 9, PR #140 round 4, Codex thread PRRT_kwDOONeEXM6e2oec). When the
+    // blank-config timeout's first ACTION_STOP is rejected, a re-dispatch is armed
+    // TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later. Nothing used to cancel it on a fresh cycle:
+    // cancel() clears it, but beginChainedSwitch() never called cancel(), so a switch beginning
+    // inside that one-second window kept the stale retry armed -- and when the retry then succeeded
+    // (typically right after the app returned to the foreground, which is also what lifts the
+    // background-start restriction that caused the rejection), it dispatched a real NON-PRESERVE
+    // ACTION_STOP against the cycle that had just started. That reaches
+    // OpenVpnService.startUserStopTeardown(), which calls ServerAutoSwitcher.cancelForUserStop() --
+    // so the stale retry does not merely stop the engine, it also tears down the new switch cycle.
+    //
+    // Asserted on the dispatched intents rather than a raw dispatch count, because the fresh cycle
+    // legitimately dispatches its own ACTION_STOP (preserveReconnectHint = true). Only a
+    // non-preserve ACTION_STOP after the new cycle begins is the defect.
+    @Test
+    fun stopRetryTimeoutBlankConfig_pendingStopRedispatchIsCancelledByAFreshChainedSwitch() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val dispatchContext = ToggleableStartServiceContext(appContext)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // The blank-config timeout fires while the background-start restriction is active, so its
+        // ACTION_STOP is rejected and a bounded re-dispatch is armed.
+        dispatchContext.rejecting = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+
+        assertTrue(
+            "precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The user comes back to the foreground and a fresh cycle starts INSIDE the retry window.
+        dispatchContext.rejecting = false
+        dispatchContext.dispatchedIntents.clear()
+        assertTrue(
+            "precondition: the fresh chained switch must actually begin",
+            ServerAutoSwitcher.beginChainedSwitch(dispatchContext, "conf1", "RU")
+        )
+
+        assertFalse(
+            "a fresh cycle must supersede the stale stop re-dispatch, not run alongside it",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // Let the window the stale retry would have fired in elapse.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+
+        val staleStops = dispatchContext.dispatchedIntents.filter {
+            it.getStringExtra(VpnManager.actionKey(appContext)) == VpnManager.ACTION_STOP &&
+                !it.getBooleanExtra(VpnManager.extraPreserveReconnectKey(appContext), false)
+        }
+        assertEquals(
+            "no non-preserve ACTION_STOP may be dispatched once a fresh cycle has begun -- that is " +
+                "the stale retry stopping the connection the user just started (and, via " +
+                "startUserStopTeardown() -> cancelForUserStop(), killing the new cycle with it)",
+            0,
+            staleStops.size
+        )
+        assertTrue(
+            "sanity: the fresh cycle's own preserve-branch ACTION_STOP must still have been dispatched",
+            dispatchContext.dispatchedIntents.any {
+                it.getStringExtra(VpnManager.actionKey(appContext)) == VpnManager.ACTION_STOP &&
+                    it.getBooleanExtra(VpnManager.extraPreserveReconnectKey(appContext), false)
+            }
+        )
+    }
+
+    // F3-9 (fix-cycle 9, PR #140 round 4, Copilot thread PRRT_kwDOONeEXM6e2p0f). The NOTCONNECTED
+    // blank-config fall-through discarded idleNotificationStopper()'s dispatch result. It is now
+    // inspected -- but deliberately only logged, NOT escalated the way the timeout twin's rejected
+    // stopper() is. This test pins that asymmetry, because the obvious "make both twins identical"
+    // refactor would be a regression: this path is reached only AFTER the engine reported
+    // LEVEL_NOTCONNECTED, so DISCONNECTED is the truthful state and forcing DISCONNECTING +
+    // STOP_FAILED would re-open exactly the latch fix-cycle 6 closed (review-5 F1).
+    @Test
+    fun blankConfigFallThrough_rejectedIdleNotificationDispatchStaysDisconnectedAndDoesNotEscalate() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        // The controller refuses the ACTION_STOP_IF_IDLE dispatch (background-start restriction).
+        idleNotificationStopResult = false
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+
+        assertEquals(
+            "the rejection must have been observed at all -- the whole point of typing " +
+                "idleNotificationStopper as (Context) -> Boolean",
+            1,
+            idleNotificationStopCalls
+        )
+        assertEquals(
+            "state must stay DISCONNECTED even though the notification-cleanup dispatch was " +
+                "refused: this path is only reachable after the engine reported LEVEL_NOTCONNECTED, " +
+                "so DISCONNECTED is truthful and MainViewModel offering Connect is correct. A " +
+                "rejected ACTION_STOP_IF_IDLE costs only the controller reap, never state accuracy",
+            ConnectionState.DISCONNECTED,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "a refused notification cleanup must NOT be surfaced as a stop failure -- the engine " +
+                "already stopped, so STOP_FAILED would be the review-5 F1 latch reintroduced",
+            ConnectionStateManager.VpnError.NONE,
+            ConnectionStateManager.error.value
+        )
+        assertEquals(
+            "the rejection must NOT escalate into the timeout twin's real stopper()/ACTION_STOP " +
+                "bounded retry: that dispatcher forces DISCONNECTING via startUserStopTeardown() " +
+                "against an engine that has already confirmed idle",
+            0,
+            stopCalls
+        )
+        assertEquals(
+            "and it must not be re-dispatched either -- syncEngineState()'s in-process " +
+                "exitControllerForeground() on the next snapshot re-poll already clears the " +
+                "residue unconditionally, so a bounded retry here would be duplicate machinery",
+            1,
+            idleNotificationStopCalls
+        )
+        assertTrue(
+            "the refused dispatch must be recorded, not swallowed",
+            ShadowLog.getLogs().any {
+                it.tag == logTag && it.msg.contains("Controller notification cleanup dispatch rejected")
+            }
+        )
     }
 
     // Rejects startService() the way Android's background-start restriction does, on demand.
@@ -481,10 +677,14 @@ class ServerAutoSwitcherTest {
         android.content.ContextWrapper(base) {
         var rejecting = false
         var startServiceCalls = 0
+        // F2-9 needs to tell a STALE non-preserve ACTION_STOP apart from a fresh cycle's own
+        // preserve-branch ACTION_STOP, so counting dispatches is not enough -- record them.
+        val dispatchedIntents = mutableListOf<android.content.Intent>()
 
         override fun startService(service: android.content.Intent?): android.content.ComponentName? {
             startServiceCalls += 1
             if (rejecting) throw IllegalStateException("background start not allowed")
+            service?.let { dispatchedIntents += it }
             return super.startService(service)
         }
     }
