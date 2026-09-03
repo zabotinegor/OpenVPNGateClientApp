@@ -1629,46 +1629,67 @@ cannot trigger a spurious rebind. Quality gate QG4-1 verified the fix is correct
 follow-up: add a dedicated stress test mirroring `ReconnectDispatchGuardTest.beginNewAttempt_concurrent...`
 to pin the atomicity itself (currently only the downstream gate is tested).
 
-#### Finding 2 (fix-cycles 6-7): the blank-config abort's twin paths are deliberately asymmetric
+#### Finding 2 (fix-cycles 6-8): the blank-config abort's twin paths are deliberately asymmetric
 
-The blank-config scenario arms two mutually exclusive resolvers: a NOTCONNECTED-confirmed branch
-(`onEngineLevel()`, lines 134-183) and a stop-retry-timeout branch (`scheduleStopRetryTimeout()`,
-lines 552-578). Fix-cycle 5 added abort handling to the NOTCONNECTED sibling but did not mirror it
-to the timeout twin; fix-cycle 6's code review (finding F1-6) caught the twin inconsistency, and
-fix-cycle 7 completed the timeout twin's abort handling. The two paths now share the first half
-(`cancel(resetCycle=true)`, `setReconnectingHint(false)`, `updateState(DISCONNECTED)`) but diverge
-on the second half:
+The blank-config scenario arms two mutually exclusive resolvers: a NOTCONNECTED-confirmed branch (in
+`ServerAutoSwitcher.onEngineLevel()`) and a stop-retry-timeout branch (in
+`ServerAutoSwitcher.scheduleStopRetryTimeout()`). Fix-cycle 5 added abort handling to the
+NOTCONNECTED sibling but did not mirror it to the timeout twin; fix-cycle 6's code review (finding
+F1-6) caught the twin inconsistency, and fix-cycle 7 completed the timeout twin's abort handling.
+The two paths share the abort's opening (`cancel(resetCycle=true)`, `setReconnectingHint(false)`)
+and then diverge on both which stop they dispatch and when they may settle app state:
 
-- **NOTCONNECTED twin (engine-confirmed idle):** calls `idleNotificationStopper(appContext)` → 
-  `ACTION_STOP_IF_IDLE` (notification-only cleanup). This is safe because the engine has already 
-  reported `LEVEL_NOTCONNECTED` — no tunnel is live — and a redundant `ACTION_STOP` dispatch would 
-  strand the state at `DISCONNECTING` with a spurious `STOP_FAILED` error (per fix-cycle 5 finding F1). 
-  Documented in `ServerAutoSwitcher.kt:145-149`.
-- **Stop-retry-timeout twin (engine-unconfirmed):** calls `stopper(appContext)` → real `ACTION_STOP` 
-  dispatch. This is necessary because the timeout fired precisely because no NOTCONNECTED confirmation 
-  arrived — the engine state is unknown, not confirmed idle. Dispatching a real stop brings its own 
-  bounded terminator (`STOP_CONFIRMATION_TIMEOUT_MS` + `STOP_DISPATCH_MAX_ATTEMPTS` via 
-  `startUserStopTeardown()`), so the branch self-resolves to `DISCONNECTED` or visible `STOP_FAILED` 
-  within ~27 s, never a silent permanent latch. Documented in `ServerAutoSwitcher.kt:603-607`.
+- **NOTCONNECTED twin (engine-confirmed idle):** forces `updateState(DISCONNECTED)` — which matches
+  the reality the engine just reported — and then calls `idleNotificationStopper(appContext)` →
+  `ACTION_STOP_IF_IDLE` (notification-only cleanup). That is safe because the engine has already
+  reported `LEVEL_NOTCONNECTED` — no tunnel is live — and a redundant `ACTION_STOP` dispatch would
+  strand the state at `DISCONNECTING` with a spurious `STOP_FAILED` error (per fix-cycle 5 finding
+  F1). Documented on `idleNotificationStopper`'s declaration.
+- **Stop-retry-timeout twin (engine-unconfirmed):** calls `stopper(appContext)` → real `ACTION_STOP`
+  dispatch, because the timeout fired precisely because no NOTCONNECTED confirmation arrived — the
+  engine state is unknown, not confirmed idle. A real stop brings its own bounded terminator
+  (`STOP_CONFIRMATION_TIMEOUT_MS` + `STOP_DISPATCH_MAX_ATTEMPTS` via `startUserStopTeardown()`), so
+  the branch self-resolves to `DISCONNECTED` or a visible `STOP_FAILED` within ~27 s, never a silent
+  permanent latch. **PR #140 round 3 (F1-8, found independently by Codex and Kody) narrowed this
+  further:** the dispatch is issued *first* and its Boolean result inspected, and only a dispatch
+  that actually reached the controller settles the app to `DISCONNECTED`. When `startService()` is
+  rejected (background-start restriction), `VpnManager.stopVpn()` returns `false` and nothing
+  reaches `OpenVpnService` — no teardown, and no service-side retry either — so the branch instead
+  re-dispatches up to three times a second apart and, if all are rejected, surfaces `DISCONNECTING`
+  + `STOP_FAILED` (`markStopFailure()`'s own end state) rather than reporting an unconfirmed tunnel
+  as disconnected. This is why `ServerAutoSwitcher.stopper` is typed `(Context) -> Boolean`.
+  Documented on `dispatchStopAfterStopRetryTimeout()`.
 
 The asymmetry is precondition-driven: the discriminator is whether the engine's state is already confirmed
 down. Quality gate QG4-3 assessed it as coherent and maintainable because the two paths are pinned by
 falsifying tests from both directions. The twin asymmetry does not reopen the defect family — it
 specializes the abort into the two cases the family originally collapsed into one broken fix.
 
-**References:**
-- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md` — F1 (false 
-  safety claim in NOTCONNECTED sibling) and F2 (incomplete regression test).
-- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-6.md` — F1-6 (timeout 
-  twin missing the same abort handling).
-- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-7.md` — verification of 
-  the F1-6 remediation, all load-bearing claims independently re-derived.
-- `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-gate-4.md` — QG4-3 assessment 
-  of the twin asymmetry's coherence.
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` (lines 
-  134-183, 552-578 — the twin abort paths).
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` (lines 1418, 
-  2010, 2033 — `staleSnapshotCount` atomic sites).
+**References** (tracked sources only — the per-cycle review and gate write-ups live under
+`docs/qa-evidence/`, which is gitignored and therefore absent from a clean checkout, so their
+findings are summarised inline here and in the code comments rather than linked):
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` — the twin
+  abort paths themselves. Each carries the full reasoning in-place: the `idleNotificationStopper`
+  declaration comment records review-5 F1 (the false "transition is rejected as a no-op" safety
+  claim in the NOTCONNECTED sibling), the NOTCONNECTED branch in `onEngineLevel()` records why the
+  engine-confirmed-idle premise makes notification-only cleanup safe there, and
+  `scheduleStopRetryTimeout()` plus `dispatchStopAfterStopRetryTimeout()` record review-6 F1-6 (the
+  timeout twin originally missing the same abort handling) and PR #140 round 3's F1-8 (the dispatch
+  result must be inspected before settling state).
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcherTest.kt` — the
+  falsifying tests that pin the asymmetry from both directions
+  (`blankConfigFallThrough_clearsReconnectingHintAndUsesIdleNotificationStopperNotFullStop`,
+  `stopRetryTimeoutBlankConfig_clearsReconnectingHintAndDispatchesRealStopperNotIdleNotification`,
+  and the two `stopRetryTimeoutBlankConfig_rejectedStopDispatch*` dispatch-result tests), plus
+  `OpenVpnServiceNotificationTest.kt` for the same claims exercised through the real
+  `ACTION_STOP` / `ACTION_STOP_IF_IDLE` service paths rather than fakes.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` —
+  `staleSnapshotCount`'s `AtomicInteger` call sites, and `startUserStopTeardown()` /
+  `scheduleStopRetryOrFail()` / `markStopFailure()`, the bounded terminator the timeout twin relies
+  on. (Line numbers are deliberately omitted: earlier revisions of this block cited lines that the
+  next fix-cycle moved.)
+- ClickUp task `86cb5y61z` — per-cycle review and gate write-ups, attached there as story QA
+  evidence.
 
 #### Finding 3 (fix-cycle 5, verified): stress-test collection change
 

@@ -1123,7 +1123,7 @@ class OpenVpnServiceStatusSyncTest {
 
         val originalStopper = ServerAutoSwitcher.stopper
         var stopCalls = 0
-        ServerAutoSwitcher.stopper = { _ -> stopCalls += 1 }
+        ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; true }
 
         // Prime the auto-switch timeout timer via a FRESH CONNECTING snapshot first: without an
         // active timer (or state==CONNECTING), ServerAutoSwitcher.onEngineLevel's
@@ -2455,7 +2455,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
 
@@ -3081,7 +3081,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         try {
             ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
@@ -3144,7 +3144,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         try {
             ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")

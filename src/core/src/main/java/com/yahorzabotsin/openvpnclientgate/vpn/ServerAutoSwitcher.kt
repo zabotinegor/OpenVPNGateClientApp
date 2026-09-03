@@ -20,6 +20,13 @@ object ServerAutoSwitcher {
     private const val REPLIED_TIMEOUT_EXTRA_SECONDS = 3
     private const val START_AFTER_STOP_DELAY_MS = 350
     private const val STOP_RETRY_TIMEOUT_MS = 5_000L
+    // Bounded re-dispatch for the stop-retry-timeout blank-config branch when ACTION_STOP cannot
+    // even be handed to the controller service. Deliberately the same shape and values as
+    // OpenVpnService's STOP_DISPATCH_MAX_ATTEMPTS / STOP_DISPATCH_RETRY_DELAY_MS
+    // (scheduleStopRetryOrFail()), because this branch is standing in for exactly that machinery:
+    // a rejected dispatch never reaches the service, so the service can never retry it itself.
+    private const val TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS = 3
+    private const val TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS = 1_000L
     private const val UNKNOWN_PAUSED_GRACE_MS = 3_000L
     @Volatile private var noReplyThresholdSeconds: Int = NO_REPLY_SWITCH_THRESHOLD_SECONDS
     @Volatile private var repliedThresholdSeconds: Int = REPLIED_SWITCH_THRESHOLD_SECONDS
@@ -29,7 +36,18 @@ object ServerAutoSwitcher {
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
     internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
-    internal var stopper: (Context) -> Unit = { ctx -> VpnManager.stopVpn(ctx) }
+    // F1-8 (fix-cycle 8, PR #140 round 3 -- Codex comment 3922158403 and Kody comment 3922135864
+    // reported this independently): this dispatcher returns Boolean, NOT Unit.
+    // VpnManager.stopVpn() -> startControllerService() returns false when Context.startService()
+    // is rejected (IllegalStateException from the background-start restriction, SecurityException,
+    // ...), and on that path NOTHING reaches OpenVpnService: startUserStopTeardown() never runs, so
+    // none of the service's own confirmation-timeout/retry machinery is armed either. While this
+    // field was typed (Context) -> Unit, every call site silently discarded that signal, and the
+    // stop-retry-timeout branch below settled the app to DISCONNECTED regardless -- reporting a
+    // possibly still-live tunnel as disconnected with no stop pending anywhere. Call sites that
+    // genuinely cannot act on a rejection may still ignore the result, but they must do so
+    // deliberately.
+    internal var stopper: (Context) -> Boolean = { ctx -> VpnManager.stopVpn(ctx) }
     // Fix-cycle 6 (docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md,
     // F1): a SEPARATE dispatcher from `stopper` above, used only by the blank-config fall-through
     // below. `stopper` routes through VpnManager.stopVpn() -> OpenVpnService's full user-stop
@@ -60,6 +78,11 @@ object ServerAutoSwitcher {
     @Volatile private var pendingTitle: String? = null
     @Volatile private var cycleStartIndex: Int? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
+    // Pending re-dispatch of the stop-retry-timeout ACTION_STOP (see
+    // dispatchStopAfterStopRetryTimeout). Held in a field, like every other posted Runnable in this
+    // class, so cancel() can remove it deterministically -- a user-initiated stop
+    // (cancelForUserStop()) dispatches its own ACTION_STOP and must not race a stale re-dispatch.
+    private var timeoutStopDispatchRunnable: Runnable? = null
     // QG4-2 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): the
     // retry-commit dispatch used to be posted as an anonymous `handler.postDelayed({ ... }, ...)`
     // lambda, which cancel() could not reference and therefore could never remove. A user
@@ -330,6 +353,8 @@ object ServerAutoSwitcher {
         pendingTitle = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
+        timeoutStopDispatchRunnable?.let { handler.removeCallbacks(it) }
+        timeoutStopDispatchRunnable = null
         retryStartRunnable?.let { handler.removeCallbacks(it) }
         retryStartRunnable = null
         retryCommitInFlight = false
@@ -497,7 +522,12 @@ object ServerAutoSwitcher {
         } catch (e: Exception) { AppLog.w(TAG, "Failed to reset state after no-alternative path", e) }
         try {
             AppLog.d(TAG, "Requesting explicit engine stop (no-alternative path)")
-            stopper(appContext)
+            // Unlike the stop-retry-timeout branch, this path reaches here with the engine still
+            // CONNECTING and still emitting levels, so a rejected dispatch is recoverable from the
+            // next engine event or an explicit user stop; it is logged rather than retried here.
+            if (!stopper(appContext)) {
+                AppLog.w(TAG, "Controller stop dispatch rejected (no-alternative path)")
+            }
         } catch (e: Exception) { AppLog.w(TAG, "Failed to request engine stop (no-alternative path)", e) }
     }
 
@@ -616,24 +646,107 @@ object ServerAutoSwitcher {
                 // STOP_DISPATCH_MAX_ATTEMPTS). The outcome is always bounded: a genuine NOTCONNECTED
                 // resolves it to DISCONNECTED, or repeated engine silence resolves it to the
                 // documented STOP_FAILED error state -- never a silent permanent latch.
+                //
+                // F1-8 (fix-cycle 8, PR #140 round 3: Codex 3922158403, Kody 3922135864): the stop
+                // is now dispatched FIRST and its result inspected, and only a dispatch that
+                // actually reached the controller settles the app to DISCONNECTED -- see
+                // dispatchStopAfterStopRetryTimeout(). Forcing DISCONNECTED up front (as this
+                // branch did before) discarded stopper()'s Boolean entirely, so a
+                // startService()-rejected stop still reported a possibly live tunnel as
+                // disconnected, with no stop pending in this class and none armed in
+                // OpenVpnService either.
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
                 cancel(resetCycle = true)
                 try {
                     ConnectionStateManager.setReconnectingHint(false)
-                    ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
                 } catch (e: Exception) {
-                    AppLog.w(TAG, "Failed to reset state on stop-retry timeout with blank config", e)
+                    AppLog.w(TAG, "Failed to clear reconnecting hint on stop-retry timeout with blank config", e)
                 }
-                try {
-                    AppLog.d(TAG, "Requesting explicit engine stop (stop-retry timeout, no engine confirmation)")
-                    stopper(appContext)
-                } catch (e: Exception) {
-                    AppLog.w(TAG, "Failed to request engine stop on stop-retry timeout with blank config", e)
-                }
+                dispatchStopAfterStopRetryTimeout(appContext, attempt = 1)
             }
         }
         stopRetryTimeoutRunnable = r
         handler.postDelayed(r, STOP_RETRY_TIMEOUT_MS)
+    }
+
+    /**
+     * Dispatches the real ACTION_STOP for the stop-retry-timeout blank-config branch and settles
+     * app state according to what actually happened to that dispatch (F1-8, fix-cycle 8, PR #140
+     * round 3: Codex 3922158403 / Kody 3922135864).
+     *
+     * Fix-cycle 7's choice of dispatcher is unchanged and still correct: this path has no engine
+     * confirmation of idleness, so it must use the real [stopper] (ACTION_STOP ->
+     * OpenVpnService.startUserStopTeardown(), which genuinely asks the engine to stop and arms the
+     * service's own confirmation-timeout/retry machinery), not the NOTCONNECTED sibling's
+     * notification-only [idleNotificationStopper]. What changes here is only how the dispatch
+     * RESULT is handled:
+     *
+     * - dispatched (`true`): the controller has the stop, so startUserStopTeardown() owns the
+     *   outcome from here (DISCONNECTING -> confirmed DISCONNECTED, or the documented STOP_FAILED
+     *   after its own bounded retries). Settling to DISCONNECTED is safe and is what closes the
+     *   permanent CONNECTING latch this branch exists to close.
+     * - rejected (`false`, or a throw): the intent never reached OpenVpnService, so no teardown and
+     *   no service-side retry exist. Re-dispatch up to [TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS] times
+     *   ([TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS] apart -- the same bounded shape as
+     *   OpenVpnService.scheduleStopRetryOrFail()), and if every attempt is rejected surface
+     *   DISCONNECTING + [ConnectionStateManager.VpnError.STOP_FAILED] -- markStopFailure()'s exact
+     *   end state, the only pairing ConnectionControlsPresenter renders as the stop-failed status,
+     *   and one that keeps the ACTIVE stop button so the user can retry by hand. Never DISCONNECTED:
+     *   a tunnel nobody has managed to stop must not be reported as stopped.
+     *
+     * Always runs on the main looper (posted through this class's [handler]), matching the
+     * single-main-looper-caller invariant the rest of this object assumes.
+     */
+    private fun dispatchStopAfterStopRetryTimeout(appContext: Context, attempt: Int) {
+        timeoutStopDispatchRunnable?.let { handler.removeCallbacks(it) }
+        timeoutStopDispatchRunnable = null
+        val dispatched = try {
+            AppLog.d(
+                TAG,
+                "Requesting explicit engine stop (stop-retry timeout, no engine confirmation, attempt=$attempt)"
+            )
+            stopper(appContext)
+        } catch (e: Exception) {
+            AppLog.w(
+                TAG,
+                "Failed to request engine stop on stop-retry timeout with blank config (attempt=$attempt)",
+                e
+            )
+            false
+        }
+        if (dispatched) {
+            try {
+                ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to reset state on stop-retry timeout with blank config", e)
+            }
+            return
+        }
+        if (attempt < TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS) {
+            AppLog.w(
+                TAG,
+                "Engine stop dispatch rejected on stop-retry timeout (attempt=$attempt); " +
+                    "retrying in ${TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS}ms"
+            )
+            val retry = Runnable {
+                timeoutStopDispatchRunnable = null
+                dispatchStopAfterStopRetryTimeout(appContext, attempt + 1)
+            }
+            timeoutStopDispatchRunnable = retry
+            handler.postDelayed(retry, TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS)
+            return
+        }
+        AppLog.e(
+            TAG,
+            "Engine stop dispatch rejected on stop-retry timeout after $attempt attempts; " +
+                "surfacing STOP_FAILED instead of reporting an unconfirmed tunnel as disconnected"
+        )
+        try {
+            ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+            ConnectionStateManager.setStopFailure()
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to surface stop failure after exhausted stop dispatch", e)
+        }
     }
 
     @JvmStatic
