@@ -1741,6 +1741,24 @@ All three findings and their dispositions are pinned by falsifying tests in `Ser
 and `OpenVpnServiceNotificationTest.kt` driving the real production entry points, mutation-verified
 one change at a time. See ClickUp `86cb5y61z` for the full per-thread review record.
 
+**Round 5 refinement — where the `ACTION_START` cancellation may safely sit.** F2-9's cancellation was
+first placed at the top of the `ACTION_START` branch, alongside the block that discards the service's
+own pending-stop bookkeeping. That is too early. `ACTION_START` has two guards that abort without
+starting any engine — a failing `enterControllerForeground()` and a blank config — and cancelling on
+those paths strands the previous, possibly still-live tunnel. The two cancellations are not
+equivalent: the service-side stop runnables only *retry* a stop that already reached
+`startUserStopTeardown()` and `requestStopIcsOpenVpn()`, whereas `timeoutStopDispatchRunnable` stands
+in for a stop whose dispatch was **rejected before `OpenVpnService` ever saw it**, so dropping it
+leaves nothing asking the engine to stop and no bounded escalation to `STOP_FAILED`. The call now sits
+after both guards, where the start has actually committed; deferring is race-free because
+`onStartCommand()` and the re-dispatch share the main looper, so the retry cannot run between the
+guards and the call. Both directions are pinned by
+`committedActionStart_cancelsPendingStopRetryRedispatchFromRejectedBlankConfigStop` (pinned to
+`sdk = [27]` so the start genuinely commits) and
+`abortedActionStart_preservesPendingStopRetryRedispatchSoTheOldTunnelIsStillStopped` (run on the
+default SDK precisely because `enterControllerForeground()` throws there) in
+`OpenVpnServiceNotificationTest.kt`.
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,

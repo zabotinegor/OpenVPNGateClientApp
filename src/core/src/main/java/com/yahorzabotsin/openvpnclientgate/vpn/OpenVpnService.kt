@@ -183,8 +183,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // of the incremented value, silently losing the reset. A retained pre-reset count can then
     // reach the 3-snapshot threshold before a live status callback should have re-armed it (the
     // grace window this counter exists to gate). AtomicInteger's set()/incrementAndGet() make both
-    // operations atomic with respect to each other, closing that window. Copilot PR #140 review
-    // (thread PRRT_kwDOONeEXM6ef1im).
+    // operations atomic with respect to each other, closing that window.
     private val staleSnapshotCount = AtomicInteger(0)
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
@@ -784,31 +783,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistPendingStopIntent(false)
                     AppLog.i(TAG, "stop_flow pending intent cleared on fresh ACTION_START pending_stop_intent=false")
                 }
-                // F2-9 (fix-cycle 9, PR #140 round 4, Codex thread PRRT_kwDOONeEXM6e2oec): a fresh
-                // start supersedes any stop-retry-timeout re-dispatch ServerAutoSwitcher still has
-                // armed from an earlier, REJECTED blank-config stop. Without this, that retry fires
-                // up to TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later and dispatches a real,
-                // non-preserve ACTION_STOP against THIS start -- which reaches
-                // startUserStopTeardown() and, through its cancelForUserStop(), tears down the new
-                // cycle as well as the tunnel.
-                //
-                // Placed here, in the block above that already discards every other piece of
-                // pending-stop bookkeeping (userInitiatedStop, the stop retry/confirmation/bind
-                // runnables, clearStopFailure(), the persisted pending-stop intent), because this is
-                // where a fresh start declares that no earlier stop is owed any more. Deliberately
-                // NOT deferred until after enterControllerForeground(): that block has already run
-                // by then, so leaving the switcher's re-dispatch armed past this point would be
-                // inconsistent -- the service would have forgotten the stop while the switcher was
-                // still retrying it, and the retry would land as a brand-new
-                // startUserStopTeardown("user_action", forceReset = true) against a service with no
-                // record of what it was finishing.
-                //
-                // Deliberately the narrow cancel, not cancelForUserStop(): see that method's KDoc
-                // for why resetting the switch cycle here would regress nextServerCircular's wrap
-                // detection on every auto-switch retry commit (which reaches ACTION_START through
-                // ServerAutoSwitcher.starter). onStartCommand() runs on the main looper, matching
-                // ServerAutoSwitcher's single-main-looper-caller invariant.
-                ServerAutoSwitcher.cancelPendingStopDispatchForFreshStart()
                 if (!enterControllerForeground()) return START_NOT_STICKY
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
@@ -845,6 +819,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
                 val attemptGeneration = reconnectDispatchGuard.beginNewAttempt()
                 if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                // A start that has actually committed supersedes any stop-retry-timeout re-dispatch
+                // ServerAutoSwitcher still has armed from an earlier, REJECTED blank-config stop.
+                // Left armed, that retry fires up to TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later and
+                // dispatches a real, non-preserve ACTION_STOP against THIS start -- reaching
+                // startUserStopTeardown() and, through its cancelForUserStop(), tearing down the new
+                // cycle as well as the tunnel.
+                //
+                // Deliberately placed AFTER both guards that can abort this branch
+                // (enterControllerForeground() and the blank-config check), not up with the
+                // pending-stop bookkeeping at the top. Those guards return without starting any
+                // engine, and on that path the switcher's re-dispatch is the ONLY remaining teardown
+                // for the possibly still-live previous tunnel: unlike the service-side stop runnables
+                // discarded above -- which merely retry a stop that already reached
+                // startUserStopTeardown() and requestStopIcsOpenVpn() -- this one stands in for a
+                // stop that never reached anything at all, because its dispatch was rejected before
+                // the service ever saw it. Cancelling it on a start that then aborts leaves that
+                // tunnel with no stop pending anywhere and no bounded escalation to STOP_FAILED.
+                // Deferring is race-free: onStartCommand() and the re-dispatch share the main looper,
+                // so the retry cannot run between those guards and this call.
+                //
+                // Deliberately the narrow cancel, not cancelForUserStop(): see that method's KDoc
+                // for why resetting the switch cycle here would regress nextServerCircular's wrap
+                // detection on every auto-switch retry commit (which reaches ACTION_START through
+                // ServerAutoSwitcher.starter). onStartCommand() runs on the main looper, matching
+                // ServerAutoSwitcher's single-main-looper-caller invariant.
+                ServerAutoSwitcher.cancelPendingStopDispatchForFreshStart()
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }

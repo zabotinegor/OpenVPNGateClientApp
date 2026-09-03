@@ -36,67 +36,51 @@ object ServerAutoSwitcher {
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
     internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
-    // F1-8 (fix-cycle 8, PR #140 round 3 -- Codex comment 3922158403 and Kody comment 3922135864
-    // reported this independently): this dispatcher returns Boolean, NOT Unit.
-    // VpnManager.stopVpn() -> startControllerService() returns false when Context.startService()
-    // is rejected (IllegalStateException from the background-start restriction, SecurityException,
-    // ...), and on that path NOTHING reaches OpenVpnService: startUserStopTeardown() never runs, so
-    // none of the service's own confirmation-timeout/retry machinery is armed either. While this
-    // field was typed (Context) -> Unit, every call site silently discarded that signal, and the
-    // stop-retry-timeout branch below settled the app to DISCONNECTED regardless -- reporting a
-    // possibly still-live tunnel as disconnected with no stop pending anywhere. Call sites that
-    // genuinely cannot act on a rejection may still ignore the result, but they must do so
-    // deliberately.
+    // Returns Boolean, NOT Unit. VpnManager.stopVpn() -> startControllerService() returns false when
+    // Context.startService() is rejected (IllegalStateException from the background-start
+    // restriction, SecurityException, ...), and on that path NOTHING reaches OpenVpnService:
+    // startUserStopTeardown() never runs, so none of the service's own confirmation-timeout/retry
+    // machinery is armed either. A call site that discards this signal reports a possibly still-live
+    // tunnel as disconnected with no stop pending anywhere. Ignoring the result is permitted, but
+    // must be a deliberate, documented choice.
     internal var stopper: (Context) -> Boolean = { ctx -> VpnManager.stopVpn(ctx) }
-    // Fix-cycle 6 (docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md,
-    // F1): a SEPARATE dispatcher from `stopper` above, used only by the blank-config fall-through
-    // below. `stopper` routes through VpnManager.stopVpn() -> OpenVpnService's full user-stop
-    // teardown (startUserStopTeardown()), which unconditionally calls
+    // A SEPARATE dispatcher from `stopper` above, used only by the blank-config fall-through below.
+    // `stopper` routes through VpnManager.stopVpn() -> OpenVpnService's full user-stop teardown
+    // (startUserStopTeardown()), which unconditionally calls
     // ConnectionStateManager.updateState(DISCONNECTING) -- correct when the engine is still live
     // (the no-alternative path below, requestSwitchNow()'s full-cycle-exhausted branch), but wrong
     // here: the blank-config branch is only reached after the engine has ALREADY reported
     // LEVEL_NOTCONNECTED, so there is nothing left to tear down and no guaranteed further engine
-    // event to resolve DISCONNECTING back to DISCONNECTED. `idleNotificationStopper` routes through
-    // the pre-existing, already-tested VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE
-    // path instead, which only clears the retained controller foreground notification and stops
-    // the service -- it never mutates connection state (its only interaction with
-    // ConnectionStateManager is reading state.value as a guard), so it cannot force the
-    // DISCONNECTED -> DISCONNECTING -> (possible STOP_FAILED latch) sequence review-5 proved.
-    // F3-6 (fix-cycle 7): "never touches ConnectionStateManager at all" was imprecise --
-    // ACTION_STOP_IF_IDLE's handler reads ConnectionStateManager.state.value as a guard
-    // (OpenVpnService.kt) and stopControllerIfIdle() reads it again (VpnManager.kt); both reads are
-    // harmless. The accurate claim is "never mutates connection state / never calls updateState()".
+    // event to resolve DISCONNECTING back to DISCONNECTED. DISCONNECTED -> DISCONNECTING IS an
+    // accepted transition (ConnectionState.kt's allowedFromDisconnected), so state can latch at
+    // DISCONNECTING with a spurious STOP_FAILED error if the engine then declines the redundant
+    // stop. `idleNotificationStopper` routes through VpnManager.stopControllerIfIdle() ->
+    // ACTION_STOP_IF_IDLE instead, which only clears the retained controller foreground notification
+    // and stops the idle service. It never MUTATES connection state (both it and the
+    // ACTION_STOP_IF_IDLE handler read state.value as a guard, nothing more), so it cannot force
+    // that latch.
     //
-    // F3-9 (fix-cycle 9, PR #140 round 4 -- Copilot thread PRRT_kwDOONeEXM6e2p0f): typed
-    // (Context) -> Boolean, matching `stopper` above, so the sole call site can no longer discard
-    // the dispatch result silently. Copilot's REMEDY (bounded retry into a DISCONNECTING +
-    // STOP_FAILED failure state, mirroring dispatchStopAfterStopRetryTimeout()) is deliberately NOT
-    // adopted, and the reasoning is worth stating because it is the exact inverse of fix-cycle 8's:
+    // Typed (Context) -> Boolean like `stopper`, so its sole call site cannot discard the dispatch
+    // result silently -- but a rejection there is deliberately logged rather than retried or
+    // escalated into a stop-failure state:
     //
-    //   * Copilot's premise -- "the engine may still be connecting" -- does not hold on this path.
-    //     Reaching the blank-config fall-through REQUIRES the engine to have already reported
-    //     LEVEL_NOTCONNECTED. DISCONNECTED is therefore the truthful state, and MainViewModel
-    //     offering Connect is correct, not a defect: the tunnel really is down.
-    //   * Forcing DISCONNECTING + STOP_FAILED here would re-open precisely the latch fix-cycle 6
-    //     closed (review-5 F1), reporting a stop failure for an engine that already stopped.
-    //   * A rejected ACTION_STOP_IF_IDLE therefore costs only the controller-service reap: the
+    //   * The engine has already confirmed NOTCONNECTED, so DISCONNECTED is the truthful state and
+    //     escalating to DISCONNECTING + STOP_FAILED would report a stop failure for an engine that
+    //     already stopped -- exactly the latch this dispatcher exists to avoid.
+    //   * A rejected ACTION_STOP_IF_IDLE therefore costs only the controller-service reap: a
     //     retained foreground notification and a lingering idle service. Connection state is
-    //     unaffected because this dispatcher never mutates it.
+    //     unaffected, because this dispatcher never mutates it.
+    //   * That residue self-heals unconditionally. OpenVpnService.trafficPollRunnable re-runs
+    //     trySyncStatusSnapshot() whenever the AIDL push channel has been quiet for >5s
+    //     (`now - lastStatusSnapshotMs > 5_000L`), re-delivering LEVEL_NOTCONNECTED into
+    //     syncEngineState(). There `reconnectPending` is false (this branch clears reconnectingHint
+    //     before dispatching, and userInitiatedStart is false), so syncEngineState() calls
+    //     exitControllerForeground() DIRECTLY -- an in-process call, not a startService() dispatch,
+    //     so unlike the rejected ACTION_STOP_IF_IDLE it cannot itself be refused. The idle service
+    //     is then reaped by appLifecycleObserver.onStop()'s stopControllerIfIdle() and the
+    //     one-shot-sync stop chain.
     //
-    // And that residue self-heals automatically, which is the question gate-5's F1-R8 adjudication
-    // asked of the three sibling stopper() sites and answered with the 5-second snapshot re-poll.
-    // This site has that same property, via a STRONGER mechanism -- verified by trace, not assumed:
-    // OpenVpnService.trafficPollRunnable re-runs trySyncStatusSnapshot() whenever the AIDL push
-    // channel has been quiet for >5s (OpenVpnService.kt, `now - lastStatusSnapshotMs > 5_000L`),
-    // which re-delivers LEVEL_NOTCONNECTED into syncEngineState(). There, `reconnectPending` is
-    // false (this branch cleared reconnectingHint before dispatching, and userInitiatedStart is
-    // false), so syncEngineState() calls exitControllerForeground() DIRECTLY -- an in-process call,
-    // not a startService() dispatch, so unlike the rejected ACTION_STOP_IF_IDLE it cannot itself be
-    // refused. The notification clears regardless. The idle service is then reaped by
-    // appLifecycleObserver.onStop()'s stopControllerIfIdle() and the one-shot-sync stop chain.
-    // A bounded re-dispatch here would duplicate machinery that already runs unconditionally, so
-    // the result is logged rather than retried -- the deliberate-ignore the `stopper` declaration
-    // comment above allows for, now actually deliberate and recorded instead of invisible.
+    // A bounded re-dispatch here would duplicate machinery that already runs unconditionally.
     internal var idleNotificationStopper: (Context) -> Boolean = { ctx -> VpnManager.stopControllerIfIdle(ctx) }
     // AC-3.3: Optional callback invoked when DEFAULT_V2 auto-switch is triggered but the
     // selected-country server list is empty. The callback must hydrate the list and then
@@ -205,7 +189,6 @@ object ServerAutoSwitcher {
                     // the controller notification would stay latched forever. Reset the cycle and
                     // force the state back to DISCONNECTED here, then clear the controller
                     // notification below.
-                    // Copilot PR #140 review (thread PRRT_kwDOONeEXM6ef1jb).
                     cancel(resetCycle = true)
                     try {
                         ConnectionStateManager.setReconnectingHint(false)
@@ -213,34 +196,23 @@ object ServerAutoSwitcher {
                     } catch (e: Exception) {
                         AppLog.w(TAG, "Failed to reset state on blank-config fall-through", e)
                     }
-                    // Fix-cycle 6 (review-5 F1): this branch is NOT a mirror of the no-alternative
-                    // path below (requestSwitchNow()'s full-cycle-exhausted branch), despite an
-                    // earlier fix-cycle claiming otherwise. On the no-alternative path the engine is
-                    // still CONNECTING, so a full stopper()/ACTION_STOP dispatch is correct -- there
-                    // is a live attempt to tear down and a genuine NOTCONNECTED follows to resolve
+                    // This branch is NOT a mirror of the no-alternative path below
+                    // (requestSwitchNow()'s full-cycle-exhausted branch). There the engine is still
+                    // CONNECTING, so a full stopper()/ACTION_STOP dispatch is correct: there is a
+                    // live attempt to tear down and a genuine NOTCONNECTED follows to resolve
                     // OpenVpnService's startUserStopTeardown() DISCONNECTING transition. Here the
                     // engine has ALREADY reported LEVEL_NOTCONNECTED (that report is the precondition
                     // for reaching this branch at all), so there is nothing left to tear down and no
-                    // guaranteed further engine event. Routing this through stopper() would force
-                    // ConnectionStateManager.updateState(DISCONNECTING) unconditionally
-                    // (startUserStopTeardown(), OpenVpnService.kt) -- allowedFromDisconnected DOES
-                    // include DISCONNECTING (ConnectionState.kt), so that transition is ACCEPTED, not
-                    // rejected as a no-op as previously (incorrectly) claimed -- and if the engine
-                    // then declines the redundant stop dispatch, state can latch at DISCONNECTING
-                    // with a spurious STOP_FAILED error instead of resolving back to DISCONNECTED.
-                    // idleNotificationStopper() routes through the pre-existing, already-tested
-                    // VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE path instead: it only
-                    // clears the retained controller foreground notification (the state above is
-                    // already correctly DISCONNECTED) and never mutates connection state (it only
-                    // reads it as a guard), so it cannot reintroduce that latch.
+                    // guaranteed further engine event -- routing this through stopper() could latch
+                    // state at DISCONNECTING with a spurious STOP_FAILED. See
+                    // idleNotificationStopper's declaration comment.
                     try {
                         AppLog.d(TAG, "Requesting controller notification cleanup (blank-config fall-through)")
-                        // F3-9 (fix-cycle 9, Copilot thread PRRT_kwDOONeEXM6e2p0f): inspect the
-                        // dispatch result instead of discarding it. Deliberately logged, not
-                        // retried, and deliberately NOT escalated into a stop-failure state -- see
-                        // idleNotificationStopper's declaration comment for why this path's
-                        // engine-confirmed-idle premise makes DISCONNECTED truthful here and why the
-                        // only residue (a retained notification / lingering idle controller) is
+                        // Inspect the dispatch result instead of discarding it. Deliberately logged,
+                        // not retried, and deliberately NOT escalated into a stop-failure state --
+                        // see idleNotificationStopper's declaration comment for why this path's
+                        // engine-confirmed-idle premise makes DISCONNECTED truthful here, and why
+                        // the only residue (a retained notification / lingering idle controller) is
                         // already healed unconditionally by syncEngineState()'s in-process
                         // exitControllerForeground() on the next snapshot re-poll.
                         if (!idleNotificationStopper(appContext)) {
@@ -326,11 +298,11 @@ object ServerAutoSwitcher {
         }
         try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
-        // F2-9: a chained switch is a fresh cycle, so any stop-retry-timeout re-dispatch left armed
-        // by a PREVIOUS cycle must not survive into it -- otherwise it fires a non-preserve
-        // ACTION_STOP mid-switch and cancelForUserStop() tears this cycle down. requestSwitchNow()'s
-        // switch branch already gets this via its cancel(resetCycle = false); this entry point had
-        // no equivalent. See cancelPendingStopDispatchForFreshStart().
+        // A chained switch is a fresh cycle, so any stop-retry-timeout re-dispatch left armed by a
+        // PREVIOUS cycle must not survive into it -- otherwise it fires a non-preserve ACTION_STOP
+        // mid-switch and cancelForUserStop() tears this cycle down. requestSwitchNow()'s switch
+        // branch already gets this via its cancel(resetCycle = false); this entry point has no
+        // equivalent. See cancelPendingStopDispatchForFreshStart().
         cancelPendingStopDispatchForFreshStart()
         cancelIdleTolerance()
         pendingConfig = config.takeIf { it.isNotBlank() }
@@ -436,16 +408,15 @@ object ServerAutoSwitcher {
      * Drops a pending stop-retry-timeout re-dispatch (see [dispatchStopAfterStopRetryTimeout])
      * because a fresh connection attempt has superseded it.
      *
-     * F2-9 (fix-cycle 9, PR #140 round 4, Codex thread PRRT_kwDOONeEXM6e2oec): when the
-     * blank-config timeout's ACTION_STOP is rejected, this class arms a re-dispatch
-     * [TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS] later. [cancel] removes it, but NO fresh-start path
-     * was calling [cancel]: `OpenVpnService.onStartCommand()`'s ACTION_START branch touches none of
-     * this object's state, and [beginChainedSwitch] arms a new cycle without clearing the old
-     * re-dispatch. So a user who tapped Connect inside that one-second window (typically right
-     * after returning to the foreground, which is also what lifts the background-start restriction
-     * that caused the rejection) got the retry firing a real, non-preserve ACTION_STOP against the
-     * connection they had just started -- tearing it down via startUserStopTeardown(), whose
-     * cancelForUserStop() then also killed the new cycle.
+     * When the blank-config timeout's ACTION_STOP is rejected, this class arms a re-dispatch
+     * [TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS] later. [cancel] removes it, but the fresh-start paths
+     * do not call [cancel]: `OpenVpnService.onStartCommand()`'s ACTION_START branch touches none of
+     * this object's other state, and [beginChainedSwitch] arms a new cycle without clearing the old
+     * re-dispatch. Without this method, a user who taps Connect inside that one-second window
+     * (typically right after returning to the foreground, which is also what lifts the
+     * background-start restriction that caused the rejection) gets the retry firing a real,
+     * non-preserve ACTION_STOP against the connection they just started -- tearing it down via
+     * startUserStopTeardown(), whose cancelForUserStop() then also kills the new cycle.
      *
      * Deliberately narrow: it clears ONLY [timeoutStopDispatchRunnable], never the switch timer or
      * [cycleStartIndex]. Calling full [cancel] from ACTION_START would reset the cycle start index
@@ -453,10 +424,14 @@ object ServerAutoSwitcher {
      * nextServerCircular()'s wrap detection give up early -- the exact defect
      * [rollBackFailedRetryDispatch]'s comment describes.
      *
-     * Dropping the pending stop is the correct resolution, not merely the safe one: ACTION_START
-     * already performs the equivalent teardown for the superseded stop (userInitiatedStop = false,
-     * the stop retry/confirmation/bind runnables removed, `clearStopFailure()`, and the persisted
-     * pending-stop intent cleared), so nothing is left owing a stop once a start commits.
+     * Only a start that has actually COMMITTED may call this. Dropping the pending stop is then the
+     * correct resolution, not merely the safe one: such a start has already performed the equivalent
+     * teardown for the superseded stop (userInitiatedStop = false, the stop retry/confirmation/bind
+     * runnables removed, `clearStopFailure()`, and the persisted pending-stop intent cleared), so
+     * nothing is left owing a stop. A start that ABORTS must NOT call this: it leaves no replacement
+     * teardown behind, and this re-dispatch is the only thing still trying to stop a possibly live
+     * tunnel whose stop was never delivered to the service at all. See the ACTION_START call site
+     * for why it sits after that branch's aborting guards.
      *
      * Must be called from the main thread, like every other entry point on this object.
      */
@@ -700,17 +675,15 @@ object ServerAutoSwitcher {
                 retryCommitInFlight = true
                 handler.postDelayed(startR, START_AFTER_STOP_DELAY_MS.toLong())
             } else {
-                // F1-6 (fix-cycle 7, docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-
-                // machine-review-6.md): this is the TIMEOUT TWIN of the blank-config fall-through in
-                // onEngineLevel() above (fixed in fix-cycle 6) -- both are reached with
-                // pendingConfig == null after `config.takeIf { it.isNotBlank() }`, but this one fires
-                // because NOTCONNECTED never arrived within STOP_RETRY_TIMEOUT_MS, not because it
-                // did. Before this fix the branch only logged, so reconnectingHint stayed true,
-                // state stayed CONNECTING (the stop was dispatched with preserveReconnectHint = true,
-                // so ACTION_STOP took the "preserve" branch and never ran startUserStopTeardown()),
-                // and the controller FGS notification was retained -- with no retry in flight and no
-                // further event able to resolve any of it. The identical permanent latch this whole
-                // fix cycle exists to close, just reached via the timeout path instead of
+                // This is the TIMEOUT TWIN of the blank-config fall-through in onEngineLevel()
+                // above -- both are reached with pendingConfig == null after
+                // `config.takeIf { it.isNotBlank() }`, but this one fires because NOTCONNECTED never
+                // arrived within STOP_RETRY_TIMEOUT_MS, not because it did. Merely logging here
+                // leaves reconnectingHint true and state stuck at CONNECTING (the stop was
+                // dispatched with preserveReconnectHint = true, so ACTION_STOP took the "preserve"
+                // branch and never ran startUserStopTeardown()), with the controller FGS
+                // notification retained, no retry in flight, and no further event able to resolve
+                // any of it -- a permanent latch, reached via the timeout path instead of
                 // NOTCONNECTED.
                 //
                 // This branch must NOT reuse the NOTCONNECTED sibling's idleNotificationStopper()
@@ -738,14 +711,11 @@ object ServerAutoSwitcher {
                 // resolves it to DISCONNECTED, or repeated engine silence resolves it to the
                 // documented STOP_FAILED error state -- never a silent permanent latch.
                 //
-                // F1-8 (fix-cycle 8, PR #140 round 3: Codex 3922158403, Kody 3922135864): the stop
-                // is now dispatched FIRST and its result inspected, and only a dispatch that
-                // actually reached the controller settles the app to DISCONNECTED -- see
-                // dispatchStopAfterStopRetryTimeout(). Forcing DISCONNECTED up front (as this
-                // branch did before) discarded stopper()'s Boolean entirely, so a
-                // startService()-rejected stop still reported a possibly live tunnel as
-                // disconnected, with no stop pending in this class and none armed in
-                // OpenVpnService either.
+                // The stop is dispatched FIRST and its result inspected -- see
+                // dispatchStopAfterStopRetryTimeout(). Forcing DISCONNECTED up front would discard
+                // stopper()'s Boolean entirely, so a startService()-rejected stop would report a
+                // possibly live tunnel as disconnected, with no stop pending in this class and none
+                // armed in OpenVpnService either.
                 AppLog.w(TAG, "Stop retry timeout; missing pending config")
                 cancel(resetCycle = true)
                 try {
@@ -762,24 +732,21 @@ object ServerAutoSwitcher {
 
     /**
      * Dispatches the real ACTION_STOP for the stop-retry-timeout blank-config branch and settles
-     * app state according to what actually happened to that dispatch (F1-8, fix-cycle 8, PR #140
-     * round 3: Codex 3922158403 / Kody 3922135864).
+     * app state according to what actually happened to that dispatch.
      *
-     * Fix-cycle 7's choice of dispatcher is unchanged and still correct: this path has no engine
-     * confirmation of idleness, so it must use the real [stopper] (ACTION_STOP ->
-     * OpenVpnService.startUserStopTeardown(), which genuinely asks the engine to stop and arms the
-     * service's own confirmation-timeout/retry machinery), not the NOTCONNECTED sibling's
-     * notification-only [idleNotificationStopper]. What changes here is only how the dispatch
-     * RESULT is handled:
+     * This path has no engine confirmation of idleness, so it must use the real [stopper]
+     * (ACTION_STOP -> OpenVpnService.startUserStopTeardown(), which genuinely asks the engine to
+     * stop and arms the service's own confirmation-timeout/retry machinery), not the NOTCONNECTED
+     * sibling's notification-only [idleNotificationStopper]. The dispatch RESULT is handled as
+     * follows:
      *
      * - dispatched (`true`): the controller has the stop, so startUserStopTeardown() owns the
-     *   outcome from here -- and this method publishes NO state of its own. F1-9 (fix-cycle 9,
-     *   PR #140 round 4, Kody thread PRRT_kwDOONeEXM6e2mam): fix-cycle 8 settled DISCONNECTED
-     *   immediately on the dispatch acknowledgment, but `stopper()` is
+     *   outcome from here -- and this method publishes NO state of its own. Settling DISCONNECTED on
+     *   the dispatch acknowledgment would be wrong: `stopper()` is
      *   VpnManager.stopVpn() -> Context.startService(), which returns true the moment the intent is
      *   ACCEPTED for delivery -- not when OpenVpnService receives it. onStartCommand()'s ACTION_STOP
      *   branch runs later on the main looper, and only then does startUserStopTeardown() set
-     *   DISCONNECTING. So the old ordering published a false idle/disconnected state for the whole
+     *   DISCONNECTING. That ordering would publish a false idle/disconnected state for the whole
      *   asynchronous delivery window: every ConnectionStateManager consumer (MainViewModel renders
      *   DISCONNECTED as "ready to Connect") could observe a tunnel that is still being torn down as
      *   already down. Returning without settling leaves state where the caller left it (CONNECTING),
@@ -824,7 +791,7 @@ object ServerAutoSwitcher {
             false
         }
         if (dispatched) {
-            // F1-9: publish nothing here. The controller now owns the outcome and will publish
+            // Publish nothing here. The controller now owns the outcome and will publish
             // DISCONNECTING -> DISCONNECTED (or STOP_FAILED) itself; anticipating that with a
             // DISCONNECTED of our own would be a false idle report for the delivery window. See
             // this method's KDoc.
@@ -899,10 +866,10 @@ object ServerAutoSwitcher {
     @JvmStatic
     fun cycleStartIndexForTest(): Int? = cycleStartIndex
 
-    // Read-only test seam for the F2-9 regression coverage. Whether a stop-retry-timeout
+    // Read-only test seam for the fresh-start supersession coverage. Whether a stop-retry-timeout
     // re-dispatch is still armed is otherwise only observable by letting it fire, which is exactly
-    // what the fix prevents -- so asserting on the fire alone cannot distinguish "cancelled" from
-    // "not yet due".
+    // what the supersession prevents -- so asserting on the fire alone cannot distinguish
+    // "cancelled" from "not yet due".
     @JvmStatic
     fun hasPendingStopDispatchForTest(): Boolean = timeoutStopDispatchRunnable != null
 }

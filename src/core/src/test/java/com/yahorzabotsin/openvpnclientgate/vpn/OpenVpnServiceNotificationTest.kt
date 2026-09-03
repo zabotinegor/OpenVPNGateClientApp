@@ -277,14 +277,13 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
-    // F2-9 (fix-cycle 9, PR #140 round 4, Codex thread PRRT_kwDOONeEXM6e2oec). When the blank-config
-    // stop-retry timeout's ACTION_STOP is rejected, ServerAutoSwitcher arms a bounded re-dispatch
-    // TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later. Nothing cancelled it on a fresh connection:
-    // ServerAutoSwitcher.cancel() clears it, but onStartCommand()'s ACTION_START branch touched none
-    // of ServerAutoSwitcher's state. So a user tapping Connect inside that one-second window --
-    // typically right after returning to the foreground, which is also what LIFTS the background-
-    // start restriction that caused the rejection in the first place -- got the retry succeeding
-    // against their brand-new connection: a real, non-preserve ACTION_STOP into
+    // When the blank-config stop-retry timeout's ACTION_STOP is rejected, ServerAutoSwitcher arms a
+    // bounded re-dispatch TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later. ServerAutoSwitcher.cancel()
+    // clears it, but onStartCommand()'s ACTION_START branch touches none of ServerAutoSwitcher's
+    // other state, so without an explicit supersession a user tapping Connect inside that one-second
+    // window -- typically right after returning to the foreground, which is also what LIFTS the
+    // background-start restriction that caused the rejection in the first place -- gets the retry
+    // succeeding against their brand-new connection: a real, non-preserve ACTION_STOP into
     // startUserStopTeardown(), which stops the tunnel AND calls
     // ServerAutoSwitcher.cancelForUserStop(), killing the new cycle with it.
     //
@@ -292,17 +291,20 @@ class OpenVpnServiceNotificationTest {
     // than calling the cancellation method directly -- a direct call would still pass with the
     // production call site deleted, which IS the defect.
     //
-    // The cancellation sits in ACTION_START's pending-stop supersession block, ahead of
-    // enterControllerForeground(). That placement is what makes it reachable here: as
-    // actionStart_enterControllerForegroundFailure_* below documents, enterControllerForeground()
-    // reliably throws NoSuchMethodError on the default Robolectric SDK, so everything after it in
-    // the ACTION_START branch is unreachable in these tests. It is also the correct placement on the
-    // merits -- see the call site's comment -- because the surrounding block has already discarded
-    // every other piece of pending-stop bookkeeping by that point.
+    // sdk = [27]: the cancellation deliberately sits AFTER ACTION_START's two aborting guards
+    // (enterControllerForeground() and the blank-config check), because only a start that actually
+    // commits may drop the previous tunnel's last remaining teardown -- see
+    // abortedActionStart_preservesPendingStopRetryRedispatchSoTheOldTunnelIsStillStopped below for
+    // the complementary case. On the project's default Robolectric SDK,
+    // enterControllerForeground() throws NoSuchMethodError (an AndroidX-core/Robolectric shadow-jar
+    // mismatch unrelated to this fix), so ACTION_START would abort and never reach the cancellation.
+    // Pinning sdk=27 lets the real notification path run so the start genuinely commits.
+    //
     // Falsification: removing ServerAutoSwitcher.cancelPendingStopDispatchForFreshStart() from
     // OpenVpnService's ACTION_START branch fails both assertions below.
+    @Config(sdk = [27])
     @Test
-    fun freshActionStart_cancelsPendingStopRetryRedispatchFromRejectedBlankConfigStop() {
+    fun committedActionStart_cancelsPendingStopRetryRedispatchFromRejectedBlankConfigStop() {
         val app: Application = RuntimeEnvironment.getApplication()
         val originalStopper = ServerAutoSwitcher.stopper
         val originalStarter = ServerAutoSwitcher.starter
@@ -369,6 +371,111 @@ class OpenVpnServiceNotificationTest {
                 "No ACTION_STOP may be dispatched after a fresh start commits: reaching " +
                     "startUserStopTeardown() would both stop the new tunnel and, via " +
                     "cancelForUserStop(), tear down the new cycle",
+                stops.isEmpty()
+            )
+        } finally {
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    // The complement of the test above, and the reason the cancellation sits AFTER ACTION_START's
+    // aborting guards instead of with the pending-stop bookkeeping at the top of that branch.
+    //
+    // enterControllerForeground() can fail (startForeground() throws), and ACTION_START then returns
+    // START_NOT_STICKY without starting any engine. Cancelling the switcher's re-dispatch on that
+    // path strands the previous, possibly still-live tunnel. It is NOT equivalent to the
+    // service-side stop runnables the branch discards above: those merely retry a stop that already
+    // reached startUserStopTeardown() and requestStopIcsOpenVpn(), whereas this re-dispatch stands
+    // in for a stop whose dispatch was REJECTED before OpenVpnService ever saw it -- so once it is
+    // gone, nothing is asking the engine to stop and nothing can escalate to STOP_FAILED either.
+    //
+    // Runs on the project's default Robolectric SDK precisely because enterControllerForeground()
+    // reliably throws NoSuchMethodError there, which is exactly the abort this test needs.
+    //
+    // Falsification: moving cancelPendingStopDispatchForFreshStart() back above
+    // enterControllerForeground() fails both assertions below.
+    @Test
+    fun abortedActionStart_preservesPendingStopRetryRedispatchSoTheOldTunnelIsStillStopped() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val originalStopper = ServerAutoSwitcher.stopper
+        val originalStarter = ServerAutoSwitcher.starter
+        try {
+            UserSettingsStore.saveAutoSwitchWithinCountry(app, true)
+            UserSettingsStore.saveStatusStallTimeoutSeconds(app, 2)
+            ServerAutoSwitcher.setNoReplyThresholdForTest(2)
+            // Second server has a blank config, which is what routes the switch into the
+            // blank-config branch of the stop-retry timeout.
+            SelectedCountryStore.saveSelection(
+                app,
+                "RU",
+                listOf(
+                    Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+                    Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+                )
+            )
+            SelectedCountryStore.resetIndex(app)
+
+            val dispatchContext = RejectingStartServiceContext(app)
+            ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+            ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+
+            ServerAutoSwitcher.onEngineLevel(
+                dispatchContext,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                "VPN_STATUS"
+            )
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+            ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+            // The blank-config timeout fires while the background-start restriction is active, so
+            // the real ACTION_STOP never reaches OpenVpnService and only this re-dispatch is left.
+            dispatchContext.rejecting = true
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+            assertTrue(
+                "Precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+                ServerAutoSwitcher.hasPendingStopDispatchForTest()
+            )
+
+            dispatchContext.rejecting = false
+            val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+            Shadows.shadowOf(app).clearStartedServices()
+            val startIntent = Intent(app, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(app), VpnManager.ACTION_START)
+                putExtra(VpnManager.extraConfigKey(app), "client\n")
+                putExtra(VpnManager.extraTitleKey(app), "RU")
+            }
+            service.onStartCommand(startIntent, 0, 1)
+
+            // enterControllerForeground() only clears controllerForegroundActive in its catch block,
+            // so this pins the test to the abort having actually happened rather than passing
+            // vacuously if the induced fault ever stops firing.
+            val activeField = OpenVpnService::class.java.getDeclaredField("controllerForegroundActive")
+            activeField.isAccessible = true
+            assertFalse(
+                "Precondition: enterControllerForeground() must have thrown and hit its catch block, " +
+                    "so ACTION_START aborts before starting any engine",
+                activeField.getBoolean(service)
+            )
+
+            assertTrue(
+                "An ACTION_START that aborts must NOT cancel the pending stop re-dispatch: it starts " +
+                    "no replacement engine, so this retry is the only thing still trying to stop the " +
+                    "previous, possibly live tunnel",
+                ServerAutoSwitcher.hasPendingStopDispatchForTest()
+            )
+
+            // The preserved retry must still reach the controller once the background-start
+            // restriction lifts, otherwise the old tunnel has no teardown path at all.
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+            val stops = generateSequence { Shadows.shadowOf(app).nextStartedService }
+                .filter { it.getStringExtra(VpnManager.actionKey(app)) == VpnManager.ACTION_STOP }
+                .toList()
+            assertFalse(
+                "The preserved re-dispatch must still deliver a real ACTION_STOP for the stranded " +
+                    "tunnel after an aborted start",
                 stops.isEmpty()
             )
         } finally {
