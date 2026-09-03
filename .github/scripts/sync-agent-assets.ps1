@@ -1161,45 +1161,43 @@ try {
         }
     }
 
-    if (-not $DryRun) {
-        $targetSettingsPath = Join-Path $targetRootResolved '.claude/settings.json'
-        if (Test-Path -LiteralPath $targetSettingsPath) {
-            $targetSettingsRaw = Get-Content -LiteralPath $targetSettingsPath -Raw -Encoding UTF8
-            $targetSettings = $null
-            try {
-                $targetSettings = $targetSettingsRaw | ConvertFrom-Json
-            } catch {
-                Write-Warning "Failed to parse target settings for session migration: $_"
+    $targetSettingsPath = Join-Path $targetRootResolved '.claude/settings.json'
+    if (Test-Path -LiteralPath $targetSettingsPath) {
+        $targetSettingsRaw = Get-Content -LiteralPath $targetSettingsPath -Raw -Encoding UTF8
+        $targetSettings = $null
+        try {
+            $targetSettings = $targetSettingsRaw | ConvertFrom-Json
+        } catch {
+            Write-Warning "Failed to parse target settings for session migration: $_"
+        }
+
+        if ($null -ne $targetSettings) {
+            $migrationRemoved = @()
+            $migrationAdded = @()
+
+            if (-not $sessionRecoveryEnabled) {
+                $migrationRemoved = @(Remove-SessionRecoveryHooks -Settings $targetSettings)
+            } else {
+                $migrationAdded = @(Add-SessionRecoveryHooks -Settings $targetSettings)
             }
 
-            if ($null -ne $targetSettings) {
-                $migrationRemoved = @()
-                $migrationAdded = @()
+            $migrationChanged = $migrationRemoved.Count -gt 0 -or $migrationAdded.Count -gt 0
+            if ($migrationChanged -and -not $DryRun) {
+                $json = ConvertTo-Json -InputObject $targetSettings -Depth 10
+                $encoding = New-Object System.Text.UTF8Encoding($false)
+                [System.IO.File]::WriteAllText($targetSettingsPath, ($json + "`r`n"), $encoding)
+            }
 
-                if (-not $sessionRecoveryEnabled) {
-                    $migrationRemoved = @(Remove-SessionRecoveryHooks -Settings $targetSettings)
-                } else {
-                    $migrationAdded = @(Add-SessionRecoveryHooks -Settings $targetSettings)
-                }
+            $sessionHookMigrationResult = [pscustomobject]@{
+                sessionRecoveryEnabled = $sessionRecoveryEnabled
+                removed = @($migrationRemoved)
+                added = @($migrationAdded)
+                changed = $migrationChanged
+            }
 
-                $migrationChanged = $migrationRemoved.Count -gt 0 -or $migrationAdded.Count -gt 0
-                if ($migrationChanged -and -not $DryRun) {
-                    $json = ConvertTo-Json -InputObject $targetSettings -Depth 10
-                    $encoding = New-Object System.Text.UTF8Encoding($false)
-                    [System.IO.File]::WriteAllText($targetSettingsPath, ($json + "`r`n"), $encoding)
-                }
-
-                $sessionHookMigrationResult = [pscustomobject]@{
-                    sessionRecoveryEnabled = $sessionRecoveryEnabled
-                    removed = @($migrationRemoved)
-                    added = @($migrationAdded)
-                    changed = $migrationChanged
-                }
-
-                if ($migrationRemoved.Count -gt 0) {
-                    foreach ($r in $migrationRemoved) {
-                        $removedDeadHooks.Add("session-recovery: $r")
-                    }
+            if ($migrationRemoved.Count -gt 0) {
+                foreach ($r in $migrationRemoved) {
+                    $removedDeadHooks.Add("session-recovery: $r")
                 }
             }
         }

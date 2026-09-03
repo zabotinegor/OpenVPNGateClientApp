@@ -44,7 +44,16 @@ $protectedPattern = '(?:main|dev|master|develop)'
 # single-quoted runs); '"[^"\\]*"'-with-escape covers a backslash-escaped
 # quote surviving inside a double-quoted run the way ConvertTo-NormalizedCommand
 # already preserves it.
-$gitValuePattern = '(?>(?:"(?:\\.|[^"\\])*"|''[^'']*''|\\.|[^\s"''\\]+)+)'
+#
+# '`["'']' is the PowerShell counterpart: a backtick-escaped quote ('`"') inside
+# a double-quoted run - or standing between two unquoted fragments - is a
+# literal quote that neither opens nor closes the argument. It is its own
+# alternative, listed before the negated character classes (which still admit a
+# lone backtick, so a bash command-substitution path stays untouched), so that
+# 'git -C "C:\a`"b" commit' keeps the whole '"C:\a`"b"' glued to -C and the
+# mutation matchers still reach '\s+commit'. Without it the run closed at the
+# escaped quote and the commit went unjudged.
+$gitValuePattern = '(?>(?:"(?:\\.|`["'']|[^"\\])*"|''[^'']*''|\\.|`["'']|[^\s"''\\]+)+)'
 $gitPrefixPattern = "\bgit(?:\s+-C\s+$gitValuePattern|\s+--git-dir(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--work-tree(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+$gitValuePattern|\s+--exec-path(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--namespace=$gitValuePattern|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*"
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
@@ -434,7 +443,22 @@ function Split-CommandSegments {
 function Resolve-TargetToken {
     param([string]$Value, [string]$BaseDir)
 
-    $clean = ($Value -replace '["'']', '')
+    # PowerShell backtick escapes arrive glued to the token from
+    # Get-GitTargetPath's tokenizer: '`"' is a literal quote (not a delimiter),
+    # '`  ' a literal space, '``' a literal backtick. Collapse them before the
+    # delimiter-quote strip below - otherwise a glued '`"' is removed as if it
+    # were a wrapping quote, the path is truncated, resolution fails, and the
+    # caller falls back to the SESSION repo, judging a mutation on the target
+    # repo's protected branch against the session's own branch. Map '`"' to a
+    # marker the strip cannot touch, then restore it afterwards. Bash has no
+    # backtick escape, so this is PowerShell-only.
+    $clean = $Value
+    if (-not $script:bashSyntax) {
+        $clean = $clean -replace '`"', ([string][char]1)
+        $clean = $clean -replace '`(.)', '$1'
+    }
+    $clean = ($clean -replace '["'']', '')
+    if (-not $script:bashSyntax) { $clean = $clean.Replace([string][char]1, '"') }
     # A shell metacharacter reaches the path only escaped ('/srv/prod\&repo') or
     # quoted; the backslash is the shell's, not part of the directory name. Strip
     # it for exactly those characters so the escaped form resolves to the same
@@ -474,10 +498,17 @@ function Get-GitTargetPath {
     $valueFlags = @('-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env')
 
     # Token pattern keeps a quoted run glued to its token, so both
-    # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive.
-    # A backtick-escaped character (PowerShell) is also kept glued so that
-    # backtick-escaped quotes do not break the quoted run.
-    $tokens = @([regex]::Matches($Segment.Trim(), '(?:[^\s"'']+|"[^"]*"|''[^'']*''|`.)+') | ForEach-Object { $_.Value })
+    # '-C "C:/Copilot Tools"' and '--git-dir="C:/a b/.git"' survive. The
+    # PowerShell backtick escape ('`.') is its own alternative and is listed
+    # FIRST, with the backtick removed from the unquoted and double-quoted
+    # character classes, so it always claims the backtick and its escaped
+    # character together: a plain '[^\s"'']+' or '"[^"]*"' otherwise swallowed
+    # a lone backtick and let the following '`"' act as a real quote - closing
+    # the run early and truncating the path ('git -C "C:\a`"b"' -> 'C:\a'),
+    # after which the guard resolves the wrong repository and judges it against
+    # the fallback branch. It also keeps a backtick-escaped space ('`  ') glued.
+    # Resolve-TargetToken then collapses the escapes to the true path.
+    $tokens = @([regex]::Matches($Segment.Trim(), '(?:`.|"(?:`.|[^"])*"|''[^'']*''|[^\s"''`]+)+') | ForEach-Object { $_.Value })
     if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { return $FallbackPath }
 
     $dir = $FallbackPath

@@ -1,5 +1,12 @@
 #!/bin/sh
 
+# Git invokes every pre-push hook as: pre-push <remote-name> <remote-url>
+# (see git's pre-push.sample). $1 is the remote actually receiving this push,
+# which is the ref namespace the archive-guard below must inspect - a push to
+# a non-tracking remote (e.g. `git push backup dev`) must not be judged against
+# the tracking remote's refs. Capture it before the stdin read loop.
+push_remote_name="$1"
+
 root="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -f "$root/.agenttools-source" ]; then
   exit 0
@@ -20,10 +27,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "BLOCKED: in-place update to refs/heads/dev is forbidden; only delete or fresh creation is permitted (release-flow archive step)." >&2
         exit 1
       fi
-      # Derive the remote name from the branch's tracking config rather than
-      # hard-coding 'origin', so the hook works for non-default remotes.
-      branch_name="${remote_ref#refs/heads/}"
-      remote_name=$(git config --get "branch.$branch_name.remote" 2>/dev/null || echo "origin")
+      # Inspect the remote actually receiving this push. Git passes its name as
+      # $1; fall back to the branch's tracking config, then 'origin', only when
+      # $1 is empty (older git, or the hook invoked directly). When $1 equals
+      # the tracked remote - the common case - this resolves identically.
+      if [ -n "$push_remote_name" ]; then
+        remote_name="$push_remote_name"
+      else
+        branch_name="${remote_ref#refs/heads/}"
+        remote_name=$(git config --get "branch.$branch_name.remote" 2>/dev/null || echo "origin")
+      fi
       if [ "$local_sha" = "$zero" ]; then
         # Deleting dev: use remote_sha directly (the actual remote tip from
         # the push) rather than resolving a potentially stale local tracking
