@@ -1651,14 +1651,21 @@ and then diverge on both which stop they dispatch and when they may settle app s
   (`STOP_CONFIRMATION_TIMEOUT_MS` + `STOP_DISPATCH_MAX_ATTEMPTS` via `startUserStopTeardown()`), so
   the branch self-resolves to `DISCONNECTED` or a visible `STOP_FAILED` within ~27 s, never a silent
   permanent latch. **PR #140 round 3 (F1-8, found independently by Codex and Kody) narrowed this
-  further:** the dispatch is issued *first* and its Boolean result inspected, and only a dispatch
-  that actually reached the controller settles the app to `DISCONNECTED`. When `startService()` is
+  further:** the dispatch is issued *first* and its Boolean result inspected. When `startService()` is
   rejected (background-start restriction), `VpnManager.stopVpn()` returns `false` and nothing
   reaches `OpenVpnService` — no teardown, and no service-side retry either — so the branch instead
   re-dispatches up to three times a second apart and, if all are rejected, surfaces `DISCONNECTING`
   + `STOP_FAILED` (`markStopFailure()`'s own end state) rather than reporting an unconfirmed tunnel
   as disconnected. This is why `ServerAutoSwitcher.stopper` is typed `(Context) -> Boolean`.
-  Documented on `dispatchStopAfterStopRetryTimeout()`.
+  **PR #140 round 4 (F1-9, Kody) corrected the accepted-dispatch side of that same narrowing:**
+  `startService()` returning `true` means delivery acceptance only, not teardown completion —
+  `OpenVpnService.startUserStopTeardown()` runs asynchronously afterward and is the one that actually
+  settles `DISCONNECTING`→`DISCONNECTED`/`STOP_FAILED`. Publishing `DISCONNECTED` from the dispatch
+  acknowledgment itself (the original fix-cycle-8 shape) could show a premature/false idle state
+  during that async window. The accepted branch now publishes **nothing** — it leaves state and
+  confirmation entirely to `OpenVpnService`'s own teardown, which is guaranteed to reach a terminal
+  state (`DISCONNECTED` via `finishStopFlowConfirmed()`, or `STOP_FAILED` via `markStopFailure()`)
+  regardless. Documented on `dispatchStopAfterStopRetryTimeout()`.
 
 The asymmetry is precondition-driven: the discriminator is whether the engine's state is already confirmed
 down. Quality gate QG4-3 assessed it as coherent and maintainable because the two paths are pinned by
@@ -1698,6 +1705,41 @@ swapped `CopyOnWriteArrayList<Int>` to `ConcurrentHashMap.newKeySet<Int>()` (ded
 than post-collect). Mutation-tested by reverting to a non-atomic read-modify-write: the test
 correctly failed at the lost-increment assertion, proving the test detects the defect it was written
 to catch. No behavior change; verification recorded in review-5's "Verified correct" section.
+
+### Addendum (fix-cycle 9, ClickUp 86cb5y61z): PR #140 round 4 findings on the stop-retry-timeout twin
+
+**Status: DONE.** Round 4 of the PR bot-review loop (Kody, Codex, Copilot) found three more issues in
+the twin abort paths above, two accepted and fixed, one partially rejected on evidence.
+
+- **F1-9 (Kody, accepted):** covered above — the accepted-dispatch branch of the stop-retry-timeout
+  twin no longer publishes `DISCONNECTED` on dispatch acceptance; it publishes nothing and leaves
+  `OpenVpnService`'s own teardown/confirmation to settle the final state.
+- **F2-9 (Codex, accepted, worse than reported):** the stop-retry-timeout twin's re-dispatch runnable
+  (`timeoutStopDispatchRunnable`) was not cancelled by any fresh-start path. A user starting a new
+  connection during the ~1 s retry delay left the stale retry armed; if it later succeeded, it
+  dispatched `ACTION_STOP` against the *new* session, not the stale one. Investigation found it was
+  worse than the report: because `stopper` is the non-preserve `stopVpn()`, the stale dispatch would
+  have routed through `startUserStopTeardown()` → `cancelForUserStop()`, killing the new switch
+  *cycle*, not just the stale tunnel. Fixed with a narrow `cancelPendingStopDispatchForFreshStart()`
+  called from both `ACTION_START` and `beginChainedSwitch()` — deliberately narrower than the
+  existing `cancel()` helper, which would itself have been unsafe here (it resets
+  `cycleStartIndex`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
+- **F3-9 (Copilot, partially rejected):** Copilot claimed the NOTCONNECTED-confirmed twin's
+  `idleNotificationStopper` dispatch also discards a rejected-dispatch result the way the timeout
+  twin's `stopper` used to. Verified false on two counts: `idleNotificationStopper` maps to
+  `ACTION_STOP_IF_IDLE`, whose handler never calls `updateState()` at all (unlike `stopVpn()`'s
+  `ACTION_STOP`), and the branch is only reachable after `LEVEL_NOTCONNECTED` is already confirmed —
+  the engine cannot still be connecting, so the pre-dispatch `DISCONNECTED` is truthful, not a false
+  idle report. Applying Copilot's suggested bounded-retry remedy here would have reopened the exact
+  `DISCONNECTING`/`STOP_FAILED` latch fix-cycle 5 (F1) closed for this twin. The narrower real gap —
+  the dispatcher's Boolean result was silently discarded — was accepted: `idleNotificationStopper` is
+  now typed `(Context) -> Boolean` and a rejection is logged (this site self-recovers via
+  `syncEngineState()`'s periodic snapshot re-poll calling `exitControllerForeground()` in-process,
+  a stronger guarantee than a re-dispatch since it cannot itself be refused by the OS).
+
+All three findings and their dispositions are pinned by falsifying tests in `ServerAutoSwitcherTest.kt`
+and `OpenVpnServiceNotificationTest.kt` driving the real production entry points, mutation-verified
+one change at a time. See ClickUp `86cb5y61z` for the full per-thread review record.
 
 ### Evidence
 
