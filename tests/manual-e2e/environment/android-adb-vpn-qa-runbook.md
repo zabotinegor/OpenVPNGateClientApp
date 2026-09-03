@@ -384,6 +384,28 @@ confirmed path) for `feature/86cb5y61z-reconnect-dispatch-state-machine` — see
 `docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-qa-2.md` for the full logcat.
 (Discovered 2026-09-03, device serial `b6e8f6bd`.)
 
+## Backgrounding the app before a forced drop does not reproduce a rejected internal stop dispatch
+
+Attempted as a way to force `ServerAutoSwitcher`'s stop-retry-timeout branch
+(`dispatchStopAfterStopRetryTimeout()`) to actually fire, which requires the auto-switcher's internal
+`ACTION_STOP` (sent via `Context.startService()` ahead of a switch retry) to be **rejected** on first
+attempt. Hypothesis: Android's background-service-start restrictions might reject that dispatch if the
+app UI is backgrounded at the moment it fires (plausible reading of the F2-9 fix's own code comment,
+which describes the original defect as typically appearing "right after returning to the foreground,
+which is also what lifts the background-start restriction that caused the original rejection").
+Technique tried: connect normally, `KEYCODE_HOME` to background the app, then force the drop via
+`cmd connectivity airplane-mode enable/disable`. Result: the internal `ACTION_STOP` dispatch was still
+accepted immediately (`stopVPN invoked, result=true`, confirmed `NOTCONNECTED` ~135ms later) even while
+backgrounded. Reason: `OpenVpnService` is already an **active foreground service** from the ongoing VPN
+session at the moment this dispatch fires — that pre-existing foreground-service status exempts the
+`startService()` call from the background-start restrictions that would apply to a cold start, so
+merely backgrounding the *app UI* (as opposed to the service itself losing its foreground state) does
+not reproduce the rejection. Combined with rounds 2 and 3's prior findings (no reliable ADB-level
+trigger for a rejected dispatch at all), this specific sub-path remains reserved for the existing
+mutation-verified unit-test coverage rather than device QA.
+(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 4, device
+serial `b6e8f6bd`.)
+
 ## Last validated
-2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `f11551a`
-(docs-only commit; app code identical to `3f3abdc`).
+2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `5d1e0f0`
+(fix-cycle 9: F1-9/F2-9/F3-9 in `ServerAutoSwitcher.kt`/`OpenVpnService.kt`).
