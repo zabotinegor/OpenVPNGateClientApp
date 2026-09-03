@@ -276,5 +276,62 @@ console. Related ClickUp gotcha: comment timestamps are UTC server-side — neve
 `SinceUtc` window from the device-local clock (device clocks in this environment are not UTC).
 (Discovered 2026-08-24, US-23 manual QA.)
 
+## MIUI device: `INSTALL_FAILED_USER_RESTRICTED` even with USB debugging authorized
+
+A Xiaomi Mi 9T Pro (MIUI, Android 11) connected and authorized over USB ADB (`adb devices` showed
+`device`, not `unauthorized`) still rejected every install attempt:
+```
+adb -s <serial> install -r mobile-debug.apk
+# Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]
+```
+Escalating to the CLI fallback — pushing the APK and running `pm install` **on the device shell
+itself** — failed identically:
+```
+adb -s <serial> push mobile-debug.apk /data/local/tmp/mobile-debug.apk
+adb -s <serial> shell pm install -r /data/local/tmp/mobile-debug.apk
+# Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]
+```
+The identical failure through both paths rules out an ADB-transport cause (this is not the
+Wi-Fi-ADB flakiness documented elsewhere in this file) and confirms a device-level install
+restriction. No confirmation dialog was pending on-screen; `dumpsys user` showed no restriction
+flags on user 0; `settings get secure install_non_market_apps` was `1` (allowed). The most likely
+cause on MIUI is the separate **"Install via USB"** developer-option toggle (independent of "USB
+debugging") — MIUI gates silent installs on it even when the device is fully authorized for
+debugging — or the device currently being in a MIUI "second space" that restricts installs to the
+primary space. Both require a physical on-device settings change (Settings → Additional settings →
+Developer options → **Install via USB**, and/or exiting the second space) — there is no ADB-only
+workaround once this triggers.
+(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 2,
+device serial `b6e8f6bd`.)
+
+## Local Android emulator as an airplane-mode-toggle fallback: works for ADB stability, but needs manual network setup and real host RAM headroom
+
+When a physical device is unusable (Wi-Fi-ADB drops on airplane-mode toggle, or a MIUI install
+restriction as above), a local AVD is a reasonable escalation: emulator ADB rides a local
+loopback/pipe rather than the guest's own Wi-Fi radio, so `adb shell cmd connectivity
+airplane-mode enable/disable` does not sever the ADB connection the way it can on a real Wi-Fi-ADB
+device. However, two things are not automatic on a fresh Google-Play x86_64 AVD (tried:
+`Medium_Phone_API_36.1`, API 36):
+- **No network after boot** — `wlan0`/`eth0` both report `state DOWN` and `dumpsys connectivity`
+  shows `Active default network: none`, even though `svc wifi enable` reports "Wi-Fi is enabled".
+  Fix: explicitly connect to the AVD's built-in virtual AP —
+  `adb shell cmd wifi connect-network AndroidWifi open` — after which `dumpsys wifi` shows
+  `Supplicant state: COMPLETED` and an IP (`10.0.2.16` typically). Do this before trying any
+  network-dependent flow (server-list fetch, VPN connect); an emulator that only just booted will
+  otherwise fail every network call with `UnknownHostException`, which looks like a build/config
+  problem but is not.
+- **Host RAM headroom matters more than expected** — a boot attempted while the host had only
+  ~2.7 GB free (of 12.5 GB total) produced a `systemui` ANR immediately on first app launch (needed
+  a manual tap on the ANR dialog's "Wait" button to recover: `uiautomator dump` → find `bounds` for
+  the "Wait" `text` node → `input tap` its center), 200% CPU / <60 MB free RAM inside the guest
+  (`adb shell top`), and the emulator process (`qemu-system-x86_64.exe`) crashed outright shortly
+  after (emulator log: `adb protocol fault (couldn't read status length)` followed by an unplanned
+  snapshot-save/shutdown). None of this reproduces reliably — it is host memory starvation, not an
+  app-under-test defect — so check `Get-CimInstance Win32_OperatingSystem |
+  Select TotalVisibleMemorySize,FreePhysicalMemory` (PowerShell) before trusting an AVD-based QA
+  session, and close other host applications first if free memory is only a few GB.
+(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 2,
+AVD `Medium_Phone_API_36.1`.)
+
 ## Last validated
-2026-08-24, against `feature/us-23-lazy-load-country-servers` HEAD `c68ba0a5f91e7a97201cd2dd182d14604a1ec3c2`.
+2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `3f3abdc`.
