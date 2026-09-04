@@ -842,6 +842,123 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // Third instance of the same custody rule, on the path that has no superseding dispatch at all:
+    // onEngineLevel()'s generic timer cancellation. Once the blank-config timeout's ACTION_STOP is
+    // rejected, the bounded re-dispatch is the ONLY teardown attempt still owed to the prior tunnel
+    // (that ACTION_STOP never reached OpenVpnService, so none of the service's own
+    // confirmation-timeout/retry/STOP_FAILED machinery was armed). Any ordinary engine level landing
+    // inside the one-second retry window used to reach onEngineLevel()'s non-timeout `else` branch,
+    // whose unconditional cancel() removed the re-dispatch -- without dispatching any replacement
+    // stop, because observing a level tears nothing down. LEVEL_CONNECTED is the expected traffic in
+    // that window: the timeout fired precisely because nothing ever confirmed the engine stopped, so
+    // the live old tunnel keeps reporting itself connected.
+    @Test
+    fun engineLevelDuringRetryWindow_keepsTheRejectedStopRedispatchArmed() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val dispatchContext = ToggleableStartServiceContext(appContext)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // The blank-config timeout's ACTION_STOP is rejected, arming the bounded re-dispatch.
+        dispatchContext.rejecting = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertTrue(
+            "precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The old tunnel -- which nobody has managed to stop -- reports itself connected inside the
+        // one-second retry window.
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTED, source)
+
+        assertTrue(
+            "an ordinary engine level cancels this object's timers but dispatches no replacement " +
+                "teardown, so it must not take the prior tunnel's last remaining stop attempt with " +
+                "it -- nothing else anywhere is still trying to stop that tunnel",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The restriction lifts and the preserved re-dispatch runs, proving it stayed genuinely
+        // scheduled and executable -- not merely a non-null field.
+        dispatchContext.rejecting = false
+        dispatchContext.dispatchedIntents.clear()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+
+        val realStops = dispatchContext.dispatchedIntents.filter {
+            it.getStringExtra(VpnManager.actionKey(appContext)) == VpnManager.ACTION_STOP &&
+                !it.getBooleanExtra(VpnManager.extraPreserveReconnectKey(appContext), false)
+        }
+        assertEquals(
+            "the preserved re-dispatch must actually fire and deliver the real, non-preserve " +
+                "ACTION_STOP the prior tunnel is still owed",
+            1,
+            realStops.size
+        )
+        assertFalse(
+            "an accepted dispatch ends the bounded chain",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+    }
+
+    // The counterpart to the test above: LEVEL_NOTCONNECTED is the one level that legitimately
+    // drops the re-dispatch, because it IS the engine confirming teardown. Preserving it there would
+    // fire a real ACTION_STOP at an already-idle engine, whose startUserStopTeardown() forces
+    // DISCONNECTING with no guaranteed further engine event to resolve it -- the latched
+    // DISCONNECTING + spurious STOP_FAILED documented on idleNotificationStopper.
+    @Test
+    fun engineConfirmedNotConnectedDuringRetryWindow_dropsTheRejectedStopRedispatch() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val dispatchContext = ToggleableStartServiceContext(appContext)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        dispatchContext.rejecting = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertTrue(
+            "precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The engine confirms it is down. Nothing is owed any more.
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+
+        assertFalse(
+            "an engine-confirmed teardown discharges the obligation: keeping the re-dispatch armed " +
+                "would send a real ACTION_STOP to an already-idle engine and risk latching at " +
+                "DISCONNECTING with a spurious STOP_FAILED",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        dispatchContext.rejecting = false
+        dispatchContext.dispatchedIntents.clear()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+
+        assertTrue(
+            "and no stop may be dispatched afterwards either",
+            dispatchContext.dispatchedIntents.none {
+                it.getStringExtra(VpnManager.actionKey(appContext)) == VpnManager.ACTION_STOP
+            }
+        )
+    }
+
     // The NOTCONNECTED blank-config fall-through inspects idleNotificationStopper()'s dispatch
     // result rather than discarding it -- but deliberately only LOGS it, NOT escalating the way
     // the timeout twin's rejected

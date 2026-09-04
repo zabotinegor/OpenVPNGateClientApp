@@ -272,13 +272,35 @@ object ServerAutoSwitcher {
             } else if (timerLevel != level) {
                 // Restart timer when CONNECTING sub-level changes, giving full timeout per level
                 AppLog.d(TAG, "Auto-switch timer level change: ${timerLevel} -> ${level}")
-                cancel(resetCycle = false)
+                // Preserving, not plain cancel(): every level reaching here is a CONNECTING /
+                // AUTH_FAILED level, i.e. an engine that demonstrably has NOT stopped, so a pending
+                // stop-retry-timeout re-dispatch is still owed to the prior tunnel. See
+                // cancelPreservingPendingStopDispatch().
+                cancelPreservingPendingStopDispatch(resetCycle = false)
                 start(appContext, level)
             }
         } else {
             val shouldKeepCycle = try { ConnectionStateManager.reconnectingHint.value } catch (_: Exception) { false }
             val resetCycle = !shouldKeepCycle || level == ConnectionStatus.LEVEL_CONNECTED
-            cancel(resetCycle = resetCycle)
+            // This generic cancellation must not discard a pending stop-retry-timeout re-dispatch
+            // along with the switch timer. That re-dispatch is armed ONLY when the blank-config
+            // timeout branch's ACTION_STOP was REJECTED -- it never reached OpenVpnService, so none
+            // of the service's own confirmation-timeout/retry machinery was armed either, making it
+            // the single remaining teardown attempt owed to a possibly still-live prior tunnel. Any
+            // ordinary engine level landing inside the one-second retry window used to reach here
+            // and remove it, leaving nothing anywhere still trying to stop that tunnel. LEVEL_CONNECTED
+            // from the tunnel itself is the expected traffic in that window, precisely because the
+            // timeout fired for want of any confirmation that the engine stopped.
+            //
+            // LEVEL_NOTCONNECTED is the one level that legitimately drops it: that IS the engine
+            // confirming teardown, so nothing is owed any more, and re-dispatching a real ACTION_STOP
+            // at an already-idle engine risks the latched DISCONNECTING + spurious STOP_FAILED
+            // documented on idleNotificationStopper.
+            if (level == ConnectionStatus.LEVEL_NOTCONNECTED) {
+                cancel(resetCycle = resetCycle)
+            } else {
+                cancelPreservingPendingStopDispatch(resetCycle = resetCycle)
+            }
         }
     }
 
@@ -423,6 +445,42 @@ object ServerAutoSwitcher {
         v2HydrationPending = false
         if (resetCycle) {
             cycleStartIndex = null
+        }
+    }
+
+    /**
+     * Runs [cancel] while leaving an armed stop-retry-timeout re-dispatch scheduled exactly as it
+     * was.
+     *
+     * [cancel] is deliberately total -- a user-initiated stop ([cancelForUserStop]) dispatches its
+     * own real ACTION_STOP, so dropping the re-dispatch there is correct. The engine-level path is
+     * different: it cancels this object's timers in reaction to an observation, without dispatching
+     * any replacement teardown at all. Nothing about observing a level discharges the obligation the
+     * re-dispatch represents, so cancelling one must not cancel the other.
+     *
+     * The pending Runnable is hidden from [cancel] rather than unscheduled and re-posted (the
+     * detach/restore pair used by [beginChainedSwitch] and [requestSwitchNow], which need custody
+     * across a dispatch that may fail): re-posting would restart
+     * [TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS] from zero on every engine level, and levels can arrive
+     * faster than that delay -- the retry would be starved indefinitely instead of preserved. Here
+     * the original scheduling, and with it the bounded chain's attempt counter, is left untouched.
+     *
+     * Main thread only, like [cancel] itself.
+     */
+    private fun cancelPreservingPendingStopDispatch(resetCycle: Boolean) {
+        val pending = timeoutStopDispatchRunnable
+        // Null while cancel() runs, so its unconditional removeCallbacks() is a no-op for this one
+        // Runnable and the already-posted callback keeps its original due time.
+        timeoutStopDispatchRunnable = null
+        cancel(resetCycle = resetCycle)
+        if (pending != null) {
+            timeoutStopDispatchRunnable = pending
+            AppLog.d(
+                TAG,
+                "Kept the pending stop-retry-timeout re-dispatch armed across timer cancellation; " +
+                    "its ACTION_STOP never reached the controller, so it is still the only teardown " +
+                    "attempt owed to the prior tunnel"
+            )
         }
     }
 
