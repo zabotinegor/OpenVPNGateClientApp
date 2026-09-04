@@ -497,6 +497,305 @@ class OpenVpnServiceNotificationTest {
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Custody of the pending stop re-dispatch across an ACTION_START whose engine launch is not
+    // guaranteed.
+    //
+    // The two tests above pin the two outcomes that were already understood: a start that commits
+    // supersedes the re-dispatch, and a start that aborts at its guards never touches it. Between
+    // those sits a third class of outcome -- the branch passes its guards, takes the re-dispatch
+    // away, and then never reaches the engine after all, because the OVPN payload is malformed or
+    // because a reconnect's deferred dispatch bails during its buffer. The previous tunnel is then
+    // in exactly the state the aborting-guard case exists to avoid: its own stop was rejected before
+    // OpenVpnService ever saw it, no replacement teardown was ever armed, and the one bounded retry
+    // that would have escalated it to STOP_FAILED is gone.
+    //
+    // The tests below cover each outcome of that third class, plus the success outcome that must
+    // still drop the re-dispatch, so "restore whenever unsure" cannot silently satisfy them all.
+    // ---------------------------------------------------------------------------------------
+
+    // Drives the REAL production path that arms the bounded stop re-dispatch: an auto-switch onto a
+    // blank-config server whose ACTION_STOP is rejected by the background-start restriction. Leaves
+    // the restriction lifted on return, so a restored re-dispatch can actually be observed firing.
+    // Synthesizing the pending Runnable by reflection instead would keep passing even if the
+    // production arming path stopped producing one.
+    private fun armRejectedBlankConfigStopRedispatch(app: Application): RejectingStartServiceContext {
+        UserSettingsStore.saveAutoSwitchWithinCountry(app, true)
+        UserSettingsStore.saveStatusStallTimeoutSeconds(app, 2)
+        ServerAutoSwitcher.setNoReplyThresholdForTest(2)
+        SelectedCountryStore.saveSelection(
+            app,
+            "RU",
+            listOf(
+                Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+                Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+            )
+        )
+        SelectedCountryStore.resetIndex(app)
+
+        val dispatchContext = RejectingStartServiceContext(app)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+        ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+
+        ServerAutoSwitcher.onEngineLevel(
+            dispatchContext,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            "VPN_STATUS"
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        dispatchContext.rejecting = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertTrue(
+            "Precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        dispatchContext.rejecting = false
+        return dispatchContext
+    }
+
+    private fun startIntent(app: Application, config: String, isReconnect: Boolean = false) =
+        Intent(app, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(app), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(app), config)
+            putExtra(VpnManager.extraTitleKey(app), "RU")
+            if (isReconnect) putExtra(VpnManager.extraAutoSwitchKey(app), true)
+        }
+
+    // The Runnable the service is currently holding custody of, or null when custody is resolved.
+    // Read directly because "resolved" and "restored" are different states that
+    // hasPendingStopDispatchForTest() alone cannot tell apart: a Runnable stranded in this field is
+    // just as unscheduled as one correctly dropped.
+    @Suppress("UNCHECKED_CAST")
+    private fun heldStopDispatchCustody(service: OpenVpnService): Runnable? {
+        val field = OpenVpnService::class.java.getDeclaredField("supersededStopDispatch")
+        field.isAccessible = true
+        return (field.get(service) as java.util.concurrent.atomic.AtomicReference<Runnable?>).get()
+    }
+
+    private fun realStopsDispatchedTo(app: Application): List<Intent> =
+        generateSequence { Shadows.shadowOf(app).nextStartedService }
+            .filter { it.getStringExtra(VpnManager.actionKey(app)) == VpnManager.ACTION_STOP }
+            .toList()
+
+    private fun withSwitcherRestored(body: () -> Unit) {
+        val originalStopper = ServerAutoSwitcher.stopper
+        val originalStarter = ServerAutoSwitcher.starter
+        try {
+            body()
+        } finally {
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    // sdk = [27] on the tests below for the same reason the committed-start test above pins it:
+    // enterControllerForeground() throws NoSuchMethodError on the project's default Robolectric SDK,
+    // which would abort ACTION_START at its first guard -- before the branch ever takes custody --
+    // and make every assertion here vacuous.
+
+    // The immediate (non-reconnect) launch path. A malformed OVPN payload throws out of
+    // ConfigParser.parseConfig() inside startIcsOpenVpn(), which logs and calls stopSelf() -- no
+    // engine is ever asked to start, so this start superseded nothing and the previous tunnel is
+    // still owed its stop.
+    @Config(sdk = [27])
+    @Test
+    fun freshStartWithMalformedConfig_restoresPendingStopRetryRedispatch() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        service.onStartCommand(startIntent(app, MALFORMED_OVPN_CONFIG), 0, 1)
+
+        assertTrue(
+            "A start whose engine launch threw asked no engine to start, so it performed none of " +
+                "the teardown that would justify dropping the previous tunnel's last bounded stop " +
+                "attempt -- the re-dispatch must be back",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // Prove it was genuinely re-scheduled and still executable, not merely a non-null field.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertFalse(
+            "The restored re-dispatch must still deliver the real ACTION_STOP the stranded tunnel " +
+                "is owed",
+            realStopsDispatchedTo(app).isEmpty()
+        )
+    }
+
+    // The deferred (reconnect) launch path reaching its launch and failing there. Also pins that
+    // custody is taken at ACTION_START time rather than at launch time: for the whole buffer window
+    // the re-dispatch must be unscheduled, because that is precisely when it would otherwise fire a
+    // real ACTION_STOP into the reconnect that is mid-flight.
+    @Config(sdk = [27])
+    @Test
+    fun reconnectStartWithMalformedConfig_restoresPendingStopRetryRedispatchAfterTheBuffer() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        service.onStartCommand(startIntent(app, MALFORMED_OVPN_CONFIG, isReconnect = true), 0, 1)
+
+        assertFalse(
+            "While a reconnect's engine dispatch is still buffered, the re-dispatch must be held, " +
+                "not left scheduled -- otherwise it fires a real, non-preserve ACTION_STOP into the " +
+                "attempt that is about to launch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The buffer elapses, the deferred dispatch runs, and its launch throws.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+        assertTrue(
+            "A deferred reconnect dispatch whose engine launch threw must hand the re-dispatch back",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertFalse(
+            "The restored re-dispatch must still deliver the real ACTION_STOP the stranded tunnel " +
+                "is owed",
+            realStopsDispatchedTo(app).isEmpty()
+        )
+    }
+
+    // A user Disconnect landing inside the buffer window sweeps the deferred dispatch, so the start
+    // that took custody never runs again to resolve it. The teardown must therefore resolve it --
+    // and DROP is the correct resolution here, because that teardown delivers a real stop to the
+    // engine and arms the service's own bounded confirmation/retry/STOP_FAILED escalation: exactly
+    // the replacement the held Runnable was standing in for. What must not happen is the Runnable
+    // being stranded in the service's custody field, neither scheduled anywhere nor owned by
+    // anything that could ever reschedule it.
+    @Config(sdk = [27])
+    @Test
+    fun reconnectStartAbandonedByUserStop_resolvesCustodyToTheTeardownItDelivered() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 1)
+
+        val stopIntent = Intent(app, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(app), VpnManager.ACTION_STOP)
+        }
+        service.onStartCommand(stopIntent, 0, 2)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertFalse(
+            "A user stop delivered its own real stop plus bounded escalation, so re-arming the " +
+                "held re-dispatch would only schedule a second, non-preserve ACTION_STOP into a " +
+                "teardown already under way",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertNull(
+            "The custody must be RESOLVED, not merely unscheduled: leaving the Runnable in the " +
+                "service's custody field after the teardown swept the dispatch that would have " +
+                "resolved it strands it where nothing can ever restore or run it",
+            heldStopDispatchCustody(service)
+        )
+    }
+
+    // The complementary resolution. A destroyed service delivered no stop and started no engine, and
+    // sweeps every runnable it owned -- so custody must go back to ServerAutoSwitcher, whose Handler
+    // outlives the service instance.
+    @Config(sdk = [27])
+    @Test
+    fun reconnectStartAbandonedByServiceDestroy_restoresPendingStopRetryRedispatch() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        Shadows.shadowOf(app).clearStartedServices()
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 1)
+
+        // The service is destroyed inside the buffer window. Nothing in this process is left to
+        // stop the previous tunnel except the switcher's own re-dispatch, which outlives the
+        // service instance.
+        controller.destroy()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertTrue(
+            "A destroyed service armed no teardown of its own, so dropping the re-dispatch here " +
+                "leaves the previous tunnel with nothing stopping it anywhere",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+    }
+
+    // The superseded-generation bail is the one non-launching outcome that must NOT restore: a
+    // newer ACTION_START has already inherited custody at its own detach site (the switcher's field
+    // is null by then, so its detach returns null and the newer start keeps what the older one
+    // holds). Restoring from the older attempt too would both double the Runnable and re-arm a real,
+    // non-preserve ACTION_STOP against the newer, live start.
+    //
+    // Driving the newer start to FAILURE is what makes this observable: if custody were dropped
+    // rather than inherited, the newer start would have nothing to give back and the re-dispatch
+    // would be gone for good.
+    @Config(sdk = [27])
+    @Test
+    fun supersededReconnectStart_handsCustodyToTheNewerStartRatherThanRestoringItself() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        // The older attempt takes custody, then a newer reconnect supersedes it inside the buffer.
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 1)
+        service.onStartCommand(startIntent(app, MALFORMED_OVPN_CONFIG, isReconnect = true), 0, 2)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertTrue(
+            "The superseded attempt must leave custody to the newer start, and the newer start's " +
+                "own failed launch must then restore it -- exactly once, from the attempt that " +
+                "actually owned the outcome",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // Exactly once: a double restore would post the same Runnable twice and deliver two stops,
+        // turning the bounded chain into two independent chains.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertEquals(
+            "the restored re-dispatch must deliver exactly one ACTION_STOP",
+            1,
+            realStopsDispatchedTo(app).size
+        )
+    }
+
+    // The success outcome, on the deferred path. Its immediate-path twin is
+    // committedActionStart_cancelsPendingStopRetryRedispatchFromRejectedBlankConfigStop above.
+    // Without this, "restore on every outcome" would satisfy every other test in this group.
+    @Config(sdk = [27])
+    @Test
+    fun reconnectStartReachingTheEngine_dropsPendingStopRetryRedispatch() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 1)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+        assertFalse(
+            "A reconnect that actually reached the engine performed the equivalent teardown for " +
+                "the superseded stop, so the re-dispatch must stay dropped",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertTrue(
+            "No ACTION_STOP may reach the controller after a start commits: it would stop the new " +
+                "tunnel and, via cancelForUserStop(), tear down the new cycle with it",
+            realStopsDispatchedTo(app).isEmpty()
+        )
+    }
+
     @Test
     fun syncStatusActionExitsControllerForegroundWhenDisconnected() {
         val app: Application = RuntimeEnvironment.getApplication()
@@ -552,6 +851,12 @@ class OpenVpnServiceNotificationTest {
 
     companion object {
         private const val TEST_FOREGROUND_NOTIFICATION_ID = 9001
+
+        // An inline <ca> block with no closing tag. ConfigParser.parseConfig() throws
+        // ConfigParseError("No endtag </ca> for starttag <ca> found") on it, which is the
+        // malformed-payload failure startIcsOpenVpn() catches -- it returns without ever reaching
+        // VPNLaunchHelper.startOpenVpn(), so no engine is asked to launch.
+        private const val MALFORMED_OVPN_CONFIG = "client\n<ca>\n-----BEGIN CERTIFICATE-----\n"
     }
 
     // Structural tests: verify that fields accessed from both the main thread and the AIDL binder

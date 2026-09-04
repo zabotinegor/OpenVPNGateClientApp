@@ -338,9 +338,9 @@ object ServerAutoSwitcher {
 
     /**
      * Re-arms a stop-retry-timeout re-dispatch that [detachPendingStopDispatchForFreshStart]
-     * detached for a replacement stop that then failed to dispatch.
+     * detached for a superseding teardown or start that then failed to happen.
      *
-     * Must run AFTER the abort path's [cancel] call: [cancel] clears
+     * On paths that abort through [cancel], this must run AFTER that [cancel] call: [cancel] clears
      * [timeoutStopDispatchRunnable] unconditionally, so re-arming first would simply be undone.
      * The same Runnable instance is re-posted rather than a new one, so the bounded chain keeps its
      * attempt counter and still terminates at [TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS].
@@ -351,7 +351,8 @@ object ServerAutoSwitcher {
         handler.postDelayed(pending, TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS)
         AppLog.w(
             TAG,
-            "Replacement stop dispatch failed; restoring the superseded stop-retry-timeout " +
+            "Superseding teardown or start did not complete; restoring the superseded " +
+                "stop-retry-timeout " +
                 "re-dispatch in ${TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS}ms so the prior tunnel keeps " +
                 "a bounded teardown attempt"
         )
@@ -437,8 +438,11 @@ object ServerAutoSwitcher {
     }
 
     /**
-     * Drops a pending stop-retry-timeout re-dispatch (see [dispatchStopAfterStopRetryTimeout])
-     * because a fresh connection attempt has superseded it.
+     * Takes custody of a pending stop-retry-timeout re-dispatch (see
+     * [dispatchStopAfterStopRetryTimeout]) on behalf of a connection start that has begun but not
+     * yet reached the engine: unschedules it and RETURNS it, so the caller can either drop it (the
+     * start committed) or hand it back through [restoreStopDispatchAfterAbandonedStart] (the start
+     * never reached the engine).
      *
      * When the blank-config timeout's ACTION_STOP is rejected, this class arms a re-dispatch
      * [TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS] later. [cancel] removes it, but the fresh-start paths
@@ -456,38 +460,47 @@ object ServerAutoSwitcher {
      * nextServerCircular()'s wrap detection give up early -- the exact defect
      * [rollBackFailedRetryDispatch]'s comment describes.
      *
-     * Only a start that has actually COMMITTED may call this. Dropping the pending stop is then the
-     * correct resolution, not merely the safe one: such a start has already performed the equivalent
+     * Custody, not disposal, is what makes this safe to call before the start is certain. Only a
+     * start that actually COMMITS may DROP the Runnable, and for such a start dropping is the
+     * correct resolution rather than merely the safe one: it has already performed the equivalent
      * teardown for the superseded stop (userInitiatedStop = false, the stop retry/confirmation/bind
      * runnables removed, `clearStopFailure()`, and the persisted pending-stop intent cleared), so
-     * nothing is left owing a stop. A start that ABORTS must NOT call this: it leaves no replacement
-     * teardown behind, and this re-dispatch is the only thing still trying to stop a possibly live
-     * tunnel whose stop was never delivered to the service at all. See the ACTION_START call site
-     * for why it sits after that branch's aborting guards.
+     * nothing is left owing a stop. Any other outcome leaves no replacement teardown behind, and
+     * this re-dispatch is then still the only thing trying to stop a possibly live tunnel whose stop
+     * was never delivered to the service at all -- so it must go back. Detaching up front rather
+     * than at the moment of success is what makes that window survivable in the first place: a
+     * reconnect start defers its engine launch past the engine-dispatch buffer, long enough for the
+     * re-dispatch to fire mid-flight and tear the new cycle down. See the ACTION_START call site for
+     * why it also sits after that branch's aborting guards, which never take custody at all.
      *
      * Must be called from the main thread, like every other entry point on this object.
      */
-    fun cancelPendingStopDispatchForFreshStart() {
-        detachPendingStopDispatchForFreshStart()
-    }
+    fun detachStopDispatchForPendingStart(): Runnable? = detachPendingStopDispatchForFreshStart()
 
     /**
-     * [cancelPendingStopDispatchForFreshStart]'s internal form: unschedules the pending re-dispatch
-     * and RETURNS it, so a caller whose own replacement stop is not yet confirmed can put it back
-     * (see [restoreSupersededStopDispatch]) instead of losing the only teardown attempt still owed
-     * to a possibly live tunnel.
+     * Re-arms a re-dispatch taken by [detachStopDispatchForPendingStart] when the start it was
+     * detached for never reached the engine. Restores the same Runnable instance, so the bounded
+     * chain keeps its attempt counter and still terminates at [TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS]
+     * rather than retrying forever.
      *
-     * Callers that have already committed the superseding start -- `OpenVpnService`'s ACTION_START
-     * branch, via the public wrapper above -- may discard the returned Runnable: the commit itself
-     * performed the equivalent teardown, so nothing is left owing a stop.
+     * Null-safe, so callers need no branch of their own for "nothing was pending". Custody must be
+     * resolved at most once per detach -- restoring twice would post the same Runnable twice and
+     * double the bounded chain.
+     *
+     * Must be called from the main thread, like every other entry point on this object.
      */
+    fun restoreStopDispatchAfterAbandonedStart(pending: Runnable?) {
+        restoreSupersededStopDispatch(pending)
+    }
+
     private fun detachPendingStopDispatchForFreshStart(): Runnable? {
         val pending = timeoutStopDispatchRunnable ?: return null
         handler.removeCallbacks(pending)
         timeoutStopDispatchRunnable = null
         AppLog.i(
             TAG,
-            "Cancelled pending stop-retry-timeout re-dispatch: a fresh connection start supersedes it"
+            "Detached pending stop-retry-timeout re-dispatch: a fresh connection start has taken " +
+                "custody of it and will drop it only once it reaches the engine"
         )
         return pending
     }
