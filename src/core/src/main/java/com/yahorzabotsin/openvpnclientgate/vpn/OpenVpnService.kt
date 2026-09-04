@@ -903,12 +903,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // a stale ACTION_STOP against the teardown already under way.
                 //
                 // Resolved with the epoch stamped by dropSupersededStopDispatch() rather than a new
-                // lock: publish first, then re-read the epoch. A drop anywhere from before the
-                // detach to after the publish moves the epoch, and the retracting compareAndSet
-                // below completes the resolution the teardown intended; a drop later than that
-                // clears the field itself. Either ordering therefore ends resolved-as-dropped, which
-                // is the correct resolution here -- the teardown delivered the replacement stop this
-                // Runnable was standing in for.
+                // lock: publish first, then re-read the epoch. Because that epoch is bumped BEFORE
+                // the drop clears the field, the re-read below splits every racing drop cleanly in
+                // two: one whose bump the re-read sees, which the retracting compareAndSet resolves
+                // on the teardown's behalf, and one whose bump it does not -- which therefore has
+                // not cleared the field yet either, and so lands on this publication and resolves
+                // it. Either way the custody ends resolved-as-dropped, which is the correct
+                // resolution here: the teardown delivered the replacement stop this Runnable was
+                // standing in for. See dropSupersededStopDispatch() for why the reverse bump order
+                // would leave a window open instead.
                 val stopDispatchEpochBeforeDetach = supersededStopDispatchDropEpoch.get()
                 ServerAutoSwitcher.detachStopDispatchForPendingStart()?.let { detached ->
                     supersededStopDispatch.set(detached)
@@ -1226,12 +1229,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
      * stop delivered to the engine with its own bounded confirmation/retry escalation armed. The
      * Runnable is then correctly dropped rather than re-armed against the replacement.
      *
-     * The epoch is bumped AFTER the field is cleared, so a call site that observes the new epoch is
-     * guaranteed to be seeing a drop that has already completed rather than one in progress.
+     * The epoch is bumped BEFORE the field is cleared, and that order is what actually closes the
+     * custody-transfer race rather than merely narrowing it. Let R be the ACTION_START branch's
+     * re-read of the epoch, which follows its publication P. Either R observes this bump -- and the
+     * call site retracts P itself -- or it does not, in which case this bump, and therefore the
+     * clear that follows it, are both still to come, so the clear below lands on P and resolves it.
+     * Bumping AFTER the clear loses that second case: R could miss the bump while the clear had
+     * already run ahead of P as a no-op on the still-empty field, leaving P standing with nothing
+     * left anywhere to resolve it -- exactly the drop-swallowed-by-publish defect the epoch exists
+     * to prevent. Observing a bump whose clear has not landed yet is harmless in the other
+     * direction: the call site's retraction and this clear both write null.
      */
     private fun dropSupersededStopDispatch() {
-        supersededStopDispatch.set(null)
         supersededStopDispatchDropEpoch.incrementAndGet()
+        supersededStopDispatch.set(null)
     }
 
     /**
