@@ -826,7 +826,26 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 currentAttemptStartMs = watchdogNowMs()
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
                 val attemptGeneration = reconnectDispatchGuard.beginNewAttempt()
-                if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                if (config.isNullOrBlank()) {
+                    AppLog.e(TAG, "No config to start")
+                    // This guard returns AFTER beginNewAttempt() above but BEFORE the custody detach
+                    // site below, so it is the one abort that supersedes an in-flight reconnect
+                    // WITHOUT inheriting the custody that reconnect is holding. Left unresolved, the
+                    // buffered dispatch's superseded-generation branch then deliberately walks away
+                    // from custody on the assumption that a newer start inherited it -- which is
+                    // false here -- stranding the Runnable in the service: unscheduled in
+                    // ServerAutoSwitcher, owned by nothing that could reschedule it, and no longer
+                    // the previous tunnel's bounded teardown.
+                    //
+                    // RESTORE is the correct resolution, matching onDestroy()'s: this start asked no
+                    // engine to start and delivered no stop, so it replaced nothing, and the aborted
+                    // reconnect it superseded will never launch either. Nothing new is live for the
+                    // re-armed ACTION_STOP to hit -- only the possibly still-live previous tunnel it
+                    // was always owed to.
+                    restoreSupersededStopDispatchIfHeld()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 // A start that has actually committed supersedes any stop-retry-timeout re-dispatch
                 // ServerAutoSwitcher still has armed from an earlier, REJECTED blank-config stop.
                 // Left armed, that retry fires up to TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later and
