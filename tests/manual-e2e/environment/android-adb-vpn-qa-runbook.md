@@ -406,6 +406,41 @@ mutation-verified unit-test coverage rather than device QA.
 (Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 4, device
 serial `b6e8f6bd`.)
 
+## Selecting a server via the country/server picker mid-scenario self-heals injected blank-config corruption
+
+Building on the "Forcing a persisted-server-list blank config" technique above: that technique
+survives an app relaunch (the corrupted country identity prevents `syncSelectedCountryServers` from
+matching and overwriting it), but it does **not** survive navigating the in-app country/server picker
+UI (`server_selection_container` → country list → server list) to select a *different* server. Opening
+that screen triggers a live fetch/re-render of the country's server list from network/cache, and
+selecting a row from it writes a fresh, uncorrupted entry back into `SelectedCountryStore` — silently
+undoing the injected blank `config`/`configData` and the `code`/`countryCode`/`selected_country`
+corruption before any subsequent tap can exercise it. Confirmed directly: after the picker round-trip,
+the UI showed the country name/flag reverted to the real value and the server count changed from the
+corrupted list's size to the live list's size. **Implication for any scenario that needs to hold a
+manually-selected blank-config server "current" while racing a separate in-flight auto-switch:** this
+is not just a timing problem — the UI's picker and `ServerAutoSwitcher`'s own reconnect chain both
+read/write the same `SelectedCountryStore` current-index field, so pre-positioning the UI on a
+specific (blank) server and then triggering an unrelated real server's auto-switch chain cannot be
+done independently; whichever acts first can overwrite the other's selection. Do not rely on the
+picker to hold a corrupted selection past its own navigation.
+(Discovered 2026-09-04, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 6, device
+serial `b6e8f6bd`.)
+
+## `am start-service` non-exported rejection applies identically to `ACTION_START`, not just `ACTION_STOP`
+
+The existing "`am start-service` cannot deliver ACTION_STOP..." entry above documents the rejection
+for `ACTION_STOP`; re-verified this round that the identical `Error: Requires permission not exported
+from uid <n>` rejection applies to `ACTION_START` on the same service (same manifest, same
+non-exported status — the action extra does not change the permission check). There is no
+debug-build-only broadcast/intent hook in `OpenVpnService` for QA-only intent injection. Any QA
+scenario brief that assumes "ADB `ACTION_START` intent injection" as a fallback technique for this
+service should be corrected — it is not viable on this app; the only way to deliver a real
+`ACTION_START` with an attacker/tester-chosen config value is through the app's own UI (or an
+in-app debug hook, not present today).
+(Discovered 2026-09-04, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 6, device
+serial `b6e8f6bd`.)
+
 ## Last validated
-2026-09-03, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `5d1e0f0`
-(fix-cycle 9: F1-9/F2-9/F3-9 in `ServerAutoSwitcher.kt`/`OpenVpnService.kt`).
+2026-09-04, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `815b357`
+(fix-cycle 13, manual QA round 6).
