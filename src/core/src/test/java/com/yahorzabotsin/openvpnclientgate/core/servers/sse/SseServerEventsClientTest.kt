@@ -876,8 +876,15 @@ class SseServerEventsClientTest {
                 .setBody(": k\n")           // 4 bytes
                 .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, > 50 ms stable window
         )
-        // Third response for the reconnect after the stable close.
-        server.enqueue(MockResponse().setResponseCode(503))
+        // Third response for the reconnect after the stable close — must be 200 so that
+        // onClosed fires (not onFailure), letting us observe the counter reset without it
+        // being immediately re-incremented by the next failure.
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(": k\n")
+        )
         server.start()
 
         val url = server.url("/api/v1/servers/events").toString()
