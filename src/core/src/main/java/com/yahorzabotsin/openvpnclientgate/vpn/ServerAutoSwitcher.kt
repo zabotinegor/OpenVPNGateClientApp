@@ -300,9 +300,11 @@ object ServerAutoSwitcher {
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
         // A chained switch is a fresh cycle, so any stop-retry-timeout re-dispatch left armed by a
         // PREVIOUS cycle must not survive into it -- otherwise it fires a non-preserve ACTION_STOP
-        // mid-switch and cancelForUserStop() tears this cycle down. requestSwitchNow()'s switch
-        // branch already gets this via its cancel(resetCycle = false); this entry point has no
-        // equivalent. See detachPendingStopDispatchForFreshStart().
+        // mid-switch and cancelForUserStop() tears this cycle down. This entry point has no cancel()
+        // of its own ahead of the dispatch, and requestSwitchNow()'s switch branch -- which does --
+        // takes the same custody for the same reason, since an unconditional cancel discards the
+        // re-dispatch instead of preserving it for its own abort paths. See
+        // detachPendingStopDispatchForFreshStart().
         //
         // The superseded re-dispatch is DETACHED, not discarded: supersession is only valid once the
         // replacement stop below is actually accepted for delivery. Until then that re-dispatch may
@@ -608,6 +610,15 @@ object ServerAutoSwitcher {
             } else {
                 AppLog.i(TAG, "Immediate switch at level=${level}: ${title} -> ${next.city} (serversInCountry=${if (total>=0) total else "unknown"}, server=${positionStr}, ip=${next.ip ?: "<none>"})")
             }
+            // The cancel() below clears any stop-retry-timeout re-dispatch armed by the PREVIOUS
+            // cycle unconditionally, and it runs BEFORE the replacement stop is dispatched. If that
+            // dispatch is then rejected or throws, the abort branches below cancel again and leave
+            // nothing anywhere still trying to stop the prior, possibly live tunnel -- its original
+            // ACTION_STOP never reached OpenVpnService, so no service-side retry or confirmation
+            // timeout exists to fall back on either. So the re-dispatch is DETACHED here and handed
+            // back on both abort paths, exactly as beginChainedSwitch() does: supersession is only
+            // valid once the replacement stop is actually accepted for delivery.
+            val supersededStopDispatch = detachPendingStopDispatchForFreshStart()
             cancel(resetCycle = false)
             try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for switch", e) }
             try {
@@ -620,11 +631,13 @@ object ServerAutoSwitcher {
                 if (!dispatched) {
                     AppLog.w(TAG, "Controller stop dispatch rejected before retry; aborting auto-switch")
                     cancel(resetCycle = true)
+                    restoreSupersededStopDispatch(supersededStopDispatch)
                     try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after dispatch rejection", e) }
                 }
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to request engine stop before retry", e)
                 cancel(resetCycle = true)
+                restoreSupersededStopDispatch(supersededStopDispatch)
                 try { ConnectionStateManager.setReconnectingHint(false) } catch (ex: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after stop exception", ex) }
             }
             return
