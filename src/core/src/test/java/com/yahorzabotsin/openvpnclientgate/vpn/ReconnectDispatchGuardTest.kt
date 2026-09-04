@@ -122,8 +122,8 @@ class ReconnectDispatchGuardTest {
 
     @Test
     fun generalizesToNArbitraryOverlappingBuffers_onlyNewestMarkerSurvivesUntilItResolves() {
-        // review-17's N>2 generalization proof (§2), pinned as a direct unit test instead of only
-        // an analytic argument: for N buffers posted in increasing generation order, the marker
+        // The N>2 generalization, pinned as a direct unit test instead of only an analytic
+        // argument: for N buffers posted in increasing generation order, the marker
         // set to the newest generation is the only one any earlier buffer's clear can fail to
         // disturb, and suppression stays continuously active until the newest resolves.
         val guard = ReconnectDispatchGuard()
@@ -211,7 +211,6 @@ class ReconnectDispatchGuardTest {
         // make the 30s timeout flaky on constrained CI workers. Only distinct-value membership is
         // needed here (see the assertions below), so a concurrent set is a direct, cheaper
         // drop-in: ConcurrentHashMap.newKeySet() adds are O(1) amortized, no whole-collection copy.
-        // Copilot PR #140 review (thread PRRT_kwDOONeEXM6ef1j0).
         val returnedValues = ConcurrentHashMap.newKeySet<Int>()
         val startLatch = CountDownLatch(1)
         val doneLatch = CountDownLatch(threadCount)

@@ -6,9 +6,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * Owns the reconnect-dispatch state that used to be two separately-declared fields on
  * [OpenVpnService] -- `connectionAttemptGeneration` and `reconnectDispatchPendingGeneration` --
  * plus the ~14 call sites across that file that read or wrote them directly. It was extracted
- * after nine successive review rounds each found a different reachable interleaving of the same
- * two implicit flags. The state is now represented as one explicit [State] with unit-testable
- * transitions instead.
+ * because those two implicit flags admitted a long tail of reachable interleavings, each one a
+ * different way for the pair to be observed inconsistently. The state is now represented as one
+ * explicit [State] with unit-testable transitions instead.
  *
  * ## What this guards against
  *
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * buffer window no new engine process has been asked to start yet, so *any* engine level received
  * right now is necessarily stray output from the just-stopped previous engine. Forwarding it to
  * `ServerAutoSwitcher` would let it skip the newly selected server without the new engine ever
- * trying it -- the recurring defect shape across every fix cycle in this family.
+ * trying it -- the recurring defect shape in this family.
  *
  * ## Why one class instead of two fields
  *

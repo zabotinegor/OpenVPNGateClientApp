@@ -964,10 +964,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // teardown, and finishStopFlowConfirmed()'s stopSelf() is independently gated by
                     // VpnManager.hasRecentActionStartDispatch(). A real fix would need to make
                     // startUserStopTeardown() and this Runnable agree through a single synchronized
-                    // check-and-clear rather than two independent reads, which risks destabilizing a
-                    // subsystem that has already taken 22 fix cycles to reach its current verified
-                    // state; left as a documented risk instead. See docs/guides/troubleshooting.md
-                    // for this subsystem's full defect history.
+                    // check-and-clear rather than two independent reads, which risks destabilizing
+                    // this heavily interlocked subsystem; left as a documented risk instead. See
+                    // docs/guides/troubleshooting.md for this subsystem's defect history.
                     statusHandler.postAtTime(Runnable {
                         fun clearMarkerIfOwn() {
                             reconnectDispatchGuard.clearPendingIfOwnedBy(dispatchGeneration)

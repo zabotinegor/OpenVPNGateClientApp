@@ -70,23 +70,20 @@ class OpenVpnServiceNotificationTest {
         assertTrue(shadowOf(service).isStoppedBySelf)
     }
 
-    // Regression test for fix-cycle 6 (docs/qa-evidence/
-    // feature-86cb5y61z-reconnect-dispatch-state-machine-review-5.md, F1): ServerAutoSwitcher's
-    // blank-config fall-through now routes its controller-notification cleanup through
-    // VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE (its `idleNotificationStopper`)
-    // instead of the full `stopper()` (VpnManager.stopVpn() -> ACTION_STOP -> OpenVpnService's
-    // user-stop teardown), specifically because the full teardown's startUserStopTeardown()
-    // unconditionally calls ConnectionStateManager.updateState(DISCONNECTING) -- a transition
-    // review-5 proved IS accepted from DISCONNECTED (ConnectionState.kt's allowedFromDisconnected
-    // includes DISCONNECTING), not rejected as a no-op as an earlier fix-cycle incorrectly claimed,
-    // and which can latch state at DISCONNECTING with a spurious STOP_FAILED error if the engine
-    // then declines the redundant stop dispatch.
+    // ServerAutoSwitcher's blank-config fall-through routes its controller-notification cleanup
+    // through VpnManager.stopControllerIfIdle() -> ACTION_STOP_IF_IDLE (its
+    // `idleNotificationStopper`) instead of the full `stopper()` (VpnManager.stopVpn() ->
+    // ACTION_STOP -> OpenVpnService's user-stop teardown), specifically because the full teardown's
+    // startUserStopTeardown() unconditionally calls ConnectionStateManager.updateState(
+    // DISCONNECTING) -- a transition that IS accepted from DISCONNECTED (ConnectionState.kt's
+    // allowedFromDisconnected includes DISCONNECTING) rather than rejected as a no-op, and which
+    // can latch state at DISCONNECTING with a spurious STOP_FAILED error if the engine then
+    // declines the redundant stop dispatch.
     //
     // This drives the REAL dispatch end to end (VpnManager.stopControllerIfIdle() -> the actual
-    // onStartCommand(ACTION_STOP_IF_IDLE) branch), not a fake stopper counter -- review-5 F2's
-    // complaint about the prior regression test was exactly that a fake stopper can never observe
-    // this class of defect -- and asserts the controller notification is cleared while
-    // ConnectionStateManager never leaves DISCONNECTED, proving the new path's central safety claim
+    // onStartCommand(ACTION_STOP_IF_IDLE) branch), not a fake stopper counter -- a fake stopper
+    // can never observe this class of defect -- and asserts the controller notification is cleared
+    // while ConnectionStateManager never leaves DISCONNECTED, proving the path's central safety claim
     // that the old ACTION_STOP-based dispatch got wrong.
     @Test
     fun blankConfigIdleStop_realStopControllerIfIdlePath_clearsNotificationWithoutEnteringDisconnecting() {
@@ -122,7 +119,7 @@ class OpenVpnServiceNotificationTest {
 
         assertTrue(
             "The real ACTION_STOP_IF_IDLE path must clear the retained controller foreground " +
-                "notification, exactly as the fix-cycle-5 blank-config fix intended",
+                "notification, exactly as the blank-config fall-through intends",
             shadowNotificationManager.allNotifications.isEmpty()
         )
         assertTrue("The real ACTION_STOP_IF_IDLE path must stop the service", shadowOf(service).isStoppedBySelf)
@@ -130,14 +127,13 @@ class OpenVpnServiceNotificationTest {
             "ConnectionStateManager must never leave DISCONNECTED for this path -- unlike the full " +
                 "stopper()/ACTION_STOP path, ACTION_STOP_IF_IDLE's handler never calls " +
                 "updateState() at all, so it cannot force the DISCONNECTED -> DISCONNECTING " +
-                "sequence review-5 F1 proved was reachable from the old dispatch",
+                "sequence that is reachable from the full stopper() dispatch",
             ConnectionState.DISCONNECTED,
             ConnectionStateManager.state.value
         )
     }
 
-    // Regression test for F1-6 (fix-cycle 7, docs/qa-evidence/
-    // feature-86cb5y61z-reconnect-dispatch-state-machine-review-6.md): the TIMEOUT TWIN of the
+    // The TIMEOUT TWIN of the
     // blank-config fall-through above (ServerAutoSwitcher's scheduleStopRetryTimeout() runnable,
     // reached when the stop-retry timeout fires instead of NOTCONNECTED) must dispatch the REAL
     // engine-stop teardown -- stopper() -> VpnManager.stopVpn() -> ACTION_STOP, non-preserve --
@@ -155,7 +151,7 @@ class OpenVpnServiceNotificationTest {
     // ACTION_STOP entry, before the preserve/non-preserve branch split) and that the app genuinely
     // enters DISCONNECTING -- proving a real engine-stop was requested, not merely a notification
     // cleanup masquerading as one. DISCONNECTING here is the correct, intentional outcome (not a
-    // repeat of the review-5 F1 latch): OpenVpnService's startUserStopTeardown() arms
+    // repeat of the sibling test's latch): OpenVpnService's startUserStopTeardown() arms
     // STOP_CONFIRMATION_TIMEOUT_MS/STOP_DISPATCH_MAX_ATTEMPTS, so this always resolves -- either to
     // DISCONNECTED on a genuine NOTCONNECTED, or to the documented STOP_FAILED error state after
     // repeated engine silence -- never a silent permanent latch.
@@ -212,12 +208,11 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
-    // F1-9 (fix-cycle 9, PR #140 round 4, Kody thread PRRT_kwDOONeEXM6e2mam). Fix-cycle 8 had
-    // ServerAutoSwitcher.dispatchStopAfterStopRetryTimeout() publish DISCONNECTED itself as soon as
-    // stopper() returned true. That Boolean comes from Context.startService(), which acknowledges
-    // DELIVERY, not teardown: onStartCommand() has not run, startUserStopTeardown() has not set
-    // DISCONNECTING, and the engine has not confirmed anything. The switcher now publishes nothing
-    // on an accepted dispatch (ServerAutoSwitcherTest pins that half).
+    // ServerAutoSwitcher.dispatchStopAfterStopRetryTimeout() must NOT publish DISCONNECTED itself
+    // just because stopper() returned true. That Boolean comes from Context.startService(), which
+    // acknowledges DELIVERY, not teardown: onStartCommand() has not run, startUserStopTeardown()
+    // has not set DISCONNECTING, and the engine has not confirmed anything. The switcher therefore
+    // publishes nothing on an accepted dispatch (ServerAutoSwitcherTest pins that half).
     //
     // This test pins the other half, which is the load-bearing one: handing the outcome to the
     // controller must still CLOSE the permanent CONNECTING latch the branch exists to close, rather

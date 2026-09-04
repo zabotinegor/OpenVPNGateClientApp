@@ -301,8 +301,7 @@ debugging — or the device currently being in a MIUI "second space" that restri
 primary space. Both require a physical on-device settings change (Settings → Additional settings →
 Developer options → **Install via USB**, and/or exiting the second space) — there is no ADB-only
 workaround once this triggers.
-(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 2,
-device serial `b6e8f6bd`.)
+(Discovered 2026-09-03 on a physical MIUI device during manual QA.)
 
 ## Local Android emulator as an airplane-mode-toggle fallback: works for ADB stability, but needs manual network setup and real host RAM headroom
 
@@ -330,8 +329,7 @@ device. However, two things are not automatic on a fresh Google-Play x86_64 AVD 
   app-under-test defect — so check `Get-CimInstance Win32_OperatingSystem |
   Select TotalVisibleMemorySize,FreePhysicalMemory` (PowerShell) before trusting an AVD-based QA
   session, and close other host applications first if free memory is only a few GB.
-(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 2,
-AVD `Medium_Phone_API_36.1`.)
+(Discovered 2026-09-03 on AVD `Medium_Phone_API_36.1` during manual QA.)
 
 ---
 
@@ -380,9 +378,9 @@ the selected country instead, by corrupting its *identity*, not just the config 
    corruption and local cache files, then relaunch once to confirm a clean fresh state.
 
 Applied successfully to verify the `ServerAutoSwitcher` blank-config fall-through (NOTCONNECTED-
-confirmed path) for `feature/86cb5y61z-reconnect-dispatch-state-machine` — see
-`docs/qa-evidence/feature-86cb5y61z-reconnect-dispatch-state-machine-qa-2.md` for the full logcat.
-(Discovered 2026-09-03, device serial `b6e8f6bd`.)
+confirmed path) on a physical device. Per-run logcat captures are kept with the story's QA artifacts,
+not in this repository.
+(Discovered 2026-09-03 during manual QA.)
 
 ## Backgrounding the app before a forced drop does not reproduce a rejected internal stop dispatch
 
@@ -390,8 +388,8 @@ Attempted as a way to force `ServerAutoSwitcher`'s stop-retry-timeout branch
 (`dispatchStopAfterStopRetryTimeout()`) to actually fire, which requires the auto-switcher's internal
 `ACTION_STOP` (sent via `Context.startService()` ahead of a switch retry) to be **rejected** on first
 attempt. Hypothesis: Android's background-service-start restrictions might reject that dispatch if the
-app UI is backgrounded at the moment it fires (plausible reading of the F2-9 fix's own code comment,
-which describes the original defect as typically appearing "right after returning to the foreground,
+app UI is backgrounded at the moment it fires (plausible reading of the stale-re-dispatch fix's own
+code comment, which describes the original defect as typically appearing "right after returning to the foreground,
 which is also what lifts the background-start restriction that caused the original rejection").
 Technique tried: connect normally, `KEYCODE_HOME` to background the app, then force the drop via
 `cmd connectivity airplane-mode enable/disable`. Result: the internal `ACTION_STOP` dispatch was still
@@ -400,11 +398,10 @@ backgrounded. Reason: `OpenVpnService` is already an **active foreground service
 session at the moment this dispatch fires — that pre-existing foreground-service status exempts the
 `startService()` call from the background-start restrictions that would apply to a cold start, so
 merely backgrounding the *app UI* (as opposed to the service itself losing its foreground state) does
-not reproduce the rejection. Combined with rounds 2 and 3's prior findings (no reliable ADB-level
+not reproduce the rejection. Combined with the earlier findings above (no reliable ADB-level
 trigger for a rejected dispatch at all), this specific sub-path remains reserved for the existing
 mutation-verified unit-test coverage rather than device QA.
-(Discovered 2026-09-03, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 4, device
-serial `b6e8f6bd`.)
+(Discovered 2026-09-03 on a physical device during manual QA.)
 
 ## Selecting a server via the country/server picker mid-scenario self-heals injected blank-config corruption
 
@@ -424,8 +421,7 @@ read/write the same `SelectedCountryStore` current-index field, so pre-positioni
 specific (blank) server and then triggering an unrelated real server's auto-switch chain cannot be
 done independently; whichever acts first can overwrite the other's selection. Do not rely on the
 picker to hold a corrupted selection past its own navigation.
-(Discovered 2026-09-04, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 6, device
-serial `b6e8f6bd`.)
+(Discovered 2026-09-04 on a physical device during manual QA.)
 
 ## `am start-service` non-exported rejection applies identically to `ACTION_START`, not just `ACTION_STOP`
 
@@ -438,9 +434,7 @@ scenario brief that assumes "ADB `ACTION_START` intent injection" as a fallback 
 service should be corrected — it is not viable on this app; the only way to deliver a real
 `ACTION_START` with an attacker/tester-chosen config value is through the app's own UI (or an
 in-app debug hook, not present today).
-(Discovered 2026-09-04, `feature/86cb5y61z-reconnect-dispatch-state-machine` manual QA round 6, device
-serial `b6e8f6bd`.)
+(Discovered 2026-09-04 on a physical device during manual QA.)
 
 ## Last validated
-2026-09-04, against `feature/86cb5y61z-reconnect-dispatch-state-machine` HEAD `815b357`
-(fix-cycle 13, manual QA round 6).
+2026-09-04, on a physical Android device.
