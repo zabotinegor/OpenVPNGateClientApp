@@ -300,7 +300,7 @@ class OpenVpnServiceNotificationTest {
     // mismatch unrelated to this fix), so ACTION_START would abort and never reach the cancellation.
     // Pinning sdk=27 lets the real notification path run so the start genuinely commits.
     //
-    // Falsification: removing ServerAutoSwitcher.cancelPendingStopDispatchForFreshStart() from
+    // Falsification: removing ServerAutoSwitcher.detachStopDispatchForPendingStart() from
     // OpenVpnService's ACTION_START branch fails both assertions below.
     @Config(sdk = [27])
     @Test
@@ -395,7 +395,7 @@ class OpenVpnServiceNotificationTest {
     // Runs on the project's default Robolectric SDK precisely because enterControllerForeground()
     // reliably throws NoSuchMethodError there, which is exactly the abort this test needs.
     //
-    // Falsification: moving cancelPendingStopDispatchForFreshStart() back above
+    // Falsification: moving detachStopDispatchForPendingStart() back above
     // enterControllerForeground() fails both assertions below.
     @Test
     fun abortedActionStart_preservesPendingStopRetryRedispatchSoTheOldTunnelIsStillStopped() {
@@ -765,6 +765,51 @@ class OpenVpnServiceNotificationTest {
             "the restored re-dispatch must deliver exactly one ACTION_STOP",
             1,
             realStopsDispatchedTo(app).size
+        )
+    }
+
+    // The harmful half of the superseded-generation bail, which the test above cannot observe.
+    //
+    // Above, the newer start FAILS, so a superseded attempt that wrongly restored would be
+    // indistinguishable from the newer attempt correctly restoring: the AtomicReference makes the
+    // second resolution a no-op, so the observable outcome (one re-dispatch, one ACTION_STOP) is
+    // identical either way. Here the newer start SUCCEEDS, which is the only arrangement where the
+    // two behaviours diverge -- and it is also the damaging one. A restore from the superseded
+    // attempt re-arms a real, non-preserve ACTION_STOP that fires against the newer tunnel that
+    // just reached the engine, and the newer attempt cannot undo it: by the time its own success
+    // path runs, custody is already gone, so its drop is a no-op on an empty reference.
+    @Config(sdk = [27])
+    @Test
+    fun supersededReconnectStart_doesNotReArmAStopAgainstTheNewerStartThatReachedTheEngine() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+        // The older attempt takes custody, then a newer reconnect supersedes it inside the buffer.
+        // Both carry a launchable config, so the newer one reaches the engine.
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 1)
+        service.onStartCommand(startIntent(app, "client\n", isReconnect = true), 0, 2)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+
+        assertFalse(
+            "The superseded attempt must walk away from custody rather than restore it: the newer " +
+                "start reached the engine and performed the equivalent teardown, so nothing is owed " +
+                "a stop any more",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertNull(
+            "The newer start's own success must have resolved the inherited custody",
+            heldStopDispatchCustody(service)
+        )
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertTrue(
+            "No ACTION_STOP may reach the controller: a re-dispatch re-armed by the superseded " +
+                "attempt would stop the newer, live tunnel and, via cancelForUserStop(), tear down " +
+                "the new switch cycle with it",
+            realStopsDispatchedTo(app).isEmpty()
         )
     }
 
