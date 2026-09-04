@@ -681,6 +681,92 @@ class ServerAutoSwitcherTest {
         assertEquals("no retry start should ever have been dispatched (config was blank)", 0, calls.size)
     }
 
+    // Companion to the test above, pinning the OTHER half of restoring a superseded re-dispatch:
+    // the restore must put back the SAME Runnable, not arm an equivalent-looking fresh chain.
+    //
+    // The bounded teardown chain carries its attempt number inside the posted Runnable's closure
+    // (dispatchStopAfterStopRetryTimeout captures `attempt + 1`), so re-posting that exact instance
+    // is what makes the chain still terminate at TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS. Re-arming a
+    // fresh attempt=1 chain instead would satisfy every assertion in the test above -- the restore
+    // still happens, still logs, still fires a real ACTION_STOP -- while silently converting a
+    // bounded chain into an unbounded one: every aborted chained switch would hand the tunnel three
+    // more attempts, so a device stuck under the background-start restriction would re-dispatch
+    // forever and NEVER escalate to the STOP_FAILED state that tells the user the stop failed and
+    // gives them a manual retry button.
+    //
+    // Driving the abort twice is what makes this falsifiable: the chain only reaches its cap
+    // (attempt 1 rejected up front, then 2 and 3 across the two restores) if the attempt count
+    // genuinely survives each restore.
+    @Test
+    fun beginChainedSwitch_restoredStopRedispatchKeepsTheBoundedChainsAttemptCount() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val dispatchContext = ToggleableStartServiceContext(appContext)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // The restriction stays active for the whole test, so every dispatch below is rejected.
+        dispatchContext.rejecting = true
+
+        // Attempt 1 is rejected by the blank-config timeout; the chain arms attempt 2.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertTrue(
+            "precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // Abort #1 detaches and restores the attempt-2 re-dispatch, which then runs and is rejected,
+        // arming attempt 3.
+        assertFalse(
+            "precondition: the replacement stop dispatch is rejected, so the switch must abort",
+            ServerAutoSwitcher.beginChainedSwitch(dispatchContext, "conf1", "RU")
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+        assertTrue(
+            "attempt 2 was rejected and the cap is not reached yet, so attempt 3 must be armed",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertEquals(
+            "the chain has not been exhausted yet, so no stop failure may be surfaced",
+            ConnectionStateManager.VpnError.NONE,
+            ConnectionStateManager.error.value
+        )
+
+        // Abort #2 detaches and restores the attempt-3 re-dispatch. That attempt is the cap.
+        assertFalse(
+            "precondition: the second replacement stop dispatch is rejected too",
+            ServerAutoSwitcher.beginChainedSwitch(dispatchContext, "conf1", "RU")
+        )
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+
+        assertFalse(
+            "the restored chain must still terminate at TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS -- an " +
+                "attempt counter reset by the restore makes the teardown chain unbounded and it " +
+                "never escalates",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertEquals(
+            "an exhausted restored chain must settle on markStopFailure()'s end state, exactly like " +
+                "an exhausted un-restored one",
+            ConnectionState.DISCONNECTING,
+            ConnectionStateManager.state.value
+        )
+        assertEquals(
+            "the user must be told the stop failed rather than left with a silent retry loop",
+            ConnectionStateManager.VpnError.STOP_FAILED,
+            ConnectionStateManager.error.value
+        )
+        assertEquals("no retry start should ever have been dispatched (config was blank)", 0, calls.size)
+    }
+
     // F3-9 (fix-cycle 9, PR #140 round 4, Copilot thread PRRT_kwDOONeEXM6e2p0f). The NOTCONNECTED
     // blank-config fall-through discarded idleNotificationStopper()'s dispatch result. It is now
     // inspected -- but deliberately only logged, NOT escalated the way the timeout twin's rejected
