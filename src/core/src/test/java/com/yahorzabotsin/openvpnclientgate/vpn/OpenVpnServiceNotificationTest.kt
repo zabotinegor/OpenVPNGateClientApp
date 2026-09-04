@@ -29,6 +29,8 @@ import org.robolectric.Shadows
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
+import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 class OpenVpnServiceNotificationTest {
@@ -725,6 +727,91 @@ class OpenVpnServiceNotificationTest {
             "A destroyed service armed no teardown of its own, so dropping the re-dispatch here " +
                 "leaves the previous tunnel with nothing stopping it anywhere",
             ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+    }
+
+    // Taking custody is two steps -- the Runnable leaves ServerAutoSwitcher, then arrives in the
+    // service's custody field -- and the drop that resolves it is reachable from the AIDL binder
+    // thread (startUserStopTeardown() via maybeStartStaleStopReconciliation), so it can land BETWEEN
+    // those two steps. It then finds the field still empty, resolves nothing, and the publication
+    // that follows re-takes custody the teardown had already settled. This start now holds a
+    // Runnable whose tunnel HAS a real replacement stop with its own bounded escalation, so its own
+    // abort re-arms a stale, non-preserve ACTION_STOP into a teardown already under way.
+    //
+    // Genuine two-thread interleaving, not a simulated one: a Timber tree intercepts the real
+    // production log line emitted INSIDE the detach (after the switcher's field is cleared, before
+    // the publication) and, once, runs the real startUserStopTeardown() on a real background thread
+    // -- the same technique the reconnect-dispatch tests use for binder-thread races. The start then
+    // fails its engine launch, which is the outcome that makes a wrongly held custody observable:
+    // its restore path hands the stale Runnable back to the switcher.
+    @Config(sdk = [27])
+    @Test
+    fun startTakingCustodyRacedByBinderThreadTeardown_doesNotReArmAStopAgainstThatTeardown() = withSwitcherRestored {
+        val app: Application = RuntimeEnvironment.getApplication()
+        armRejectedBlankConfigStopRedispatch(app)
+
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        Shadows.shadowOf(app).clearStartedServices()
+
+        val messages = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val injected = AtomicBoolean(false)
+        val injectionFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val tree = object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                messages += message
+                if (message.contains("Detached pending stop-retry-timeout re-dispatch") &&
+                    injected.compareAndSet(false, true)
+                ) {
+                    val binderThread = Thread {
+                        try {
+                            ReflectionHelpers.callInstanceMethod<Any>(
+                                service,
+                                "startUserStopTeardown",
+                                ReflectionHelpers.ClassParameter.from(String::class.java, "stale_relaunch"),
+                                ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, true)
+                            )
+                        } catch (e: Throwable) {
+                            injectionFailure.set(e)
+                        }
+                    }
+                    binderThread.start()
+                    binderThread.join()
+                }
+            }
+        }
+        Timber.plant(tree)
+        try {
+            service.onStartCommand(startIntent(app, MALFORMED_OVPN_CONFIG), 0, 1)
+        } finally {
+            Timber.uproot(tree)
+        }
+
+        assertTrue(
+            "Precondition: the race must actually have been injected inside the detach window",
+            injected.get()
+        )
+        assertNull(
+            "Precondition: the injected teardown must have run, not thrown out of the window",
+            injectionFailure.get()
+        )
+        assertTrue(
+            "Precondition: the engine launch must have failed, so this start reaches its restore " +
+                "path -- the only outcome on which a wrongly held custody is observable",
+            messages.any { it.contains("OVPN parse error") }
+        )
+
+        // Asserted before the looper is idled: the teardown's own cancelForUserStop() is still
+        // queued on the main looper and would clear a wrongly restored re-dispatch, hiding the
+        // defect behind a cancellation that happens to arrive later.
+        assertFalse(
+            "A teardown that landed mid-custody-transfer already delivered the replacement stop " +
+                "this Runnable stood in for, so the start must not publish custody it can then hand " +
+                "back: re-arming a real, non-preserve ACTION_STOP into a teardown already under way",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertNull(
+            "and nothing may be left stranded in the service's custody field either",
+            heldStopDispatchCustody(service)
         )
     }
 

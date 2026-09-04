@@ -61,6 +61,7 @@ import java.net.Socket
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
@@ -890,7 +891,31 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // is already null, so the detach returns null), which is what lets the older
                 // attempt's superseded-generation branch simply walk away instead of re-arming a
                 // stale stop against the newer, live start.
-                ServerAutoSwitcher.detachStopDispatchForPendingStart()?.let { supersededStopDispatch.set(it) }
+                //
+                // Detaching and publishing are two steps, and only the first of them is on the main
+                // thread's own timeline: startUserStopTeardown() resolves this custody by DROPPING
+                // it, and is reachable synchronously from the AIDL binder thread (via
+                // maybeStartStaleStopReconciliation). A binder-thread drop landing between the
+                // detach and the publish would find the field still empty, resolve nothing, and
+                // then be overwritten by a publish that re-takes custody the teardown had already
+                // settled -- leaving this start holding a Runnable whose tunnel now HAS a real
+                // replacement stop with its own bounded escalation, so an abort below would re-arm
+                // a stale ACTION_STOP against the teardown already under way.
+                //
+                // Resolved with the epoch stamped by dropSupersededStopDispatch() rather than a new
+                // lock: publish first, then re-read the epoch. A drop anywhere from before the
+                // detach to after the publish moves the epoch, and the retracting compareAndSet
+                // below completes the resolution the teardown intended; a drop later than that
+                // clears the field itself. Either ordering therefore ends resolved-as-dropped, which
+                // is the correct resolution here -- the teardown delivered the replacement stop this
+                // Runnable was standing in for.
+                val stopDispatchEpochBeforeDetach = supersededStopDispatchDropEpoch.get()
+                ServerAutoSwitcher.detachStopDispatchForPendingStart()?.let { detached ->
+                    supersededStopDispatch.set(detached)
+                    if (supersededStopDispatchDropEpoch.get() != stopDispatchEpochBeforeDetach) {
+                        supersededStopDispatch.compareAndSet(detached, null)
+                    }
+                }
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
@@ -1182,13 +1207,31 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val supersededStopDispatch = AtomicReference<Runnable?>(null)
 
     /**
+     * Counts drops of [supersededStopDispatch], so the ACTION_START branch can tell a drop that
+     * landed while it was mid-way through taking custody from one that never happened.
+     *
+     * Taking custody is not a single operation -- the Runnable leaves [ServerAutoSwitcher] before it
+     * arrives in [supersededStopDispatch] -- and [dropSupersededStopDispatch] can run on the AIDL
+     * binder thread in that window, where it would find the field still empty and resolve nothing.
+     * The counter is what makes that drop observable after the fact: the call site samples it before
+     * detaching and re-reads it after publishing, and retracts its own publication when the value
+     * moved. Only drops are counted; a restore must not retract a publication, since a restore that
+     * ran in the same window found nothing to put back.
+     */
+    private val supersededStopDispatchDropEpoch = AtomicLong(0L)
+
+    /**
      * Resolves the custody described on [supersededStopDispatch] for an outcome that DID replace the
      * teardown the held Runnable stands in for -- an engine launch actually requested, or a real
      * stop delivered to the engine with its own bounded confirmation/retry escalation armed. The
      * Runnable is then correctly dropped rather than re-armed against the replacement.
+     *
+     * The epoch is bumped AFTER the field is cleared, so a call site that observes the new epoch is
+     * guaranteed to be seeing a drop that has already completed rather than one in progress.
      */
     private fun dropSupersededStopDispatch() {
         supersededStopDispatch.set(null)
+        supersededStopDispatchDropEpoch.incrementAndGet()
     }
 
     /**
