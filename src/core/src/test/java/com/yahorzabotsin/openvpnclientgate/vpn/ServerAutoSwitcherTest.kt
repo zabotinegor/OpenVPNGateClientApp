@@ -602,6 +602,85 @@ class ServerAutoSwitcherTest {
         )
     }
 
+    // Supersession of the pending stop re-dispatch is only earned once the superseding stop has
+    // actually been ACCEPTED for delivery. beginChainedSwitch() used to drop it up front, before
+    // dispatching its own preserve-branch ACTION_STOP; when that replacement dispatch was itself
+    // rejected (same background-start restriction that caused the first rejection), the abort path's
+    // cancel(resetCycle = true) then also removed the freshly armed stop-retry timeout -- so the
+    // prior, possibly still live tunnel was left with no delivered stop anywhere: not in this class
+    // (both runnables gone) and not in OpenVpnService either (the rejected ACTION_STOP never reached
+    // it, so none of its confirmation-timeout/retry machinery was ever armed). The abort must put the
+    // detached re-dispatch back.
+    @Test
+    fun beginChainedSwitch_rejectedReplacementStopRestoresThePriorStopRedispatch() {
+        val blankConfigServers = listOf(
+            Server(1, "n1", "c1", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "conf1"),
+            Server(2, "n2", "c2", Country("RU"), 0, SignalStrength.STRONG, "ip", 0, 0, 0, 0, 0, 0, "", "", "", "")
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", blankConfigServers)
+        SelectedCountryStore.resetIndex(appContext)
+
+        val dispatchContext = ToggleableStartServiceContext(appContext)
+        ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
+
+        ServerAutoSwitcher.onEngineLevel(dispatchContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // The blank-config timeout's ACTION_STOP is rejected, arming the bounded re-dispatch. At this
+        // point that re-dispatch is the ONLY teardown attempt still owed to the prior tunnel.
+        dispatchContext.rejecting = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+
+        assertTrue(
+            "precondition: a rejected stop dispatch must arm a bounded re-dispatch",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // A chained switch begins inside the retry window while the restriction is STILL active, so
+        // its own replacement stop is rejected too and the switch aborts.
+        dispatchContext.dispatchedIntents.clear()
+        assertFalse(
+            "precondition: the replacement stop dispatch is rejected, so the switch must abort",
+            ServerAutoSwitcher.beginChainedSwitch(dispatchContext, "conf1", "RU")
+        )
+
+        assertTrue(
+            "an aborted chained switch supersedes nothing: dropping the prior re-dispatch here " +
+                "leaves the possibly live prior tunnel with no delivered stop and no bounded " +
+                "teardown retry anywhere",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+
+        // The restriction lifts and the restored re-dispatch runs, proving it was genuinely
+        // re-scheduled and still executable -- not merely a non-null field.
+        dispatchContext.rejecting = false
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_500))
+
+        val realStops = dispatchContext.dispatchedIntents.filter {
+            it.getStringExtra(VpnManager.actionKey(appContext)) == VpnManager.ACTION_STOP &&
+                !it.getBooleanExtra(VpnManager.extraPreserveReconnectKey(appContext), false)
+        }
+        assertEquals(
+            "the restored re-dispatch must actually fire and deliver the real, non-preserve " +
+                "ACTION_STOP the prior tunnel is still owed",
+            1,
+            realStops.size
+        )
+        assertFalse(
+            "an accepted dispatch ends the bounded chain",
+            ServerAutoSwitcher.hasPendingStopDispatchForTest()
+        )
+        assertTrue(
+            "the restoration must be recorded, not silent",
+            ShadowLog.getLogs().any {
+                it.tag == logTag &&
+                    it.msg.contains("restoring the superseded stop-retry-timeout re-dispatch")
+            }
+        )
+        assertEquals("no retry start should ever have been dispatched (config was blank)", 0, calls.size)
+    }
+
     // F3-9 (fix-cycle 9, PR #140 round 4, Copilot thread PRRT_kwDOONeEXM6e2p0f). The NOTCONNECTED
     // blank-config fall-through discarded idleNotificationStopper()'s dispatch result. It is now
     // inspected -- but deliberately only logged, NOT escalated the way the timeout twin's rejected

@@ -302,8 +302,17 @@ object ServerAutoSwitcher {
         // PREVIOUS cycle must not survive into it -- otherwise it fires a non-preserve ACTION_STOP
         // mid-switch and cancelForUserStop() tears this cycle down. requestSwitchNow()'s switch
         // branch already gets this via its cancel(resetCycle = false); this entry point has no
-        // equivalent. See cancelPendingStopDispatchForFreshStart().
-        cancelPendingStopDispatchForFreshStart()
+        // equivalent. See detachPendingStopDispatchForFreshStart().
+        //
+        // The superseded re-dispatch is DETACHED, not discarded: supersession is only valid once the
+        // replacement stop below is actually accepted for delivery. Until then that re-dispatch may
+        // be the only teardown attempt still owed to a possibly live prior tunnel -- its original
+        // ACTION_STOP never reached OpenVpnService, so no service-side retry or confirmation timeout
+        // exists to fall back on. If the replacement dispatch is rejected or throws, the abort path
+        // below calls cancel(resetCycle = true), which would clear the freshly armed timeout too,
+        // leaving nothing anywhere still trying to stop that tunnel. Restoring the detached runnable
+        // after the abort keeps the prior bounded teardown chain (and its attempt count) intact.
+        val supersededStopDispatch = detachPendingStopDispatchForFreshStart()
         cancelIdleTolerance()
         pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
@@ -314,15 +323,38 @@ object ServerAutoSwitcher {
             if (!dispatched) {
                 AppLog.w(TAG, "Controller stop dispatch rejected for chained switch; aborting auto-switch")
                 cancel(resetCycle = true)
+                restoreSupersededStopDispatch(supersededStopDispatch)
                 try { ConnectionStateManager.setReconnectingHint(false) } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after dispatch rejection", e) }
             }
             dispatched
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to request engine stop for chained switch", e)
             cancel(resetCycle = true)
+            restoreSupersededStopDispatch(supersededStopDispatch)
             try { ConnectionStateManager.setReconnectingHint(false) } catch (ex: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint after stop exception", ex) }
             false
         }
+    }
+
+    /**
+     * Re-arms a stop-retry-timeout re-dispatch that [detachPendingStopDispatchForFreshStart]
+     * detached for a replacement stop that then failed to dispatch.
+     *
+     * Must run AFTER the abort path's [cancel] call: [cancel] clears
+     * [timeoutStopDispatchRunnable] unconditionally, so re-arming first would simply be undone.
+     * The same Runnable instance is re-posted rather than a new one, so the bounded chain keeps its
+     * attempt counter and still terminates at [TIMEOUT_STOP_DISPATCH_MAX_ATTEMPTS].
+     */
+    private fun restoreSupersededStopDispatch(pending: Runnable?) {
+        if (pending == null) return
+        timeoutStopDispatchRunnable = pending
+        handler.postDelayed(pending, TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS)
+        AppLog.w(
+            TAG,
+            "Replacement stop dispatch failed; restoring the superseded stop-retry-timeout " +
+                "re-dispatch in ${TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS}ms so the prior tunnel keeps " +
+                "a bounded teardown attempt"
+        )
     }
 
     private fun start(appContext: Context, level: ConnectionStatus) {
@@ -436,13 +468,28 @@ object ServerAutoSwitcher {
      * Must be called from the main thread, like every other entry point on this object.
      */
     fun cancelPendingStopDispatchForFreshStart() {
-        val pending = timeoutStopDispatchRunnable ?: return
+        detachPendingStopDispatchForFreshStart()
+    }
+
+    /**
+     * [cancelPendingStopDispatchForFreshStart]'s internal form: unschedules the pending re-dispatch
+     * and RETURNS it, so a caller whose own replacement stop is not yet confirmed can put it back
+     * (see [restoreSupersededStopDispatch]) instead of losing the only teardown attempt still owed
+     * to a possibly live tunnel.
+     *
+     * Callers that have already committed the superseding start -- `OpenVpnService`'s ACTION_START
+     * branch, via the public wrapper above -- may discard the returned Runnable: the commit itself
+     * performed the equivalent teardown, so nothing is left owing a stop.
+     */
+    private fun detachPendingStopDispatchForFreshStart(): Runnable? {
+        val pending = timeoutStopDispatchRunnable ?: return null
         handler.removeCallbacks(pending)
         timeoutStopDispatchRunnable = null
         AppLog.i(
             TAG,
             "Cancelled pending stop-retry-timeout re-dispatch: a fresh connection start supersedes it"
         )
+        return pending
     }
 
     private fun requestSwitchNow(
