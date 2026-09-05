@@ -42,7 +42,7 @@ class VpnInactivityHardprobeTriggerTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
     private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
-    private var originalStopper: ((android.content.Context) -> Unit)? = null
+    private var originalStopper: ((android.content.Context) -> Boolean)? = null
 
     private class FakeProbeRequestQueue : ProbeRequestQueue {
         val enqueuedIds = mutableListOf<Int>()
@@ -67,7 +67,7 @@ class VpnInactivityHardprobeTriggerTest {
         originalStarter = ServerAutoSwitcher.starter
         ServerAutoSwitcher.starter = { _, _, _, _ -> true }
         originalStopper = ServerAutoSwitcher.stopper
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         fakeQueue = FakeProbeRequestQueue()
         ServerAutoSwitcher.setProbeRequestQueueForTest(fakeQueue)

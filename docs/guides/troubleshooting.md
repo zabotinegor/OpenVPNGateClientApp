@@ -1555,6 +1555,210 @@ toggling while connected, producing four genuine stop-then-restart cycles in ~4.
 server in the test country was genuinely attempted, none was silently skipped, no stuck-Connecting
 state was observed, and no crash or ANR occurred anywhere in a 238k-line logcat sweep.
 
+### Addendum (fix-cycle 23, ClickUp 86cb5y61z): the two fields extracted into one testable class
+
+**Status: DONE.** Quality gate 8's QG8-3 escalation (six interacting guards, ~1 defect per guard
+across fix-cycles 9-22) was addressed by extracting `connectionAttemptGeneration` and
+`reconnectDispatchPendingGeneration` -- the two fields at the center of the reconnect-dispatch
+defect family (R7-1, R9-1, R14-1, R16-1, R18-1, R19-1, R20-1, R21-1) -- into a dedicated
+`ReconnectDispatchGuard` class
+(`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuard.kt`) with
+an explicit `State` enum (`IDLE` / `BUFFER_PENDING`) and named methods (`beginNewAttempt()`,
+`armPending()`, `clearPendingIfOwnedBy()`, `isBufferPendingForCurrentGeneration()`) replacing every
+direct field read/write across `OpenVpnService.kt`'s ~14 call sites. The other four guards named in
+QG8-3 (`retryCommitInFlight`, `waitingStopForRetry` in `ServerAutoSwitcher.kt`, `isInstanceAlive`,
+`rollBackFailedRetryDispatch`) are a separate subsystem with its own guard rationale, cited in QG8-3
+as historical context for why this class of bug recurred, not as fields sharing statement-level
+coupling with the two extracted here -- they are out of this story's scope.
+
+The class's own KDoc is now the authoritative design record for the two items quality gate 8 flagged
+as documentation gaps:
+
+- **QG8-1 (`LEVEL_VPNPAUSED` decoupling exception):** the class-level KDoc's "The LEVEL_VPNPAUSED
+  decoupling exception" section names the exact chain -- `startUserStopTeardown()`'s marker sweep
+  without a generation bump, a stale `LEVEL_VPNPAUSED` clearing `ignoreConnectedUntilNotConnected`
+  as a side effect of being ignored, then a stale `LEVEL_CONNECTED` clearing `userInitiatedStop`
+  with no bump of its own -- explicitly, replacing the prior comment's overclaim that the latch is
+  benign "because `userInitiatedStop` is true throughout the latched interval" for all four sweep
+  sites.
+- **QG8-4 (enqueue-point window):** already closed structurally by fix-cycles 18-22 (see the
+  addendum above), not merely re-narrowed by this extraction. The class's "The enqueue-point window
+  -- CLOSED, not merely narrowed" section records the `:1189`-era early-return hazard
+  analysis (why arming the marker before the blank-config early return would create a worse,
+  permanently-latching defect, per gate-9's mutation proof) alongside why the execution-time
+  re-check (R19-1) closes the window CLASS independently of any one call site's exact statement
+  ordering.
+
+`OpenVpnServiceReconnectEngineDispatchTest.kt`'s fix-cycle-16/17 acceptance tests
+(`strayAidlLevelDuringBufferWindow_doesNotSkipSelectedServer`,
+`overlappingReconnectBuffers_earlierBufferResolutionDoesNotClearNewerBuffersGuard`) were re-anchored
+per QG8-2: each now also asserts the capture-time suppression log line
+(`"...while reconnect engine-dispatch buffer is pending"`) fired, not just the outcome
+(`hasEngineStartLog()`). Under gate-8's Probe B (stubbing `ServerAutoSwitcher.onEngineLevel()` inert
+so nothing cancels the deferred dispatch), `hasEngineStartLog()` stays green **by construction** --
+that half was never at risk. It is the newly added suppression-log assertion that actually fires and
+catches the mutation, which is what converts the test from an outcome-only assertion into a
+mechanism-anchored one. A new `ReconnectDispatchGuardTest.kt` covers the extracted class's own state
+transitions directly, with no `Robolectric`/`OpenVpnService` instance required -- the literal
+"unit-testable transitions" acceptance criterion. A further
+`OpenVpnServiceReconnectDispatchInterleavingHarnessTest.kt` (added fix-cycle 23, independently
+mutation-verified by review round 2) drives the real `onStartCommand()`, the real
+`finishStopFlowConfirmed()` from a genuine background thread, and the real AIDL `statusCallbacks`
+stub across five interleaving scenarios asserting the suppression protocol's composite invariant.
+
+Every reflection-based test that previously reached into `OpenVpnService`'s own
+`connectionAttemptGeneration`/`reconnectDispatchPendingGeneration` fields now reaches one hop
+further, into the `reconnectDispatchGuard` field's own `attemptGeneration`/`pendingGeneration`
+fields, preserving each test's exact prior semantics.
+
+### Addendum (fix-cycles 5-7, ClickUp 86cb5y61z): blank-config abort's two twin resolution paths and the atomicity hardening
+
+**Status: DONE.** Fix-cycles 5-7 resolved three findings from PR #140 Copilot review, two of which
+re-entered the blank-config abort branch's newly added machinery (fix-cycle 5) and surfaced that the
+abort had **two** independent trigger paths — a NOTCONNECTED-confirmed sibling and a stop-retry-timeout
+twin — that must be handled asymmetrically.
+
+#### Finding 1 (fix-cycle 5): `staleSnapshotCount` atomicity
+
+The binder thread's `resetStaleSnapshotCount()` and the main thread's `incrementAndGet()` competed on
+a plain `@Volatile Int`, losing increments when both threads read, then both write. Converted to
+`AtomicInteger.incrementAndGet()` and `set(0)` at all call sites (`OpenVpnService.kt:1418, 2010, 2033`).
+The race is genuine (a stale count can reach the force-rebind threshold early) but gated by an
+independent AND-condition (`now - lastLiveStatusMs > staleSnapshotMaxAgeMs`), so a lost reset alone
+cannot trigger a spurious rebind. Quality gate QG4-1 verified the fix is correct but left a documented
+follow-up: add a dedicated stress test mirroring `ReconnectDispatchGuardTest.beginNewAttempt_concurrent...`
+to pin the atomicity itself (currently only the downstream gate is tested).
+
+#### Finding 2 (fix-cycles 6-8): the blank-config abort's twin paths are deliberately asymmetric
+
+The blank-config scenario arms two mutually exclusive resolvers: a NOTCONNECTED-confirmed branch (in
+`ServerAutoSwitcher.onEngineLevel()`) and a stop-retry-timeout branch (in
+`ServerAutoSwitcher.scheduleStopRetryTimeout()`). Fix-cycle 5 added abort handling to the
+NOTCONNECTED sibling but did not mirror it to the timeout twin; fix-cycle 6's code review (finding
+F1-6) caught the twin inconsistency, and fix-cycle 7 completed the timeout twin's abort handling.
+The two paths share the abort's opening (`cancel(resetCycle=true)`, `setReconnectingHint(false)`)
+and then diverge on both which stop they dispatch and when they may settle app state:
+
+- **NOTCONNECTED twin (engine-confirmed idle):** forces `updateState(DISCONNECTED)` — which matches
+  the reality the engine just reported — and then calls `idleNotificationStopper(appContext)` →
+  `ACTION_STOP_IF_IDLE` (notification-only cleanup). That is safe because the engine has already
+  reported `LEVEL_NOTCONNECTED` — no tunnel is live — and a redundant `ACTION_STOP` dispatch would
+  strand the state at `DISCONNECTING` with a spurious `STOP_FAILED` error (per fix-cycle 5 finding
+  F1). Documented on `idleNotificationStopper`'s declaration.
+- **Stop-retry-timeout twin (engine-unconfirmed):** calls `stopper(appContext)` → real `ACTION_STOP`
+  dispatch, because the timeout fired precisely because no NOTCONNECTED confirmation arrived — the
+  engine state is unknown, not confirmed idle. A real stop brings its own bounded terminator
+  (`STOP_CONFIRMATION_TIMEOUT_MS` + `STOP_DISPATCH_MAX_ATTEMPTS` via `startUserStopTeardown()`), so
+  the branch self-resolves to `DISCONNECTED` or a visible `STOP_FAILED` within ~27 s, never a silent
+  permanent latch. **PR #140 round 3 (F1-8, found independently by Codex and Kody) narrowed this
+  further:** the dispatch is issued *first* and its Boolean result inspected. When `startService()` is
+  rejected (background-start restriction), `VpnManager.stopVpn()` returns `false` and nothing
+  reaches `OpenVpnService` — no teardown, and no service-side retry either — so the branch instead
+  re-dispatches up to three times a second apart and, if all are rejected, surfaces `DISCONNECTING`
+  + `STOP_FAILED` (`markStopFailure()`'s own end state) rather than reporting an unconfirmed tunnel
+  as disconnected. This is why `ServerAutoSwitcher.stopper` is typed `(Context) -> Boolean`.
+  **PR #140 round 4 (F1-9, Kody) corrected the accepted-dispatch side of that same narrowing:**
+  `startService()` returning `true` means delivery acceptance only, not teardown completion —
+  `OpenVpnService.startUserStopTeardown()` runs asynchronously afterward and is the one that actually
+  settles `DISCONNECTING`→`DISCONNECTED`/`STOP_FAILED`. Publishing `DISCONNECTED` from the dispatch
+  acknowledgment itself (the original fix-cycle-8 shape) could show a premature/false idle state
+  during that async window. The accepted branch now publishes **nothing** — it leaves state and
+  confirmation entirely to `OpenVpnService`'s own teardown, which is guaranteed to reach a terminal
+  state (`DISCONNECTED` via `finishStopFlowConfirmed()`, or `STOP_FAILED` via `markStopFailure()`)
+  regardless. Documented on `dispatchStopAfterStopRetryTimeout()`.
+
+The asymmetry is precondition-driven: the discriminator is whether the engine's state is already confirmed
+down. Quality gate QG4-3 assessed it as coherent and maintainable because the two paths are pinned by
+falsifying tests from both directions. The twin asymmetry does not reopen the defect family — it
+specializes the abort into the two cases the family originally collapsed into one broken fix.
+
+**References** (tracked sources only — the per-cycle review and gate write-ups live under
+`docs/qa-evidence/`, which is gitignored and therefore absent from a clean checkout, so their
+findings are summarised inline here and in the code comments rather than linked):
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcher.kt` — the twin
+  abort paths themselves. Each carries the full reasoning in-place: the `idleNotificationStopper`
+  declaration comment records review-5 F1 (the false "transition is rejected as a no-op" safety
+  claim in the NOTCONNECTED sibling), the NOTCONNECTED branch in `onEngineLevel()` records why the
+  engine-confirmed-idle premise makes notification-only cleanup safe there, and
+  `scheduleStopRetryTimeout()` plus `dispatchStopAfterStopRetryTimeout()` record review-6 F1-6 (the
+  timeout twin originally missing the same abort handling) and PR #140 round 3's F1-8 (the dispatch
+  result must be inspected before settling state).
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/ServerAutoSwitcherTest.kt` — the
+  falsifying tests that pin the asymmetry from both directions
+  (`blankConfigFallThrough_clearsReconnectingHintAndUsesIdleNotificationStopperNotFullStop`,
+  `stopRetryTimeoutBlankConfig_clearsReconnectingHintAndDispatchesRealStopperNotIdleNotification`,
+  and the two `stopRetryTimeoutBlankConfig_rejectedStopDispatch*` dispatch-result tests), plus
+  `OpenVpnServiceNotificationTest.kt` for the same claims exercised through the real
+  `ACTION_STOP` / `ACTION_STOP_IF_IDLE` service paths rather than fakes.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` —
+  `staleSnapshotCount`'s `AtomicInteger` call sites, and `startUserStopTeardown()` /
+  `scheduleStopRetryOrFail()` / `markStopFailure()`, the bounded terminator the timeout twin relies
+  on. (Line numbers are deliberately omitted: earlier revisions of this block cited lines that the
+  next fix-cycle moved.)
+- ClickUp task `86cb5y61z` — per-cycle review and gate write-ups, attached there as story QA
+  evidence.
+
+#### Finding 3 (fix-cycle 5, verified): stress-test collection change
+
+`ReconnectDispatchGuardTest.beginNewAttempt_concurrentCallsFromMultipleThreads_loseNoIncrementAndReturnDistinctValues`
+swapped `CopyOnWriteArrayList<Int>` to `ConcurrentHashMap.newKeySet<Int>()` (dedupe on insert rather
+than post-collect). Mutation-tested by reverting to a non-atomic read-modify-write: the test
+correctly failed at the lost-increment assertion, proving the test detects the defect it was written
+to catch. No behavior change; verification recorded in review-5's "Verified correct" section.
+
+### Addendum (fix-cycle 9, ClickUp 86cb5y61z): PR #140 round 4 findings on the stop-retry-timeout twin
+
+**Status: DONE.** Round 4 of the PR bot-review loop (Kody, Codex, Copilot) found three more issues in
+the twin abort paths above, two accepted and fixed, one partially rejected on evidence.
+
+- **F1-9 (Kody, accepted):** covered above — the accepted-dispatch branch of the stop-retry-timeout
+  twin no longer publishes `DISCONNECTED` on dispatch acceptance; it publishes nothing and leaves
+  `OpenVpnService`'s own teardown/confirmation to settle the final state.
+- **F2-9 (Codex, accepted, worse than reported):** the stop-retry-timeout twin's re-dispatch runnable
+  (`timeoutStopDispatchRunnable`) was not cancelled by any fresh-start path. A user starting a new
+  connection during the ~1 s retry delay left the stale retry armed; if it later succeeded, it
+  dispatched `ACTION_STOP` against the *new* session, not the stale one. Investigation found it was
+  worse than the report: because `stopper` is the non-preserve `stopVpn()`, the stale dispatch would
+  have routed through `startUserStopTeardown()` → `cancelForUserStop()`, killing the new switch
+  *cycle*, not just the stale tunnel. Fixed with a narrow `cancelPendingStopDispatchForFreshStart()`
+  called from both `ACTION_START` and `beginChainedSwitch()` — deliberately narrower than the
+  existing `cancel()` helper, which would itself have been unsafe here (it resets
+  `cycleStartIndex`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
+- **F3-9 (Copilot, partially rejected):** Copilot claimed the NOTCONNECTED-confirmed twin's
+  `idleNotificationStopper` dispatch also discards a rejected-dispatch result the way the timeout
+  twin's `stopper` used to. Verified false on two counts: `idleNotificationStopper` maps to
+  `ACTION_STOP_IF_IDLE`, whose handler never calls `updateState()` at all (unlike `stopVpn()`'s
+  `ACTION_STOP`), and the branch is only reachable after `LEVEL_NOTCONNECTED` is already confirmed —
+  the engine cannot still be connecting, so the pre-dispatch `DISCONNECTED` is truthful, not a false
+  idle report. Applying Copilot's suggested bounded-retry remedy here would have reopened the exact
+  `DISCONNECTING`/`STOP_FAILED` latch fix-cycle 5 (F1) closed for this twin. The narrower real gap —
+  the dispatcher's Boolean result was silently discarded — was accepted: `idleNotificationStopper` is
+  now typed `(Context) -> Boolean` and a rejection is logged (this site self-recovers via
+  `syncEngineState()`'s periodic snapshot re-poll calling `exitControllerForeground()` in-process,
+  a stronger guarantee than a re-dispatch since it cannot itself be refused by the OS).
+
+All three findings and their dispositions are pinned by falsifying tests in `ServerAutoSwitcherTest.kt`
+and `OpenVpnServiceNotificationTest.kt` driving the real production entry points, mutation-verified
+one change at a time. See ClickUp `86cb5y61z` for the full per-thread review record.
+
+**Round 5 refinement — where the `ACTION_START` cancellation may safely sit.** F2-9's cancellation was
+first placed at the top of the `ACTION_START` branch, alongside the block that discards the service's
+own pending-stop bookkeeping. That is too early. `ACTION_START` has two guards that abort without
+starting any engine — a failing `enterControllerForeground()` and a blank config — and cancelling on
+those paths strands the previous, possibly still-live tunnel. The two cancellations are not
+equivalent: the service-side stop runnables only *retry* a stop that already reached
+`startUserStopTeardown()` and `requestStopIcsOpenVpn()`, whereas `timeoutStopDispatchRunnable` stands
+in for a stop whose dispatch was **rejected before `OpenVpnService` ever saw it**, so dropping it
+leaves nothing asking the engine to stop and no bounded escalation to `STOP_FAILED`. The call now sits
+after both guards, where the start has actually committed; deferring is race-free because
+`onStartCommand()` and the re-dispatch share the main looper, so the retry cannot run between the
+guards and the call. Both directions are pinned by
+`committedActionStart_cancelsPendingStopRetryRedispatchFromRejectedBlankConfigStop` (pinned to
+`sdk = [27]` so the start genuinely commits) and
+`abortedActionStart_preservesPendingStopRetryRedispatchSoTheOldTunnelIsStillStopped` (run on the
+default SDK precisely because `enterControllerForeground()` throws there) in
+`OpenVpnServiceNotificationTest.kt`.
+
 ### Evidence
 
 - `docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-qa-4.md` §2 — first device reproduction,
@@ -1603,14 +1807,18 @@ state was observed, and no crash or ANR occurred anywhere in a 238k-line logcat 
   (`onStartCommand`, `foregroundNotificationVisible`, `showNotification`) — read-only; do not edit
   incidentally, see `docs/conventions/engine-submodule.md`.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt`
-  (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`,
-  `connectionAttemptGeneration`, `reconnectDispatchPendingGeneration`, `engineConnection`,
-  `requestStopIcsOpenVpn`, `finishStopFlowConfirmed`)
+  (`ENGINE_RECONNECT_DISPATCH_BUFFER_MS`, `reconnectEngineDispatchToken`, `reconnectDispatchGuard`,
+  `engineConnection`, `requestStopIcsOpenVpn`, `finishStopFlowConfirmed`)
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuard.kt` --
+  the extracted state machine (fix-cycle 23, 86cb5y61z)
 - `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectEngineDispatchTest.kt`
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/ReconnectDispatchGuardTest.kt`
+- `src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnServiceReconnectDispatchInterleavingHarnessTest.kt`
 - ClickUp [86cb35fbt](https://app.clickup.com/t/86cb35fbt), fix-cycles 13-22; tech-debt follow-up
   [86cb5y61z](https://app.clickup.com/t/86cb5y61z) (guard extraction into an explicit, testable
-  state machine; an interleaving-driven test harness; the remaining minor/deferred findings from
-  reviews 19-22 and quality gate 11)
+  state machine -- DONE, fix-cycle 23. The interleaving-driven test harness (QG11-1), QG11-3, R19-4
+  and R21-4 are also DONE as of fix-cycle 23. Only R22-2, R20-3 and R20-5 remain open follow-up
+  items; QG11-2's reachability risk is accepted and documented, not open.)
 
 ---
 
