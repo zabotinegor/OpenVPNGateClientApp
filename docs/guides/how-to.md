@@ -19,6 +19,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 - [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
+- [Verify a flaky-test fix does not destroy regression coverage with injection mutation testing](#verify-a-flaky-test-fix-does-not-destroy-regression-coverage-with-injection-mutation-testing)
 - [README language variants and the canonical technical entry point](#readme-language-variants-and-the-canonical-technical-entry-point)
 
 ---
@@ -954,6 +955,65 @@ draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400m
 deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
 327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
 to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.
+
+---
+
+## Verify a flaky-test fix does not destroy regression coverage with injection mutation testing
+
+**When to use**
+
+When you've fixed a flaky test by restructuring its state machine or timing (e.g., splitting it into
+tighter, more isolated scenarios to eliminate timing races), you need to verify that the fix did not
+accidentally remove the regression coverage the test was originally meant to protect. This is especially
+important for tests guarding against known production bugs: if the fix makes the test pass but fails
+to catch the original bug when it is re-introduced, the fix has traded one problem (flakiness) for a
+worse one (silent coverage loss).
+
+**Steps**
+
+1. Confirm the test passes in isolation and under full-suite contention after your flakiness fix.
+
+2. Temporarily inject the exact regression the test was written to guard against into production code
+   at the guard point (the condition/check the fix was meant to protect):
+   - Copy the production code file aside as a backup
+   - Revert the specific guard (e.g., delete an `if` check, comment out a validation, remove a
+     `return` statement) to recreate the pre-fix bug state
+   - Run **only the test you fixed** (`./gradlew testDebugUnitTestApp --tests <ClassName>`), not the
+     full suite
+
+3. Verify the test **fails** with the regression injected:
+   - If the test fails: the fix preserved the regression coverage — continue to step 5
+   - If the test passes: your fix eliminated the test without capturing the regression — the fix is
+     broken and must be restructured; go back to the drawing board
+
+4. Restore the production code from your backup (revert the regression injection):
+   - Confirm `git status` shows the file clean or only expected edits
+   - If you have unrelated in-progress work in the file, use your backup copy to restore only the
+     regression injection (`git checkout -- <file>` is safe only if the file was clean before mutation
+     testing started)
+
+5. Re-run the test in isolation and under full suite to confirm it still passes after reverting the
+   injection:
+   - If it passes: the fix is complete — the test detects the regression and passes without it
+   - If it fails: your mutation reversal was incomplete; check the diff carefully and restore again
+
+**Rationale**
+
+- A green test after a flakiness fix proves only that the test no longer races — it does not prove
+  the test still catches what it was written to catch
+- Injection mutation testing bridges that gap: forcing the regression to re-appear proves the test
+  has teeth
+- This technique is narrowly scoped (inject one specific regression, run one test) compared to
+  coverage-analysis tools, which may miss implicit dependencies on test ordering or state
+
+**First encountered**
+
+ClickUp task `86cb9kpx9` (SseServerEventsClientTest onOpen-reset flake): the test was fixed by
+splitting it into separate scenarios with different stability thresholds. Before acceptance, the
+fix was verified by temporarily removing the core `onOpen()` callback from `SseServerEventsClient`,
+confirming the new test failed without the callback, then restoring the callback and confirming the
+test passed again. This proved the restructured test still detects the original `onOpen()` regression
+it was written to guard against.
 
 ---
 
