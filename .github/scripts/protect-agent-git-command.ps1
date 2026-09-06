@@ -432,6 +432,63 @@ function Split-CommandSegments {
     return , $segments
 }
 
+# Reduce a PowerShell -C/--git-dir path token to the literal path the shell
+# would pass: drop the wrapping quote delimiters and apply the backtick escapes,
+# in a SINGLE quote-aware pass. PowerShell treats the backtick as an escape only
+# OUTSIDE quotes and INSIDE a double-quoted run; inside a SINGLE-quoted run the
+# backtick (and every character bar the '' pair) is an ordinary literal. A
+# blanket 'collapse every `x' turned a single-quoted 'C:\repo`x' into the
+# nonexistent 'C:\repox', so resolution failed and the guard fell back to the
+# session repo. An unterminated quote leaves the rest of the token literal - a
+# malformed path that fails closed, not one silently resolved to another repo.
+function ConvertFrom-PowerShellPathToken {
+    param([string]$Value)
+
+    $sb = New-Object System.Text.StringBuilder
+    $quote = $null   # $null (outside) | "'" (single) | '"' (double)
+    $i = 0
+    $len = $Value.Length
+
+    while ($i -lt $len) {
+        $ch = $Value[$i]
+
+        if ($quote -eq "'") {
+            # Single-quoted: nothing escapes; a doubled '' is one literal quote.
+            if ($ch -eq "'") {
+                if (($i + 1) -lt $len -and $Value[$i + 1] -eq "'") {
+                    [void]$sb.Append("'"); $i += 2; continue
+                }
+                $quote = $null; $i++; continue
+            }
+            [void]$sb.Append($ch); $i++; continue
+        }
+
+        if ($quote -eq '"') {
+            # Double-quoted: backtick escapes the next character; a doubled ""
+            # is one literal quote.
+            if ($ch -eq '`' -and ($i + 1) -lt $len) {
+                [void]$sb.Append($Value[$i + 1]); $i += 2; continue
+            }
+            if ($ch -eq '"') {
+                if (($i + 1) -lt $len -and $Value[$i + 1] -eq '"') {
+                    [void]$sb.Append('"'); $i += 2; continue
+                }
+                $quote = $null; $i++; continue
+            }
+            [void]$sb.Append($ch); $i++; continue
+        }
+
+        # Outside quotes: backtick escapes the next character.
+        if ($ch -eq '`' -and ($i + 1) -lt $len) {
+            [void]$sb.Append($Value[$i + 1]); $i += 2; continue
+        }
+        if ($ch -eq "'" -or $ch -eq '"') { $quote = $ch; $i++; continue }
+        [void]$sb.Append($ch); $i++; continue
+    }
+
+    return $sb.ToString()
+}
+
 # A -C/--git-dir value may be POSIX-absolute ('/d/Apps/CopilotTools', which a
 # Git-Bash-issued command produces naturally) or relative. This guard always
 # resolves the target through pwsh's own git.exe (see protect-agent-git-command.sh,
@@ -443,22 +500,24 @@ function Split-CommandSegments {
 function Resolve-TargetToken {
     param([string]$Value, [string]$BaseDir)
 
-    # PowerShell backtick escapes arrive glued to the token from
-    # Get-GitTargetPath's tokenizer: '`"' is a literal quote (not a delimiter),
-    # '`  ' a literal space, '``' a literal backtick. Collapse them before the
-    # delimiter-quote strip below - otherwise a glued '`"' is removed as if it
-    # were a wrapping quote, the path is truncated, resolution fails, and the
-    # caller falls back to the SESSION repo, judging a mutation on the target
-    # repo's protected branch against the session's own branch. Map '`"' to a
-    # marker the strip cannot touch, then restore it afterwards. Bash has no
-    # backtick escape, so this is PowerShell-only.
-    $clean = $Value
-    if (-not $script:bashSyntax) {
-        $clean = $clean -replace '`"', ([string][char]1)
-        $clean = $clean -replace '`(.)', '$1'
+    # The token still carries its shell quoting when it reaches here
+    # (Get-GitTargetPath's tokenizer keeps a quoted run glued to its token).
+    # Reduce it to the literal path the shell would pass. Under PowerShell the
+    # collapse is QUOTE-AWARE: '`"' is a literal quote, '`  ' a literal space,
+    # '``' a literal backtick - but ONLY outside quotes and inside a
+    # double-quoted run. Inside a single-quoted run the backtick is literal, so
+    # 'git -C ''C:\repo`x'' commit' targets the real directory 'C:\repo`x';
+    # collapsing that backtick truncated the path to a nonexistent one,
+    # resolution failed, and the guard fell back to the SESSION repo - judging a
+    # mutation on the target repo's protected branch against the session's own
+    # branch. Bash has no backtick escape, so there the token only needs its
+    # wrapping quotes stripped.
+    if ($script:bashSyntax) {
+        $clean = ($Value -replace '["'']', '')
     }
-    $clean = ($clean -replace '["'']', '')
-    if (-not $script:bashSyntax) { $clean = $clean.Replace([string][char]1, '"') }
+    else {
+        $clean = ConvertFrom-PowerShellPathToken -Value $Value
+    }
     # A shell metacharacter reaches the path only escaped ('/srv/prod\&repo') or
     # quoted; the backslash is the shell's, not part of the directory name. Strip
     # it for exactly those characters so the escaped form resolves to the same

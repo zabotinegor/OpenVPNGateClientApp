@@ -39,6 +39,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [OpenVpnService `RemoteServiceException` (`ForegroundServiceDidNotStartInTimeException`) on reconnect after a background status sync — bug 86cb35fbt](#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt)
 - [Engine's own `de.blinkt.openvpn.core.OpenVPNService` FGS-timeout crash under rapid stop/retry churn — mitigated, root cause open (bug 86cb35fbt, fix-cycles 13-14)](#engines-own-deblinktopenvpncoreopenvpnservice-fgs-timeout-crash-under-rapid-stopretry-churn--mitigated-root-cause-open-bug-86cb35fbt-fix-cycles-13-14)
 - [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
+- [`SseServerEventsClientTest` "onOpen does not reset failure count" is flaky under full-suite contention — bug 86cb9kpx9](#sseservereventsclienttest-onopen-does-not-reset-failure-count-is-flaky-under-full-suite-contention--bug-86cb9kpx9)
+- [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
 
 ---
 
@@ -1831,3 +1833,61 @@ default SDK precisely because `enterControllerForeground()` throws there) in
 **Solution:** For any validation run whose entire purpose is independent proof (quality gate, merge gate), force real execution: `./gradlew testDebugUnitTestApp assembleDebugApp --rerun-tasks`. Confirm genuine execution from the task summary line (e.g. `150 actionable tasks: 150 executed`, not `150 up-to-date`), and parse actual pass/fail counts from `build/test-results/**/*.xml` rather than trusting the human-readable console summary alone.
 
 **First encountered:** Quality gate for `US-22` (orientation-lock), gate-1 → gate-2, commit `0eef2ae`.
+
+---
+
+## `SseServerEventsClientTest` "onOpen does not reset failure count" is flaky under full-suite contention — bug 86cb9kpx9
+
+**Context:** Bug `86cb9kpx9`. Test-only defect — no production code was changed. Affected file:
+`src/core/src/test/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClientTest.kt`.
+
+**Problem:** The test failed intermittently only during full-suite runs under JVM contention, and never
+in isolation. It asserted `client.failuresOnCurrentUrl == 1` during a window in which that value was
+genuinely *transient*: the second connection was stable enough that `maybeResetBackoff()` would legitimately
+zero the counter shortly after the assertion point, so under contention the assertion could land after the
+reset rather than before it. Asserting a mutable counter that scheduled work is about to change is a race by
+construction — isolation just makes the race win reliably.
+
+**Solution:** Split the scenario into two independent tests so that no assertion depends on a transient value:
+
+1. *Unstable connection* (the regression guard): the second connection's throttled body completes in ~120 ms,
+   while `stableConnectionResetDelayMs` is passed as a very large value. `maybeResetBackoff()` therefore
+   *always* declines to reset, so `failuresOnCurrentUrl == 1` is the value that must hold for the rest of the
+   test rather than one true only in a narrow window. Choose that threshold so it exceeds the test's *entire*
+   wall-clock lifetime (its own `takeRequest`/latch timeouts), not merely the body duration — a merely "wide"
+   margin such as 5 000 ms is still a wall-clock threshold that extreme contention could in principle cross.
+2. *Stable connection*: a separate test asserting that a genuinely stable connection **does** reset the counter.
+
+Verify such a restructuring with injection mutation testing (see
+[how-to.md](how-to.md#verify-a-flaky-test-fix-does-not-destroy-regression-coverage-with-injection-mutation-testing))
+— a de-flaked test that no longer catches the regression is worse than a flaky one.
+
+**First encountered:** Bug `86cb9kpx9`, PR #142.
+
+---
+
+## `SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)
+
+**Context:** Discovered while fixing bug `86cb9kpx9`; **not fixed there** — tracked as separate tech debt.
+
+**Problem:** `stable connection triggers quick reconnect — counter was reset after close` occasionally fails
+under full-suite contention. It does not assert on the counter directly; it infers the backoff reset
+*indirectly* from network-request arrival timing — `server.takeRequest(2, TimeUnit.SECONDS)` must observe the
+reconnect within a 2 s deadline, on the theory that a non-reset counter would impose a ~5 s backoff. The race
+is that `reconnectAttempt` is an `AtomicInteger` whose reset-to-0 is transient: the same reconnect-loop
+coroutine immediately re-increments it on its next iteration, so the observable window competes with the
+indirect network-arrival signal under contention.
+
+This is **not** a clock-monotonicity problem, and the test does not use `delay(500)`. Production
+`SseServerEventsClient.maybeResetBackoff()` (in `connectOnce`, ~lines 194/204 of
+`src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/core/servers/sse/SseServerEventsClient.kt`)
+already uses `System.nanoTime()`, a monotonic source immune to wall-clock jumps. Do not "fix" this by
+swapping the clock.
+
+**Solution:** None applied. A real fix means making the reset observable directly rather than through request
+timing — e.g. exposing a reset-event signal, or injecting a controllable time/scheduler seam into
+`SseServerEventsClient` — which is a production-code refactor beyond the scope of a test-only flake fix.
+Until then, treat a lone failure of this one test as known flakiness, not a regression, unless
+`SseServerEventsClient.kt` itself is in the diff under review.
+
+**First encountered:** Bug `86cb9kpx9`, PR #142 (observed, deferred).

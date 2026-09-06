@@ -301,6 +301,8 @@ CODE_REVIEW_HANDOFF_*.md
 **/.sdlc/clickup-migration-map.json
 /.sdlc/agenttools-source.json
 **/.sdlc/agenttools-source.json
+/.sdlc/copilottools-source.json
+**/.sdlc/copilottools-source.json
 /.sdlc/tools-fix/
 **/.sdlc/tools-fix/
 /.sdlc/tools-fix.json

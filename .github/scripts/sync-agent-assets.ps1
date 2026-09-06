@@ -361,6 +361,11 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         # does not start tracking a leftover.
         '/.sdlc/agenttools-source.json',
         '**/.sdlc/agenttools-source.json',
+        # Legacy pre-rename filename. Kept alongside the renamed pattern above so
+        # a target still holding the old marker file from before the rename does
+        # not have it surface to Git after a sync during the migration window.
+        '/.sdlc/copilottools-source.json',
+        '**/.sdlc/copilottools-source.json',
         '/.sdlc/tools-fix/',
         '**/.sdlc/tools-fix/',
         '/.sdlc/tools-fix.json',
@@ -1098,7 +1103,7 @@ try {
     $sourceAgentsCoreRules = Join-Path $tempRoot '.github/skills/shared/agents-core-rules.md'
     $agentsCoreRulesInjection = $null
 
-    if ((Test-Path -LiteralPath $sourceAgentsCoreRules) -and (Test-Path -LiteralPath $targetAgentsMd)) {
+    if ($AllowRootMdSync -and (Test-Path -LiteralPath $sourceAgentsCoreRules) -and (Test-Path -LiteralPath $targetAgentsMd)) {
         $agentsCoreRulesInjection = Set-FileSectionByMarkers `
             -TargetPath $targetAgentsMd `
             -SourceSectionPath $sourceAgentsCoreRules `

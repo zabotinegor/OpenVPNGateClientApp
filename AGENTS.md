@@ -208,6 +208,7 @@ This applies whether the agent is invoked inside an orchestrator flow or indepen
 - Keep files ASCII unless non-ASCII is required by existing content.
 - Reuse existing patterns from nearby files.
 - Add brief comments only where logic is non-obvious.
+- Do not embed internal tracking identifiers in code comments or KDoc/Javadoc -- ticket or task IDs, fix-cycle or review-round numbers, bot-finding tags, or links/paths to gitignored evidence files. That process provenance belongs in the PR description, the commit message, or a durable tracked doc instead; identifiers left in comments rot as the codebase evolves and the referenced ticket or evidence file becomes unreachable or meaningless.
 - Avoid formatting-only churn in unrelated code.
 - If requirements conflict, prefer safety and explicit assumptions.
 - Do not create persistent handoff or prompt artifact files such as `*_HANDOFF*.md`, `*_PROMPT*.md`, `*_PROMT*.md`, `CODE_REVIEW_HANDOFF_*.md`, or chat handoff markdown files unless the user explicitly asks for a file. Return handoffs in chat output or handoff buttons instead.
@@ -441,4 +442,13 @@ A task is done when all points are true:
 ### Update-SDLC Status
 - Never invoke `.github/scripts/update-sdlc-status.ps1` using positional shorthand (e.g., `steps.story.status ready`).
 - Always use named parameters (`-FlowId`, `-Branch`, `-Step`, `-Status`, plus required step-specific parameters).
+## Action over suggestions
+
+When the user's request is task-shaped, do not answer by proposing a task, plan,
+"Suggested task", suggestion chip, or worktree starter. If the requested change
+is clear, perform it in the current context. If it belongs to a documented flow,
+invoke that flow and continue according to its contract. If a material decision
+cannot be resolved safely from the request and repository context, ask through
+`AskUserQuestion` (or the runtime's equivalent structured question tool). A
+suggested task is never a substitute for an edit, flow invocation, or question.
 <!-- END AGENT SYNC -->
