@@ -860,13 +860,108 @@ class SseServerEventsClientTest {
     }
 
     @Test
-    fun `onOpen does not reset failure count — only a stable connection does, on close`() {
+    fun `onOpen does not reset failure count when the connection is unstable and closes before the stable threshold`() {
         // Regression: onOpen must NOT reset failuresOnCurrentUrl unconditionally. A URL that
         // accepts the connection (HTTP 200) but drops it immediately every time would otherwise
         // never accumulate failures past 0 and the client would never rotate to a fallback.
-        // Use a single URL with urlFailureThreshold=2: the first attempt fails (counter → 1),
-        // the second attempt succeeds and stays open long enough to be "stable"
-        // (stableConnectionResetDelayMs=50 ms), then closes — only then must the counter reset.
+        //
+        // The second connection here is deliberately UNSTABLE: its throttled body takes ~120 ms
+        // to complete, but stableConnectionResetDelayMs is set to 300 ms (well above that), so
+        // when the connection closes maybeResetBackoff() correctly declines to reset — elapsed
+        // time never crosses the "stable" threshold. This makes "failuresOnCurrentUrl == 1" a
+        // value that stays stable for the rest of the test rather than one that is only true
+        // during a transient window before onOpen has even fired, which was the flaw in the
+        // previous version of this test.
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(": k\n")           // 4 bytes
+                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, < 300 ms stable window
+        )
+        server.start()
+
+        val url = server.url("/api/v1/servers/events").toString()
+
+        val openLatch = CountDownLatch(1)
+        val fakeCoordinatorWithLatch = object : ServerSelectionSyncCoordinator {
+            override suspend fun sync(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean,
+                clearCacheBeforeRefresh: Boolean
+            ): List<Server> {
+                openLatch.countDown()
+                return emptyList()
+            }
+
+            override suspend fun syncSelectedCountryServersForRelocalization(
+                forceRefresh: Boolean,
+                cacheOnly: Boolean
+            ) = Unit
+        }
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        val client = SseServerEventsClient(
+            okHttpClient = okHttpClient,
+            syncCoordinator = fakeCoordinatorWithLatch,
+            sseUrlsProvider = { listOf(url) },
+            urlFailureThreshold = 2,
+            stableConnectionResetDelayMs = 300L
+        )
+
+        try {
+            client.start()
+            val firstRequest = server.takeRequest(3, TimeUnit.SECONDS)
+            assertNotNull("First request (503) should have been made", firstRequest)
+
+            // The reconnect after a failure applies backoff (initial delay ~5 s), so allow
+            // enough time for the second request to arrive.
+            val secondRequest = server.takeRequest(10, TimeUnit.SECONDS)
+            assertNotNull("Second request (200, throttled body) should have been made", secondRequest)
+
+            // Wait for onOpen to actually fire on the second attempt (triggers sync → latch).
+            // This is the moment the regression under test would incorrectly reset the counter.
+            val opened = openLatch.await(15, TimeUnit.SECONDS)
+            assertTrue("Connection must open on second attempt after first 503", opened)
+
+            // Poll-assert immediately after onOpen: the counter must already be 1 and must not
+            // have been zeroed by onOpen itself.
+            assertEquals(
+                "failuresOnCurrentUrl must NOT be reset immediately by onOpen",
+                1, client.failuresOnCurrentUrl.get()
+            )
+
+            // Give the throttled body (~120 ms) time to finish and the connection to close.
+            // Because stableConnectionResetDelayMs (300 ms) is above that duration, the close is
+            // classified as unstable and maybeResetBackoff() must still decline to reset. Poll
+            // for the whole window: unlike the old test, 1 is the value that should persist here,
+            // not a transient one, so a stable poll result is a meaningful assertion.
+            val deadline = System.currentTimeMillis() + 500L
+            while (System.currentTimeMillis() < deadline) {
+                assertEquals(
+                    "failuresOnCurrentUrl must stay at 1 — the connection was unstable and never reached the stable threshold",
+                    1, client.failuresOnCurrentUrl.get()
+                )
+                Thread.sleep(20)
+            }
+        } finally {
+            client.stop()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `failuresOnCurrentUrl resets to 0 only after a stable connection closes`() {
+        // Companion to the unstable-connection test above: once a connection stays open long
+        // enough to be considered "stable" (elapsed >= stableConnectionResetDelayMs), closing it
+        // must reset failuresOnCurrentUrl to 0 so the client doesn't keep counting failures
+        // against a URL that has proven itself healthy.
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(503))
         server.enqueue(
@@ -876,9 +971,12 @@ class SseServerEventsClientTest {
                 .setBody(": k\n")           // 4 bytes
                 .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, > 50 ms stable window
         )
-        // Deliberately do NOT enqueue a third response. See the comment above the third-request
-        // assertion below for why: an eagerly-enqueued response here previously caused a second,
-        // independent race in this same test.
+        // Deliberately do NOT enqueue a third response. An eagerly-enqueued response here
+        // previously caused a second, independent race in this test (see history): the third
+        // connection's own onFailure() could re-increment failuresOnCurrentUrl before the
+        // assertion below ran. Leaving the third request unanswered means MockWebServer's
+        // QueueDispatcher blocks on it (after already recording it — takeRequest() still
+        // returns) and nothing can change failuresOnCurrentUrl again before we read it.
         server.start()
 
         val url = server.url("/api/v1/servers/events").toString()
@@ -918,64 +1016,15 @@ class SseServerEventsClientTest {
             val firstRequest = server.takeRequest(3, TimeUnit.SECONDS)
             assertNotNull("First request (503) should have been made", firstRequest)
 
-            // Assert the failure count here, during the ~5 s backoff window before the second
-            // attempt is even made — NOT after waiting on openLatch below. onFailure() increments
-            // failuresOnCurrentUrl synchronously on OkHttp's own callback executor, so this is
-            // stable well within the poll timeout. onOpen()'s doSync() call, by contrast, is
-            // dispatched via `clientScope.launch` onto the shared, JVM-global Dispatchers.IO pool:
-            // under full-suite load that pool is contended by hundreds of concurrently running
-            // tests, so the dispatch can be delayed arbitrarily. Gating this assertion on the
-            // openLatch (fired from inside that delayed doSync()) previously raced against the
-            // throttled connection's own ~120 ms lifecycle — under contention, the connection could
-            // open, stream its body, close, and reset failuresOnCurrentUrl to 0 *before* the
-            // delayed doSync() ever ran, flipping this assertion from 1 to 0 intermittently.
-            val failureDeadline = System.currentTimeMillis() + 2_000L
-            while (client.failuresOnCurrentUrl.get() != 1 && System.currentTimeMillis() < failureDeadline) {
-                Thread.sleep(20)
-            }
-            assertEquals(
-                "failuresOnCurrentUrl must NOT be reset immediately by onOpen",
-                1, client.failuresOnCurrentUrl.get()
-            )
-
-            // The reconnect after a failure applies backoff (initial delay ~5 s), so allow
-            // enough time for the second request to arrive.
             val secondRequest = server.takeRequest(10, TimeUnit.SECONDS)
             assertNotNull("Second request (200, throttled body) should have been made", secondRequest)
 
-            // Wait for onOpen on the second attempt (triggers sync → latch)
             val opened = openLatch.await(15, TimeUnit.SECONDS)
             assertTrue("Connection must open on second attempt after first 503", opened)
 
             // Wait for the throttled body to finish (~120 ms > 50 ms stable window), the
             // connection to close (triggering maybeResetBackoff()), and the immediate reconnect
             // (counter was reset, so no backoff delay) to reach the server as a third request.
-            //
-            // Second race (found on a repeat full-aggregate run, fix-cycle 2): maybeResetBackoff()
-            // runs synchronously inside onClosed() — reconnectAttempt/failuresOnCurrentUrl are
-            // reset to 0 *before* connectionDone.complete() is called, which itself happens
-            // strictly before the reconnect loop resumes and sends this third request. So by the
-            // time MockWebServer's requestQueue records the third request (i.e. by the time
-            // takeRequest() below returns), the reset is already guaranteed to have happened and
-            // to be visible — that ordering is not the problem.
-            //
-            // The problem was what happened *next*: this test used to enqueue a third 503
-            // response ahead of time. Once the third request went out, that response could come
-            // back and be processed by this new connection's own onFailure() — which increments
-            // failuresOnCurrentUrl — before the assertEquals below ran. takeRequest() only proves
-            // the request was received by the server; it says nothing about whether a *later*
-            // event (this connection's own failure) has already re-incremented the counter by the
-            // time we read it. Under full-suite JVM contention an immediate 503 round-trip can
-            // easily complete faster than the test thread gets scheduled to run the assertion, so
-            // the read intermittently observed 1 instead of the expected 0. Unlike the first race,
-            // polling does not fix this: 0 is a transient value here, not one that stabilizes, so
-            // a poll can just as easily observe it and then have it change again before the
-            // following assertEquals reads it a second time.
-            //
-            // The fix is to remove the source of the second event instead: no response is
-            // enqueued for the third request, so MockWebServer's QueueDispatcher blocks on it
-            // (after already recording it — takeRequest() still returns) and nothing can change
-            // failuresOnCurrentUrl again before we read it. The assertion is then deterministic.
             val thirdRequest = server.takeRequest(5, TimeUnit.SECONDS)
             assertNotNull("Third request (immediate reconnect after stable close) must arrive", thirdRequest)
             assertEquals(
