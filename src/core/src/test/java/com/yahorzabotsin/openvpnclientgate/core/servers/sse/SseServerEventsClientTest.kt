@@ -944,19 +944,33 @@ class SseServerEventsClientTest {
                 1, client.failuresOnCurrentUrl.get()
             )
 
-            // Give the throttled body (~120 ms) time to finish and the connection to close.
-            // Because stableConnectionResetDelayMs (10 min) is unreachable within this test, the close is
-            // classified as unstable and maybeResetBackoff() must still decline to reset. Poll
-            // for the whole window: unlike the old test, 1 is the value that should persist here,
-            // not a transient one, so a stable poll result is a meaningful assertion.
-            val deadline = System.currentTimeMillis() + 500L
-            while (System.currentTimeMillis() < deadline) {
-                assertEquals(
-                    "failuresOnCurrentUrl must stay at 1 — the connection was unstable and never reached the stable threshold",
-                    1, client.failuresOnCurrentUrl.get()
-                )
-                Thread.sleep(20)
-            }
+            // A fixed poll window here would not actually prove anything: if onClosed() is
+            // delayed past the window under contention, the poll only ever observes the
+            // pre-close value (trivially 1, since nothing has touched it yet) and the test
+            // would pass without exercising maybeResetBackoff()'s decline-to-reset decision at
+            // all. Instead, rendezvous on an event that can only happen AFTER onClosed() has
+            // run: no third response is enqueued, so once the throttled body finishes and the
+            // connection closes, the reconnect loop's next attempt sends a third request that
+            // MockWebServer will hold open (mirroring the pattern in the companion "stable
+            // connection" test above). Waiting for that request's arrival — with a generous,
+            // dispatch-tolerant timeout, not a tight one — proves the close already happened,
+            // because onClosed() -> maybeResetBackoff() runs synchronously and strictly before
+            // the reconnect loop can send this next request. The assertion right after is then
+            // checking genuinely post-close state, not a race against when it arrives.
+            // reconnectAttempt was NOT reset (unstable close), so this third attempt carries a
+            // real backoffDelayMs(2) = 10 s delay before it is even sent — allow a generous
+            // margin above that for dispatch/contention, not a tight one.
+            val thirdRequest = server.takeRequest(20, TimeUnit.SECONDS)
+            assertNotNull(
+                "Third request (reconnect attempt after the unstable close) must arrive — " +
+                    "its arrival proves onClosed() already ran",
+                thirdRequest
+            )
+            assertEquals(
+                "failuresOnCurrentUrl must stay at 1 after close — the connection was unstable " +
+                    "and never reached the stable threshold",
+                1, client.failuresOnCurrentUrl.get()
+            )
         } finally {
             client.stop()
             server.shutdown()
