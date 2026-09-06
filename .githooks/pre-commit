@@ -1,7 +1,7 @@
 #!/bin/sh
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -f "$root/.copilottools-source" ]; then
+if [ -f "$root/.agenttools-source" ]; then
   exit 0
 fi
 
@@ -13,15 +13,39 @@ case "$branch" in
     ;;
 esac
 
-session_file="$root/.sdlc/session.json"
-if [ -f "$session_file" ]; then
-  used_pct=$(cat "$session_file" | grep -o '"usedPercentage": *[0-9.]*' | head -1 | grep -o '[0-9.]*$')
-  if [ -n "$used_pct" ]; then
-    integer_part=$(echo "$used_pct" | cut -d. -f1)
-    if [ "$integer_part" -ge 80 ] 2>/dev/null; then
-      echo "BLOCKED: rate limit at ${used_pct}% (>=80%). Session must checkpoint before committing." >&2
-      echo "Run: pwsh -File .github/scripts/checkpoint-session.ps1" >&2
-      exit 1
+# This gate only applies when Claude session recovery is enabled and the
+# commit is being made by Claude Code. When recovery is off (the default),
+# AGENTS.md ("Session Recovery Rules") guarantees no tools are gated on
+# recovery state; a stale high-usedPercentage session.json left over from a
+# prior run must not block commits, and non-Claude runtimes never consumed
+# the session-recovery scripts this gate directs users toward in the first
+# place.
+config_file="$root/.copilottools/config.json"
+recovery_enabled="false"
+if [ -f "$config_file" ]; then
+  recovery_enabled=$(grep -o '"claude_session_recovery_enabled" *: *[a-zA-Z]*' "$config_file" | head -1 | grep -o '[a-zA-Z]*$')
+fi
+
+is_claude_runtime=0
+if [ -n "$AGENT_RUNTIME" ]; then
+  case "$(printf '%s' "$AGENT_RUNTIME" | tr '[:upper:]' '[:lower:]')" in
+    claude) is_claude_runtime=1 ;;
+  esac
+elif [ -n "$CLAUDE_CODE_SESSION" ] || [ -n "$ANTHROPIC_SESSION_KEY" ]; then
+  is_claude_runtime=1
+fi
+
+if [ "$recovery_enabled" = "true" ] && [ "$is_claude_runtime" -eq 1 ]; then
+  session_file="$root/.sdlc/session.json"
+  if [ -f "$session_file" ]; then
+    used_pct=$(cat "$session_file" | grep -o '"usedPercentage": *[0-9.]*' | head -1 | grep -o '[0-9.]*$')
+    if [ -n "$used_pct" ]; then
+      integer_part=$(echo "$used_pct" | cut -d. -f1)
+      if [ "$integer_part" -ge 80 ] 2>/dev/null; then
+        echo "BLOCKED: rate limit at ${used_pct}% (>=80%). Session must checkpoint before committing." >&2
+        echo "Run: pwsh -File .github/scripts/checkpoint-session.ps1" >&2
+        exit 1
+      fi
     fi
   fi
 fi
