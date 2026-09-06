@@ -866,10 +866,14 @@ class SseServerEventsClientTest {
         // never accumulate failures past 0 and the client would never rotate to a fallback.
         //
         // The second connection here is deliberately UNSTABLE: its throttled body takes ~120 ms
-        // to complete, but stableConnectionResetDelayMs is set to 5000 ms (a wide margin above
-        // that, so full-suite JVM contention can't push the body past the threshold), so
-        // when the connection closes maybeResetBackoff() correctly declines to reset — elapsed
-        // time never crosses the "stable" threshold. This makes "failuresOnCurrentUrl == 1" a
+        // to complete, while stableConnectionResetDelayMs is set to 10 minutes — deliberately
+        // longer than this test's own total wall-clock lifetime (its takeRequest/latch deadlines
+        // sum to well under a minute). A merely "wide" margin such as 5000 ms would still be a
+        // wall-clock threshold that pathological JVM/CI contention could in principle cross,
+        // reintroducing flakiness; a threshold the test cannot outlive makes the "unstable"
+        // classification deterministic. So when the connection closes maybeResetBackoff()
+        // always declines to reset — elapsed time can never cross the "stable" threshold within
+        // this test. This makes "failuresOnCurrentUrl == 1" a
         // value that stays stable for the rest of the test rather than one that is only true
         // during a transient window before onOpen has even fired, which was the flaw in the
         // previous version of this test.
@@ -880,7 +884,7 @@ class SseServerEventsClientTest {
                 .setResponseCode(200)
                 .addHeader("Content-Type", "text/event-stream")
                 .setBody(": k\n")           // 4 bytes
-                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, < 5000 ms stable window
+                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, far below the stable window
         )
         server.start()
 
@@ -913,7 +917,9 @@ class SseServerEventsClientTest {
             syncCoordinator = fakeCoordinatorWithLatch,
             sseUrlsProvider = { listOf(url) },
             urlFailureThreshold = 2,
-            stableConnectionResetDelayMs = 5000L
+            // Longer than the test's whole lifetime → the connection is unconditionally
+            // classified "unstable", with no wall-clock race left for contention to win.
+            stableConnectionResetDelayMs = TimeUnit.MINUTES.toMillis(10)
         )
 
         try {
@@ -939,7 +945,7 @@ class SseServerEventsClientTest {
             )
 
             // Give the throttled body (~120 ms) time to finish and the connection to close.
-            // Because stableConnectionResetDelayMs (5000 ms) is well above that duration, the close is
+            // Because stableConnectionResetDelayMs (10 min) is unreachable within this test, the close is
             // classified as unstable and maybeResetBackoff() must still decline to reset. Poll
             // for the whole window: unlike the old test, 1 is the value that should persist here,
             // not a transient one, so a stable poll result is a meaningful assertion.

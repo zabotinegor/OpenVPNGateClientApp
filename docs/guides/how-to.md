@@ -978,13 +978,21 @@ worse one (silent coverage loss).
    - Copy the production code file aside as a backup
    - Revert the specific guard (e.g., delete an `if` check, comment out a validation, remove a
      `return` statement) to recreate the pre-fix bug state
-   - Run **only the test you fixed** (`./gradlew testDebugUnitTestApp --tests <ClassName>`), not the
-     full suite
+   - Inject the **narrowest** mutation that reproduces the original bug. Do not delete a whole callback
+     or method that other behavior also depends on — a broad deletion can fail the test for reasons
+     unrelated to the regression, which proves nothing
+   - Run **only the test you fixed**, not the full suite. Note the aggregate `testDebugUnitTestApp`
+     task does **not** accept `--tests` (see
+     [device-qa-phone.md](../operations/device-qa-phone.md)); scope to the module task instead:
+     `./gradlew :core:testDebugUnitTest --tests <ClassName>`
 
 3. Verify the test **fails** with the regression injected:
-   - If the test fails: the fix preserved the regression coverage — continue to step 5
+   - If the test fails: the fix preserved the regression coverage — continue to step 4
    - If the test passes: your fix eliminated the test without capturing the regression — the fix is
      broken and must be restructured; go back to the drawing board
+
+   Either way, **always** continue to step 4 and revert the mutation before running anything else —
+   never rerun tests with the injected bug still in the tree.
 
 4. Restore the production code from your backup (revert the regression injection):
    - Confirm `git status` shows the file clean or only expected edits
@@ -1009,11 +1017,15 @@ worse one (silent coverage loss).
 **First encountered**
 
 ClickUp task `86cb9kpx9` (SseServerEventsClientTest onOpen-reset flake): the test was fixed by
-splitting it into separate scenarios with different stability thresholds. Before acceptance, the
-fix was verified by temporarily removing the core `onOpen()` callback from `SseServerEventsClient`,
-confirming the new test failed without the callback, then restoring the callback and confirming the
-test passed again. This proved the restructured test still detects the original `onOpen()` regression
-it was written to guard against.
+splitting it into separate scenarios with different stability thresholds. Before acceptance, the fix
+was verified by re-introducing the *exact* original bug in `SseServerEventsClient` — adding
+`failuresOnCurrentUrl.set(0)` back inside `onOpen()`, so the URL-failure counter is zeroed
+unconditionally on connect — confirming the new test failed, then removing that line and confirming
+it passed again. This proved the restructured test still detects the regression it guards.
+
+Note what was *not* done: deleting the whole `onOpen()` callback. That would also have killed the
+`doSync()` dispatch the test's `openLatch` waits on, so the test would have failed for an unrelated
+reason and the mutation would have proven nothing. Mutate the one line that carries the bug.
 
 ---
 
