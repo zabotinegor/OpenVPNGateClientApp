@@ -866,7 +866,8 @@ class SseServerEventsClientTest {
         // never accumulate failures past 0 and the client would never rotate to a fallback.
         //
         // The second connection here is deliberately UNSTABLE: its throttled body takes ~120 ms
-        // to complete, but stableConnectionResetDelayMs is set to 300 ms (well above that), so
+        // to complete, but stableConnectionResetDelayMs is set to 5000 ms (a wide margin above
+        // that, so full-suite JVM contention can't push the body past the threshold), so
         // when the connection closes maybeResetBackoff() correctly declines to reset — elapsed
         // time never crosses the "stable" threshold. This makes "failuresOnCurrentUrl == 1" a
         // value that stays stable for the rest of the test rather than one that is only true
@@ -879,7 +880,7 @@ class SseServerEventsClientTest {
                 .setResponseCode(200)
                 .addHeader("Content-Type", "text/event-stream")
                 .setBody(": k\n")           // 4 bytes
-                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, < 300 ms stable window
+                .throttleBody(1, 30, TimeUnit.MILLISECONDS) // 1 byte/30 ms → ~120 ms, < 5000 ms stable window
         )
         server.start()
 
@@ -912,7 +913,7 @@ class SseServerEventsClientTest {
             syncCoordinator = fakeCoordinatorWithLatch,
             sseUrlsProvider = { listOf(url) },
             urlFailureThreshold = 2,
-            stableConnectionResetDelayMs = 300L
+            stableConnectionResetDelayMs = 5000L
         )
 
         try {
@@ -938,7 +939,7 @@ class SseServerEventsClientTest {
             )
 
             // Give the throttled body (~120 ms) time to finish and the connection to close.
-            // Because stableConnectionResetDelayMs (300 ms) is above that duration, the close is
+            // Because stableConnectionResetDelayMs (5000 ms) is well above that duration, the close is
             // classified as unstable and maybeResetBackoff() must still decline to reset. Poll
             // for the whole window: unlike the old test, 1 is the value that should persist here,
             // not a transient one, so a stable poll result is a meaningful assertion.
