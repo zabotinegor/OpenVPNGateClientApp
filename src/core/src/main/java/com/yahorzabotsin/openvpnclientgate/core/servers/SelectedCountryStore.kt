@@ -58,46 +58,63 @@ object SelectedCountryStore {
                 .put(KEY_JSON_SERVER_ID, s.id)
             arr.put(o)
         }
-        // Serialize before checking to close the race window: if expectedCountry changed
-        // during serialization, the check below discards the stale result. The serialized
-        // string is reused in the write so the check and write see the same payload.
+        // Serialize BEFORE taking the lock: JSON building is the expensive part and it needs no
+        // mutual exclusion. The serialized string is reused in the write so the guard check and
+        // the write see the same payload.
         val serialized = arr.toString()
-        if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
-        prefs(ctx).edit()
-            .putString(KEY_COUNTRY, country)
-            .putString(KEY_SERVERS, serialized)
-            .putInt(KEY_INDEX, 0)
-            .apply()
+        // The expected-country guard and the write must be ONE critical section. A plain
+        // check-then-write lets another selection commit in between, after which this (now
+        // stale) write resurrects the old country's server pool and resets the index — the
+        // user's newer choice is silently lost. selectionRenameLock is the same monitor every
+        // other guarded selection write takes, so all of them are serialized against each other.
+        synchronized(selectionRenameLock) {
+            if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
+            val editor = prefs(ctx).edit()
+                .putString(KEY_COUNTRY, country)
+                .putString(KEY_SERVERS, serialized)
+                .putInt(KEY_INDEX, 0)
+            if (expectedCountry != null) {
+                // Guarded writes come from background jobs (the silent backfill / sync), where a
+                // synchronous commit is affordable and makes the write durable before the lock
+                // is released. Unguarded foreground selections keep apply() to stay off the
+                // caller's critical path — they are the newest intent by definition, so there is
+                // nothing for them to lose a race against.
+                editor.commit()
+            } else {
+                editor.apply()
+            }
+        }
     }
 
     fun saveSelectionPreservingIndex(ctx: Context, country: String, servers: List<Server>) {
-        val selectedCountry = getSelectedCountry(ctx)
-        if (selectedCountry != country) return
+        // The whole check → write → restore-index sequence runs under the same monitor as
+        // saveSelection (reentrant), so a concurrent selection can neither slip between the
+        // country check and the write nor observe the intermediate index=0 state that
+        // saveSelection writes before ensureIndexForConfig restores the previous position.
+        synchronized(selectionRenameLock) {
+            val selectedCountry = getSelectedCountry(ctx)
+            if (selectedCountry != country) return
 
-        val previousCurrent = currentServer(ctx)
-        val previousCount = getServers(ctx).size
+            val previousCurrent = currentServer(ctx)
+            val previousCount = getServers(ctx).size
 
-        // Re-check before the write: another selection may have happened between the
-        // initial check and now (e.g. a fire-and-forget backfill racing with the user
-        // selecting a different country). Skip the write if the country changed.
-        if (getSelectedCountry(ctx) != country) return
+            saveSelection(ctx, country, servers, expectedCountry = country)
 
-        saveSelection(ctx, country, servers, expectedCountry = country)
+            if (previousCurrent != null) {
+                ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)
+            }
 
-        if (previousCurrent != null) {
-            ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)
+            val newCount = getServers(ctx).size
+            val restoredCurrent = currentServer(ctx)
+            val currentRestored = previousCurrent != null && restoredCurrent != null &&
+                restoredCurrent.config == previousCurrent.config &&
+                restoredCurrent.ip == previousCurrent.ip
+            AppLog.i(
+                TAG,
+                "saveSelectionPreservingIndex: country=$country, count=$previousCount->$newCount, current_restored=$currentRestored"
+            )
+            SelectedCountryVersionSignal.bump()
         }
-
-        val newCount = getServers(ctx).size
-        val restoredCurrent = currentServer(ctx)
-        val currentRestored = previousCurrent != null && restoredCurrent != null &&
-            restoredCurrent.config == previousCurrent.config &&
-            restoredCurrent.ip == previousCurrent.ip
-        AppLog.i(
-            TAG,
-            "saveSelectionPreservingIndex: country=$country, count=$previousCount->$newCount, current_restored=$currentRestored"
-        )
-        SelectedCountryVersionSignal.bump()
     }
 
     fun getSelectedCountry(ctx: Context): String? = prefs(ctx).getString(KEY_COUNTRY, null)
@@ -293,27 +310,32 @@ object SelectedCountryStore {
      * Used for relocalization when the language changes.
      */
     fun updateSelectedCountryName(ctx: Context, newCountryName: String) {
-        val currentName = getSelectedCountry(ctx)
-        if (currentName.isNullOrBlank() || currentName == newCountryName) {
-            AppLog.d(TAG, "updateSelectedCountryName: no change or no selection (current='$currentName', new='$newCountryName')")
-            return
-        }
-        val prefs = prefs(ctx)
-        val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
+        // Read-check-write on KEY_COUNTRY, so it takes the same monitor as every other
+        // selection write; otherwise a concurrent selection could land between the read of
+        // currentName and this rename's write and get renamed out from under itself.
+        synchronized(selectionRenameLock) {
+            val currentName = getSelectedCountry(ctx)
+            if (currentName.isNullOrBlank() || currentName == newCountryName) {
+                AppLog.d(TAG, "updateSelectedCountryName: no change or no selection (current='$currentName', new='$newCountryName')")
+                return
+            }
+            val prefs = prefs(ctx)
+            val editor = prefs.edit().putString(KEY_COUNTRY, newCountryName)
 
-        val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
-        if (lastSuccessCountry == currentName) {
-            editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
-        }
+            val lastSuccessCountry = prefs.getString(KEY_LAST_SUCCESS_COUNTRY, null)
+            if (lastSuccessCountry == currentName) {
+                editor.putString(KEY_LAST_SUCCESS_COUNTRY, newCountryName)
+            }
 
-        val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
-        if (lastStartedCountry == currentName) {
-            editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
-        }
+            val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
+            if (lastStartedCountry == currentName) {
+                editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+            }
 
-        editor.apply()
-        AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
-        SelectedCountryVersionSignal.bump()
+            editor.apply()
+            AppLog.i(TAG, "updateSelectedCountryName: '$currentName' -> '$newCountryName'")
+            SelectedCountryVersionSignal.bump()
+        }
     }
 
     /**

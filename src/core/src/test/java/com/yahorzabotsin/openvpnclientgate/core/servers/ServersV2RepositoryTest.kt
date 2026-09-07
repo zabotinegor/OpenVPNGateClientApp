@@ -33,6 +33,9 @@ class ServersV2RepositoryTest {
         context.cacheDir.listFiles()?.filter {
             it.name.startsWith("v2_") && it.extension == "json"
         }?.forEach { it.delete() }
+        // Process-wide singleton shared with the interactor's backfill guard: reset it so a
+        // generation left behind by a previous test cannot decide this one's persist guard.
+        CountrySyncGenerations.generations.clear()
     }
 
     // UT-2.1 — parses countries JSON into CountryV2 list
@@ -870,8 +873,12 @@ class ServersV2RepositoryTest {
     }
 
     // Review: foreground paging session must not overwrite a newer sync's full-list cache.
-    // When the selection version moves between the first and last page of a foreground
+    // When the country's sync generation moves between the first and last page of a foreground
     // accumulate session, the final persist must be skipped.
+    //
+    // This assertion used to look for the cache file under filesDir while the repository writes
+    // it under cacheDir, so it passed unconditionally and could never have caught the key
+    // mismatch below. It now checks the file the repository actually writes.
     @Test
     fun foregroundPaging_skipsFullListCachePersist_whenVersionMovesBetweenPages() = runBlocking {
         val page1 = buildServersJsonWithTotal("JP", 2, 3)
@@ -886,17 +893,93 @@ class ServersV2RepositoryTest {
         assertTrue(first.hasMore)
 
         // A same-country sync completes while the user is mid-scroll.
-        SelectedCountryVersionSignal.bump()
+        bumpSyncGeneration("JP")
 
         val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "fp")
         assertFalse(second.hasMore)
 
-        val cacheFile = File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json")
         assertFalse(
-            "full-list cache must not be written when the selection version moved between pages",
-            cacheFile.exists()
+            "full-list cache must not be written when the sync generation moved between pages",
+            serversCacheFile("jp").exists()
         )
     }
+
+    // Review (Kody, high): the paging freshness guard read CountrySyncGenerations with the raw
+    // countryCode while sync bumps key by canonical uppercase, so a lower-case code (the API and
+    // callers do not guarantee case) made a newer sync invisible and let the stale paged
+    // accumulator overwrite the fresher full-list cache. The guard must be case-insensitive.
+    @Test
+    fun foregroundPaging_skipsFullListCachePersist_whenSyncBumpsUppercaseKey_forLowercaseCode() = runBlocking {
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "jp", skip = 0, take = 2, accumulate = true, pagingSessionId = "lc")
+        assertTrue(first.hasMore)
+
+        // A same-country sync completes mid-scroll. Sync bumps always key by canonical
+        // uppercase, whatever case the paging session used.
+        bumpSyncGeneration("JP")
+
+        val second = repo.getServersPage(context, "jp", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "lc")
+        assertFalse(second.hasMore)
+
+        assertFalse(
+            "a lower-case country code must still see the uppercase-keyed sync bump",
+            serversCacheFile("jp").exists()
+        )
+    }
+
+    // The generation guard must not be a blanket "never persist": an undisturbed paging session
+    // on a lower-case code still has to write its full-list cache.
+    @Test
+    fun foregroundPaging_persistsFullListCache_whenNoSyncHappens_forLowercaseCode() = runBlocking {
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "jp", skip = 0, take = 2, accumulate = true, pagingSessionId = "lc2")
+        assertTrue(first.hasMore)
+        val second = repo.getServersPage(context, "jp", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "lc2")
+        assertFalse(second.hasMore)
+
+        assertTrue(
+            "an undisturbed paging session must still persist its full-list cache",
+            serversCacheFile("jp").exists()
+        )
+    }
+
+    // A sync bump for a DIFFERENT country must never invalidate this country's paging session.
+    @Test
+    fun foregroundPaging_persistsFullListCache_whenAnotherCountrySyncs() = runBlocking {
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, accumulate = true, pagingSessionId = "other")
+        assertTrue(first.hasMore)
+        bumpSyncGeneration("DE")
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, accumulate = true, pagingSessionId = "other")
+        assertFalse(second.hasMore)
+
+        assertTrue(
+            "another country's sync must not block this country's cache persist",
+            serversCacheFile("jp").exists()
+        )
+    }
+
+    /** Mirrors the sync-completion bump in [ServersV2Repository.getServersForCountry]. */
+    private fun bumpSyncGeneration(countryCode: String) {
+        CountrySyncGenerations.generations
+            .merge(CountrySyncGenerations.key(countryCode), 1L) { prev, _ -> prev + 1L }
+    }
+
+    /** The full-list cache file the repository actually writes (cacheDir, normalized code). */
+    private fun serversCacheFile(normalizedCode: String): File =
+        File(context.cacheDir, "v2_servers_${normalizedCode}_${currentLocaleCode()}.json")
 
     private fun buildZeroIdConfigJson(ip: String, config: String, total: Int): String {
         val items = """{"ip":"$ip","countryCode":"JP","countryName":"Japan","configData":"$config"}"""

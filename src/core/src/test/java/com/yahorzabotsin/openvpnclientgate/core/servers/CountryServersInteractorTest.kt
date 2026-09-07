@@ -33,7 +33,14 @@ class CountryServersInteractorTest {
         context.cacheDir.listFiles()?.filter {
             it.name.startsWith("v2_") && it.extension == "json"
         }?.forEach { it.delete() }
+        // Process-wide singleton: a generation left behind by a previous test would otherwise
+        // decide this test's backfill drift guard.
+        CountrySyncGenerations.generations.clear()
     }
+
+    /** The full-list cache file the repository actually writes -- cacheDir, not filesDir. */
+    private fun serversCacheFile(normalizedCode: String): java.io.File =
+        java.io.File(context.cacheDir, "v2_servers_${normalizedCode}_${currentLocaleCode()}.json")
 
     // UT-5.2 -- DEFAULT_V2: calls v2 repo, not legacy ServerRepository
     @Test
@@ -845,7 +852,7 @@ class CountryServersInteractorTest {
         )
         org.junit.Assert.assertFalse(
             "the backfill must not persist its full-list cache after a newer sync won",
-            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+            serversCacheFile("jp").exists()
         )
     }
 
@@ -892,7 +899,7 @@ class CountryServersInteractorTest {
         )
         org.junit.Assert.assertFalse(
             "the older backfill must not persist cache when generation drifted",
-            java.io.File(context.filesDir, "v2_servers_jp_${currentLocaleCode()}.json").exists()
+            serversCacheFile("jp").exists()
         )
     }
 

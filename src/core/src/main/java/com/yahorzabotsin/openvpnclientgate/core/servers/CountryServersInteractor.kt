@@ -374,18 +374,33 @@ class DefaultCountryServersInteractor(
         initialServers: List<Server>
     ) {
         val repo = serversV2Repository ?: return
-        // Capture generation at launch time using the caller-provided countryCode.
-        // When countryCode is null, fall back to countryName — the sync coordinator
-        // will always use the resolved code from resolveCountryV2, but the mismatch
-        // only matters when countryCode is provided (the common path for code-based
-        // selections). For name-based selections without a code, the backfill still
-        // uses the country name as the generation key.
-        val generationKey = countryCode?.uppercase() ?: countryName.uppercase()
-        val generation = CountrySyncGenerations.generations.merge(generationKey, 1L) { prev, _ -> prev + 1L } ?: 1L
+        // Capture the generation at launch time (synchronously, before the coroutine starts) so
+        // two backfills launched back-to-back for the same country stay strictly ordered: the
+        // later launch always wins regardless of which coroutine is scheduled first.
+        // When the caller has no countryCode (the country screen can be opened by name only),
+        // the country code is not known until resolveCountryV2 runs inside the coroutine, so the
+        // launch key falls back to the country name — see the code-key adoption below.
+        val launchKey = CountrySyncGenerations.key(countryCode ?: countryName)
+        val generation = CountrySyncGenerations.generations.merge(launchKey, 1L) { prev, _ -> prev + 1L } ?: 1L
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
                 val resolvedCode = countryV2.code
+                // A name-only launch keyed its generation by country NAME while every sync and
+                // paging guard keys by country CODE, so a concurrent sync for this same country
+                // would be invisible to the drift guard below. Now that the code is resolved,
+                // adopt (and bump) the canonical code key too, and guard on BOTH: the launch key
+                // preserves launch ordering between two backfills, the code key makes
+                // code-keyed sync bumps visible.
+                val codeKey = CountrySyncGenerations.key(resolvedCode)
+                val codeGeneration = if (codeKey == launchKey) {
+                    generation
+                } else {
+                    CountrySyncGenerations.generations.merge(codeKey, 1L) { prev, _ -> prev + 1L } ?: 1L
+                }
+                fun isCurrentGeneration(): Boolean =
+                    (CountrySyncGenerations.generations[launchKey] ?: generation) == generation &&
+                        (CountrySyncGenerations.generations[codeKey] ?: codeGeneration) == codeGeneration
                 val accumulatedLegacy = LinkedHashMap<Any, Server>()
                 val accumulatedV2 = LinkedHashMap<Any, ServerV2>()
                 initialServers.forEach { server ->
@@ -431,8 +446,8 @@ class DefaultCountryServersInteractor(
                 // skipped in this case.
                 val backfillIncomplete = hasMore
                 // Per-country generation guard: skip writes when a newer same-country
-                // backfill started (generation drifted).
-                val generationDrifted = (CountrySyncGenerations.generations[generationKey] ?: generation) != generation
+                // backfill or sync started (generation drifted on either key).
+                val generationDrifted = !isCurrentGeneration()
                 if (generationDrifted) {
                     AppLog.w(
                         TAG,
@@ -442,7 +457,7 @@ class DefaultCountryServersInteractor(
                     SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
                     if (!backfillIncomplete) {
                         repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
-                            (CountrySyncGenerations.generations[generationKey] ?: generation) == generation
+                            isCurrentGeneration()
                         }
                     } else {
                         AppLog.w(

@@ -1,12 +1,17 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -515,6 +520,92 @@ class SelectedCountryStoreTest {
         val current = SelectedCountryStore.currentServer(ctx)
         assertNotNull(current)
         assertEquals("config-de", current!!.config)
+    }
+
+    // Review (Kody, critical): saveSelection's expectedCountry guard was a check-then-write.
+    // A stale background backfill could pass the guard, the user could then select a different
+    // country, and the backfill's write would land afterwards and resurrect the old country's
+    // server pool with index reset to 0 -- silently discarding the newer selection.
+    //
+    // The write is instrumented through a SharedPreferences wrapper that parks the backfill
+    // thread exactly at its edit() call, i.e. between the guard check and the write. A
+    // concurrent foreground selection must NOT be able to complete while the backfill sits
+    // there: with the check and the write in one critical section the racer blocks on the
+    // monitor and only lands afterwards, so the newest selection is the one that survives.
+    @Test(timeout = 30_000)
+    fun saveSelection_guardedWrite_blocksConcurrentSelection_andNewestSelectionWins() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2, ip = "2.2.2.2")
+        )
+
+        SelectedCountryStore.saveSelection(base, "Russia", russiaServers)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelection(
+                instrumentedCtx,
+                "Russia",
+                russiaServers,
+                expectedCountry = "Russia"
+            )
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "backfill thread never reached its guarded write",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        // The user selects Germany while the stale backfill is parked mid-write.
+        val selectionCompleted = CountDownLatch(1)
+        val userSelection = Thread {
+            SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+            selectionCompleted.countDown()
+        }
+        userSelection.start()
+        val slippedIntoCriticalSection = selectionCompleted.await(1, TimeUnit.SECONDS)
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        userSelection.join(20_000)
+
+        assertFalse(
+            "a concurrent selection must not complete while a guarded write holds the lock",
+            slippedIntoCriticalSection
+        )
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        assertEquals(
+            "the stale backfill must not resurrect the previous country's server pool",
+            listOf("config-de"),
+            SelectedCountryStore.getServers(base).map { it.config }
+        )
+    }
+
+    private companion object {
+        private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
     }
 }
 

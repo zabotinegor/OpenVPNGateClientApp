@@ -189,7 +189,8 @@ class ServersV2Repository(
             // the committed list is empty (backend may have removed all servers).
             if (networkHit.get()) {
                 SelectedCountryVersionSignal.bump()
-                CountrySyncGenerations.generations.merge(countryCode.uppercase(), 1L) { prev, _ -> prev + 1L }
+                CountrySyncGenerations.generations
+                    .merge(CountrySyncGenerations.key(countryCode), 1L) { prev, _ -> prev + 1L }
             }
             result
         }
@@ -254,6 +255,13 @@ class ServersV2Repository(
         val normalizedCountryCode = normalizeCountryCode(countryCode)
         val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
+        // Canonicalize the generation key ONCE, here, and use that single value for both the
+        // skip=0 capture and the hasMore=false comparison below. Sync bumps
+        // (getServersForCountry) and backfill generations (launchSilentBackfill) go through the
+        // same CountrySyncGenerations.key(); reading the map with the raw countryCode instead
+        // made a newer sync invisible to this guard whenever the code arrived lower-case, so a
+        // stale paged accumulator would overwrite the fresher full-list cache.
+        val generationKey = CountrySyncGenerations.key(countryCode)
         // Validate the session id BEFORE acquiring the lock or touching the
         // network -- a default-args accumulate caller must fail fast instead of paying a real
         // request and only then receiving an IllegalArgumentException. The non-accumulating
@@ -320,7 +328,7 @@ class ServersV2Repository(
             // and yield the same server again at a different offset.
             if (skip == 0) {
                 pageAccumulators[sessionKey] = filtered.toMutableList()
-                pageStartVersions[sessionKey] = CountrySyncGenerations.generations[countryCode] ?: 0L
+                pageStartVersions[sessionKey] = CountrySyncGenerations.generations[generationKey] ?: 0L
             } else {
                 val accumulated = pageAccumulators.getOrPut(sessionKey) { mutableListOf() }
                 // De-dup keys fall back to connection attributes for entries without a stable
@@ -339,7 +347,7 @@ class ServersV2Repository(
                 // completing while this paging session was in flight writes a fresher full-list
                 // cache -- do not overwrite it with the paging session's older accumulated data.
                 val selectionMovedOn = startVersion != null &&
-                    (CountrySyncGenerations.generations[countryCode] ?: 0L) != startVersion
+                    (CountrySyncGenerations.generations[generationKey] ?: 0L) != startVersion
                 if (reachedSafetyLimit) {
                     // already logged above
                 } else if (selectionMovedOn) {
