@@ -999,10 +999,9 @@ class SseServerEventsClientTest {
         // QueueDispatcher blocks on it (after already recording it — takeRequest() still
         // returns) and nothing can change failuresOnCurrentUrl again before we read it.
         //
-        // (dev independently fixed this same race by making the third response 200 instead of
-        // 503, which also works — onClosed doesn't increment the counter. Kept this branch's
-        // "no third response" approach on merge since it has the deeper verification history
-        // for this exact test: 2 code-review rounds, mutation-tested, ClickUp 86cb9kpx9.)
+        // (An alternative fix makes the third response 200 instead of 503, which also works —
+        // onClosed doesn't increment the counter. Kept the "no third response" approach here
+        // since it has been mutation-tested against this exact race.)
         server.start()
 
         val url = server.url("/api/v1/servers/events").toString()

@@ -118,24 +118,42 @@ object SelectedCountryStore {
      * monitor closes that gap: the newer selection either lands entirely before this pair or
      * blocks until the pair has been applied, in which case it overwrites both consistently.
      *
+     * The guard covers the **country and the selected server together** ([isCurrentSelection]), not
+     * just the country name. A deferred writer derives both the pool it writes and [selectedIndex]
+     * from the selection it captured at entry; picking a different server *inside the same country*
+     * while that write is in flight leaves the country name equal, so a country-only guard would
+     * let this write land and re-point the persisted current server at the captured (now
+     * superseded) one. The post-write freshness check cannot recover from that either: it would be
+     * comparing against the very server this write just persisted.
+     *
      * @param selectedIndex index into [servers] (i.e. computed against the list being written,
      * not against whatever is currently persisted).
-     * @return `true` when both writes were applied, `false` when the [expectedCountry] guard
-     * rejected the write — in which case neither the list nor the index was touched, and the
-     * caller must discard whatever it derived from [servers].
+     * @param expectedCountry the selected country captured at entry.
+     * @param expectedConfig / @param expectedIp identity of the current server captured at entry.
+     * @return `true` when both writes were applied, `false` when the guard rejected the write — in
+     * which case neither the list nor the index was touched, and the caller must discard whatever
+     * it derived from [servers].
      */
     fun saveSelectionAndSetIndexIfCurrent(
         ctx: Context,
         country: String,
         servers: List<Server>,
         selectedIndex: Int,
-        expectedCountry: String
+        expectedCountry: String,
+        expectedConfig: String?,
+        expectedIp: String?
     ): Boolean {
-        // The monitor is reentrant, so the nested saveSelection/setCurrentIndex take it again
-        // without deadlocking while this frame keeps it held across both.
-        // The monitor is reentrant, so the nested saveSelection/setCurrentIndex take it again
-        // without deadlocking while this frame keeps it held across both.
+        // The monitor is reentrant, so the nested isCurrentSelection/saveSelection/setCurrentIndex
+        // take it again without deadlocking while this frame keeps it held across all three --
+        // guard and both writes are therefore ONE critical section.
         synchronized(selectionRenameLock) {
+            if (!isCurrentSelection(ctx, expectedCountry, expectedConfig, expectedIp)) {
+                AppLog.w(
+                    TAG,
+                    "saveSelectionAndSetIndexIfCurrent: selection superseded before the guarded write, skipping (country=$country, expected=$expectedCountry)"
+                )
+                return false
+            }
             if (!saveSelection(ctx, country, servers, expectedCountry)) return false
             setCurrentIndex(ctx, selectedIndex)
             return true

@@ -904,7 +904,7 @@ class ServersV2RepositoryTest {
         )
     }
 
-    // Review (Kody, high): the paging freshness guard read CountrySyncGenerations with the raw
+    // The paging freshness guard read CountrySyncGenerations with the raw
     // countryCode while sync bumps key by canonical uppercase, so a lower-case code (the API and
     // callers do not guarantee case) made a newer sync invisible and let the stale paged
     // accumulator overwrite the fresher full-list cache. The guard must be case-insensitive.

@@ -566,8 +566,8 @@ class MainSelectionInteractorTest {
         assertNull(result)
     }
 
-    // Review (Kody, high): the previous round made the hydration *list* write guarded, but
-    // setCurrentIndex and the returned InitialSelection still ran after that critical section.
+    // The hydration *list* write is guarded, but setCurrentIndex and the returned
+    // InitialSelection still ran after that critical section.
     // A selection committed in that gap got the new country's server pool persisted with an index
     // measured against the OLD (discarded) list -- so the persisted "current server" pointed at an
     // arbitrary entry of a country the index was never computed against -- and the caller still
@@ -782,6 +782,71 @@ class MainSelectionInteractorTest {
             sameCountrySwitchApplied.get()
         )
         // The user's newer, same-country choice stands...
+        assertEquals("France", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals("v2-fr-1", SelectedCountryStore.currentServer(context)?.config)
+        // ...and the superseded server must not be reported to the caller as current.
+        assertNull(result)
+    }
+
+    // Regression: the *write-time* guard used to compare only the country name. When the user picks
+    // a different server of the SAME country while the hydration fetch is still in flight, the
+    // country stays equal, so the guarded write landed anyway -- persisting the pool with the index
+    // of the captured (now superseded) server and reverting the user's choice at the write itself.
+    // The post-write freshness check could not catch it either: it revalidates against the very
+    // server this write had just persisted, so it saw a "current" selection and handed the stale
+    // result back to the caller, which reconnects to it.
+    //
+    // Reproduction: the same-country switch is injected inside the in-flight servers fetch -- i.e.
+    // strictly before the guarded write -- so it is deterministic rather than timing-dependent.
+    @Test
+    fun loadInitialSelection_v2_hydration_does_not_revert_a_same_country_server_chosen_mid_flight() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "France",
+            listOf(
+                makeStoredServer(config = "v2-fr-1", countryCode = "FR", ip = "1.2.3.4", city = ""),
+                makeStoredServer(config = "v2-fr-2", countryCode = "FR", ip = "1.2.3.5", city = "")
+            )
+        )
+        // The stored (captured) selection is the second server, with a placeholder city so startup
+        // takes the hydration path.
+        SelectedCountryStore.setCurrentIndex(context, 1)
+
+        val sameCountrySwitchApplied = AtomicBoolean(false)
+        val v2Api = object : ServersV2Api {
+            override suspend fun getCountries(locale: String): List<CountryV2> =
+                listOf(CountryV2("FR", "France", 2))
+
+            override suspend fun getServers(
+                locale: String,
+                countryCode: String,
+                isActive: Boolean,
+                skip: Int,
+                take: Int
+            ): ServersPageResponse {
+                // The user picks another server of the SAME country while this fetch is in flight.
+                SelectedCountryStore.setCurrentIndex(context, 0)
+                sameCountrySwitchApplied.set(true)
+                val items = listOf(
+                    ServerV2("1.2.3.4", "FR", "France", "v2-fr-1", city = "Paris", utc = "UTC+1"),
+                    ServerV2("1.2.3.5", "FR", "France", "v2-fr-2", city = "Lyon", utc = "UTC+1")
+                )
+                return ServersPageResponse(items = items, total = items.size)
+            }
+        }
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        assertTrue(
+            "the same-country server switch never fired, the race window was not entered",
+            sameCountrySwitchApplied.get()
+        )
+        // The newer, same-country choice must survive the hydration write...
         assertEquals("France", SelectedCountryStore.getSelectedCountry(context))
         assertEquals("v2-fr-1", SelectedCountryStore.currentServer(context)?.config)
         // ...and the superseded server must not be reported to the caller as current.

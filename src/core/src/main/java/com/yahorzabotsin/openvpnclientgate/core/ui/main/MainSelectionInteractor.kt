@@ -204,18 +204,27 @@ class DefaultMainSelectionInteractor(
         // MainViewModel.onStoreVersionChanged() with a selection captured before the country and
         // server loads above, so the user can pick a different country while they are in flight.
         // An unguarded write here would resurrect the captured country on top of that newer
-        // choice. Guarding on the country we read at entry makes the check, the server-list write
+        // choice. Guarding on the selection we read at entry makes the check, the server-list write
         // and the dependent index write ONE critical section inside SelectedCountryStore's
         // selection monitor -- the same monitor the newer selection takes -- so this hydration
         // either lands whole before that selection or stands down entirely. Splitting the index
         // write out of that section would reopen the gap: the newer country's pool would be
         // persisted with an index measured against this (now discarded) list.
+        //
+        // The guard passes the captured *server* identity, not just the country: switching to
+        // another server of the same country leaves the country name equal, so a country-only
+        // guard would let this write land and re-point the persisted current server back at the
+        // captured one -- silently reverting the user's newer choice. And the post-write check
+        // below could not catch it, because it would be revalidating against exactly the server
+        // this write had just persisted.
         val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
             appContext,
             country.name,
             legacyServers,
             selectedIndex,
-            expectedCountry = selectedCountryName
+            expectedCountry = selectedCountryName,
+            expectedConfig = selectedConfig,
+            expectedIp = selectedIp
         )
         if (!written) {
             AppLog.w(

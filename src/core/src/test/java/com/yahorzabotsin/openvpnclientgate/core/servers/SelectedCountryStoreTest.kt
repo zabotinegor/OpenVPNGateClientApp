@@ -522,7 +522,7 @@ class SelectedCountryStoreTest {
         assertEquals("config-de", current!!.config)
     }
 
-    // Review (Kody, critical): saveSelection's expectedCountry guard was a check-then-write.
+    // saveSelection's expectedCountry guard was a check-then-write.
     // A stale background backfill could pass the guard, the user could then select a different
     // country, and the backfill's write would land afterwards and resurrect the old country's
     // server pool with index reset to 0 -- silently discarding the newer selection.
@@ -604,7 +604,7 @@ class SelectedCountryStoreTest {
         )
     }
 
-    // Review (Codex, P2): saveSelectionPreservingIndex made its own check/write/restore sequence
+    // saveSelectionPreservingIndex made its own check/write/restore sequence
     // atomic, but the auto-switch index mutations (nextServerCircular -> setIndex) did not take
     // the same monitor. saveSelection writes index=0 before ensureIndexForConfig restores the
     // previous position, so ServerAutoSwitcher could advance off that transient 0, dispatch the
@@ -691,7 +691,7 @@ class SelectedCountryStoreTest {
         )
     }
 
-    // Review (Kody, high): making only the server-list write guarded is not enough for callers
+    // Making only the server-list write guarded is not enough for callers
     // that follow it with a dependent index write (startup hydration). This is the reproduction of
     // that split sequence: the hydration's guarded write lands, a newer selection commits in the
     // gap, and the index -- resolved against the list that just got superseded -- is then applied
@@ -792,7 +792,9 @@ class SelectedCountryStoreTest {
                     "France",
                     franceServers,
                     selectedIndex = 1,
-                    expectedCountry = "France"
+                    expectedCountry = "France",
+                    expectedConfig = "cfg-fr-1",
+                    expectedIp = "1.1.1.1"
                 )
             )
         }, BACKFILL_THREAD)
@@ -826,6 +828,71 @@ class SelectedCountryStoreTest {
         )
         // Germany's own write set index 0; France's index 1 never reached this pool.
         assertEquals("cfg-de-1", SelectedCountryStore.currentServer(base)?.config)
+    }
+
+    // Regression: the write-time guard used to compare only the country name. A deferred writer
+    // that captured server A and then found the user on server B of the SAME country still passed
+    // the guard, so its pool and its index (measured against A) landed and re-pointed the persisted
+    // current server back at A -- reverting the user's choice at the write itself, before any
+    // post-write freshness check could observe anything wrong.
+    @Test
+    fun saveSelectionAndSetIndexIfCurrent_rejectsWhenSameCountryServerChanged() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "France", franceServers)
+        // The deferred writer captured server 2...
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        val captured = SelectedCountryStore.currentServer(ctx)
+        assertEquals("cfg-fr-2", captured?.config)
+
+        // ...and while it was in flight the user picked server 1 of the same country.
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+            ctx,
+            "France",
+            franceServers,
+            selectedIndex = 1,
+            expectedCountry = "France",
+            expectedConfig = captured?.config,
+            expectedIp = captured?.ip
+        )
+
+        assertFalse("the superseded same-country write must be rejected", written)
+        // The user's newer choice stands, untouched.
+        assertEquals("cfg-fr-1", SelectedCountryStore.currentServer(ctx)?.config)
+    }
+
+    // ...and the guard must still let a genuinely current write through.
+    @Test
+    fun saveSelectionAndSetIndexIfCurrent_appliesWhenSelectionUnchanged() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "France", franceServers)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+            ctx,
+            "France",
+            franceServers,
+            selectedIndex = 1,
+            expectedCountry = "France",
+            expectedConfig = "cfg-fr-2",
+            expectedIp = "1.1.1.2"
+        )
+
+        assertTrue("an unsuperseded write must be applied", written)
+        assertEquals("cfg-fr-2", SelectedCountryStore.currentServer(ctx)?.config)
     }
 
     /** Waits until [thread] parks on a monitor, so the race window is entered deterministically. */

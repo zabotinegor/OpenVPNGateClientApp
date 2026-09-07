@@ -270,8 +270,6 @@ class CountryServersInteractorTest {
         interactor.getServersPage("Japan", "JP", skip = 50, take = 50, cacheOnly = false, pagingSessionId = "s1")
     }
 
-    // ==================== Code review fix cycle ====================
-
     // A stale (expired) on-disk cache plus a failing network call at skip==0 must fall
     // back to the stale cache and return it, instead of throwing and closing the screen.
     // Restores the pre-fetchWithCache() stale-cache fallback for the paged cold path.
@@ -903,7 +901,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review (Codex, P2): the write guard alone is not enough. Once the generation drifts, every
+    // The write guard alone is not enough. Once the generation drifts, every
     // page still queued in the backfill loop is guaranteed-discarded work that nevertheless costs
     // a network round trip and contends on the repository's per-country mutex with the screen the
     // user is actually looking at. The loop must therefore re-check the generation before each
@@ -964,7 +962,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review (Kody, high): a name-only selection (no country code) launches its backfill keyed
+    // A name-only selection (no country code) launches its backfill keyed
     // by country NAME and only learns the canonical CODE once resolveCountryV2 returns. If a
     // same-country sync completes inside that window, the backfill's pages already predate the
     // sync's fresher data -- adopting the code key must therefore NOT bump past that sync's
@@ -1029,7 +1027,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review (Codex, P2): a new selection must supersede an earlier same-country backfill even
+    // A new selection must supersede an earlier same-country backfill even
     // when the new selection launches no backfill of its own. The user reopens the country while
     // the first selection's backfill is still fetching, scrolls the new screen to completion
     // (hasMorePages = false, so nothing bumps the generation on this path) and picks a server
