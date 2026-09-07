@@ -691,6 +691,156 @@ class SelectedCountryStoreTest {
         )
     }
 
+    // Review (Kody, high): making only the server-list write guarded is not enough for callers
+    // that follow it with a dependent index write (startup hydration). This is the reproduction of
+    // that split sequence: the hydration's guarded write lands, a newer selection commits in the
+    // gap, and the index -- resolved against the list that just got superseded -- is then applied
+    // to the newer country's pool, so the persisted "current server" is an entry the index was
+    // never measured against.
+    @Test(timeout = 30_000)
+    fun splitGuardedWriteThenIndexWrite_appliesStaleIndexToTheNewerCountrysPool() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        val germanyServers = listOf(
+            server(name = "de-1", city = "Berlin", country = Country("Germany", "DE"), config = "cfg-de-1", lineIndex = 1, ip = "2.2.2.1"),
+            server(name = "de-2", city = "Hamburg", country = Country("Germany", "DE"), config = "cfg-de-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "de-3", city = "Munich", country = Country("Germany", "DE"), config = "cfg-de-3", lineIndex = 3, ip = "2.2.2.3")
+        )
+
+        SelectedCountryStore.saveSelection(base, "France", franceServers)
+
+        val hydrationLeftGuardedWrite = CountDownLatch(1)
+        val releaseHydrationIndexWrite = CountDownLatch(1)
+
+        // Exactly what the hydration used to do: guarded list write, then a SEPARATE index write.
+        val hydration = Thread({
+            val written = SelectedCountryStore.saveSelection(
+                base,
+                "France",
+                franceServers,
+                expectedCountry = "France"
+            )
+            assertTrue(written)
+            hydrationLeftGuardedWrite.countDown()
+            releaseHydrationIndexWrite.await(20, TimeUnit.SECONDS)
+            // index 1 == "cfg-fr-2", i.e. resolved against France's list.
+            SelectedCountryStore.setCurrentIndex(base, 1)
+        }, BACKFILL_THREAD)
+        hydration.start()
+        assertTrue(hydrationLeftGuardedWrite.await(20, TimeUnit.SECONDS))
+
+        // The user picks Germany in the gap between the two writes.
+        SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+        releaseHydrationIndexWrite.countDown()
+        hydration.join(20_000)
+
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        // The damage: France's index landed on Germany's pool.
+        assertEquals("cfg-de-2", SelectedCountryStore.currentServer(base)?.config)
+    }
+
+    // ...and the fix: the same interleaving attempted against the atomic method cannot corrupt the
+    // pair, because the newer selection can only run before the whole list+index write or after
+    // it, never between. The racer is confirmed BLOCKED on the monitor before the hydration is
+    // released, so it really is contending for it.
+    @Test(timeout = 30_000)
+    fun saveSelectionAndSetIndexIfCurrent_writesListAndIndexAsOneCriticalSection() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        val germanyServers = listOf(
+            server(name = "de-1", city = "Berlin", country = Country("Germany", "DE"), config = "cfg-de-1", lineIndex = 1, ip = "2.2.2.1"),
+            server(name = "de-2", city = "Hamburg", country = Country("Germany", "DE"), config = "cfg-de-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "de-3", city = "Munich", country = Country("Germany", "DE"), config = "cfg-de-3", lineIndex = 3, ip = "2.2.2.3")
+        )
+
+        SelectedCountryStore.saveSelection(base, "France", franceServers)
+
+        val hydrationInsideCriticalSection = CountDownLatch(1)
+        val releaseHydration = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            hydrationInsideCriticalSection.countDown()
+                            releaseHydration.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val hydrationWrote = AtomicBoolean(false)
+        val hydration = Thread({
+            hydrationWrote.set(
+                SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+                    instrumentedCtx,
+                    "France",
+                    franceServers,
+                    selectedIndex = 1,
+                    expectedCountry = "France"
+                )
+            )
+        }, BACKFILL_THREAD)
+        hydration.start()
+        assertTrue(hydrationInsideCriticalSection.await(20, TimeUnit.SECONDS))
+
+        val selectionCompleted = CountDownLatch(1)
+        val userSelection = Thread {
+            SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+            selectionCompleted.countDown()
+        }
+        userSelection.start()
+        assertTrue(
+            "the newer selection never queued on the selection monitor",
+            awaitBlocked(userSelection)
+        )
+        assertFalse(
+            "a newer selection must not complete while the atomic write holds the lock",
+            selectionCompleted.count == 0L
+        )
+
+        releaseHydration.countDown()
+        hydration.join(20_000)
+        userSelection.join(20_000)
+
+        assertTrue("the guarded hydration write should have been applied", hydrationWrote.get())
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        assertEquals(
+            listOf("cfg-de-1", "cfg-de-2", "cfg-de-3"),
+            SelectedCountryStore.getServers(base).map { it.config }
+        )
+        // Germany's own write set index 0; France's index 1 never reached this pool.
+        assertEquals("cfg-de-1", SelectedCountryStore.currentServer(base)?.config)
+    }
+
+    /** Waits until [thread] parks on a monitor, so the race window is entered deterministically. */
+    private fun awaitBlocked(thread: Thread, timeoutMs: Long = 20_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            when (thread.state) {
+                Thread.State.BLOCKED -> return true
+                Thread.State.TERMINATED -> return false
+                else -> Thread.sleep(5)
+            }
+        }
+        return false
+    }
+
     private companion object {
         private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
     }

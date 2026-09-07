@@ -1,6 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.ui.main
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryV2
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.ServersPageResponse
@@ -16,6 +18,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -25,6 +28,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Unit tests for DEFAULT_V2 initial selection parity (AC-1, TS-1, TS-2).
@@ -559,7 +566,163 @@ class MainSelectionInteractorTest {
         assertNull(result)
     }
 
+    // Review (Kody, high): the previous round made the hydration *list* write guarded, but
+    // setCurrentIndex and the returned InitialSelection still ran after that critical section.
+    // A selection committed in that gap got the new country's server pool persisted with an index
+    // measured against the OLD (discarded) list -- so the persisted "current server" pointed at an
+    // arbitrary entry of a country the index was never computed against -- and the caller still
+    // received the stale country/server pairing.
+    //
+    // Reproduction: the hydration is parked at its FIRST vpn_selection_prefs write (the guarded
+    // server-list write) and a foreground selection is queued behind it, confirmed BLOCKED on the
+    // monitor. Releasing the park then re-opens the only interesting question: can that queued
+    // selection land BEFORE the hydration's index write? The test records exactly that at the
+    // moment the index write is reached. With list and index written under one continuously-held
+    // monitor the answer is always no; with the index write outside it, the queued selection is
+    // free to slip in, and the France index then lands on Germany's pool.
+    @Test(timeout = 30_000)
+    fun loadInitialSelection_v2_hydration_indexWrite_cannotInterleaveWithNewerSelection() {
+        val germanyServers = listOf(
+            makeStoredServer(config = "cfg-de-1", countryCode = "DE", ip = "8.8.8.1", city = "Berlin"),
+            makeStoredServer(config = "cfg-de-2", countryCode = "DE", ip = "8.8.8.2", city = "Hamburg"),
+            makeStoredServer(config = "cfg-de-3", countryCode = "DE", ip = "8.8.8.3", city = "Munich")
+        )
+        // Stored France selection with a placeholder city, so startup takes the hydration path.
+        SelectedCountryStore.saveSelection(
+            context,
+            "France",
+            listOf(makeStoredServer(config = "cfg-fr-2", countryCode = "FR", ip = "1.2.3.5", city = ""))
+        )
+
+        val selectionEdits = AtomicInteger(0)
+        val hydrationParkedAtListWrite = CountDownLatch(1)
+        val releaseHydration = CountDownLatch(1)
+        val hydrationReachedIndexWrite = CountDownLatch(1)
+        val newerSelectionCompleted = CountDownLatch(1)
+        val newerSelectionLandedBeforeIndexWrite = AtomicBoolean(false)
+        val revalidateArmed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(context) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = context.getSharedPreferences(name, mode)
+                if (name != "vpn_selection_prefs") return delegate
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        when (selectionEdits.incrementAndGet()) {
+                            // 1st write = the guarded server-list write. Park here so the racer
+                            // can be queued on the monitor with certainty.
+                            1 -> {
+                                hydrationParkedAtListWrite.countDown()
+                                releaseHydration.await(20, TimeUnit.SECONDS)
+                            }
+                            // 2nd write = the dependent index write. Sample whether the queued
+                            // selection managed to land in between.
+                            2 -> {
+                                newerSelectionLandedBeforeIndexWrite.set(
+                                    newerSelectionCompleted.count == 0L
+                                )
+                                hydrationReachedIndexWrite.countDown()
+                            }
+                        }
+                        return delegate.edit()
+                    }
+
+                    override fun getString(key: String?, defValue: String?): String? {
+                        // The post-write revalidation: let the newer selection land first so the
+                        // check is deterministic rather than a timing race.
+                        if (key == "selected_country" && selectionEdits.get() >= 2 &&
+                            revalidateArmed.compareAndSet(true, false)
+                        ) {
+                            newerSelectionCompleted.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.getString(key, defValue)
+                    }
+                }
+            }
+        }
+
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("FR", "France", 2), CountryV2("DE", "Germany", 3)),
+            serversPerCountry = mapOf(
+                "FR" to listOf(
+                    ServerV2("1.2.3.4", "FR", "France", "cfg-fr-1", city = "Paris", utc = "UTC+1"),
+                    ServerV2("1.2.3.5", "FR", "France", "cfg-fr-2", city = "Lyon", utc = "UTC+1")
+                )
+            )
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = instrumentedCtx,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = java.util.concurrent.atomic.AtomicReference<InitialSelection?>(null)
+        val hydration = Thread {
+            result.set(runBlocking { interactor.loadInitialSelection(cacheOnly = false) })
+        }
+        hydration.start()
+        assertTrue(
+            "hydration never reached its server-list write",
+            hydrationParkedAtListWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        // The user picks Germany while the hydration sits at its server-list write.
+        val newerSelection = Thread {
+            SelectedCountryStore.saveSelection(context, "Germany", germanyServers)
+            newerSelectionCompleted.countDown()
+        }
+        newerSelection.start()
+        assertTrue(
+            "the newer selection never queued on the selection monitor",
+            awaitBlocked(newerSelection)
+        )
+        assertFalse(
+            "a newer selection must not complete while a guarded write holds the lock",
+            newerSelectionCompleted.count == 0L
+        )
+
+        // Release the hydration with the newer selection queued on the monitor: whichever of the
+        // two takes it next, the index write must not observe a foreign server pool.
+        releaseHydration.countDown()
+        assertTrue(
+            "hydration never reached its index write",
+            hydrationReachedIndexWrite.await(20, TimeUnit.SECONDS)
+        )
+        newerSelection.join(20_000)
+        hydration.join(20_000)
+
+        assertFalse(
+            "the newer selection slipped between the hydration's server-list write and its " +
+                "dependent index write -- the index was resolved against a list that is no " +
+                "longer the persisted one",
+            newerSelectionLandedBeforeIndexWrite.get()
+        )
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals(
+            listOf("cfg-de-1", "cfg-de-2", "cfg-de-3"),
+            SelectedCountryStore.getServers(context).map { it.config }
+        )
+        // The hydration's index (1, resolved against France's list) must not have been applied to
+        // Germany's pool: the newer selection's own index=0 is the one that stands.
+        assertEquals("cfg-de-1", SelectedCountryStore.currentServer(context)?.config)
+        // ...and the superseded hydration must not be reported to the caller as current.
+        assertNull(result.get())
+    }
+
     // --------------- helpers ---------------
+
+    /** Waits until [thread] is parked on a monitor, so the race window is entered deterministically. */
+    private fun awaitBlocked(thread: Thread, timeoutMs: Long = 20_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            when (thread.state) {
+                Thread.State.BLOCKED -> return true
+                Thread.State.TERMINATED -> return false
+                else -> Thread.sleep(5)
+            }
+        }
+        return false
+    }
 
     private fun makeStoredServer(
         config: String,

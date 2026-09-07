@@ -108,6 +108,41 @@ object SelectedCountryStore {
     }
 
     /**
+     * Guarded selection write **plus** its dependent index write, as ONE critical section.
+     *
+     * [saveSelection] on its own only makes the guard and the list write atomic. A caller that
+     * follows it with a separate [setCurrentIndex] still has a gap between the two: a newer
+     * selection can commit in that gap, and the index — computed against the *old* server list —
+     * then lands on the *new* country's pool, leaving the persisted "current server" pointing at
+     * an arbitrary entry of a country the index was never measured against. Doing both under the
+     * monitor closes that gap: the newer selection either lands entirely before this pair or
+     * blocks until the pair has been applied, in which case it overwrites both consistently.
+     *
+     * @param selectedIndex index into [servers] (i.e. computed against the list being written,
+     * not against whatever is currently persisted).
+     * @return `true` when both writes were applied, `false` when the [expectedCountry] guard
+     * rejected the write — in which case neither the list nor the index was touched, and the
+     * caller must discard whatever it derived from [servers].
+     */
+    fun saveSelectionAndSetIndexIfCurrent(
+        ctx: Context,
+        country: String,
+        servers: List<Server>,
+        selectedIndex: Int,
+        expectedCountry: String
+    ): Boolean {
+        // The monitor is reentrant, so the nested saveSelection/setCurrentIndex take it again
+        // without deadlocking while this frame keeps it held across both.
+        // The monitor is reentrant, so the nested saveSelection/setCurrentIndex take it again
+        // without deadlocking while this frame keeps it held across both.
+        synchronized(selectionRenameLock) {
+            if (!saveSelection(ctx, country, servers, expectedCountry)) return false
+            setCurrentIndex(ctx, selectedIndex)
+            return true
+        }
+    }
+
+    /**
      * @param isStillCurrent evaluated **inside** the selection monitor, immediately before the
      * write. Callers whose freshness is tracked outside SharedPreferences (the silent backfill's
      * [CountrySyncGenerations] ticket) must pass their guard here rather than checking it before
