@@ -42,11 +42,29 @@ internal object CountrySyncGenerations {
     /** Current generation of [rawCountryKey]; `0` when it has never been bumped. */
     fun current(rawCountryKey: String): Long = generations[key(rawCountryKey)] ?: 0L
 
-    /** Claims a fresh generation for [rawCountryKey] and returns it. */
+    /**
+     * Claims a fresh generation for [rawCountryKey] and returns it.
+     *
+     * The ticket is allocated **inside** [ConcurrentHashMap.compute] so allocation and
+     * publication are one atomic step per key. Allocating first and then assigning
+     * (`generations[key] = sequence.incrementAndGet()`) is a compound operation: two concurrent
+     * bumps of the same key can allocate 1 and 2 and then publish in the opposite order, leaving
+     * the map holding 1. [current] would then move *backward*, and a superseded backfill whose
+     * captured ticket is 1 would pass its `isCurrentGeneration()` guard and overwrite the newer
+     * selection/cache -- exactly what these tickets exist to prevent. Under `compute` the loser
+     * of the per-key bin lock always allocates the larger ticket, so a key's generation is
+     * strictly increasing.
+     *
+     * This is also what makes [bump] and [bumpUnlessBumpedSince] safe against each other: both
+     * mutate through `compute` on the same key, so their check-and-claim sequences serialize on
+     * that key's bin lock instead of interleaving.
+     */
     fun bump(rawCountryKey: String): Long {
-        val next = sequence.incrementAndGet()
-        generations[key(rawCountryKey)] = next
-        return next
+        var claimed = 0L
+        generations.compute(key(rawCountryKey)) { _, _ ->
+            sequence.incrementAndGet().also { claimed = it }
+        }
+        return claimed
     }
 
     /**

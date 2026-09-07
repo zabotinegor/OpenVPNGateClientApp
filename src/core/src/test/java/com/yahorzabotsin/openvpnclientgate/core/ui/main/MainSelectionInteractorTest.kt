@@ -511,6 +511,54 @@ class MainSelectionInteractorTest {
         assertTrue(countriesThreadName != callerThreadName)
     }
 
+    // Regression: hydration is a deferred write. MainViewModel.onStoreVersionChanged() enters it
+    // with a selection captured before the country/server loads, so a country picked while those
+    // loads are in flight must not be reverted by the hydration write that lands afterwards.
+    @Test
+    fun loadInitialSelection_v2_hydration_does_not_revert_a_country_chosen_mid_flight() = runBlocking {
+        SelectedCountryStore.saveSelection(
+            context,
+            "France",
+            listOf(makeStoredServer(config = "legacy-fr", countryCode = "FR", ip = "1.2.3.4", city = ""))
+        )
+
+        val v2Api = object : ServersV2Api {
+            override suspend fun getCountries(locale: String): List<CountryV2> =
+                listOf(CountryV2("FR", "France", 1), CountryV2("DE", "Germany", 1))
+
+            override suspend fun getServers(
+                locale: String,
+                countryCode: String,
+                isActive: Boolean,
+                skip: Int,
+                take: Int
+            ): ServersPageResponse {
+                // The user picks Germany while this hydration fetch for France is in flight.
+                SelectedCountryStore.saveSelection(
+                    context,
+                    "Germany",
+                    listOf(makeStoredServer(config = "cfg-de", countryCode = "DE", ip = "8.8.8.8", city = "Berlin"))
+                )
+                val items = listOf(
+                    ServerV2("1.2.3.4", "FR", "France", "v2-fr", city = "Paris", utc = "UTC+1")
+                )
+                return ServersPageResponse(items = items, total = items.size)
+            }
+        }
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = context,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = interactor.loadInitialSelection(cacheOnly = false)
+
+        // The newer choice must survive both the hydration write and the returned selection.
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals("cfg-de", SelectedCountryStore.currentServer(context)?.config)
+        assertNull(result)
+    }
+
     // --------------- helpers ---------------
 
     private fun makeStoredServer(

@@ -78,6 +78,19 @@ class DefaultMainSelectionInteractor(
                     cacheOnly = cacheOnly
                 )
                 if (hydrated != null) return hydrated
+                // Hydration returns null either because it could not resolve fresher data or
+                // because the selection changed underneath it. In the latter case `stored` and
+                // `country` are a snapshot of a country the user has already navigated away
+                // from, and reporting them as the current selection would drift the UI (and, via
+                // the caller, the connection) back to it. Fall through only while the snapshot is
+                // still the live selection.
+                if (SelectedCountryStore.getSelectedCountry(appContext) != country) {
+                    AppLog.w(
+                        TAG,
+                        "loadInitialSelectionV2: selection changed while hydrating '$country', skipping stale result"
+                    )
+                    return null
+                }
             }
             return InitialSelection(
                 country = country,
@@ -163,7 +176,26 @@ class DefaultMainSelectionInteractor(
         if (servers.isEmpty()) return null
 
         val legacyServers = servers.map { it.toLegacyServer() }
-        SelectedCountryStore.saveSelection(appContext, country.name, legacyServers)
+        // Hydration is a *deferred* write: this path is entered from
+        // MainViewModel.onStoreVersionChanged() with a selection captured before the country and
+        // server loads above, so the user can pick a different country while they are in flight.
+        // An unguarded write here would resurrect the captured country on top of that newer
+        // choice. Guarding on the country we read at entry makes the check and the write one
+        // critical section inside SelectedCountryStore's selection monitor -- the same monitor
+        // the newer selection takes -- so this write either lands before it or stands down.
+        val written = SelectedCountryStore.saveSelection(
+            appContext,
+            country.name,
+            legacyServers,
+            expectedCountry = selectedCountryName
+        )
+        if (!written) {
+            AppLog.w(
+                TAG,
+                "hydrateStoredSelectionFromV2: selection changed while hydrating '$selectedCountryName', discarding hydration"
+            )
+            return null
+        }
 
         val selectedIndex = when {
             !selectedConfig.isNullOrBlank() ->

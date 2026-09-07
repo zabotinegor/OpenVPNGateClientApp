@@ -903,6 +903,67 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Review (Codex, P2): the write guard alone is not enough. Once the generation drifts, every
+    // page still queued in the backfill loop is guaranteed-discarded work that nevertheless costs
+    // a network round trip and contends on the repository's per-country mutex with the screen the
+    // user is actually looking at. The loop must therefore re-check the generation before each
+    // page fetch, not only once at the end.
+    @Test
+    fun resolveSelection_v2_backfill_stops_fetching_pages_as_soon_as_the_generation_drifts() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":10}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 10),
+                buildZeroIdServersJson(listOf("10.0.0.3", "10.0.0.4"), total = 10),
+                buildZeroIdServersJson(listOf("10.0.0.5", "10.0.0.6"), total = 10),
+                buildZeroIdServersJson(listOf("10.0.0.7", "10.0.0.8"), total = 10),
+                buildZeroIdServersJson(listOf("10.0.0.9", "10.0.0.10"), total = 10)
+            )
+        )
+        val reachedGate = CompletableDeferred<Unit>()
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate, reachedGate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "g3")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // Wait until the backfill is genuinely suspended inside its FIRST page fetch, then
+        // supersede it: three more pages are still outstanding and every one is already doomed.
+        reachedGate.await()
+        CountrySyncGenerations.bump("JP")
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        org.junit.Assert.assertEquals(
+            "a superseded backfill must not keep fetching pages: expected the foreground page " +
+                "plus the single in-flight backfill page and nothing more",
+            2,
+            api.serversCallCount
+        )
+        org.junit.Assert.assertEquals(
+            "the superseded backfill must still not touch the selection",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        org.junit.Assert.assertFalse(
+            "the superseded backfill must not persist a cache",
+            serversCacheFile("jp").exists()
+        )
+    }
+
     // Review (Kody, high): a name-only selection (no country code) launches its backfill keyed
     // by country NAME and only learns the canonical CODE once resolveCountryV2 returns. If a
     // same-country sync completes inside that window, the backfill's pages already predate the
@@ -1083,7 +1144,11 @@ class CountryServersInteractorTest {
      * suspended mid-flight. */
     private class GatedOnSecondCallServersApi(
         private val delegate: FakeServersV2Api,
-        private val gate: CompletableDeferred<Unit>
+        private val gate: CompletableDeferred<Unit>,
+        // Completed the moment the gated call is actually reached, so a test that must act
+        // *while* the backfill is suspended in that fetch can wait for it instead of racing the
+        // coroutine's start.
+        private val reachedGate: CompletableDeferred<Unit>? = null
     ) : ServersV2Api {
         private var callCount = 0
         override suspend fun getCountries(locale: String): List<CountryV2> = delegate.getCountries(locale)
@@ -1095,7 +1160,10 @@ class CountryServersInteractorTest {
             take: Int
         ): ServersPageResponse {
             callCount++
-            if (callCount == 2) gate.await()
+            if (callCount == 2) {
+                reachedGate?.complete(Unit)
+                gate.await()
+            }
             return delegate.getServers(locale, countryCode, isActive, skip, take)
         }
     }

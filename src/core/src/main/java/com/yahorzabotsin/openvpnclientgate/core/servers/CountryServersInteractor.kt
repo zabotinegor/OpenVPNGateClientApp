@@ -461,6 +461,22 @@ class DefaultCountryServersInteractor(
                 var hasMore = true
                 var pagesFetched = 0
                 while (hasMore && pagesFetched < MAX_BACKFILL_PAGES_SAFETY_LIMIT) {
+                    // Stop superseded work BEFORE fetching the next page, not only at the write
+                    // guard below. The generation drifts the moment a newer selection or sync
+                    // starts, but every page still queued here would otherwise be fetched and
+                    // would contend on the repository's per-country mutex with the screen the
+                    // user is actually looking at -- up to MAX_BACKFILL_PAGES_SAFETY_LIMIT pages
+                    // of network and lock traffic whose results are guaranteed to be discarded.
+                    // Bailing out here is safe precisely because the writes are already guarded:
+                    // a drifted generation can never be un-drifted (tickets are monotonic), so
+                    // this job had no reachable write left to perform.
+                    if (!isCurrentGeneration()) {
+                        AppLog.w(
+                            TAG,
+                            "Silent backfill for country=$countryName aborted after $pagesFetched page(s): generation drifted"
+                        )
+                        return@launch
+                    }
                     val page = repo.getServersPage(appContext, resolvedCode, skip = skip, accumulate = false)
                     page.servers.forEach { v2 ->
                         val pageKey = dedupKey(v2.id, v2.ip, v2.configData)

@@ -46,7 +46,21 @@ object SelectedCountryStore {
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun saveSelection(ctx: Context, country: String, servers: List<Server>, expectedCountry: String? = null) {
+    /**
+     * @param expectedCountry when non-null, the write is skipped unless this is still the stored
+     * country at the moment the monitor is held. Background/deferred writers (sync, silent
+     * backfill, startup hydration) MUST pass it -- see the critical-section note below.
+     * @return `true` when the selection was written, `false` when the [expectedCountry] guard
+     * rejected it. Callers that follow up with a dependent write (e.g. [setCurrentIndex]) must
+     * check this: applying an index that belongs to the skipped payload would corrupt whichever
+     * newer selection won the race.
+     */
+    fun saveSelection(
+        ctx: Context,
+        country: String,
+        servers: List<Server>,
+        expectedCountry: String? = null
+    ): Boolean {
         val arr = JSONArray()
         servers.forEach { s ->
             val o = JSONObject()
@@ -68,7 +82,13 @@ object SelectedCountryStore {
         // user's newer choice is silently lost. selectionRenameLock is the same monitor every
         // other guarded selection write takes, so all of them are serialized against each other.
         synchronized(selectionRenameLock) {
-            if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) return
+            if (expectedCountry != null && getSelectedCountry(ctx) != expectedCountry) {
+                AppLog.w(
+                    TAG,
+                    "saveSelection: superseded before the guarded write, skipping (country=$country, expected=$expectedCountry)"
+                )
+                return false
+            }
             val editor = prefs(ctx).edit()
                 .putString(KEY_COUNTRY, country)
                 .putString(KEY_SERVERS, serialized)
@@ -83,6 +103,7 @@ object SelectedCountryStore {
             } else {
                 editor.apply()
             }
+            return true
         }
     }
 
