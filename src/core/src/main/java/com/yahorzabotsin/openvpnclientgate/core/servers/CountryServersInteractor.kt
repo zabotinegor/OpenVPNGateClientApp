@@ -272,6 +272,15 @@ class DefaultCountryServersInteractor(
         if (source == ServerSource.DEFAULT_V2) {
             // configData is already embedded in the server from v2 API — no loadConfigs() call
             resolvedServers = servers
+            // Every selection supersedes any still-running backfill for the same country --
+            // including this one, which may not launch a backfill of its own (hasMorePages =
+            // false when the user scrolled the list to completion before choosing). Without this
+            // bump, an earlier selection's backfill for the same country stays "current" per the
+            // generation guard and lands its older pool on top of the selection below: with a
+            // live server list that shifted in between, the newly selected server can be absent
+            // from that older pool, so saveSelectionPreservingIndex fails to restore the index
+            // and the persisted current server silently falls back to position 0.
+            supersedeInFlightBackfills(countryName, countryCode)
         } else {
             val configs = serverRepository.loadConfigs(appContext, servers)
             resolvedServers = servers.map { server ->
@@ -364,6 +373,27 @@ class DefaultCountryServersInteractor(
      * the local maps below are ordinary coroutine-local state, reclaimed on completion or
      * cancellation like any other.
      */
+    /**
+     * Advances [CountrySyncGenerations] for both keys a same-country backfill can be guarding on,
+     * so any such backfill still in flight stands down instead of overwriting the selection that
+     * is about to be written.
+     *
+     * Both keys are needed because [launchSilentBackfill] keys its launch generation by
+     * `countryCode ?: countryName`: an in-flight backfill started from a screen opened *by name*
+     * guards on the name key, while one started with a code guards on the code key. Bumping only
+     * the key this call happens to have would leave the other kind of backfill unsuperseded.
+     * Bumping a key nothing is guarding on is harmless -- generations are monotonic tickets that
+     * are only ever compared for equality with a captured value.
+     */
+    private fun supersedeInFlightBackfills(countryName: String, countryCode: String?) {
+        val nameKey = CountrySyncGenerations.key(countryName)
+        CountrySyncGenerations.bump(nameKey)
+        countryCode
+            ?.let { CountrySyncGenerations.key(it) }
+            ?.takeIf { it != nameKey }
+            ?.let { CountrySyncGenerations.bump(it) }
+    }
+
     private fun dedupKey(id: Int, ip: String?, configData: String): Any =
         if (id > 0) id else NoIdKey(ip, configData)
 
@@ -473,7 +503,17 @@ class DefaultCountryServersInteractor(
                         "Silent backfill for country=$countryName skipped its writes: generation drifted"
                     )
                 } else {
-                    SelectedCountryStore.saveSelectionPreservingIndex(appContext, countryName, accumulatedLegacy.values.toList())
+                    // The guard is re-evaluated INSIDE SelectedCountryStore's selection monitor,
+                    // not just here: a newer selection bumps the generation before it takes that
+                    // monitor to write its own pool, so a guard checked only out here could pass
+                    // and then land on top of that newer selection. Checked under the monitor,
+                    // this write either sees the bump and stands down, or completes before the
+                    // newer selection's write -- which then wins by landing last.
+                    SelectedCountryStore.saveSelectionPreservingIndex(
+                        appContext,
+                        countryName,
+                        accumulatedLegacy.values.toList()
+                    ) { isCurrentGeneration() }
                     if (!backfillIncomplete) {
                         repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
                             isCurrentGeneration()

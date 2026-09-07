@@ -968,6 +968,89 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Review (Codex, P2): a new selection must supersede an earlier same-country backfill even
+    // when the new selection launches no backfill of its own. The user reopens the country while
+    // the first selection's backfill is still fetching, scrolls the new screen to completion
+    // (hasMorePages = false, so nothing bumps the generation on this path) and picks a server
+    // that the live list only started returning after the older backfill's pages were captured.
+    // Without the bump the older backfill is still "current" per the generation guard, so it
+    // overwrites the candidate pool with a list that does not contain the just-selected server --
+    // saveSelectionPreservingIndex then cannot restore the index and the persisted current server
+    // silently falls back to position 0.
+    @Test
+    fun resolveSelection_v2_new_selection_supersedes_an_earlier_same_country_backfill() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "s1")
+        assertTrue(firstPage.hasMore)
+
+        // First selection, made before the list finished loading -> launches the backfill, which
+        // then parks on the gate at its second page fetch.
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        val staleBackfill = interactor.lastBackfillJob
+        assertTrue(staleBackfill != null)
+
+        // The user reopens the same country and this time scrolls it to completion, so the newer
+        // selection reports hasMorePages = false and launches no backfill of its own. The server
+        // chosen here is one the older backfill never saw.
+        val newlyAppearedServer = firstPage.servers[0].copy(
+            lineIndex = 99,
+            ip = "10.9.9.9",
+            configData = "config-new",
+            city = "Osaka"
+        )
+        val newerScreenServers = firstPage.servers + newlyAppearedServer
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = newerScreenServers,
+            selectedServer = newlyAppearedServer,
+            hasMorePages = false,
+            nextSkip = 0
+        )
+        assertEquals(
+            "the newer selection must be the one persisted",
+            "config-new",
+            SelectedCountryStore.currentServer(context)?.config
+        )
+
+        gate.complete(Unit)
+        staleBackfill?.join()
+
+        assertEquals(
+            "the superseded backfill must not overwrite the newer selection's candidate pool",
+            newerScreenServers.map { it.ip },
+            SelectedCountryStore.getServers(context).map { it.ip }
+        )
+        assertEquals(
+            "the superseded backfill must not knock the current server back to position 0",
+            "config-new",
+            SelectedCountryStore.currentServer(context)?.config
+        )
+        assertFalse(
+            "the superseded backfill must not persist its pool as the country's full-list cache",
+            serversCacheFile("jp").exists()
+        )
+    }
+
     /** The countries cache file the repository actually writes -- cacheDir, normalized locale. */
     private fun countriesCacheFile(): java.io.File =
         java.io.File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json")

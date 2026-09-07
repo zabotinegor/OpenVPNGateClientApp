@@ -604,6 +604,93 @@ class SelectedCountryStoreTest {
         )
     }
 
+    // Review (Codex, P2): saveSelectionPreservingIndex made its own check/write/restore sequence
+    // atomic, but the auto-switch index mutations (nextServerCircular -> setIndex) did not take
+    // the same monitor. saveSelection writes index=0 before ensureIndexForConfig restores the
+    // previous position, so ServerAutoSwitcher could advance off that transient 0, dispatch the
+    // server it computed, and then have its advance overwritten by ensureIndexForConfig --
+    // leaving the persisted current server different from the one actually connected to.
+    //
+    // The backfill thread is parked at its SECOND prefs write, i.e. exactly in the window where
+    // index=0 has been committed and the restore has not run yet. A concurrent nextServerCircular
+    // must not be able to observe or mutate the index there.
+    @Test(timeout = 30_000)
+    fun autoSwitchAdvance_cannotInterleaveWithBackfillIndexRestore() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "s3", city = "C3", config = "config-3", lineIndex = 3, ip = "3.3.3.3")
+        )
+        SelectedCountryStore.saveSelection(base, "CountryA", servers)
+        // The user is on the last server; the auto-switch cycle started from there.
+        SelectedCountryStore.setCurrentIndex(base, 2)
+        val cycleStartIndex = SelectedCountryStore.getCurrentIndex(base)
+        assertEquals(2, cycleStartIndex)
+
+        val backfillReachedRestoreWindow = CountDownLatch(1)
+        val releaseBackfill = CountDownLatch(1)
+        val editCallsOnBackfillThread = java.util.concurrent.atomic.AtomicInteger(0)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        // 1st write = saveSelection (commits index=0); park before the 2nd,
+                        // which is ensureIndexForConfig restoring the previous position.
+                        if (Thread.currentThread().name == BACKFILL_THREAD &&
+                            editCallsOnBackfillThread.incrementAndGet() == 2
+                        ) {
+                            backfillReachedRestoreWindow.countDown()
+                            releaseBackfill.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(instrumentedCtx, "CountryA", servers)
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "backfill thread never reached its index-restore window",
+            backfillReachedRestoreWindow.await(20, TimeUnit.SECONDS)
+        )
+
+        // ServerAutoSwitcher advances while the backfill sits in that window.
+        val advanceCompleted = CountDownLatch(1)
+        val dispatched = java.util.concurrent.atomic.AtomicReference<StoredServer?>(null)
+        val autoSwitch = Thread {
+            dispatched.set(SelectedCountryStore.nextServerCircular(base, cycleStartIndex))
+            advanceCompleted.countDown()
+        }
+        autoSwitch.start()
+        val slippedIntoCriticalSection = advanceCompleted.await(1, TimeUnit.SECONDS)
+
+        releaseBackfill.countDown()
+        backfill.join(20_000)
+        autoSwitch.join(20_000)
+
+        assertFalse(
+            "an auto-switch advance must not interleave with the backfill's index restore",
+            slippedIntoCriticalSection
+        )
+        val persisted = SelectedCountryStore.currentServer(base)
+        val dispatchedServer = dispatched.get()
+        assertNotNull("the auto-switch must still find a next server after the backfill", dispatchedServer)
+        assertNotNull(persisted)
+        assertEquals(
+            "the persisted current server must be the one the auto-switch actually dispatched",
+            dispatchedServer!!.config,
+            persisted!!.config
+        )
+    }
+
     private companion object {
         private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
     }

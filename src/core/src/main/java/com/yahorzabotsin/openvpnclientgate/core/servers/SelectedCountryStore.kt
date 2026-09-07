@@ -86,12 +86,35 @@ object SelectedCountryStore {
         }
     }
 
-    fun saveSelectionPreservingIndex(ctx: Context, country: String, servers: List<Server>) {
+    /**
+     * @param isStillCurrent evaluated **inside** the selection monitor, immediately before the
+     * write. Callers whose freshness is tracked outside SharedPreferences (the silent backfill's
+     * [CountrySyncGenerations] ticket) must pass their guard here rather than checking it before
+     * the call: a bare pre-check is a TOCTOU window in which a newer selection can bump the
+     * generation and commit its own pool, only for this now-stale write to land on top of it.
+     * Since every selection write takes this same monitor, a guard evaluated under it either sees
+     * the newer selection's bump (and stands down) or runs entirely before that selection's write
+     * (which then wins by landing later). Defaults to "always current" for callers with no such
+     * external freshness token.
+     */
+    fun saveSelectionPreservingIndex(
+        ctx: Context,
+        country: String,
+        servers: List<Server>,
+        isStillCurrent: () -> Boolean = { true }
+    ) {
         // The whole check → write → restore-index sequence runs under the same monitor as
         // saveSelection (reentrant), so a concurrent selection can neither slip between the
         // country check and the write nor observe the intermediate index=0 state that
         // saveSelection writes before ensureIndexForConfig restores the previous position.
         synchronized(selectionRenameLock) {
+            if (!isStillCurrent()) {
+                AppLog.w(
+                    TAG,
+                    "saveSelectionPreservingIndex: superseded before the guarded write, skipping (country=$country)"
+                )
+                return
+            }
             val selectedCountry = getSelectedCountry(ctx)
             if (selectedCountry != country) return
 
@@ -140,46 +163,77 @@ object SelectedCountryStore {
         }
     }
 
-    fun resetIndex(ctx: Context) { prefs(ctx).edit().putInt(KEY_INDEX, 0).apply() }
+    // ---------------------------------------------------------------------------------------
+    // Index accessors.
+    //
+    // The server list (KEY_SERVERS) and the current index (KEY_INDEX) are two SharedPreferences
+    // entries describing ONE piece of state: "which server of this country are we on". Every
+    // read-modify-write that spans both therefore runs under selectionRenameLock -- the same
+    // monitor the guarded selection writes take.
+    //
+    // Without that, ServerAutoSwitcher's nextServerCircular() could interleave with the silent
+    // backfill's saveSelectionPreservingIndex(), which briefly resets the index to 0 (inside
+    // saveSelection) before ensureIndexForConfig restores the previous position. The auto-switch
+    // would then advance off that transient 0 -- and dispatch the server it computed -- only for
+    // ensureIndexForConfig to overwrite the index right afterwards, leaving the persisted current
+    // server different from the one actually connected to and corrupting every subsequent
+    // cycle/wrap decision (nextServerCircular can even conclude "wrapped, give up" against a
+    // start index that was measured against the pre-swap list). The monitor is reentrant, so the
+    // nested calls below (setCurrentIndex → setIndex, ensureIndexForConfig → setIndex,
+    // saveSelectionPreservingIndex → ensureIndexForConfig) are safe.
+    //
+    // The read-only accessors take it too: they read the list and the index as a pair, and a
+    // torn pair (new list, old index) is exactly the mismatch this lock exists to prevent.
+    // ---------------------------------------------------------------------------------------
 
-    fun prepareAutoSwitchFromStart(ctx: Context) { prefs(ctx).edit().putInt(KEY_INDEX, -1).apply() }
+    fun resetIndex(ctx: Context) {
+        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, 0).apply() }
+    }
+
+    fun prepareAutoSwitchFromStart(ctx: Context) {
+        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, -1).apply() }
+    }
 
     private fun getIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_INDEX, 0)
 
-    private fun setIndex(ctx: Context, index: Int) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
+    private fun setIndex(ctx: Context, index: Int) {
+        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
+    }
 
     fun setCurrentIndex(ctx: Context, index: Int) {
-        val list = getServers(ctx)
-        if (index in list.indices) {
-            setIndex(ctx, index)
-            val current = list[index]
-            AppLog.d(
-                TAG,
-                "setCurrentIndex: index=${index + 1}/${list.size} ip=${current.ip ?: "<none>"} city=${current.city.ifBlank { "<none>" }}"
-            )
+        synchronized(selectionRenameLock) {
+            val list = getServers(ctx)
+            if (index in list.indices) {
+                setIndex(ctx, index)
+                val current = list[index]
+                AppLog.d(
+                    TAG,
+                    "setCurrentIndex: index=${index + 1}/${list.size} ip=${current.ip ?: "<none>"} city=${current.city.ifBlank { "<none>" }}"
+                )
+            }
         }
     }
 
-    fun getCurrentPosition(ctx: Context): Pair<Int, Int>? {
+    fun getCurrentPosition(ctx: Context): Pair<Int, Int>? = synchronized(selectionRenameLock) {
         val list = getServers(ctx)
         if (list.isEmpty()) return null
         val idx = getIndex(ctx)
         return if (idx in list.indices) (idx + 1) to list.size else null
     }
 
-    fun getCurrentIndex(ctx: Context): Int? {
+    fun getCurrentIndex(ctx: Context): Int? = synchronized(selectionRenameLock) {
         val list = getServers(ctx)
         val idx = getIndex(ctx)
         return if (idx in list.indices) idx else null
     }
 
-    fun currentServer(ctx: Context): StoredServer? {
+    fun currentServer(ctx: Context): StoredServer? = synchronized(selectionRenameLock) {
         val list = getServers(ctx)
         val idx = getIndex(ctx)
         return if (idx in list.indices) list[idx] else null
     }
 
-    fun nextServer(ctx: Context): StoredServer? {
+    fun nextServer(ctx: Context): StoredServer? = synchronized(selectionRenameLock) {
         val list = getServers(ctx)
         val idx = getIndex(ctx) + 1
         return if (idx in list.indices) {
@@ -188,16 +242,17 @@ object SelectedCountryStore {
         } else null
     }
 
-    fun nextServerCircular(ctx: Context, startIndex: Int?): StoredServer? {
-        val list = getServers(ctx)
-        if (list.isEmpty()) return null
-        val current = getIndex(ctx).let { if (it in list.indices) it else 0 }
-        val start = startIndex?.takeIf { it in list.indices } ?: current
-        val next = (current + 1) % list.size
-        if (next == start) return null
-        setIndex(ctx, next)
-        return list[next]
-    }
+    fun nextServerCircular(ctx: Context, startIndex: Int?): StoredServer? =
+        synchronized(selectionRenameLock) {
+            val list = getServers(ctx)
+            if (list.isEmpty()) return null
+            val current = getIndex(ctx).let { if (it in list.indices) it else 0 }
+            val start = startIndex?.takeIf { it in list.indices } ?: current
+            val next = (current + 1) % list.size
+            if (next == start) return null
+            setIndex(ctx, next)
+            return list[next]
+        }
 
     private fun resolveIpForConfig(ctx: Context, config: String?): String? {
         if (config.isNullOrBlank()) return null
@@ -214,14 +269,18 @@ object SelectedCountryStore {
         alignIndex: Boolean = true
     ) {
         if (config.isBlank()) return
-        val ipToStore = ip ?: resolveIpForConfig(ctx, config)
-        prefs(ctx).edit()
-            .putString(KEY_LAST_SUCCESS_CONFIG, config)
-            .putString(KEY_LAST_SUCCESS_COUNTRY, country)
-            .putString(KEY_LAST_SUCCESS_IP, ipToStore)
-            .apply()
-        if (alignIndex) {
-            ensureIndexForConfig(ctx, config, ipToStore)
+        // Resolving the IP reads the server list and the index alignment then writes against
+        // that same list, so both steps share one critical section.
+        synchronized(selectionRenameLock) {
+            val ipToStore = ip ?: resolveIpForConfig(ctx, config)
+            prefs(ctx).edit()
+                .putString(KEY_LAST_SUCCESS_CONFIG, config)
+                .putString(KEY_LAST_SUCCESS_COUNTRY, country)
+                .putString(KEY_LAST_SUCCESS_IP, ipToStore)
+                .apply()
+            if (alignIndex) {
+                ensureIndexForConfig(ctx, config, ipToStore)
+            }
         }
     }
 
@@ -246,13 +305,15 @@ object SelectedCountryStore {
 
     fun saveLastStartedConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
         if (config.isBlank()) return
-        val ipToStore = ip ?: resolveIpForConfig(ctx, config)
-        prefs(ctx).edit()
-            .putString(KEY_LAST_STARTED_CONFIG, config)
-            .putString(KEY_LAST_STARTED_COUNTRY, country)
-            .putString(KEY_LAST_STARTED_IP, ipToStore)
-            .apply()
-        ensureIndexForConfig(ctx, config, ipToStore)
+        synchronized(selectionRenameLock) {
+            val ipToStore = ip ?: resolveIpForConfig(ctx, config)
+            prefs(ctx).edit()
+                .putString(KEY_LAST_STARTED_CONFIG, config)
+                .putString(KEY_LAST_STARTED_COUNTRY, country)
+                .putString(KEY_LAST_STARTED_IP, ipToStore)
+                .apply()
+            ensureIndexForConfig(ctx, config, ipToStore)
+        }
     }
 
     fun getLastStartedConfig(ctx: Context): LastConfig? {
@@ -266,41 +327,45 @@ object SelectedCountryStore {
 
     fun ensureIndexForConfig(ctx: Context, config: String?, ip: String? = null) {
         if (config.isNullOrBlank() && ip.isNullOrBlank()) return
-        val list = getServers(ctx)
-        if (list.isEmpty()) return
-        val current = getIndex(ctx)
-        if (current in list.indices &&
-            list[current].config == config &&
-            (ip.isNullOrBlank() || list[current].ip == ip)
-        ) return
+        // Reads the list, reads the index and writes the index: one read-modify-write over the
+        // list/index pair, so it belongs in the same critical section as every other one.
+        synchronized(selectionRenameLock) {
+            val list = getServers(ctx)
+            if (list.isEmpty()) return
+            val current = getIndex(ctx)
+            if (current in list.indices &&
+                list[current].config == config &&
+                (ip.isNullOrBlank() || list[current].ip == ip)
+            ) return
 
-        if (!config.isNullOrBlank() && !ip.isNullOrBlank()) {
-            val foundByConfigAndIp = list.indexOfFirst { it.config == config && it.ip == ip }
-            if (foundByConfigAndIp >= 0) {
-                setIndex(ctx, foundByConfigAndIp)
+            if (!config.isNullOrBlank() && !ip.isNullOrBlank()) {
+                val foundByConfigAndIp = list.indexOfFirst { it.config == config && it.ip == ip }
+                if (foundByConfigAndIp >= 0) {
+                    setIndex(ctx, foundByConfigAndIp)
+                    AppLog.d(
+                        TAG,
+                        "ensureIndexForConfig: matched by config+ip index=${foundByConfigAndIp + 1}/${list.size} ip=${ip ?: "<none>"}"
+                    )
+                    return
+                }
+            }
+
+            val foundByConfig = config?.let { cfg -> list.indexOfFirst { it.config == cfg } } ?: -1
+            if (foundByConfig >= 0) {
+                setIndex(ctx, foundByConfig)
+                val matchedIp = list[foundByConfig].ip
                 AppLog.d(
                     TAG,
-                    "ensureIndexForConfig: matched by config+ip index=${foundByConfigAndIp + 1}/${list.size} ip=${ip ?: "<none>"}"
+                    "ensureIndexForConfig: matched by config index=${foundByConfig + 1}/${list.size} ip=${matchedIp ?: "<none>"}"
                 )
                 return
             }
-        }
-
-        val foundByConfig = config?.let { cfg -> list.indexOfFirst { it.config == cfg } } ?: -1
-        if (foundByConfig >= 0) {
-            setIndex(ctx, foundByConfig)
-            val matchedIp = list[foundByConfig].ip
-            AppLog.d(
-                TAG,
-                "ensureIndexForConfig: matched by config index=${foundByConfig + 1}/${list.size} ip=${matchedIp ?: "<none>"}"
-            )
-            return
-        }
-        if (!ip.isNullOrBlank()) {
-            val foundByIp = list.indexOfFirst { it.ip == ip }
-            if (foundByIp >= 0) {
-                setIndex(ctx, foundByIp)
-                AppLog.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
+            if (!ip.isNullOrBlank()) {
+                val foundByIp = list.indexOfFirst { it.ip == ip }
+                if (foundByIp >= 0) {
+                    setIndex(ctx, foundByIp)
+                    AppLog.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
+                }
             }
         }
     }
