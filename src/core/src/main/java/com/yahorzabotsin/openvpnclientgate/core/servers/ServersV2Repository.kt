@@ -189,8 +189,7 @@ class ServersV2Repository(
             // the committed list is empty (backend may have removed all servers).
             if (networkHit.get()) {
                 SelectedCountryVersionSignal.bump()
-                CountrySyncGenerations.generations
-                    .merge(CountrySyncGenerations.key(countryCode), 1L) { prev, _ -> prev + 1L }
+                CountrySyncGenerations.bump(countryCode)
             }
             result
         }
@@ -328,7 +327,7 @@ class ServersV2Repository(
             // and yield the same server again at a different offset.
             if (skip == 0) {
                 pageAccumulators[sessionKey] = filtered.toMutableList()
-                pageStartVersions[sessionKey] = CountrySyncGenerations.generations[generationKey] ?: 0L
+                pageStartVersions[sessionKey] = CountrySyncGenerations.current(generationKey)
             } else {
                 val accumulated = pageAccumulators.getOrPut(sessionKey) { mutableListOf() }
                 // De-dup keys fall back to connection attributes for entries without a stable
@@ -347,7 +346,7 @@ class ServersV2Repository(
                 // completing while this paging session was in flight writes a fresher full-list
                 // cache -- do not overwrite it with the paging session's older accumulated data.
                 val selectionMovedOn = startVersion != null &&
-                    (CountrySyncGenerations.generations[generationKey] ?: 0L) != startVersion
+                    CountrySyncGenerations.current(generationKey) != startVersion
                 if (reachedSafetyLimit) {
                     // already logged above
                 } else if (selectionMovedOn) {

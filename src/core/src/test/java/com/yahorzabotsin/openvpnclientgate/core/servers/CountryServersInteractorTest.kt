@@ -35,7 +35,7 @@ class CountryServersInteractorTest {
         }?.forEach { it.delete() }
         // Process-wide singleton: a generation left behind by a previous test would otherwise
         // decide this test's backfill drift guard.
-        CountrySyncGenerations.generations.clear()
+        CountrySyncGenerations.resetForTests()
     }
 
     /** The full-list cache file the repository actually writes -- cacheDir, not filesDir. */
@@ -841,7 +841,7 @@ class CountryServersInteractorTest {
 
         // The backfill is now suspended fetching its first page (the gate). A newer sync
         // completes right now -- modeled as the per-country generation bumping.
-        CountrySyncGenerations.generations.merge("JP", 1L) { prev, _ -> prev + 1L }
+        CountrySyncGenerations.bump("JP")
         gate.complete(Unit)
         interactor.lastBackfillJob?.join()
 
@@ -888,7 +888,7 @@ class CountryServersInteractorTest {
 
         // The backfill is now suspended at its second page fetch (the gate). Simulate a
         // newer same-country backfill starting by drifting the generation before releasing.
-        CountrySyncGenerations.generations["JP"] = (CountrySyncGenerations.generations["JP"] ?: 0) + 1
+        CountrySyncGenerations.bump("JP")
         gate.complete(Unit)
         interactor.lastBackfillJob?.join()
 
@@ -901,6 +901,98 @@ class CountryServersInteractorTest {
             "the older backfill must not persist cache when generation drifted",
             serversCacheFile("jp").exists()
         )
+    }
+
+    // Review (Kody, high): a name-only selection (no country code) launches its backfill keyed
+    // by country NAME and only learns the canonical CODE once resolveCountryV2 returns. If a
+    // same-country sync completes inside that window, the backfill's pages already predate the
+    // sync's fresher data -- adopting the code key must therefore NOT bump past that sync's
+    // generation (which would hide it from the drift guard and let the older pages overwrite the
+    // fresher selection and full-list cache); the backfill must stand down instead.
+    @Test
+    fun resolveSelection_v2_name_only_backfill_stands_down_when_a_sync_landed_before_the_code_resolved() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCountriesCallApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        // Opened by NAME only -- exactly the path whose generation key cannot be the country
+        // code at launch time.
+        val firstPage = interactor.getServersPage(
+            "Japan", countryCode = null, skip = 0, take = 50, cacheOnly = false, pagingSessionId = "n1"
+        )
+        assertTrue(firstPage.hasMore)
+        assertEquals(2, firstPage.servers.size)
+
+        // Drop the countries cache so the backfill's own resolveCountryV2 has to go to the
+        // network -- which is where the gate suspends it, holding it between launch and resolve.
+        countriesCacheFile().delete()
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = null,
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // A same-country sync completes now: after the backfill launched, before it resolved
+        // "Japan" to "JP".
+        CountrySyncGenerations.bump("JP")
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a backfill whose pages predate the sync must not overwrite the selection",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertFalse(
+            "a backfill whose pages predate the sync must not persist its full-list cache",
+            serversCacheFile("jp").exists()
+        )
+        assertEquals(
+            "the backfill must stand down at code adoption, before fetching any further page",
+            1,
+            api.serversCallCount
+        )
+    }
+
+    /** The countries cache file the repository actually writes -- cacheDir, normalized locale. */
+    private fun countriesCacheFile(): java.io.File =
+        java.io.File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json")
+
+    /** Wraps a [FakeServersV2Api] so every getCountries() call after the first suspends on
+     * [gate] -- letting a test hold a name-only backfill between its launch (name-keyed
+     * generation) and its country-code resolution (code-keyed generation). */
+    private class GatedOnSecondCountriesCallApi(
+        private val delegate: FakeServersV2Api,
+        private val gate: CompletableDeferred<Unit>
+    ) : ServersV2Api {
+        private var callCount = 0
+        override suspend fun getCountries(locale: String): List<CountryV2> {
+            callCount++
+            if (callCount >= 2) gate.await()
+            return delegate.getCountries(locale)
+        }
+
+        override suspend fun getServers(
+            locale: String,
+            countryCode: String,
+            isActive: Boolean,
+            skip: Int,
+            take: Int
+        ): ServersPageResponse = delegate.getServers(locale, countryCode, isActive, skip, take)
     }
 
     /** Wraps a [FakeServersV2Api] so the SECOND getServers() call suspends on [gate] before

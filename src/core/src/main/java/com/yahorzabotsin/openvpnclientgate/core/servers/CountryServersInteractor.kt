@@ -381,7 +381,7 @@ class DefaultCountryServersInteractor(
         // the country code is not known until resolveCountryV2 runs inside the coroutine, so the
         // launch key falls back to the country name — see the code-key adoption below.
         val launchKey = CountrySyncGenerations.key(countryCode ?: countryName)
-        val generation = CountrySyncGenerations.generations.merge(launchKey, 1L) { prev, _ -> prev + 1L } ?: 1L
+        val generation = CountrySyncGenerations.bump(launchKey)
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -393,14 +393,33 @@ class DefaultCountryServersInteractor(
                 // preserves launch ordering between two backfills, the code key makes
                 // code-keyed sync bumps visible.
                 val codeKey = CountrySyncGenerations.key(resolvedCode)
-                val codeGeneration = if (codeKey == launchKey) {
-                    generation
+                val codeGeneration: Long
+                if (codeKey == launchKey) {
+                    codeGeneration = generation
                 } else {
-                    CountrySyncGenerations.generations.merge(codeKey, 1L) { prev, _ -> prev + 1L } ?: 1L
+                    // Adopting the code key must NOT stomp a bump that landed on it after this
+                    // backfill launched. This backfill's seed pages (initialServers) were
+                    // captured before that bump, so whoever bumped -- a same-country sync, or a
+                    // newer backfill launched with the code -- holds fresher data and must win.
+                    // Blindly bumping here would instead advance the counter past that sync,
+                    // making it invisible to the drift guard below and letting these older pages
+                    // overwrite the fresher selection/full-list cache. Generations are globally
+                    // monotonic tickets, so "greater than our launch generation" means "issued
+                    // after we launched" even across two different keys; the check and the claim
+                    // are atomic, so a sync landing in between is not stomped either.
+                    val adopted = CountrySyncGenerations.bumpUnlessBumpedSince(codeKey, generation)
+                    if (adopted == null) {
+                        AppLog.w(
+                            TAG,
+                            "Silent backfill for country=$countryName aborted: a newer sync/backfill claimed code=$resolvedCode while this backfill was resolving it"
+                        )
+                        return@launch
+                    }
+                    codeGeneration = adopted
                 }
                 fun isCurrentGeneration(): Boolean =
-                    (CountrySyncGenerations.generations[launchKey] ?: generation) == generation &&
-                        (CountrySyncGenerations.generations[codeKey] ?: codeGeneration) == codeGeneration
+                    CountrySyncGenerations.current(launchKey) == generation &&
+                        CountrySyncGenerations.current(codeKey) == codeGeneration
                 val accumulatedLegacy = LinkedHashMap<Any, Server>()
                 val accumulatedV2 = LinkedHashMap<Any, ServerV2>()
                 initialServers.forEach { server ->

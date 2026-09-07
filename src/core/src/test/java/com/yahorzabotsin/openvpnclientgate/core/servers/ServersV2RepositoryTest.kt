@@ -35,7 +35,7 @@ class ServersV2RepositoryTest {
         }?.forEach { it.delete() }
         // Process-wide singleton shared with the interactor's backfill guard: reset it so a
         // generation left behind by a previous test cannot decide this one's persist guard.
-        CountrySyncGenerations.generations.clear()
+        CountrySyncGenerations.resetForTests()
     }
 
     // UT-2.1 — parses countries JSON into CountryV2 list
@@ -973,8 +973,7 @@ class ServersV2RepositoryTest {
 
     /** Mirrors the sync-completion bump in [ServersV2Repository.getServersForCountry]. */
     private fun bumpSyncGeneration(countryCode: String) {
-        CountrySyncGenerations.generations
-            .merge(CountrySyncGenerations.key(countryCode), 1L) { prev, _ -> prev + 1L }
+        CountrySyncGenerations.bump(countryCode)
     }
 
     /** The full-list cache file the repository actually writes (cacheDir, normalized code). */
