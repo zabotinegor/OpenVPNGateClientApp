@@ -289,6 +289,27 @@ object SelectedCountryStore {
         return if (idx in list.indices) list[idx] else null
     }
 
+    /**
+     * Atomic "is this still the live selection?" check over the **country and the selected server
+     * together**.
+     *
+     * A country-only comparison is not enough for deferred writers: picking a different server
+     * inside the same country leaves [getSelectedCountry] equal, so a stale country/server pairing
+     * would pass such a check and be handed back to the caller (which reconnects to it). The
+     * country name, the server list and the index are three preference entries describing one
+     * piece of state, so they are read under the selection monitor -- the same one every selection
+     * write takes -- otherwise the pair could be torn by a selection landing between the reads.
+     *
+     * @return `true` only when [country] is still the selected country **and** the persisted
+     * current server is the one identified by [config]/[ip].
+     */
+    fun isCurrentSelection(ctx: Context, country: String, config: String?, ip: String?): Boolean =
+        synchronized(selectionRenameLock) {
+            if (getSelectedCountry(ctx) != country) return false
+            val current = currentServer(ctx) ?: return false
+            return current.config == config && current.ip == ip
+        }
+
     fun nextServer(ctx: Context): StoredServer? = synchronized(selectionRenameLock) {
         val list = getServers(ctx)
         val idx = getIndex(ctx) + 1

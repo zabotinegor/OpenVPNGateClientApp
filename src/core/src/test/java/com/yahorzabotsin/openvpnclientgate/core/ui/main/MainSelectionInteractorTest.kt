@@ -628,12 +628,15 @@ class MainSelectionInteractorTest {
                     }
 
                     override fun getString(key: String?, defValue: String?): String? {
-                        // The post-write revalidation: let the newer selection land first so the
-                        // check is deterministic rather than a timing race.
+                        // The post-write revalidation. That revalidation runs under the selection
+                        // monitor, so waiting here for the queued racer thread would deadlock it;
+                        // land the newer selection inline on this thread instead (the monitor is
+                        // reentrant). Effect is the same as the racer winning the monitor first:
+                        // the revalidation observes a selection newer than the hydrated one.
                         if (key == "selected_country" && selectionEdits.get() >= 2 &&
                             revalidateArmed.compareAndSet(true, false)
                         ) {
-                            newerSelectionCompleted.await(20, TimeUnit.SECONDS)
+                            SelectedCountryStore.saveSelection(context, "Germany", germanyServers)
                         }
                         return delegate.getString(key, defValue)
                     }
@@ -707,6 +710,82 @@ class MainSelectionInteractorTest {
         assertEquals("cfg-de-1", SelectedCountryStore.currentServer(context)?.config)
         // ...and the superseded hydration must not be reported to the caller as current.
         assertNull(result.get())
+    }
+
+    // Regression: the post-write freshness check used to compare only the country name. Choosing a
+    // different server *inside the same country* after the atomic hydration write releases the
+    // monitor leaves the selected country equal, so the stale pairing passed the check and was
+    // handed back to the caller, which reconnects to the superseded server.
+    //
+    // Reproduction: the hydration writes France's pool with index 1 (the stored config), and the
+    // same-country switch to index 0 is injected exactly at the post-write revalidation's read of
+    // the selected country -- on the hydration thread, so it lands after the write and before the
+    // check, deterministically rather than by timing. With a country-only check the interactor
+    // returns the superseded server; with the server identity revalidated it must return null.
+    @Test(timeout = 30_000)
+    fun loadInitialSelection_v2_hydration_discards_result_when_same_country_server_changes() {
+        SelectedCountryStore.saveSelection(
+            context,
+            "France",
+            listOf(makeStoredServer(config = "v2-fr-2", countryCode = "FR", ip = "1.2.3.5", city = ""))
+        )
+
+        val selectionEdits = AtomicInteger(0)
+        val switchArmed = AtomicBoolean(true)
+        val sameCountrySwitchApplied = AtomicBoolean(false)
+
+        val instrumentedCtx = object : ContextWrapper(context) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = context.getSharedPreferences(name, mode)
+                if (name != "vpn_selection_prefs") return delegate
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        selectionEdits.incrementAndGet()
+                        return delegate.edit()
+                    }
+
+                    override fun getString(key: String?, defValue: String?): String? {
+                        // After the list+index write pair, the next read of the selected country is
+                        // the post-write revalidation. The user picks another server of the SAME
+                        // country right there.
+                        if (key == "selected_country" && selectionEdits.get() >= 2 &&
+                            switchArmed.compareAndSet(true, false)
+                        ) {
+                            SelectedCountryStore.setCurrentIndex(context, 0)
+                            sameCountrySwitchApplied.set(true)
+                        }
+                        return delegate.getString(key, defValue)
+                    }
+                }
+            }
+        }
+
+        val v2Api = FakeServersV2Api(
+            countries = listOf(CountryV2("FR", "France", 2)),
+            serversPerCountry = mapOf(
+                "FR" to listOf(
+                    ServerV2("1.2.3.4", "FR", "France", "v2-fr-1", city = "Paris", utc = "UTC+1"),
+                    ServerV2("1.2.3.5", "FR", "France", "v2-fr-2", city = "Lyon", utc = "UTC+1")
+                )
+            )
+        )
+        val interactor = DefaultMainSelectionInteractor(
+            appContext = instrumentedCtx,
+            serverRepository = ServerRepository(EmptyCsvApi()),
+            serversV2Repository = ServersV2Repository(v2Api)
+        )
+
+        val result = runBlocking { interactor.loadInitialSelection(cacheOnly = false) }
+
+        assertTrue(
+            "the same-country server switch never fired, the race window was not entered",
+            sameCountrySwitchApplied.get()
+        )
+        // The user's newer, same-country choice stands...
+        assertEquals("France", SelectedCountryStore.getSelectedCountry(context))
+        assertEquals("v2-fr-1", SelectedCountryStore.currentServer(context)?.config)
+        // ...and the superseded server must not be reported to the caller as current.
+        assertNull(result)
     }
 
     // --------------- helpers ---------------

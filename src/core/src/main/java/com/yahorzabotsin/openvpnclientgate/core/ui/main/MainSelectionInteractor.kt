@@ -84,7 +84,16 @@ class DefaultMainSelectionInteractor(
                 // from, and reporting them as the current selection would drift the UI (and, via
                 // the caller, the connection) back to it. Fall through only while the snapshot is
                 // still the live selection.
-                if (SelectedCountryStore.getSelectedCountry(appContext) != country) {
+                // Country *and* server: switching to another server of the same country leaves the
+                // country name unchanged, so a country-only check would let the superseded
+                // `stored` snapshot through.
+                if (!SelectedCountryStore.isCurrentSelection(
+                        appContext,
+                        country,
+                        stored.config,
+                        stored.ip
+                    )
+                ) {
                     AppLog.w(
                         TAG,
                         "loadInitialSelectionV2: selection changed while hydrating '$country', skipping stale result"
@@ -217,10 +226,23 @@ class DefaultMainSelectionInteractor(
         }
 
         // The write landed, but a newer selection may have committed on top of it right after the
-        // monitor was released. Returning this result then would push a country the user has
-        // already navigated away from back into the UI (and, via the caller, the connection), so
-        // revalidate before handing it out. The persisted store is already consistent either way.
-        if (SelectedCountryStore.getSelectedCountry(appContext) != country.name) {
+        // monitor was released. Returning this result then would push a selection the user has
+        // already moved off back into the UI (and, via the caller, the connection), so revalidate
+        // before handing it out. The persisted store is already consistent either way.
+        //
+        // The check must cover the *server*, not just the country: picking a different server
+        // inside the same country only moves the index, so getSelectedCountry() stays equal and a
+        // country-only check would wave the superseded pairing through -- reconnecting to the
+        // server the user just moved away from. isCurrentSelection compares country and persisted
+        // current-server identity as one atomic read under the selection monitor.
+        val selected = legacyServers[selectedIndex]
+        if (!SelectedCountryStore.isCurrentSelection(
+                appContext,
+                country.name,
+                selected.configData,
+                selected.ip
+            )
+        ) {
             AppLog.w(
                 TAG,
                 "hydrateStoredSelectionFromV2: selection changed after hydrating '${country.name}', discarding stale result"
@@ -228,7 +250,6 @@ class DefaultMainSelectionInteractor(
             return null
         }
 
-        val selected = legacyServers[selectedIndex]
         return InitialSelection(
             country = country.name,
             city = selected.city,
