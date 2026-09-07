@@ -133,8 +133,8 @@ function Set-FileSectionByMarkers {
     $endIdx = $targetLines.IndexOf($EndMarker)
 
     # Migration: a target last synced before the runtime-agnostic marker
-    # rename (b44b291, '<!-- BEGIN/END COPILOT SYNC -->' -> '.../AGENT SYNC
-    # -->') still carries the OLD marker pair and no new one. Searching only
+    # rename ('<!-- BEGIN/END COPILOT SYNC -->' -> '.../AGENT SYNC -->')
+    # still carries the OLD marker pair and no new one. Searching only
     # for the new markers found nothing, treated the file as unmarked, and hit
     # the 'added-markers' branch below - appending a SECOND, complete
     # governance section while the legacy-marked one stayed in place untouched
