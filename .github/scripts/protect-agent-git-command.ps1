@@ -755,6 +755,12 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
 
     if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+push\b") {
         $pushMatch = [regex]::Match($text, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+push\b")
+        # The segment may contain a preceding read-only git command when the
+        # shell syntax did not split it cleanly. Once the actual push is found,
+        # all ref and option checks must be scoped to that push only; otherwise
+        # `git ls-remote --heads origin dev && git push origin feature/x` can be
+        # denied because the read-only lookup mentions a protected branch.
+        $pushText = if ($pushMatch.Success) { $text.Substring($pushMatch.Index) } else { $text }
         # Scope the force-flag scan to this push's own argument slice, not the
         # whole command line - otherwise an earlier segment's unrelated flag
         # (most notably `git commit -F file.txt`, read-message-from-file) is
@@ -775,7 +781,7 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
                 ($pushArgSeg -cmatch '(?:^|\s)-f(?:\s|$|[;&|])')) {
             $reason = 'Force-push is forbidden in client repositories.'
         }
-        elseif ($text -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
+        elseif ($pushText -match '(?i)(?:^|\s)(?:--all|--branches|--mirror)(?:\s|$|[;&|])') {
             $reason = 'Bulk push (--all/--branches/--mirror) may update protected refs and is forbidden.'
         }
         else {
@@ -790,15 +796,15 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
             # is checked out on dev, $eff -eq 'dev' would set $isDevPush for ANY push command
             # (e.g. `git push origin HEAD:main`), letting archive+SHA grant $allowReleaseArchivePush
             # and skip all protected-branch checks.
-            $isDevPush   = $text -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
-            $isDevDelete = $text -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
+            $isDevPush   = $pushText -match "(?i)\b(?:origin|upstream)\s+(?:-u\s+)?dev(?![-\w/.])"
+            $isDevDelete = $pushText -match "(?i)(?:^|\s)(?:--delete|-d)\s+dev(?![-\w/.])"
             # Guard: if the same command mentions any other protected branch name anywhere
             # (bare token, +token, :token, or refs/heads/ form), the exception does not
             # apply — e.g. `git push origin dev main` or `git push origin --delete dev main`
             # pass extra refspecs positionally, so position-anchored patterns are not enough.
             # False positives only deny the narrow exception (fail-safe: push stays blocked).
             if (($isDevPush -or $isDevDelete) -and
-                $text -match '(?i)(?:^|[\s+:])(?:refs/heads/)?(?:main|master|develop)(?![-\w/.])') {
+                $pushText -match '(?i)(?:^|[\s+:])(?:refs/heads/)?(?:main|master|develop)(?![-\w/.])') {
                 $isDevPush = $false; $isDevDelete = $false
             }
             if ($isDevPush -or $isDevDelete) {
@@ -819,17 +825,17 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
                 finally { $ErrorActionPreference = $previousEap2 }
             }
             if (-not $allowReleaseArchivePush) {
-                if ($protected -contains $eff -and $text -notmatch '(?i)\bHEAD:') {
+                if ($protected -contains $eff -and $pushText -notmatch '(?i)\bHEAD:') {
                     $reason = "Direct push from protected branch '$eff' is forbidden."
                 }
                 elseif (
-                    $text -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
-                    $text -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
+                    $pushText -match "(?i)\b(?:origin|upstream)\s+$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)\b(?:origin|upstream)\s+\+$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)\b[a-zA-Z0-9_/\-]+:(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)(?:^|\s)\+(?:refs/heads/)?$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)\brefs/heads/$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)(?:^|\s)(?:--delete|-d)\s+$protectedPattern(?![-\w/.])" -or
+                    $pushText -match "(?i)(?:^|\s):$protectedPattern(?![-\w/.])"
                 ) {
                     $reason = 'Direct push, deletion, or recreation of a protected branch is forbidden.'
                 }
