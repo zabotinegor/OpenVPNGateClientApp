@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersInteractor
+import com.yahorzabotsin.openvpnclientgate.core.servers.CountryServersPage
 import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesFilter
 import com.yahorzabotsin.openvpnclientgate.core.servers.FavoritesServerStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
@@ -98,35 +99,63 @@ class CountryServersViewModel(
                     "Loading country servers. country=$countryName, vpn_connected=$vpnConnected, " +
                         "cache_only=$cacheOnly, page_size=$pageSize"
                 )
-                var page = interactor.getServersPage(
-                    countryName = countryName,
-                    countryCode = countryCode,
-                    skip = 0,
-                    take = pageSize,
-                    cacheOnly = cacheOnly,
-                    pagingSessionId = pagingSessionId
-                )
-                // A raw page can filter down to zero displayable servers (e.g. a page made
-                // entirely of blank-configData entries) while more pages remain. Mirror
-                // fetchAllPages' guard (ServersV2Repository's raw-page-size exit
-                // condition) and keep paging past such pages instead of treating this as "no
-                // servers for this country", which would incorrectly close the screen.
-                // Guard against a page whose nextSkip does not advance past the skip that
-                // produced it (an empty `items` array while the backend still reports
-                // total > skip) -- without this, the loop above would re-issue the identical
-                // request, bounded only by the repository's 200-page safety limit.
-                var previousSkip = 0
-                while (page.servers.isEmpty() && page.hasMore && page.nextSkip > previousSkip) {
-                    previousSkip = page.nextSkip
+                var page: CountryServersPage
+                // The first page carries the restart signal too: the language can move while it
+                // is in flight, and the response then arrives in a language that is no longer
+                // current. The repository refuses to pin or cache such a page, but this screen's
+                // rows are retained state of its own -- they survive the configuration recreation
+                // the change triggers -- so a first page that is also the last one, or one the
+                // user never scrolls past, would otherwise stay on screen in the old language
+                // with nothing left to correct it. Re-issue at skip = 0, which restarts the
+                // session in the repository and re-pins it to the language now in force.
+                //
+                // Bounded, and a plain loop rather than a call back into this method: the restart
+                // has to happen while this load still owns `isLoading`, and each re-issue resolves
+                // the language afresh, so a settled language ends the loop on the next pass. The
+                // bound only decides what happens under a language being toggled repeatedly --
+                // show the last page fetched instead of retrying forever.
+                var languageRestarts = 0
+                do {
                     page = interactor.getServersPage(
                         countryName = countryName,
                         countryCode = countryCode,
-                        skip = page.nextSkip,
+                        skip = 0,
                         take = pageSize,
                         cacheOnly = cacheOnly,
                         pagingSessionId = pagingSessionId
                     )
-                }
+                    // A raw page can filter down to zero displayable servers (e.g. a page made
+                    // entirely of blank-configData entries) while more pages remain. Mirror
+                    // fetchAllPages' guard (ServersV2Repository's raw-page-size exit
+                    // condition) and keep paging past such pages instead of treating this as "no
+                    // servers for this country", which would incorrectly close the screen.
+                    // Guard against a page whose nextSkip does not advance past the skip that
+                    // produced it (an empty `items` array while the backend still reports
+                    // total > skip) -- without this, the loop above would re-issue the identical
+                    // request, bounded only by the repository's 200-page safety limit.
+                    // A page that reports the language moved leaves the drain as well: the pages
+                    // already drained belong to the language being abandoned.
+                    var previousSkip = 0
+                    while (page.servers.isEmpty() && page.hasMore && page.nextSkip > previousSkip &&
+                        !page.languageChanged
+                    ) {
+                        previousSkip = page.nextSkip
+                        page = interactor.getServersPage(
+                            countryName = countryName,
+                            countryCode = countryCode,
+                            skip = page.nextSkip,
+                            take = pageSize,
+                            cacheOnly = cacheOnly,
+                            pagingSessionId = pagingSessionId
+                        )
+                    }
+                    if (!page.languageChanged) break
+                    languageRestarts++
+                    logInfo(
+                        "App language changed while the first page was loading. " +
+                            "Restarting the list for country=$countryName, attempt=$languageRestarts"
+                    )
+                } while (languageRestarts <= MAX_LANGUAGE_RESTARTS)
                 if (page.servers.isEmpty()) {
                     logger.logNoServers(countryName)
                     _effects.emit(CountryServersEffect.ShowToast(UiText.Res(R.string.no_servers_for_country)))
@@ -504,3 +533,8 @@ class CountryServersViewModel(
  * trigger: a degenerate backend must not turn one scroll trigger into an unbounded request
  * burst. When the bound is hit the cursor is preserved, so the next trigger continues. */
 private const val MAX_EMPTY_PAGE_DRAIN = 10
+
+/** Upper bound on first-page reloads caused by the language moving while the page was in flight.
+ * Each reload resolves the language again, so a settled language always ends the sequence on the
+ * next pass; the bound only decides what a language toggled repeatedly costs. */
+private const val MAX_LANGUAGE_RESTARTS = 2

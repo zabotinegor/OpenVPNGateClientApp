@@ -3,6 +3,8 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import com.yahorzabotsin.openvpnclientgate.core.settings.AppLocaleEpoch
+import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import org.junit.Assert.*
@@ -983,6 +985,98 @@ class SelectedCountryStoreTest {
         )
     }
 
+    // The same window, the other epoch. The backfill's freshness predicate also compares the app
+    // language epoch, and it is evaluated inside the selection monitor immediately before the pool
+    // is written under it. A language change that is not serialized against that critical section
+    // can land between the two, leaving a pool assembled in the old language stored against the
+    // new one -- and the relocalization job that would repair it can be cancelled during
+    // configuration recreation or fail to load its data. Coverage here is all-or-nothing: guarding
+    // only the source writers leaves the predicate's language term exposed while reading as safe.
+    //
+    // The backfill thread is parked at its write, inside that window. A concurrent language change
+    // must not be able to complete -- neither its epoch bump nor its publish.
+    @Test(timeout = 30_000)
+    fun guardedSelectionWrite_blocksAConcurrentLanguageChange() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        UserSettingsStore.saveLanguage(base, LanguageOption.ENGLISH)
+        val epochAtLaunch = AppLocaleEpoch.current()
+
+        val seeded = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val backfilled = seeded + server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2")
+        SelectedCountryStore.saveSelection(base, "CountryA", seeded)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(
+                instrumentedCtx,
+                "CountryA",
+                backfilled
+            ) { AppLocaleEpoch.current() == epochAtLaunch }
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "the guarded write must reach its parked window",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        val languageWriter = Thread(
+            { UserSettingsStore.saveLanguage(base, LanguageOption.RUSSIAN) },
+            LANGUAGE_WRITER_THREAD
+        )
+        languageWriter.start()
+
+        assertTrue(
+            "a language change must not complete between the freshness check and the guarded write",
+            awaitBlocked(languageWriter)
+        )
+        assertEquals(
+            "the epoch the guarded write was validated against must not advance inside its critical section",
+            epochAtLaunch,
+            AppLocaleEpoch.current()
+        )
+        assertEquals(
+            "the persisted language must still be the one the guarded write was validated against",
+            LanguageOption.ENGLISH,
+            UserSettingsStore.load(base).language
+        )
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        languageWriter.join(20_000)
+
+        assertEquals(
+            "the guarded write ran to completion before the language moved",
+            2,
+            SelectedCountryStore.getServers(base).size
+        )
+        assertEquals(
+            "the language change lands once the critical section is over",
+            LanguageOption.RUSSIAN,
+            UserSettingsStore.load(base).language
+        )
+    }
+
     /** Waits until [thread] parks on a monitor, so the race window is entered deterministically. */
     private fun awaitBlocked(thread: Thread, timeoutMs: Long = 20_000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -999,6 +1093,7 @@ class SelectedCountryStoreTest {
     private companion object {
         private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
         private const val SOURCE_WRITER_THREAD = "selected-country-store-test-source-writer"
+        private const val LANGUAGE_WRITER_THREAD = "selected-country-store-test-language-writer"
     }
 }
 

@@ -877,6 +877,89 @@ class CountryServersViewModelTest {
         )
     }
 
+    // The first page carries the same signal, and it is the only one a terminal first page -- or a
+    // page the user never scrolls past -- will ever get. The rows on this screen survive the
+    // configuration recreation a language change triggers, so a first page served in the language
+    // being left behind has to be reloaded here; nothing later would correct it.
+    @Test
+    fun `a language change while the first page is loading reloads it in the new language`() = runTest {
+        val englishFirstPage = listOf(
+            server("France", "FR", 1, id = 10, city = "Paris"),
+            server("France", "FR", 2, id = 20, city = "Marseille")
+        )
+        val russianFirstPage = listOf(
+            server("France", "FR", 1, id = 10, city = "Париж"),
+            server("France", "FR", 2, id = 20, city = "Марсель")
+        )
+        val interactor = FakeInteractor(
+            firstPageSequence = listOf(
+                // Terminal (hasMore = false): without the reload nothing else is ever requested,
+                // and these rows stay on screen in the abandoned language for good.
+                CountryServersPage(
+                    servers = englishFirstPage,
+                    hasMore = false,
+                    nextSkip = 2,
+                    languageChanged = true
+                ),
+                CountryServersPage(servers = russianFirstPage, hasMore = false, nextSkip = 2)
+            )
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 2))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the first page served in the abandoned language must not stay on screen",
+            listOf("Париж", "Марсель"),
+            vm.state.value.servers.map { it.city }
+        )
+        assertEquals(
+            "the reload must re-issue the first page, not continue from its cursor",
+            listOf(0, 0),
+            interactor.requestedSkips
+        )
+        assertFalse(vm.state.value.isLoading)
+        assertFalse(vm.state.value.pageLoadError)
+    }
+
+    // A language toggled repeatedly must not keep the first page reloading forever: the reload is
+    // bounded, and once the bound is hit the load finishes with what it has rather than spinning.
+    @Test
+    fun `a first page that keeps reporting a language change stops reloading at the bound`() = runTest {
+        val page = CountryServersPage(
+            servers = listOf(server("France", "FR", 1, id = 10, city = "Paris")),
+            hasMore = false,
+            nextSkip = 1,
+            languageChanged = true
+        )
+        val interactor = FakeInteractor(
+            firstPageSequence = listOf(page, page, page, page, page, page)
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 2))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the reload is bounded -- the original request plus a fixed number of retries",
+            listOf(0, 0, 0),
+            interactor.requestedSkips
+        )
+        assertEquals(listOf("Paris"), vm.state.value.servers.map { it.city })
+        assertFalse("the load must finish rather than spin", vm.state.value.isLoading)
+    }
+
     @Test
     fun `loading footer is shown while the next page fetch is in flight`() = runTest {
         val serverA = server("France", "FR", 1, id = 10)

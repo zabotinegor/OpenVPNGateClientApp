@@ -108,8 +108,21 @@ object UserSettingsStore {
         // and back while one of its page requests was in flight: that request resolved the
         // locale on its own and may have been served in the intermediate language, which a plain
         // equality check against the launch locale cannot see. See [AppLocaleEpoch].
-        AppLocaleEpoch.bump()
-        prefs(ctx).edit().putString(KEY_LANGUAGE, language.name).apply()
+        //
+        // The bump and the publish are one critical section under the SELECTION monitor, for the
+        // same reason [saveServerSource] takes it. The backfill's freshness predicate compares this
+        // epoch, and it is evaluated inside that monitor immediately before the candidate pool is
+        // committed. With the two monitors independent, a language change could land after the
+        // predicate passed and before the pool was written, leaving a pool built in the old
+        // language persisted against the new one; nothing necessarily repairs it, since the
+        // relocalization job can be cancelled during recreation or fail to load its data. Sharing
+        // the monitor forces the language change to happen either wholly before the predicate
+        // (which then sees the advanced epoch and stands down) or wholly after the commit.
+        // See [SelectionWriteLock].
+        synchronized(SelectionWriteLock.monitor) {
+            AppLocaleEpoch.bump()
+            prefs(ctx).edit().putString(KEY_LANGUAGE, language.name).apply()
+        }
     }
 
     fun saveTheme(ctx: Context, theme: ThemeOption) =

@@ -315,6 +315,15 @@ class ServersV2Repository(
     ): ServersV2Page {
         val locale = resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
+        // Captured together with the locale above, BEFORE the request is issued, and never
+        // re-read after the response. The pin records a (locale, epoch) pair, and the two halves
+        // only describe the same instant if they were read at the same instant: reading the epoch
+        // after the response returns pairs the language the response was actually served in with
+        // whatever state the app moved to while it was in flight. That skew is invisible to the
+        // between-page comparison for a `skip == 0` request, which has no earlier pin to compare
+        // against, so a first page that is also the last one -- or one the user never scrolls past
+        // -- would keep a stale-language list pinned as valid across configuration recreation.
+        val requestLocaleEpoch = AppLocaleEpoch.current()
         val normalizedCountryCode = normalizeCountryCode(countryCode)
         val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
@@ -398,38 +407,67 @@ class ServersV2Repository(
             // catches an OS locale change under the system-language option, which advances no
             // epoch because it never goes through the settings store.
             val pinnedBeforeThisPage = pageSessionPins[sessionKey]
-            val languageChanged = skip != 0 && pinnedBeforeThisPage != null &&
-                (pinnedBeforeThisPage.locale != normalizedLocale ||
-                    pinnedBeforeThisPage.localeEpoch != AppLocaleEpoch.current())
+            // Did the language move WHILE this request was in flight? Both terms compare against
+            // values captured before it was issued, so this catches what the between-page
+            // comparison cannot: an app-language change (epoch) or an OS locale change under the
+            // system-language option (live locale, which advances no epoch) that landed after the
+            // request went out. It applies to every page, `skip == 0` included -- that is the only
+            // staleness check the first page of a session has.
+            val localeMovedInFlight = AppLocaleEpoch.current() != requestLocaleEpoch ||
+                normalizeLocale(resolvePreferredLocale(context)) != normalizedLocale
+            val languageChanged = localeMovedInFlight ||
+                (skip != 0 && pinnedBeforeThisPage != null &&
+                    (pinnedBeforeThisPage.locale != normalizedLocale ||
+                        pinnedBeforeThisPage.localeEpoch != requestLocaleEpoch))
             if (languageChanged) {
                 AppLog.w(
                     TAG,
                     "getServersPage[$countryCode]: language changed mid-session " +
-                        "(${pinnedBeforeThisPage!!.locale} -> $normalizedLocale) -- dropping this " +
-                        "session's accumulated pages instead of merging two languages"
+                        "(${pinnedBeforeThisPage?.locale ?: normalizedLocale} -> $normalizedLocale, " +
+                        "inFlight=$localeMovedInFlight) -- dropping this session's accumulated " +
+                        "pages instead of merging two languages"
                 )
                 pageAccumulators.remove(sessionKey)
-                pageSessionPins[sessionKey] = pinnedBeforeThisPage.copy(languageChanged = true)
+                if (pinnedBeforeThisPage != null) {
+                    pageSessionPins[sessionKey] = pinnedBeforeThisPage.copy(languageChanged = true)
+                }
             }
             // A `skip = 0` request restarts the session outright -- it rebuilds the accumulator
             // and re-pins the language below -- so a previous pin's give-up flag does not carry
             // into it. Without that bound, a session restarted *because* of a language change
             // would stay poisoned: it would refuse its own cache write and keep reporting the
             // change back to the caller, which would restart it again, and again.
-            val sessionGaveUpItsWrite = skip != 0 &&
-                (languageChanged || pinnedBeforeThisPage?.languageChanged == true)
+            //
+            // An in-flight move is exempt from that bound: it is a property of THIS request, not
+            // an inherited flag, so a `skip == 0` page whose language shifted under it must still
+            // report the restart. The restart itself terminates -- the re-issued request resolves
+            // the new locale and captures the new epoch, so it sees no move and pins cleanly.
+            val sessionGaveUpItsWrite = localeMovedInFlight ||
+                (skip != 0 && (languageChanged || pinnedBeforeThisPage?.languageChanged == true))
 
             fun pinThisSession() {
                 pageSessionPins[sessionKey] = PagingSessionPin(
                     locale = normalizedLocale,
-                    localeEpoch = AppLocaleEpoch.current(),
+                    // The epoch captured alongside `normalizedLocale` before the request, not a
+                    // fresh read: the pin must describe one instant, and a re-read here would
+                    // reintroduce the split this capture exists to close.
+                    localeEpoch = requestLocaleEpoch,
                     syncGeneration = CountrySyncGenerations.current(generationKey),
                     persistTicket = pagingTicketSequence.incrementAndGet()
                 )
             }
             if (skip == 0) {
-                pageAccumulators[sessionKey] = filtered.toMutableList()
-                pinThisSession()
+                if (localeMovedInFlight) {
+                    // Neither seed the accumulator with a response served in a language that is no
+                    // longer current, nor pin that response as this session's language. Releasing
+                    // both leaves the session in its pre-start state, which is exactly what the
+                    // caller's restart at `skip = 0` expects to find.
+                    pageAccumulators.remove(sessionKey)
+                    pageSessionPins.remove(sessionKey)
+                } else {
+                    pageAccumulators[sessionKey] = filtered.toMutableList()
+                    pinThisSession()
+                }
             } else if (!sessionGaveUpItsWrite) {
                 // De-duplicate by server id when accumulating. Pages are requested
                 // seconds-to-minutes apart (the user scrolling) instead of the old eager loop's

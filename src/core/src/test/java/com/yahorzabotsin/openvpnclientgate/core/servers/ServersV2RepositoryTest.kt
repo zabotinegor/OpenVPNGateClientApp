@@ -1081,6 +1081,79 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // The between-page comparison cannot see a language that moves while the FIRST page is in
+    // flight: skip = 0 has no earlier pin to compare against. So the first page carries its own
+    // check, against the locale and the epoch captured together before the request went out. Here
+    // the OS locale moves under the system-language option, which advances no epoch -- only the
+    // live locale comparison catches it. The response was served in the language that is no longer
+    // current, so it must neither be pinned as the session's language nor reach the on-disk cache,
+    // and the caller must be told to restart.
+    @Test
+    fun foregroundPaging_firstPage_reportsRestart_whenTheOsLocaleMovesInFlight() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.SYSTEM)
+        Locale.setDefault(Locale("en"))
+        // total == count, so this single page ends the session -- the terminal-first-page case,
+        // where nothing later can ever discover the stale language.
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithTotal("JP", 2, 2),
+                buildServersJsonWithTotal("JP", 2, 2)
+            ),
+            onServersRequest = { callIndex -> if (callIndex == 0) Locale.setDefault(Locale("ru")) }
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "os-locale")
+
+        assertTrue(
+            "a first page whose locale moved while it was in flight must tell the caller to restart",
+            first.languageChanged
+        )
+        assertFalse(
+            "the stale-language page must not be cached as this country's full list",
+            File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+
+        val restarted = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "os-locale")
+
+        assertFalse(
+            "the restart resolves the settled locale, so it must read as clean and terminate the loop",
+            restarted.languageChanged
+        )
+        assertTrue(
+            "the restarted session caches its list under the locale it was actually served in",
+            File(context.cacheDir, "v2_servers_jp_ru.json").exists()
+        )
+    }
+
+    // The other half of the same first-page check. The app language is written while the first
+    // page is in flight, to the value it already had: the resolved locale is identical on both
+    // sides of the request, so only the epoch captured before it can see the move. That write is
+    // what a language toggled away and back mid-request looks like from here, and the page it
+    // straddles cannot be trusted to be in the language now in force.
+    @Test
+    fun foregroundPaging_firstPage_reportsRestart_whenTheLanguageEpochAdvancesInFlight() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 2, 2)),
+            onServersRequest = { callIndex ->
+                if (callIndex == 0) UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+            }
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "epoch")
+
+        assertTrue(
+            "an epoch advanced mid-request must restart the first page even though the locale reads equal",
+            first.languageChanged
+        )
+        assertFalse(
+            "the page straddling the language write must not be cached as this country's full list",
+            File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+    }
+
     // Two paging sessions for the same country overlap. Starting a session deliberately does not
     // advance the country's sync generation, so the sync-freshness guard sees both as equally
     // current, and the session-keyed accumulators only keep them out of each other's memory --
@@ -1186,7 +1259,14 @@ class ServersV2RepositoryTest {
         private val countriesJson: String = "[]",
         private val serversJson: String = "{\"items\":[]}",
         private val serversPageResponses: List<String>? = null,
-        var throwOnCountries: Exception? = null
+        var throwOnCountries: Exception? = null,
+        /**
+         * Runs inside [getServers], before the response is produced, with the zero-based index of
+         * the call. The only way to make something happen strictly between the moment the
+         * repository resolves the language for a request and the moment that request's response
+         * comes back.
+         */
+        private val onServersRequest: ((callIndex: Int) -> Unit)? = null
     ) : ServersV2Api {
         var countriesCallCount = 0
         var serversCallCount = 0
@@ -1207,6 +1287,7 @@ class ServersV2RepositoryTest {
             skip: Int,
             take: Int
         ): ServersPageResponse {
+            onServersRequest?.invoke(serversCallCount)
             val pageJson = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
             serversCallCount++
             lastServersLocale = locale
