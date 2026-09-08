@@ -1352,6 +1352,66 @@ class CountryServersViewModelTest {
         assertFalse(vm.state.value.hasMorePages)
     }
 
+    // --- the VPN can also come up while a single trigger is still draining pages. A blocked
+    // page arriving mid-drain holds its cursor back on purpose, exactly like one arriving as the
+    // trigger's first page, so it must not be mistaken for a non-advancing (terminal) cursor:
+    // that would end paging for good and hide every remaining server. ---
+
+    @Test
+    fun `a page blocked mid-drain suspends paging instead of ending it`() = runTest {
+        val serverA = server("France", "FR", 1, id = 10).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val duplicateOfA = server("France", "FR", 2, id = 10).copy(ip = "10.0.0.100", configData = "CFG-A")
+        val serverB = server("France", "FR", 3, id = 20).copy(ip = "10.0.0.200", configData = "CFG-B")
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA),
+            firstPageHasMore = true,
+            nextPageSequence = listOf(
+                // Advancing but duplicate-only: the drain loop keeps going past it...
+                CountryServersPage(servers = listOf(duplicateOfA), hasMore = true, nextSkip = 2),
+                // ...and the next fetch is refused because the VPN came up in the meantime.
+                CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = 2, blocked = true),
+                // Served once the tunnel is down again, resuming from the very same cursor.
+                CountryServersPage(servers = listOf(serverB), hasMore = false, nextSkip = 3)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.DISCONNECTED)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = connection,
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 50))
+        advanceUntilIdle()
+
+        connection.set(ConnectionState.CONNECTED)
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1, 2), interactor.requestedSkips)
+        assertTrue(vm.state.value.pagingBlocked)
+        assertTrue(
+            "a mid-drain refusal is temporary: the remaining servers must stay reachable",
+            vm.state.value.hasMorePages
+        )
+        assertEquals("the cursor must stay on the refused page", 2, vm.state.value.nextSkip)
+        assertEquals(0, interactor.abandonPagingSessionCallCount)
+        assertEquals(listOf(serverA), vm.state.value.servers)
+
+        connection.set(ConnectionState.DISCONNECTED)
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "paging must resume from the same cursor once the VPN is down",
+            listOf(0, 1, 2, 2),
+            interactor.requestedSkips
+        )
+        assertFalse(vm.state.value.pagingBlocked)
+        assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+    }
+
     // --- once every server has loaded, no further fetch is triggered and no indicator shows ---
 
     @Test

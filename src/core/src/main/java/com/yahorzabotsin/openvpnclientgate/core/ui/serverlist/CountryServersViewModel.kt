@@ -247,18 +247,28 @@ class CountryServersViewModel(
                             pagingSessionId = pagingSessionId
                         )
                         logger.logLoadSuccess(countryName, page.servers.size)
+                        // A page fetched *inside* the drain can come back blocked too (the VPN
+                        // came up while this trigger was still draining). Stop here: a blocked
+                        // page deliberately reports the same cursor it was asked for, so letting
+                        // it fall through to the non-advancing-cursor guard below would read a
+                        // temporary refusal as a terminal backend defect -- ending paging for
+                        // good and hiding every remaining server until the screen is reopened.
+                        if (page.blocked) break
                     }
                     // A misbehaving backend can also return a page whose cursor does not
                     // advance while still reporting more (total > skip). Committing that
                     // cursor would re-fetch the identical offset on every near-end scroll
                     // until the safety limit -- stop paging instead, mirroring the cursor
-                    // guards used elsewhere.
-                    nonAdvancingCursor = page.hasMore && page.nextSkip <= lastSkip
-                    if (nonAdvancingCursor) {
-                        runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$lastSkip, nextSkip=${page.nextSkip}) -- stopping paging") }
-                        // The session is terminal here: release its repository state
-                        // immediately instead of waiting for teardown.
-                        interactor.abandonPagingSession(pagingSessionId)
+                    // guards used elsewhere. Skipped for a blocked page for the same reason
+                    // the pre-loop check skips it: its cursor is held back on purpose.
+                    if (!page.blocked) {
+                        nonAdvancingCursor = page.hasMore && page.nextSkip <= lastSkip
+                        if (nonAdvancingCursor) {
+                            runCatching { AppLog.w(tag, "loadNextPage: non-advancing cursor (skip=$lastSkip, nextSkip=${page.nextSkip}) -- stopping paging") }
+                            // The session is terminal here: release its repository state
+                            // immediately instead of waiting for teardown.
+                            interactor.abandonPagingSession(pagingSessionId)
+                        }
                     }
                 }
                 updateState {
