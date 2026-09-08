@@ -438,6 +438,15 @@ class DefaultCountryServersInteractor(
         val launchSourceEpoch = ServerSourceEpoch.current()
         val launchLocaleEpoch = AppLocaleEpoch.current()
         val launchLocale = UserSettingsStore.resolvePreferredLocale(appContext)
+        // Cache-write ordering ticket, from the same sequence the repository's foreground paging
+        // sessions use, and captured here for the same reason as the generation above: it must
+        // describe when this backfill started. The generation guard alone cannot order these two
+        // writers -- opening a country screen deliberately does not bump a generation (that would
+        // stand this backfill down and drop the candidate pool it is building), so a backfill
+        // parked after its final page and a foreground session opened, completed and persisted
+        // afterwards both still read as current, and this backfill's older accumulator would
+        // replace that newer list and re-stamp the TTL just by writing last.
+        val cachePersistTicket = repo.allocateCachePersistTicket()
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -611,7 +620,8 @@ class DefaultCountryServersInteractor(
                             appContext,
                             resolvedCode,
                             accumulatedV2.values.toList(),
-                            expectedLocale = launchLocale
+                            expectedLocale = launchLocale,
+                            persistTicket = cachePersistTicket
                         ) {
                             mayStillWrite()
                         }

@@ -1270,9 +1270,9 @@ class CountryServersViewModelTest {
         )
     }
 
-    // --- Review fix: teardown abandons the paging session unconditionally -- it is a no-op
-    // for completed sessions and still cleans up paths where the UI state never recorded
-    // more pages (malformed/empty non-advancing pages). ---
+    // Teardown abandons the paging session unconditionally: it is a no-op for completed
+    // sessions and still cleans up paths where the UI state never recorded more pages
+    // (malformed/empty non-advancing pages).
 
     @Test
     fun `onCleared abandons the paging session even when hasMorePages is false`() = runTest {
@@ -1299,8 +1299,8 @@ class CountryServersViewModelTest {
         assertEquals(1, interactor.abandonPagingSessionCallCount)
     }
 
-    // --- Review fix: servers without a stable id must not collapse onto the shared 0 key
-    // when pages are merged. ---
+    // Servers without a stable id must not collapse onto the shared 0 key when pages are
+    // merged.
 
     @Test
     fun `merge keeps zero-id servers as distinct rows across pages`() = runTest {
@@ -1333,9 +1333,9 @@ class CountryServersViewModelTest {
         )
     }
 
-    // --- Review fix: incremental loads must drain advancing empty pages (blank-configData
-    // entries) exactly like the initial load, otherwise a user parked at the loaded end can
-    // never trigger another scroll callback and the remaining servers stay unreachable. ---
+    // Incremental loads must drain advancing empty pages (blank-configData entries) exactly
+    // like the initial load, otherwise a user parked at the loaded end can never trigger
+    // another scroll callback and the remaining servers stay unreachable.
 
     @Test
     fun `loadNextPage drains advancing empty pages until a displayable page arrives`() = runTest {
@@ -1372,10 +1372,9 @@ class CountryServersViewModelTest {
         assertFalse(vm.state.value.isLoadingMore)
     }
 
-    // --- Review fix: the drain is bounded per trigger (a degenerate backend must not turn one
-    // scroll trigger into an unbounded request burst), and it continues through pages that
-    // contribute no new rows (duplicate-only pages), preserving the cursor for the next
-    // trigger. ---
+    // The drain is bounded per trigger (a degenerate backend must not turn one scroll trigger
+    // into an unbounded request burst), and it continues through pages that contribute no new
+    // rows (duplicate-only pages), preserving the cursor for the next trigger.
 
     @Test
     fun `loadNextPage bounds the empty-page drain per trigger and preserves the cursor`() = runTest {

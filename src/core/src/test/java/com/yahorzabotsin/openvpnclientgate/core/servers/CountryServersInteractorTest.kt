@@ -855,8 +855,8 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review: a newer same-country backfill (from a rapid re-select) must win over an older
-    // one. The per-country generation counter ensures only the latest backfill may write.
+    // A newer same-country backfill (from a rapid re-select) must win over an older one. The
+    // per-country generation counter ensures only the latest backfill may write.
     @Test
     fun resolveSelection_v2_backfill_skips_writes_when_generation_drifts() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -960,6 +960,73 @@ class CountryServersInteractorTest {
         org.junit.Assert.assertFalse(
             "the superseded backfill must not persist a cache",
             serversCacheFile("jp").exists()
+        )
+    }
+
+    // The backfill and a foreground paging session write the country's one full-list cache file,
+    // and the generation guard cannot order them: opening a country screen deliberately does not
+    // advance a generation, so a backfill parked between its launch and its write, and a screen
+    // opened afterwards, both read as current. The backfill therefore carries a cache-write ticket
+    // taken at launch: the screen that started later keeps its list even though the backfill
+    // writes after it, while the candidate pool the backfill exists to complete is still written.
+    @Test
+    fun resolveSelection_v2_backfill_does_not_overwrite_a_newer_foreground_sessions_cache() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val reachedGate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":4}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 4), // selection seed page
+                buildZeroIdServersJson(listOf("20.0.0.1", "20.0.0.2"), total = 4), // reopened screen, page 1
+                buildZeroIdServersJson(listOf("20.0.0.3", "20.0.0.4"), total = 4), // reopened screen, last page
+                buildZeroIdServersJson(listOf("10.0.0.3", "10.0.0.4"), total = 4)  // backfill's remaining page
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCountriesCallApi(api, gate, reachedGate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val seed = interactor.getServersPage(
+            "Japan", "JP", skip = 0, take = 2, cacheOnly = false, pagingSessionId = "seed"
+        )
+        assertTrue(seed.hasMore)
+
+        // Drop the countries cache so the backfill's own resolveCountryV2 goes to the network and
+        // parks there. That point holds only the countries lock, not the per-country+locale paging
+        // lock, so the reopened screen below can page freely -- which is what a real deschedule
+        // between the backfill's last page and its cache write looks like from the outside.
+        countriesCacheFile().delete()
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = seed.servers,
+            selectedServer = seed.servers[0],
+            hasMorePages = seed.hasMore,
+            nextSkip = seed.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+        reachedGate.await()
+
+        // The user reopens the country while the backfill is parked, and pages it to the end.
+        val reopened1 = v2Repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "reopened")
+        assertTrue(reopened1.hasMore)
+        val reopened2 = v2Repo.getServersPage(context, "JP", skip = reopened1.nextSkip, take = 2, pagingSessionId = "reopened")
+        assertFalse(reopened2.hasMore)
+
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "the backfill must still complete the auto-switch candidate pool",
+            4,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertEquals(
+            "the reopened screen's newer list must survive the backfill's later cache write",
+            listOf("20.0.0.1", "20.0.0.2", "20.0.0.3", "20.0.0.4"),
+            v2Repo.getFreshCachedServers(context, "JP").orEmpty().map { it.ip }
         )
     }
 
@@ -1331,12 +1398,19 @@ class CountryServersInteractorTest {
      * generation) and its country-code resolution (code-keyed generation). */
     private class GatedOnSecondCountriesCallApi(
         private val delegate: FakeServersV2Api,
-        private val gate: CompletableDeferred<Unit>
+        private val gate: CompletableDeferred<Unit>,
+        // Completed the moment the gated call is actually reached, so a test that must act
+        // *while* the backfill is suspended there can wait for it instead of racing the
+        // coroutine's start.
+        private val reachedGate: CompletableDeferred<Unit>? = null
     ) : ServersV2Api {
         private var callCount = 0
         override suspend fun getCountries(locale: String): List<CountryV2> {
             callCount++
-            if (callCount >= 2) gate.await()
+            if (callCount >= 2) {
+                reachedGate?.complete(Unit)
+                gate.await()
+            }
             return delegate.getCountries(locale)
         }
 

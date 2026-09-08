@@ -114,17 +114,26 @@ class ServersV2Repository(
     // this class has any business seeding a session's capture.
     private val pageSessionPins: ConcurrentHashMap<String, PagingSessionPin> = ConcurrentHashMap()
 
-    // Highest paging-session ticket that has already written a country's full-list cache, keyed
-    // by canonical country key. A session may only write when no LATER-started session has
-    // written this country already, which is what stops an older session that finishes last from
-    // replacing a newer session's list and re-stamping the TTL. One Long per country the user
-    // actually paged, so it stays bounded for the process lifetime.
-    private val lastPersistedPagingTicket: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
+    // Highest cache-write ticket that has already written a country's full-list cache, keyed by
+    // canonical country key. A writer may only write when no LATER-started writer has written
+    // this country already, which is what stops an older one that finishes last from replacing a
+    // newer one's list and re-stamping the TTL. One Long per country actually paged, so it stays
+    // bounded for the process lifetime.
+    //
+    // Both writers of that one cache file take part: foreground accumulate sessions
+    // ([getServersPage]) and the silent background backfill, which builds its own merged list and
+    // writes it through [persistFullServerList]. The backfill needs the same ordering because
+    // nothing else separates the two -- starting a foreground session does not advance
+    // CountrySyncGenerations, so a backfill descheduled after its final page and a foreground
+    // session opened afterwards both read as current, and whichever writes last wins on a plain
+    // last-writer-wins file write.
+    private val lastPersistedCacheTicket: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
 
-    // Session tickets come from one process-wide sequence so they stay comparable, and are
-    // allocated at session start -- starting a foreground paging session deliberately does NOT
-    // advance CountrySyncGenerations, which would stand down the unrelated silent backfill for
-    // the same country and drop the auto-switch candidate pool it is building.
+    // Tickets come from one process-wide sequence so they stay comparable across both kinds of
+    // writer, and are allocated at start -- session start for foreground paging, launch time for
+    // a backfill. Starting a foreground paging session deliberately does NOT advance
+    // CountrySyncGenerations, which would stand down the unrelated silent backfill for the same
+    // country and drop the auto-switch candidate pool it is building.
     private val pagingTicketSequence = AtomicLong(0L)
 
     private companion object {
@@ -556,12 +565,21 @@ class ServersV2Repository(
      * the new language's key, with a fresh TTL stamp -- stranding the wrong-language list for the
      * rest of the TTL. Compared against the very value the key is built from, so there is no
      * window left between the check and the write.
+     *
+     * [persistTicket] (from [allocateCachePersistTicket], taken at the caller's launch) orders this
+     * write against every foreground paging session for the same country. Nothing else does:
+     * starting a foreground session does not advance [CountrySyncGenerations], so a backfill parked
+     * after fetching its final page and a foreground session opened and completed afterwards both
+     * pass their generation guards, and this write would otherwise replace that newer list and
+     * re-stamp the TTL simply by landing last. A `null` ticket opts out of the ordering entirely
+     * and is only correct where no concurrent paging session for the country can exist.
      */
     suspend fun persistFullServerList(
         context: Context,
         countryCode: String,
         servers: List<ServerV2>,
         expectedLocale: String? = null,
+        persistTicket: Long? = null,
         shouldPersist: (() -> Boolean)? = null
     ) {
         val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))
@@ -583,9 +601,34 @@ class ServersV2Repository(
                 AppLog.w(TAG, "persistFullServerList[$countryCode]: skipping write -- caller predicate declined")
                 return
             }
+            // Claimed only after the predicate passed: a writer that stands down must not consume
+            // the country's watermark and lock out the writers that follow it. Claiming is a plain
+            // map operation, so taking it while holding this country+locale's paging lock cannot
+            // block on anything.
+            if (persistTicket != null &&
+                !claimCachePersistSlot(CountrySyncGenerations.key(countryCode), persistTicket)
+            ) {
+                AppLog.w(
+                    TAG,
+                    "persistFullServerList[$countryCode]: skipping write -- " +
+                        "a newer paging session for this country already wrote its list"
+                )
+                return
+            }
             persistFullListCache(context, countryCode, normalizedLocale, servers)
         }
     }
+
+    /**
+     * Allocates a cache-write ordering ticket from the same sequence foreground paging sessions
+     * draw from, for a caller that persists a country's full list through [persistFullServerList].
+     *
+     * Take it at launch, next to the caller's other launch-time captures -- the ticket has to
+     * describe when this work *started*, so a foreground session opened afterwards outranks it.
+     * Allocating it at write time would make the writer that finishes last always look newest,
+     * which is the ordering hole it exists to close.
+     */
+    internal fun allocateCachePersistTicket(): Long = pagingTicketSequence.incrementAndGet()
 
     /**
      * Best-effort synchronous cleanup: drops the in-memory paging accumulator (and
@@ -629,22 +672,25 @@ class ServersV2Repository(
         if (server.id > 0) server.id else NoIdKey(server.ip, server.configData)
 
     /**
-     * Reserves the right for the paging session holding [persistTicket] to write [generationKey]'s
-     * full-list cache, returning false when a session that started later already wrote it.
+     * Reserves the right for the writer holding [persistTicket] to write [generationKey]'s
+     * full-list cache, returning false when a writer that started later already wrote it. Both
+     * kinds of writer go through here: a foreground accumulate session and a silent backfill
+     * calling [persistFullServerList], ordered against each other by one shared ticket sequence.
      *
      * The check and the claim are one atomic step per key, mirroring
      * [CountrySyncGenerations.bumpUnlessBumpedSince]. The surrounding paging lock is not enough on
      * its own: it is keyed by country **and locale**, while this watermark is per country, so two
-     * sessions on the same country in different languages hold different locks and would otherwise
+     * writers on the same country in different languages hold different locks and would otherwise
      * be free to interleave a read and a write here.
      *
-     * A session with no pin (its state was released while the last page was in flight) is treated
-     * as unordered and declines the write rather than claiming the country's watermark.
+     * A writer with no ticket (a foreground session whose state was released while the last page
+     * was in flight) is treated as unordered and declines the write rather than claiming the
+     * country's watermark.
      */
     private fun claimCachePersistSlot(generationKey: String, persistTicket: Long?): Boolean {
         if (persistTicket == null) return false
         var claimed = false
-        lastPersistedPagingTicket.compute(generationKey) { _, previous ->
+        lastPersistedCacheTicket.compute(generationKey) { _, previous ->
             if (previous != null && previous > persistTicket) {
                 previous
             } else {

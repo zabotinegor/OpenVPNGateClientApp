@@ -883,8 +883,8 @@ class ServersV2RepositoryTest {
         )
     }
 
-    // Review: foreground paging session must not overwrite a newer sync's full-list cache.
-    // When the country's sync generation moves between the first and last page of a foreground
+    // A foreground paging session must not overwrite a newer sync's full-list cache. When the
+    // country's sync generation moves between the first and last page of a foreground
     // accumulate session, the final persist must be skipped.
     //
     // This assertion used to look for the cache file under filesDir while the repository writes
@@ -1190,6 +1190,94 @@ class ServersV2RepositoryTest {
             cached.map { it.id }.toSet()
         )
     }
+
+    // The silent backfill writes the same one cache file a foreground paging session does, and the
+    // sync-generation guard cannot order them: opening a country screen deliberately does not
+    // advance a generation, so a backfill parked after fetching its final page and a foreground
+    // session started afterwards both read as current. The backfill took its ticket first, so the
+    // newer session's list must survive the backfill's write landing last -- content and TTL alike.
+    @Test
+    fun backfillPersist_mustNotOverwriteNewerForegroundSessionsFullListCache() = runBlocking {
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithIdsAndTotal(listOf(11, 12), total = 4),
+                buildServersJsonWithIdsAndTotal(listOf(13, 14), total = 4)
+            )
+        )
+        val repo = ServersV2Repository(api)
+
+        // The backfill launches first and takes its cache-write ticket there.
+        val backfillTicket = repo.allocateCachePersistTicket()
+        val backfillServers = listOf(
+            ServerV2(ip = "10.0.0.1", countryCode = "JP", countryName = "Japan", configData = "CFG1", id = 1),
+            ServerV2(ip = "10.0.0.2", countryCode = "JP", countryName = "Japan", configData = "CFG2", id = 2)
+        )
+
+        // The user reopens the country afterwards, and that session reaches its last page first.
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "fg")
+        assertTrue(first.hasMore)
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, pagingSessionId = "fg")
+        assertFalse(second.hasMore)
+        val stampAfterForeground = serversCacheStamp("jp")
+        assertTrue("the foreground session must have written the cache", stampAfterForeground > 0L)
+
+        // The descheduled backfill finally reaches its own persist.
+        repo.persistFullServerList(context, "JP", backfillServers, persistTicket = backfillTicket)
+
+        val cached = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals(
+            "the newer foreground session's list must survive the older backfill's write",
+            setOf(11, 12, 13, 14),
+            cached.map { it.id }.toSet()
+        )
+        assertEquals(
+            "a rejected backfill write must not re-stamp the cache TTL",
+            stampAfterForeground,
+            serversCacheStamp("jp")
+        )
+    }
+
+    // The ordering must not degrade into "a backfill never writes". One that launched AFTER a
+    // foreground session started holds the newer ticket and must still replace that session's list.
+    @Test
+    fun backfillPersist_stillWritesWhenItLaunchedAfterTheForegroundSession() = runBlocking {
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithIdsAndTotal(listOf(11, 12), total = 4),
+                buildServersJsonWithIdsAndTotal(listOf(13, 14), total = 4)
+            )
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "fg")
+        assertTrue(first.hasMore)
+        // The selection that starts the backfill happens while that session is still mid-scroll.
+        val backfillTicket = repo.allocateCachePersistTicket()
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, pagingSessionId = "fg")
+        assertFalse(second.hasMore)
+
+        repo.persistFullServerList(
+            context,
+            "JP",
+            listOf(
+                ServerV2(ip = "10.0.0.1", countryCode = "JP", countryName = "Japan", configData = "CFG1", id = 1),
+                ServerV2(ip = "10.0.0.2", countryCode = "JP", countryName = "Japan", configData = "CFG2", id = 2)
+            ),
+            persistTicket = backfillTicket
+        )
+
+        val cached = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals(
+            "a backfill that started later must still be able to write its list",
+            setOf(1, 2),
+            cached.map { it.id }.toSet()
+        )
+    }
+
+    /** TTL stamp of the full-list cache the repository actually writes. */
+    private fun serversCacheStamp(normalizedCode: String): Long =
+        context.getSharedPreferences("servers_v2_cache", Context.MODE_PRIVATE)
+            .getLong("ts_servers_${normalizedCode}_${currentLocaleCode()}", 0L)
 
     /** Mirrors the sync-completion bump in [ServersV2Repository.getServersForCountry]. */
     private fun bumpSyncGeneration(countryCode: String) {
