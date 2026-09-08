@@ -81,17 +81,24 @@ object UserSettingsStore {
         // Both epochs are advanced BEFORE the values are published so no source- or
         // language-dependent background job can observe a new value paired with an old epoch.
         // See [ServerSourceEpoch] and [AppLocaleEpoch].
-        ServerSourceEpoch.bump()
-        AppLocaleEpoch.bump()
-        prefs(ctx).edit()
-            .putString(KEY_LANGUAGE, settings.language.name)
-            .putString(KEY_THEME, settings.theme.name)
-            .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
-            .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
-            .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
-            .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, settings.statusStallTimeoutSeconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
-            .putString(KEY_DNS_OPTION, settings.dnsOption.name)
-            .apply()
+        //
+        // Bump and publish run under the selection monitor for the same reason as
+        // [saveServerSource]: the epoch guard of a deferred, source-specific write is evaluated
+        // under that monitor, so a source transition that is not serialized against it can slip
+        // between that guard and the commit it protects. See [SelectionWriteLock].
+        synchronized(SelectionWriteLock.monitor) {
+            ServerSourceEpoch.bump()
+            AppLocaleEpoch.bump()
+            prefs(ctx).edit()
+                .putString(KEY_LANGUAGE, settings.language.name)
+                .putString(KEY_THEME, settings.theme.name)
+                .putString(KEY_SERVER_SOURCE, settings.serverSource.name)
+                .putLong(KEY_CACHE_TTL_MS, settings.cacheTtlMs.coerceAtLeast(MIN_CACHE_TTL_MS))
+                .putBoolean(KEY_AUTO_SWITCH_WITHIN_COUNTRY, settings.autoSwitchWithinCountry)
+                .putInt(KEY_STATUS_STALL_TIMEOUT_SECONDS, settings.statusStallTimeoutSeconds.coerceAtLeast(MIN_STATUS_STALL_TIMEOUT_SECONDS))
+                .putString(KEY_DNS_OPTION, settings.dnsOption.name)
+                .apply()
+        }
     }
 
     fun saveLanguage(ctx: Context, language: LanguageOption) {
@@ -114,8 +121,20 @@ object UserSettingsStore {
         // background job (the silent V2 backfill) stand down even when the source-change sync
         // that would normally supersede it is cancelled or returns before writing, and even when
         // the source moved away and back while that job was parked. See [ServerSourceEpoch].
-        ServerSourceEpoch.bump()
-        prefs(ctx).edit().putString(KEY_SERVER_SOURCE, source.name).apply()
+        //
+        // The bump and the publish are one critical section under the SELECTION monitor, not just
+        // an ordered pair. The backfill's freshness predicate -- which compares this epoch -- is
+        // evaluated inside that monitor immediately before it commits its candidate pool. With the
+        // two monitors independent, a source change could land after the predicate passed and
+        // before the pool was written, leaving a V2 pool persisted against a VPN Gate source; the
+        // source-change sync does not necessarily repair it, since it returns early when the
+        // country is missing from the new source or its configs fail to load. Sharing the monitor
+        // forces the transition to happen either wholly before the predicate (which then sees the
+        // advanced epoch and stands down) or wholly after the commit. See [SelectionWriteLock].
+        synchronized(SelectionWriteLock.monitor) {
+            ServerSourceEpoch.bump()
+            prefs(ctx).edit().putString(KEY_SERVER_SOURCE, source.name).apply()
+        }
     }
 
     fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =

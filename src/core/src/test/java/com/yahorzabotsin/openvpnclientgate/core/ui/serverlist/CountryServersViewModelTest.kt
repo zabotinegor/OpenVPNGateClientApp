@@ -179,11 +179,18 @@ class CountryServersViewModelTest {
         job.cancel()
     }
 
-    private fun server(countryName: String, code: String?, index: Int, id: Int = 0): Server =
+    private fun server(
+        countryName: String,
+        code: String?,
+        index: Int,
+        id: Int = 0,
+        // Overridable so a test can tell rows of one localization apart from another's.
+        city: String = "city-$index"
+    ): Server =
         Server(
             lineIndex = index,
             name = "srv-$index",
-            city = "city-$index",
+            city = city,
             country = Country(countryName, code),
             ping = 42,
             signalStrength = SignalStrength.STRONG,
@@ -230,7 +237,11 @@ class CountryServersViewModelTest {
         private val nextPageGate: CompletableDeferred<Unit>? = null,
         // When set, skip>0 calls consume these pages in request order (overrides the
         // nextPageServers/nextPageHasMore fixtures).
-        private val nextPageSequence: List<CountryServersPage>? = null
+        private val nextPageSequence: List<CountryServersPage>? = null,
+        // When set, skip==0 calls consume these pages in request order (overrides the
+        // loaded/firstPageHasMore/firstPageNextSkip fixtures). Lets a test give a restarted
+        // session a differently localized first page than the original one.
+        private val firstPageSequence: List<CountryServersPage>? = null
     ) : CountryServersInteractor {
         var lastCacheOnly: Boolean? = null
         var lastCountryCode: String? = null
@@ -280,6 +291,9 @@ class CountryServersViewModelTest {
                 throw (pageError ?: IOException("simulated page error"))
             }
             return if (skip == 0) {
+                firstPageSequence?.let { pages ->
+                    return pages.getOrNull(requestedSkips.count { it == 0 } - 1) ?: pages.last()
+                }
                 val effectiveHasMore = firstPageHasMoreCallLimit?.let { limit ->
                     requestedSkips.count { it == 0 } < limit
                 } ?: firstPageHasMore
@@ -796,6 +810,69 @@ class CountryServersViewModelTest {
         assertFalse(vm.state.value.isLoadingMore)
         assertTrue(
             "no loading-footer item should remain once the page fetch settles",
+            vm.state.value.items.none { it is ServerListItem.LoadingFooter }
+        )
+    }
+
+    // A language change while a partially loaded country is on screen must restart this screen's
+    // paging. The repository drops its own accumulator and gives up its cache write, but the
+    // ViewModel's list is retained state of its own: appending the newly localized page onto rows
+    // fetched in the previous language is what leaves the visible list mixing two languages.
+    @Test
+    fun `a language change mid-paging restarts the list instead of appending the relocalized page`() = runTest {
+        val englishPage = listOf(
+            server("France", "FR", 1, id = 10, city = "Paris"),
+            server("France", "FR", 2, id = 20, city = "Marseille")
+        )
+        val relocalizedPage = listOf(
+            server("France", "FR", 3, id = 30, city = "Ницца")
+        )
+        val russianFirstPage = listOf(
+            server("France", "FR", 1, id = 10, city = "Париж"),
+            server("France", "FR", 2, id = 20, city = "Марсель")
+        )
+        val interactor = FakeInteractor(
+            firstPageSequence = listOf(
+                CountryServersPage(servers = englishPage, hasMore = true, nextSkip = 2),
+                CountryServersPage(servers = russianFirstPage, hasMore = false, nextSkip = 2)
+            ),
+            nextPageSequence = listOf(
+                CountryServersPage(
+                    servers = relocalizedPage,
+                    hasMore = true,
+                    nextSkip = 3,
+                    languageChanged = true
+                )
+            )
+        )
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = FakeConnectionProvider(ConnectionState.DISCONNECTED),
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "France", countryCode = "FR", pageSize = 2))
+        advanceUntilIdle()
+        assertEquals(listOf("Paris", "Marseille"), vm.state.value.servers.map { it.city })
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "the relocalized page must not be appended to rows loaded in the previous language",
+            listOf("Париж", "Марсель"),
+            vm.state.value.servers.map { it.city }
+        )
+        assertEquals(
+            "paging must restart from the first page, not continue from the old cursor",
+            listOf(0, 2, 0),
+            interactor.requestedSkips
+        )
+        assertFalse(vm.state.value.hasMorePages)
+        assertFalse(vm.state.value.pageLoadError)
+        assertFalse(vm.state.value.isLoadingMore)
+        assertTrue(
+            "no loading footer may be left behind by the restart",
             vm.state.value.items.none { it is ServerListItem.LoadingFooter }
         )
     }

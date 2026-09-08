@@ -213,6 +213,21 @@ class CountryServersViewModel(
                     pagingSessionId = pagingSessionId
                 )
                 logger.logLoadSuccess(countryName, page.servers.size)
+                // The app language changed while this retained ViewModel held a partially loaded
+                // country. The interactor already gave up its own accumulator and its cache write,
+                // but this list is the screen's own state and survives independently -- appending
+                // a newly localized page onto rows fetched in the previous language is exactly how
+                // the visible list ends up mixing two languages. Drop what is held, reset the
+                // cursor, and reload from the first page in the new language.
+                //
+                // Checked ahead of the drain loop and the cursor guard so no differently-localized
+                // page can reach mergeServersDeduped. It does not compete with the blocked-page
+                // handling below: a blocked page is refused before it ever reaches the repository,
+                // so it can never carry this signal.
+                if (page.languageChanged) {
+                    restartPagingForLanguageChange(countryName, countryCode)
+                    return@launch
+                }
                 // When the page is blocked (cache-only during VPN connected), skip the
                 // drain loop and non-advancing cursor guard: the cursor must stay at the
                 // last real offset so the next scroll retries the same page after VPN
@@ -247,6 +262,13 @@ class CountryServersViewModel(
                             pagingSessionId = pagingSessionId
                         )
                         logger.logLoadSuccess(countryName, page.servers.size)
+                        // The language can change mid-drain as easily as between two scroll
+                        // triggers; the same restart applies, and it must happen before this page
+                        // is measured against the rows already held.
+                        if (page.languageChanged) {
+                            restartPagingForLanguageChange(countryName, countryCode)
+                            return@launch
+                        }
                         // A page fetched *inside* the drain can come back blocked too (the VPN
                         // came up while this trigger was still draining). Stop here: a blocked
                         // page deliberately reports the same cursor it was asked for, so letting
@@ -295,6 +317,34 @@ class CountryServersViewModel(
                 pageFetchInFlight.set(false)
             }
         }
+    }
+
+    /**
+     * Drops every row loaded in the previous language and starts this screen's paging over from
+     * the first page.
+     *
+     * The repository stops accumulating and gives up its cache write once it sees the language
+     * change, but that only keeps the *cache* clean: [_state] is retained across the configuration
+     * recreation the language change triggers, so its rows outlive the change and would otherwise
+     * be joined by newly localized ones on the next scroll.
+     *
+     * Everything derived from the old session is reset together -- rows, cursor, "more pages",
+     * the blocked flag and the error flag -- so the reload behaves exactly like a first open. The
+     * paging session id is deliberately kept: a `skip = 0` request restarts the session inside the
+     * repository, re-pinning it to the new language.
+     */
+    private fun restartPagingForLanguageChange(countryName: String, countryCode: String?) {
+        logInfo("App language changed mid-paging. Restarting the list for country=$countryName")
+        updateState {
+            it.copy(
+                servers = emptyList(),
+                hasMorePages = true,
+                nextSkip = 0,
+                pageLoadError = false,
+                pagingBlocked = false
+            )
+        }
+        loadFirstPage(countryName, countryCode)
     }
 
     private fun onServerSelected(server: Server) {

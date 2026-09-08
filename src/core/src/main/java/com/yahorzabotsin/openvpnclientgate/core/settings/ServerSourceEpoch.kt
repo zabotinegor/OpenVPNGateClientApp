@@ -25,6 +25,11 @@ import java.util.concurrent.atomic.AtomicLong
  * guard can never observe the new source with the old ticket. The reverse skew is harmless: a
  * guard that sees the new ticket with the old source simply stands down one instant early.
  *
+ * Ordering the bump ahead of the publish is not by itself enough for a guard whose *write* comes
+ * after its check. The bump and the publish therefore also run under [SelectionWriteLock] -- the
+ * monitor the guarded selection writes take -- so a source transition cannot land between such a
+ * guard and the commit it protects.
+ *
  * Only ever compared for equality with a captured value, so wraparound is not a concern and the
  * counter is deliberately never reset -- monotonicity must survive for the life of the process.
  */

@@ -25,11 +25,18 @@ import java.util.concurrent.atomic.AtomicLong
  * (pre-configData-filtering) item count returned by the backend so the caller's next request
  * stays aligned with the API's own `skip`/`take` cursor, even though [servers] itself only
  * contains the filtered, non-blank-configData entries.
+ *
+ * @param languageChanged true when the app language changed after this paging session started, so
+ * this page is localized differently from the pages the caller already holds. The repository drops
+ * its own accumulator in that case, but the caller keeps its list independently: it must discard
+ * what it has and restart the session at `skip = 0` rather than append this page, otherwise the
+ * visible list ends up mixing two languages.
  */
 data class ServersV2Page(
     val servers: List<ServerV2>,
     val hasMore: Boolean,
-    val nextSkip: Int
+    val nextSkip: Int,
+    val languageChanged: Boolean = false
 )
 
 /** Identity of a paging entry that has no stable server id: equality over the full
@@ -404,7 +411,13 @@ class ServersV2Repository(
                 pageAccumulators.remove(sessionKey)
                 pageSessionPins[sessionKey] = pinnedBeforeThisPage.copy(languageChanged = true)
             }
-            val sessionGaveUpItsWrite = languageChanged || pinnedBeforeThisPage?.languageChanged == true
+            // A `skip = 0` request restarts the session outright -- it rebuilds the accumulator
+            // and re-pins the language below -- so a previous pin's give-up flag does not carry
+            // into it. Without that bound, a session restarted *because* of a language change
+            // would stay poisoned: it would refuse its own cache write and keep reporting the
+            // change back to the caller, which would restart it again, and again.
+            val sessionGaveUpItsWrite = skip != 0 &&
+                (languageChanged || pinnedBeforeThisPage?.languageChanged == true)
 
             fun pinThisSession() {
                 pageSessionPins[sessionKey] = PagingSessionPin(
@@ -479,7 +492,15 @@ class ServersV2Repository(
                 TAG,
                 "getServersPage[$countryCode]: skip=$skip take=$take fetched=${filtered.size} hasMore=$hasMore"
             )
-            ServersV2Page(servers = filtered, hasMore = hasMore, nextSkip = nextSkip)
+            ServersV2Page(
+                servers = filtered,
+                hasMore = hasMore,
+                nextSkip = nextSkip,
+                // Dropping the repository's accumulator only protects the on-disk cache; the
+                // screen keeps a list of its own, so it has to hear about the change to discard
+                // that list and restart instead of appending a differently-localized page.
+                languageChanged = sessionGaveUpItsWrite
+            )
         }
     }
 

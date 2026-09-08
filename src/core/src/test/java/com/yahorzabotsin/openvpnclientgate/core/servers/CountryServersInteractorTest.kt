@@ -724,9 +724,9 @@ class CountryServersInteractorTest {
         }
     }
 
-    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
-    // onto one entry in the silent backfill's merged pool: distinct connections stay, the
-    // duplicate connection is dropped, and the persisted full-list cache keeps all of them.
+    // Servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse onto one
+    // entry in the silent backfill's merged pool: distinct connections stay, the duplicate
+    // connection is dropped, and the persisted full-list cache keeps all of them.
     @Test
     fun resolveSelection_v2_backfill_keeps_zero_id_servers_distinct() = runBlocking {
         setSource(ServerSource.DEFAULT_V2)
@@ -761,7 +761,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review -- when the API omits `total` and the count is an exact multiple of the page
+    // When the API omits `total` and the count is an exact multiple of the page
     // size, the final probe legitimately returns an empty page with hasMore=false and
     // nextSkip == skip. That is successful completion: the full-list cache must be persisted,
     // not skipped as an incomplete backfill.
@@ -806,7 +806,7 @@ class CountryServersInteractorTest {
         )
     }
 
-    // Review -- a same-country sync completing while the silent backfill is in flight must
+    // A same-country sync completing while the silent backfill is in flight must
     // win: the backfill captures the selection version at start and skips its store/cache
     // writes when that version has moved by completion time (otherwise its older pages would
     // overwrite the newer sync results for the whole cache TTL).

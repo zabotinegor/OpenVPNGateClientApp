@@ -838,7 +838,7 @@ class ServersV2RepositoryTest {
         )
     }
 
-    // Review -- servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
+    // Servers whose payload omits `id` (ServerV2.id defaults to 0) must not collapse
     // onto one entry or get discarded across pages: distinct connections stay, the duplicate
     // connection is dropped, and the persisted full-list cache keeps all of them.
     @Test
@@ -860,7 +860,7 @@ class ServersV2RepositoryTest {
         )
     }
 
-    // Review -- the zero-id fallback key must carry the FULL connection attributes: two
+    // The zero-id fallback key must carry the FULL connection attributes: two
     // zero-id servers with the same ip and hash-colliding configs (classic `Aa` / `BB`)
     // are distinct connections and both must survive accumulation.
     @Test
@@ -1038,6 +1038,46 @@ class ServersV2RepositoryTest {
         assertFalse(
             "a language that moved away and back mid-session must still cancel the cache write",
             File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+    }
+
+    // Giving up the cache write only protects the on-disk list. The caller keeps a list of its own
+    // (the country screen's retained UI state), so the changed language has to be reported back on
+    // the page result -- and reported as clear again once the caller restarts at skip = 0, or a
+    // restarted session would keep asking to restart.
+    @Test
+    fun foregroundPaging_reportsLanguageChangeToCaller_andClearsItOnceTheSessionRestarts() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        // A total of 6 over pages of 2 keeps the session unfinished across all three requests, so
+        // the pin that records the change is still there when the caller restarts. Had the second
+        // page ended the session, that pin would have been cleaned up and the restart would read
+        // as clean for a reason unrelated to the restart itself.
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithTotal("JP", 2, 6),
+                buildServersJsonWithTotal("JP", 2, 6),
+                buildServersJsonWithTotal("JP", 2, 6)
+            )
+        )
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "restart")
+        assertFalse("the first page of a session cannot be relocalized yet", first.languageChanged)
+        assertTrue(first.hasMore)
+
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, pagingSessionId = "restart")
+        assertTrue(
+            "the page served after the language change must tell the caller to restart",
+            second.languageChanged
+        )
+        assertTrue("the session must still be unfinished for the restart to be meaningful", second.hasMore)
+
+        val restarted = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "restart")
+        assertFalse(
+            "a session restarted at skip 0 is pinned to the new language and must read as clean",
+            restarted.languageChanged
         )
     }
 

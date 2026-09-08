@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.settings.SelectionWriteLock
 import org.json.JSONException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,7 +32,10 @@ object SelectedCountryStore {
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
-    private val selectionRenameLock = Any()
+    // Shared with UserSettingsStore's server-source writes: a source transition and a guarded
+    // selection commit must never interleave, or a pool written for the old source can land after
+    // the source has already changed. See [SelectionWriteLock].
+    private val selectionRenameLock = SelectionWriteLock.monitor
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"

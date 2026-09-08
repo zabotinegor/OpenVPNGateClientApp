@@ -3,6 +3,8 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -895,6 +897,92 @@ class SelectedCountryStoreTest {
         assertEquals("cfg-fr-2", SelectedCountryStore.currentServer(ctx)?.config)
     }
 
+    // The silent V2 backfill's freshness predicate -- which compares the server-source epoch -- is
+    // evaluated inside the selection monitor, immediately before the pool is written under that
+    // same monitor. Persisting a server-source change is a separate write; unless it is serialized
+    // against this critical section it can land between the predicate and the write, leaving a V2
+    // candidate pool stored against a VPN Gate source. Nothing necessarily repairs that: the
+    // source-change sync returns early when the country is missing from the new source or its
+    // configs fail to load, so the incompatible pool survives for the whole cache TTL.
+    //
+    // The backfill thread is parked at its write, i.e. exactly in that window. A concurrent source
+    // change must not be able to complete while it sits there.
+    @Test(timeout = 30_000)
+    fun guardedSelectionWrite_blocksAConcurrentServerSourceChange() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        UserSettingsStore.saveServerSource(base, ServerSource.DEFAULT_V2)
+
+        val seeded = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val backfilled = seeded + server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2")
+        SelectedCountryStore.saveSelection(base, "CountryA", seeded)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(
+                instrumentedCtx,
+                "CountryA",
+                backfilled
+            ) { UserSettingsStore.load(base).serverSource == ServerSource.DEFAULT_V2 }
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "the guarded write must reach its parked window",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        val sourceWriter = Thread(
+            { UserSettingsStore.saveServerSource(base, ServerSource.VPNGATE) },
+            SOURCE_WRITER_THREAD
+        )
+        sourceWriter.start()
+
+        assertTrue(
+            "a server source change must not complete between the freshness check and the guarded write",
+            awaitBlocked(sourceWriter)
+        )
+        assertEquals(
+            "the persisted source must still be the one the guarded write was validated against",
+            ServerSource.DEFAULT_V2,
+            UserSettingsStore.load(base).serverSource
+        )
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        sourceWriter.join(20_000)
+
+        assertEquals(
+            "the guarded write ran to completion before the source moved",
+            2,
+            SelectedCountryStore.getServers(base).size
+        )
+        assertEquals(
+            "the source change lands once the critical section is over",
+            ServerSource.VPNGATE,
+            UserSettingsStore.load(base).serverSource
+        )
+    }
+
     /** Waits until [thread] parks on a monitor, so the race window is entered deterministically. */
     private fun awaitBlocked(thread: Thread, timeoutMs: Long = 20_000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -910,6 +998,7 @@ class SelectedCountryStoreTest {
 
     private companion object {
         private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
+        private const val SOURCE_WRITER_THREAD = "selected-country-store-test-source-writer"
     }
 }
 

@@ -25,12 +25,16 @@ import java.io.IOException
  * @param hasMore true when at least one more page is expected; false once the country's full
  * list has been delivered (via genuine pagination or the cache fast path).
  * @param nextSkip the `skip` offset to request next; meaningless when [hasMore] is false.
+ * @param languageChanged true when the app language changed after this paging session started, so
+ * this page is localized differently from the rows the caller already shows. The caller must clear
+ * its list and restart paging from `skip = 0`, not append.
  */
 data class CountryServersPage(
     val servers: List<Server>,
     val hasMore: Boolean,
     val nextSkip: Int,
-    val blocked: Boolean = false
+    val blocked: Boolean = false,
+    val languageChanged: Boolean = false
 )
 
 interface CountryServersInteractor {
@@ -256,7 +260,12 @@ class DefaultCountryServersInteractor(
             TAG,
             "getServersPage: country=$countryName skip=$skip take=$take fetched=${legacyServers.size} hasMore=${page.hasMore}"
         )
-        return CountryServersPage(servers = legacyServers, hasMore = page.hasMore, nextSkip = page.nextSkip)
+        return CountryServersPage(
+            servers = legacyServers,
+            hasMore = page.hasMore,
+            nextSkip = page.nextSkip,
+            languageChanged = page.languageChanged
+        )
     }
 
     override suspend fun resolveSelection(
@@ -582,6 +591,11 @@ class DefaultCountryServersInteractor(
                     // and then land on top of that newer selection. Checked under the monitor,
                     // this write either sees the bump and stands down, or completes before the
                     // newer selection's write -- which then wins by landing last.
+                    //
+                    // The same monitor covers the server-source half of the guard: persisting a
+                    // source change takes it too (SelectionWriteLock), so a switch away from V2
+                    // can no longer slip between this predicate and the write it protects and
+                    // leave a V2 pool stored against a VPN Gate source.
                     SelectedCountryStore.saveSelectionPreservingIndex(
                         appContext,
                         countryName,
