@@ -171,6 +171,16 @@ class CountryServersViewModel(
         // an in-flight page fetch, or a page that already reported the list is complete.
         if (snapshot.isLoading || snapshot.isLoadingMore || snapshot.pageLoadError) return
         if (!snapshot.hasMorePages) return
+        // The last page came back blocked (cache-only refused a network page because the VPN
+        // is connected) and the cursor deliberately did not advance, so hasMorePages is still
+        // true. Re-issuing that same refused request on every scroll trigger would cycle the
+        // loading footer -- and removing the footer produces another onScrolled callback, which
+        // triggers the next attempt, so the screen spins for as long as the VPN stays up.
+        // Suppress scroll-triggered loads while blocked, and resume from the same cursor once
+        // the VPN is no longer connected. Deliberately does not touch state: a still-blocked
+        // trigger must be a pure no-op, not another emission (and this runs in the caller's
+        // scroll frame). The flag is cleared by the first page that comes back unblocked.
+        if (snapshot.pagingBlocked && connectionStateProvider.isConnected()) return
         loadNextPage(countryName, snapshot.countryCode, snapshot.nextSkip, snapshot.pageSize)
     }
 
@@ -256,7 +266,11 @@ class CountryServersViewModel(
                         servers = mergeServersDeduped(it.servers, page.servers),
                         hasMorePages = page.hasMore && !nonAdvancingCursor,
                         nextSkip = page.nextSkip,
-                        pageLoadError = false
+                        pageLoadError = false,
+                        // Set while the interactor keeps refusing network pages, cleared by the
+                        // first page it actually serves -- so a resumed session needs no
+                        // separate reset path.
+                        pagingBlocked = page.blocked
                     )
                 }
             } catch (e: Exception) {

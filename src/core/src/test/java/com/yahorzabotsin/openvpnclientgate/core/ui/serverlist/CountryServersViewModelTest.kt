@@ -322,6 +322,12 @@ class CountryServersViewModelTest {
         private val flow = MutableStateFlow(initial)
         override val state: StateFlow<ConnectionState> = flow
         override fun isConnected(): Boolean = flow.value == ConnectionState.CONNECTED
+
+        /** Lets a test move the VPN between states mid-session (e.g. to verify that paging
+         * blocked by cache-only mode resumes once the tunnel goes down). */
+        fun set(state: ConnectionState) {
+            flow.value = state
+        }
     }
 
     private class FakeLogger : CountryServersLogger {
@@ -1277,6 +1283,72 @@ class CountryServersViewModelTest {
             interactor.requestedSkips
         )
         assertEquals(listOf(serverA, serverB), vm.state.value.servers)
+        assertFalse(vm.state.value.hasMorePages)
+    }
+
+    // --- a page refused by cache-only mode (VPN connected mid-session) must not be re-issued
+    // on every scroll callback: removing the loading footer produces another onScrolled, so an
+    // unsuppressed retry cycles the footer for as long as the tunnel stays up ---
+
+    @Test
+    fun `blocked page suspends scroll-triggered paging until the VPN disconnects`() = runTest {
+        val serverA = server("Japan", "JP", 1, id = 10)
+        val serverB = server("Japan", "JP", 2, id = 20)
+        val serverC = server("Japan", "JP", 3, id = 30)
+        // Same cursor, still hasMore: exactly what the interactor returns when cache-only mode
+        // refuses a network page after the first page has already loaded.
+        val blocked = CountryServersPage(servers = emptyList(), hasMore = true, nextSkip = 2, blocked = true)
+        val interactor = FakeInteractor(
+            loaded = listOf(serverA, serverB),
+            firstPageHasMore = true,
+            firstPageNextSkip = 2,
+            // Only the FIRST actual page request is refused; the second one succeeds. Suppressed
+            // scroll triggers never reach the interactor, so an unfixed ViewModel consumes the
+            // success entry early and the requestedSkips assertions below catch it.
+            nextPageSequence = listOf(
+                blocked,
+                CountryServersPage(servers = listOf(serverC), hasMore = false, nextSkip = 3)
+            )
+        )
+        val connection = FakeConnectionProvider(ConnectionState.CONNECTED)
+        val vm = CountryServersViewModel(
+            interactor = interactor,
+            connectionStateProvider = connection,
+            logger = FakeLogger(),
+            favoritesStore = FakeFavoritesServerStore()
+        )
+        vm.onAction(CountryServersAction.Initialize(countryName = "Japan", countryCode = "JP", pageSize = 2))
+        advanceUntilIdle()
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        assertEquals(listOf(0, 2), interactor.requestedSkips)
+        assertTrue(vm.state.value.pagingBlocked)
+        assertTrue("more pages still exist, they are just unreachable right now", vm.state.value.hasMorePages)
+        assertEquals("the cursor must stay on the refused page", 2, vm.state.value.nextSkip)
+        assertTrue(vm.state.value.items.none { it is ServerListItem.LoadingFooter })
+
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+        assertEquals(
+            "a blocked page must not be re-requested on every scroll trigger while the VPN is up",
+            listOf(0, 2),
+            interactor.requestedSkips
+        )
+
+        connection.set(ConnectionState.DISCONNECTED)
+        vm.onAction(CountryServersAction.LoadNextPage)
+        advanceUntilIdle()
+
+        assertEquals(
+            "paging must resume from the same cursor once the VPN is down",
+            listOf(0, 2, 2),
+            interactor.requestedSkips
+        )
+        assertFalse(vm.state.value.pagingBlocked)
+        assertEquals(listOf(serverA, serverB, serverC), vm.state.value.servers)
         assertFalse(vm.state.value.hasMorePages)
     }
 

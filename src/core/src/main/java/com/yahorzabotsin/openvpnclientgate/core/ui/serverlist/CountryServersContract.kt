@@ -19,7 +19,15 @@ data class CountryServersUiState(
     val isLoadingMore: Boolean = false,
     val pageLoadError: Boolean = false,
     /** `skip` offset for the next page request; only meaningful while [hasMorePages] is true. */
-    val nextSkip: Int = 0
+    val nextSkip: Int = 0,
+    /**
+     * True once a page request came back blocked -- cache-only mode refused a genuine network
+     * page because the VPN connected after the first page loaded. More pages still exist
+     * ([hasMorePages] stays true) and [nextSkip] still points at the page that was refused, so
+     * paging resumes from exactly there; until then, scroll-triggered loads are suppressed so
+     * the screen does not re-issue the same refused request on every scroll callback.
+     */
+    val pagingBlocked: Boolean = false
 )
 
 sealed interface CountryServersAction {
