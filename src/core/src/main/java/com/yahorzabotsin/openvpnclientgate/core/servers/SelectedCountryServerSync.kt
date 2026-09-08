@@ -50,6 +50,27 @@ class SelectedCountryServerSync(
 
         val localizedCountryName = resolved.first().country.name
 
+        // This rewrite replaces the selected country's whole candidate pool with data from the
+        // *currently active* source, so it supersedes any silent DEFAULT_V2 backfill still in
+        // flight for the same country -- most visibly when the user just switched the source
+        // setting (DEFAULT_V2 -> VPN Gate), which routes straight here. Without this bump the
+        // backfill's generation guard still reads as current and its V2 pages land on top of the
+        // pool written below, resetting the active server to index 0 whenever its config is
+        // absent from that older V2 data.
+        //
+        // Bumped here rather than at the top of this method on purpose: everything above can
+        // return early (country missing from the fresh list, configs unavailable), and
+        // invalidating an otherwise useful backfill for a sync that never writes would strand the
+        // candidate pool partial. Bumping immediately before the write is still race-free -- the
+        // backfill re-evaluates its guard inside SelectedCountryStore's selection monitor, so it
+        // either sees this bump and stands down, or completes before this write, which then wins
+        // by landing last.
+        //
+        // All three names/codes are passed because a backfill keys its generation by
+        // `countryCode ?: countryName`, and the stored name may differ from the freshly localized
+        // one; supersede() de-duplicates and ignores blanks.
+        CountrySyncGenerations.supersede(selectedCountry, selectedCountryCode, localizedCountryName)
+
         SelectedCountryStore.saveSelectionPreservingIndex(
             ctx = appContext,
             country = selectedCountry,

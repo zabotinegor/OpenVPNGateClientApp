@@ -145,7 +145,7 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(emptyList<Server>(), result)
     }
 
-    // AC3: v2-failure fallback goes directly to VPNGATE — no intermediate LEGACY step, single
+    // v2-failure fallback goes directly to VPNGATE — no intermediate LEGACY step, single
     // URL requested (ApiConstants.FALLBACK_SERVERS_URL), and the resolved source persists as VPNGATE.
     @Test
     fun sync_default_v2_falls_back_directly_to_vpngate_and_persists_vpngate() = runBlocking {
@@ -233,7 +233,7 @@ class ServerSelectionSyncCoordinatorTest {
         assertEquals(0, v2Coordinator.syncSelectedCountryCallCount)
     }
 
-    // AC-4.6: Persist VPNGATE only after a real CSV fallback fetch, not when returning stale cache.
+    // Persist VPNGATE only after a real CSV fallback fetch, not when returning stale cache.
     @Test
     fun sync_default_v2_does_not_persist_vpngate_when_csv_fallback_returns_only_cache() = runBlocking {
         UserSettingsStore.saveServerSource(context, ServerSource.DEFAULT_V2)

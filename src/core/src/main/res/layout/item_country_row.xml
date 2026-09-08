@@ -38,7 +38,7 @@
             android:layout_weight="1"
             android:textAppearance="@style/TextAppearance.OpenVPNClientGate.Body" />
 
-        <!-- SUB-09 AC8: per-row favorite indicator, shown when this country is favorited. -->
+        <!-- Per-row favorite indicator, shown when this country is favorited. -->
         <ImageView
             android:id="@+id/row_favorite_star"
             android:layout_width="14dp"

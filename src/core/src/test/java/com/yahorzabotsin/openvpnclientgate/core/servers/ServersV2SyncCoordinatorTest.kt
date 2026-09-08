@@ -265,8 +265,8 @@ class ServersV2SyncCoordinatorTest {
             coordinator.syncSelectedCountryServers(context, forceRefresh = true)
 
             assertEquals(
-                "SelectedCountryVersionSignal.version must be bumped exactly once after sync",
-                1L, SelectedCountryVersionSignal.version.value
+                "SelectedCountryVersionSignal.version must be bumped after sync (once in repository mutex + once in saveSelectionPreservingIndex)",
+                2L, SelectedCountryVersionSignal.version.value
             )
         } finally {
             // Restore signal to its pre-test state to avoid affecting other tests

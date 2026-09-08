@@ -248,7 +248,7 @@ class ServerListViewModel(
             favorites.forEach { (cws, _) ->
                 items.add(CountryListItem.CountryRow(cws, isFavorite = true, isPinnedSection = true))
             }
-            // SUB-09 AC3/AC4: second header above the full list below, only shown alongside
+            // Second header above the full list below, only shown alongside
             // the pinned Favorites block. Labeled "All countries" (not "Other") since
             // favorited countries still also appear in the list that follows.
             items.add(CountryListItem.SectionHeader(UiText.Res(R.string.all_countries_section_title)))

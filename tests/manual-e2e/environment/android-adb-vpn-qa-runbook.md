@@ -245,5 +245,196 @@ runs against the freshly-written file rather than an already-loaded in-memory va
 verification -- simulated a `server_source=LEGACY` + orphaned `custom_server_url` key install, force-
 stopped, relaunched, confirmed silent fold to `DEFAULT_V2` with no crash and a non-empty server list.)
 
+## Forcing a cold paging path: clear the v2 server-list cache via run-as
+
+Warm-cache fast paths plus the periodic selected-country sync can silently mask scroll-triggered paging
+tests: opening a country whose full list was persisted within TTL loads everything instantly through the
+`warm-cache fast path` with zero page fetches. To QA lazy paging deterministically on a debug build,
+force-stop first (so the store is not rewritten from memory), then delete the cache store and launch:
+```
+adb shell am force-stop com.yahorzabotsin.openvpnclientgate
+adb shell run-as com.yahorzabotsin.openvpnclientgate rm shared_prefs/servers_v2_cache.xml
+```
+A cold open then logs `getServersPage[<CC>]: skip=0 take=<pageSize> ... hasMore=true`; a warm open logs
+`getServersPage: warm-cache fast path country=... servers=<total>` instead.
+(Discovered 2026-08-24, US-23 manual QA.)
+
+## MIBOX4 drops DPAD key events at short injection intervals
+
+Injecting `KEYCODE_DPAD_DOWN` faster than roughly one event per 200 ms on the MIBOX4 TV loses keys
+silently — focus advances fewer rows than injected, so scroll-triggered paging looks stalled and row-count
+assertions undercount. Use >=350-400 ms per event, or verify paging by the logcat fetch-line progression
+(`getServersPage[<CC>]: skip=...`) instead of counting injected presses.
+(Discovered 2026-08-24, US-23 manual QA.)
+
+## Matching uiautomator dumps in non-ASCII locales (ru/pl)
+
+Console output mangles Cyrillic text from UI dumps; grepping rendered strings from PowerShell produces
+false negatives. Pull the dump file and read it with `Get-Content -Encoding UTF8`, match substrings
+programmatically (`$xml.Contains('Корея')`) inside the script, and print only ASCII booleans/bounds to the
+console. Related ClickUp gotcha: comment timestamps are UTC server-side — never derive an evidence
+`SinceUtc` window from the device-local clock (device clocks in this environment are not UTC).
+(Discovered 2026-08-24, US-23 manual QA.)
+
+## MIUI device: `INSTALL_FAILED_USER_RESTRICTED` even with USB debugging authorized
+
+A Xiaomi Mi 9T Pro (MIUI, Android 11) connected and authorized over USB ADB (`adb devices` showed
+`device`, not `unauthorized`) still rejected every install attempt:
+```
+adb -s <serial> install -r mobile-debug.apk
+# Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]
+```
+Escalating to the CLI fallback — pushing the APK and running `pm install` **on the device shell
+itself** — failed identically:
+```
+adb -s <serial> push mobile-debug.apk /data/local/tmp/mobile-debug.apk
+adb -s <serial> shell pm install -r /data/local/tmp/mobile-debug.apk
+# Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]
+```
+The identical failure through both paths rules out an ADB-transport cause (this is not the
+Wi-Fi-ADB flakiness documented elsewhere in this file) and confirms a device-level install
+restriction. No confirmation dialog was pending on-screen; `dumpsys user` showed no restriction
+flags on user 0; `settings get secure install_non_market_apps` was `1` (allowed). The most likely
+cause on MIUI is the separate **"Install via USB"** developer-option toggle (independent of "USB
+debugging") — MIUI gates silent installs on it even when the device is fully authorized for
+debugging — or the device currently being in a MIUI "second space" that restricts installs to the
+primary space. Both require a physical on-device settings change (Settings → Additional settings →
+Developer options → **Install via USB**, and/or exiting the second space) — there is no ADB-only
+workaround once this triggers.
+(Discovered 2026-09-03 on a physical MIUI device during manual QA.)
+
+## Local Android emulator as an airplane-mode-toggle fallback: works for ADB stability, but needs manual network setup and real host RAM headroom
+
+When a physical device is unusable (Wi-Fi-ADB drops on airplane-mode toggle, or a MIUI install
+restriction as above), a local AVD is a reasonable escalation: emulator ADB rides a local
+loopback/pipe rather than the guest's own Wi-Fi radio, so `adb shell cmd connectivity
+airplane-mode enable/disable` does not sever the ADB connection the way it can on a real Wi-Fi-ADB
+device. However, two things are not automatic on a fresh Google-Play x86_64 AVD (tried:
+`Medium_Phone_API_36.1`, API 36):
+- **No network after boot** — `wlan0`/`eth0` both report `state DOWN` and `dumpsys connectivity`
+  shows `Active default network: none`, even though `svc wifi enable` reports "Wi-Fi is enabled".
+  Fix: explicitly connect to the AVD's built-in virtual AP —
+  `adb shell cmd wifi connect-network AndroidWifi open` — after which `dumpsys wifi` shows
+  `Supplicant state: COMPLETED` and an IP (`10.0.2.16` typically). Do this before trying any
+  network-dependent flow (server-list fetch, VPN connect); an emulator that only just booted will
+  otherwise fail every network call with `UnknownHostException`, which looks like a build/config
+  problem but is not.
+- **Host RAM headroom matters more than expected** — a boot attempted while the host had only
+  ~2.7 GB free (of 12.5 GB total) produced a `systemui` ANR immediately on first app launch (needed
+  a manual tap on the ANR dialog's "Wait" button to recover: `uiautomator dump` → find `bounds` for
+  the "Wait" `text` node → `input tap` its center), 200% CPU / <60 MB free RAM inside the guest
+  (`adb shell top`), and the emulator process (`qemu-system-x86_64.exe`) crashed outright shortly
+  after (emulator log: `adb protocol fault (couldn't read status length)` followed by an unplanned
+  snapshot-save/shutdown). None of this reproduces reliably — it is host memory starvation, not an
+  app-under-test defect — so check `Get-CimInstance Win32_OperatingSystem |
+  Select TotalVisibleMemorySize,FreePhysicalMemory` (PowerShell) before trusting an AVD-based QA
+  session, and close other host applications first if free memory is only a few GB.
+(Discovered 2026-09-03 on AVD `Medium_Phone_API_36.1` during manual QA.)
+
+---
+
+## Forcing a persisted-server-list "blank config" scenario — neutralize sync, don't race it
+
+`SelectedCountryStore`'s persisted server list (`shared_prefs/vpn_selection_prefs.xml`, key
+`selected_country_servers`) can hold a non-null entry with a blank `config` string — a real,
+reachable data-shape condition (`ServerAutoSwitcher`'s blank-config fall-through) — but a naive
+`run-as`-edit repro attempt gets defeated by two independent self-heal mechanisms:
+1. **Live-process cache**: editing the SharedPreferences XML on disk via an external `run-as` shell
+   while the app process is alive is invisible to that process — `SharedPreferencesImpl` serves reads
+   from an in-memory map loaded at first access, not the file. The edit only takes effect on the next
+   process start.
+2. **Sync self-heal on restart**: even after force-stop + edit + relaunch, `ServersV2SyncCoordinator
+   .syncSelectedCountryServers()` (splash preload and/or the first SSE `servers-changed` push, usually
+   within a few seconds) re-fetches the country's server list — from network if reachable, else from
+   the local `cache/v2_servers_<code>_<locale>.json` file — and overwrites the array via
+   `saveSelectionPreservingIndex()`. `ServersV2Repository` explicitly filters/logs
+   (`"Server X has empty configData — skipping"`) any blank-`configData` entry from either source, so
+   a blanked entry never survives a completed sync, whether the sync went to the network or just hit
+   the local cache.
+
+Reliable technique (confirmed working, 2026-09-03): don't race the sync — make it permanently skip
+the selected country instead, by corrupting its *identity*, not just the config payload:
+1. Force-stop the app: `adb shell am force-stop com.yahorzabotsin.openvpnclientgate`.
+2. Edit **both** `shared_prefs/vpn_selection_prefs.xml`'s `selected_country_servers` JSON array *and*
+   the matching `cache/v2_servers_<code>_<locale>.json` file (also under `run-as`): blank the target
+   server's `config`/`configData`, and set **every** server's `code`/`countryCode` field to a value
+   not present in the live API (e.g. `"ZZ"`).
+3. Also corrupt the top-level `<string name="selected_country">` value (e.g. append `"-QA"`).
+   `syncSelectedCountryServers`'s country lookup is
+   `countries.firstOrNull{it.code==selectedCountryCode} ?: countries.firstOrNull{it.name==selectedCountry}`
+   — corrupting both the code and the name-fallback makes it permanently hit
+   `"not in country list, skipping"`, so the blanked entry is never restored. No timing race needed
+   after this; verify with `run-as cat shared_prefs/vpn_selection_prefs.xml`. Cosmetic side effect:
+   UI shows a generic "?" flag and the corrupted country name — expected and harmless for the test.
+4. Relaunch, connect to the (untouched, real) other server in the same country, then reproduce the
+   drop via the airplane-mode/reconnect-timing technique in
+   [operations/device-qa-phone.md](../../../docs/operations/device-qa-phone.md) ("Airplane-mode
+   toggle for forcing a connection drop"). In practice, simply re-tapping Connect within ~1-2s of
+   disabling airplane mode reliably lands on that doc's documented transient
+   `LEVEL_NONETWORK`-right-after-reconnect window, which drives `ServerAutoSwitcher`'s
+   `shouldSwitchImmediately` path straight into the blanked next-circular server before any tunnel is
+   even established.
+5. `adb shell pm clear com.yahorzabotsin.openvpnclientgate` afterward to remove the injected
+   corruption and local cache files, then relaunch once to confirm a clean fresh state.
+
+Applied successfully to verify the `ServerAutoSwitcher` blank-config fall-through (NOTCONNECTED-
+confirmed path) on a physical device. Per-run logcat captures are kept with the story's QA artifacts,
+not in this repository.
+(Discovered 2026-09-03 during manual QA.)
+
+## Backgrounding the app before a forced drop does not reproduce a rejected internal stop dispatch
+
+Attempted as a way to force `ServerAutoSwitcher`'s stop-retry-timeout branch
+(`dispatchStopAfterStopRetryTimeout()`) to actually fire, which requires the auto-switcher's internal
+`ACTION_STOP` (sent via `Context.startService()` ahead of a switch retry) to be **rejected** on first
+attempt. Hypothesis: Android's background-service-start restrictions might reject that dispatch if the
+app UI is backgrounded at the moment it fires (plausible reading of the stale-re-dispatch fix's own
+code comment, which describes the original defect as typically appearing "right after returning to the foreground,
+which is also what lifts the background-start restriction that caused the original rejection").
+Technique tried: connect normally, `KEYCODE_HOME` to background the app, then force the drop via
+`cmd connectivity airplane-mode enable/disable`. Result: the internal `ACTION_STOP` dispatch was still
+accepted immediately (`stopVPN invoked, result=true`, confirmed `NOTCONNECTED` ~135ms later) even while
+backgrounded. Reason: `OpenVpnService` is already an **active foreground service** from the ongoing VPN
+session at the moment this dispatch fires — that pre-existing foreground-service status exempts the
+`startService()` call from the background-start restrictions that would apply to a cold start, so
+merely backgrounding the *app UI* (as opposed to the service itself losing its foreground state) does
+not reproduce the rejection. Combined with the earlier findings above (no reliable ADB-level
+trigger for a rejected dispatch at all), this specific sub-path remains reserved for the existing
+mutation-verified unit-test coverage rather than device QA.
+(Discovered 2026-09-03 on a physical device during manual QA.)
+
+## Selecting a server via the country/server picker mid-scenario self-heals injected blank-config corruption
+
+Building on the "Forcing a persisted-server-list blank config" technique above: that technique
+survives an app relaunch (the corrupted country identity prevents `syncSelectedCountryServers` from
+matching and overwriting it), but it does **not** survive navigating the in-app country/server picker
+UI (`server_selection_container` → country list → server list) to select a *different* server. Opening
+that screen triggers a live fetch/re-render of the country's server list from network/cache, and
+selecting a row from it writes a fresh, uncorrupted entry back into `SelectedCountryStore` — silently
+undoing the injected blank `config`/`configData` and the `code`/`countryCode`/`selected_country`
+corruption before any subsequent tap can exercise it. Confirmed directly: after the picker round-trip,
+the UI showed the country name/flag reverted to the real value and the server count changed from the
+corrupted list's size to the live list's size. **Implication for any scenario that needs to hold a
+manually-selected blank-config server "current" while racing a separate in-flight auto-switch:** this
+is not just a timing problem — the UI's picker and `ServerAutoSwitcher`'s own reconnect chain both
+read/write the same `SelectedCountryStore` current-index field, so pre-positioning the UI on a
+specific (blank) server and then triggering an unrelated real server's auto-switch chain cannot be
+done independently; whichever acts first can overwrite the other's selection. Do not rely on the
+picker to hold a corrupted selection past its own navigation.
+(Discovered 2026-09-04 on a physical device during manual QA.)
+
+## `am start-service` non-exported rejection applies identically to `ACTION_START`, not just `ACTION_STOP`
+
+The existing "`am start-service` cannot deliver ACTION_STOP..." entry above documents the rejection
+for `ACTION_STOP`; re-verified this round that the identical `Error: Requires permission not exported
+from uid <n>` rejection applies to `ACTION_START` on the same service (same manifest, same
+non-exported status — the action extra does not change the permission check). There is no
+debug-build-only broadcast/intent hook in `OpenVpnService` for QA-only intent injection. Any QA
+scenario brief that assumes "ADB `ACTION_START` intent injection" as a fallback technique for this
+service should be corrected — it is not viable on this app; the only way to deliver a real
+`ACTION_START` with an attacker/tester-chosen config value is through the app's own UI (or an
+in-app debug hook, not present today).
+(Discovered 2026-09-04 on a physical device during manual QA.)
+
 ## Last validated
-2026-08-22, against `feature/release/21.08.2026` HEAD `828dc1454b18af2ff0253b2714347951e693e758`.
+2026-09-04, on a physical Android device.

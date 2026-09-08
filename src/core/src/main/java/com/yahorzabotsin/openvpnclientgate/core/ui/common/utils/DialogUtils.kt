@@ -9,7 +9,7 @@ import com.google.android.material.color.MaterialColors
 import com.yahorzabotsin.openvpnclientgate.core.R
 
 /**
- * SUB-08 defect fix: shared AlertDialog title-color utility for all app-wide themed dialogs.
+ * Shared AlertDialog title-color utility for all app-wide themed dialogs.
  *
  * The app-wide `alertDialogTheme` in values/themes.xml applies to every `AlertDialog.Builder`
  * call in the app for consistent rounded corners. However, `android:windowTitleStyle` in the

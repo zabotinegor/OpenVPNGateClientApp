@@ -1,12 +1,21 @@
 package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
+import com.yahorzabotsin.openvpnclientgate.core.settings.AppLocaleEpoch
+import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -515,6 +524,576 @@ class SelectedCountryStoreTest {
         val current = SelectedCountryStore.currentServer(ctx)
         assertNotNull(current)
         assertEquals("config-de", current!!.config)
+    }
+
+    // saveSelection's expectedCountry guard was a check-then-write.
+    // A stale background backfill could pass the guard, the user could then select a different
+    // country, and the backfill's write would land afterwards and resurrect the old country's
+    // server pool with index reset to 0 -- silently discarding the newer selection.
+    //
+    // The write is instrumented through a SharedPreferences wrapper that parks the backfill
+    // thread exactly at its edit() call, i.e. between the guard check and the write. A
+    // concurrent foreground selection must NOT be able to complete while the backfill sits
+    // there: with the check and the write in one critical section the racer blocks on the
+    // monitor and only lands afterwards, so the newest selection is the one that survives.
+    @Test(timeout = 30_000)
+    fun saveSelection_guardedWrite_blocksConcurrentSelection_andNewestSelectionWins() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val russiaServers = listOf(
+            server(name = "srv-1", city = "City1", country = Country("Russia", "RU"), config = "config-ru", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val germanyServers = listOf(
+            server(name = "srv-2", city = "City2", country = Country("Germany", "DE"), config = "config-de", lineIndex = 2, ip = "2.2.2.2")
+        )
+
+        SelectedCountryStore.saveSelection(base, "Russia", russiaServers)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelection(
+                instrumentedCtx,
+                "Russia",
+                russiaServers,
+                expectedCountry = "Russia"
+            )
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "backfill thread never reached its guarded write",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        // The user selects Germany while the stale backfill is parked mid-write.
+        val selectionCompleted = CountDownLatch(1)
+        val userSelection = Thread {
+            SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+            selectionCompleted.countDown()
+        }
+        userSelection.start()
+        val slippedIntoCriticalSection = selectionCompleted.await(1, TimeUnit.SECONDS)
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        userSelection.join(20_000)
+
+        assertFalse(
+            "a concurrent selection must not complete while a guarded write holds the lock",
+            slippedIntoCriticalSection
+        )
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        assertEquals(
+            "the stale backfill must not resurrect the previous country's server pool",
+            listOf("config-de"),
+            SelectedCountryStore.getServers(base).map { it.config }
+        )
+    }
+
+    // saveSelectionPreservingIndex made its own check/write/restore sequence
+    // atomic, but the auto-switch index mutations (nextServerCircular -> setIndex) did not take
+    // the same monitor. saveSelection writes index=0 before ensureIndexForConfig restores the
+    // previous position, so ServerAutoSwitcher could advance off that transient 0, dispatch the
+    // server it computed, and then have its advance overwritten by ensureIndexForConfig --
+    // leaving the persisted current server different from the one actually connected to.
+    //
+    // The backfill thread is parked at its SECOND prefs write, i.e. exactly in the window where
+    // index=0 has been committed and the restore has not run yet. A concurrent nextServerCircular
+    // must not be able to observe or mutate the index there.
+    @Test(timeout = 30_000)
+    fun autoSwitchAdvance_cannotInterleaveWithBackfillIndexRestore() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val servers = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "s3", city = "C3", config = "config-3", lineIndex = 3, ip = "3.3.3.3")
+        )
+        SelectedCountryStore.saveSelection(base, "CountryA", servers)
+        // The user is on the last server; the auto-switch cycle started from there.
+        SelectedCountryStore.setCurrentIndex(base, 2)
+        val cycleStartIndex = SelectedCountryStore.getCurrentIndex(base)
+        assertEquals(2, cycleStartIndex)
+
+        val backfillReachedRestoreWindow = CountDownLatch(1)
+        val releaseBackfill = CountDownLatch(1)
+        val editCallsOnBackfillThread = java.util.concurrent.atomic.AtomicInteger(0)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        // 1st write = saveSelection (commits index=0); park before the 2nd,
+                        // which is ensureIndexForConfig restoring the previous position.
+                        if (Thread.currentThread().name == BACKFILL_THREAD &&
+                            editCallsOnBackfillThread.incrementAndGet() == 2
+                        ) {
+                            backfillReachedRestoreWindow.countDown()
+                            releaseBackfill.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(instrumentedCtx, "CountryA", servers)
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "backfill thread never reached its index-restore window",
+            backfillReachedRestoreWindow.await(20, TimeUnit.SECONDS)
+        )
+
+        // ServerAutoSwitcher advances while the backfill sits in that window.
+        val advanceCompleted = CountDownLatch(1)
+        val dispatched = java.util.concurrent.atomic.AtomicReference<StoredServer?>(null)
+        val autoSwitch = Thread {
+            dispatched.set(SelectedCountryStore.nextServerCircular(base, cycleStartIndex))
+            advanceCompleted.countDown()
+        }
+        autoSwitch.start()
+        val slippedIntoCriticalSection = advanceCompleted.await(1, TimeUnit.SECONDS)
+
+        releaseBackfill.countDown()
+        backfill.join(20_000)
+        autoSwitch.join(20_000)
+
+        assertFalse(
+            "an auto-switch advance must not interleave with the backfill's index restore",
+            slippedIntoCriticalSection
+        )
+        val persisted = SelectedCountryStore.currentServer(base)
+        val dispatchedServer = dispatched.get()
+        assertNotNull("the auto-switch must still find a next server after the backfill", dispatchedServer)
+        assertNotNull(persisted)
+        assertEquals(
+            "the persisted current server must be the one the auto-switch actually dispatched",
+            dispatchedServer!!.config,
+            persisted!!.config
+        )
+    }
+
+    // Making only the server-list write guarded is not enough for callers
+    // that follow it with a dependent index write (startup hydration). This is the reproduction of
+    // that split sequence: the hydration's guarded write lands, a newer selection commits in the
+    // gap, and the index -- resolved against the list that just got superseded -- is then applied
+    // to the newer country's pool, so the persisted "current server" is an entry the index was
+    // never measured against.
+    @Test(timeout = 30_000)
+    fun splitGuardedWriteThenIndexWrite_appliesStaleIndexToTheNewerCountrysPool() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        val germanyServers = listOf(
+            server(name = "de-1", city = "Berlin", country = Country("Germany", "DE"), config = "cfg-de-1", lineIndex = 1, ip = "2.2.2.1"),
+            server(name = "de-2", city = "Hamburg", country = Country("Germany", "DE"), config = "cfg-de-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "de-3", city = "Munich", country = Country("Germany", "DE"), config = "cfg-de-3", lineIndex = 3, ip = "2.2.2.3")
+        )
+
+        SelectedCountryStore.saveSelection(base, "France", franceServers)
+
+        val hydrationLeftGuardedWrite = CountDownLatch(1)
+        val releaseHydrationIndexWrite = CountDownLatch(1)
+
+        // Exactly what the hydration used to do: guarded list write, then a SEPARATE index write.
+        val hydration = Thread({
+            val written = SelectedCountryStore.saveSelection(
+                base,
+                "France",
+                franceServers,
+                expectedCountry = "France"
+            )
+            assertTrue(written)
+            hydrationLeftGuardedWrite.countDown()
+            releaseHydrationIndexWrite.await(20, TimeUnit.SECONDS)
+            // index 1 == "cfg-fr-2", i.e. resolved against France's list.
+            SelectedCountryStore.setCurrentIndex(base, 1)
+        }, BACKFILL_THREAD)
+        hydration.start()
+        assertTrue(hydrationLeftGuardedWrite.await(20, TimeUnit.SECONDS))
+
+        // The user picks Germany in the gap between the two writes.
+        SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+        releaseHydrationIndexWrite.countDown()
+        hydration.join(20_000)
+
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        // The damage: France's index landed on Germany's pool.
+        assertEquals("cfg-de-2", SelectedCountryStore.currentServer(base)?.config)
+    }
+
+    // ...and the fix: the same interleaving attempted against the atomic method cannot corrupt the
+    // pair, because the newer selection can only run before the whole list+index write or after
+    // it, never between. The racer is confirmed BLOCKED on the monitor before the hydration is
+    // released, so it really is contending for it.
+    @Test(timeout = 30_000)
+    fun saveSelectionAndSetIndexIfCurrent_writesListAndIndexAsOneCriticalSection() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        val germanyServers = listOf(
+            server(name = "de-1", city = "Berlin", country = Country("Germany", "DE"), config = "cfg-de-1", lineIndex = 1, ip = "2.2.2.1"),
+            server(name = "de-2", city = "Hamburg", country = Country("Germany", "DE"), config = "cfg-de-2", lineIndex = 2, ip = "2.2.2.2"),
+            server(name = "de-3", city = "Munich", country = Country("Germany", "DE"), config = "cfg-de-3", lineIndex = 3, ip = "2.2.2.3")
+        )
+
+        SelectedCountryStore.saveSelection(base, "France", franceServers)
+
+        val hydrationInsideCriticalSection = CountDownLatch(1)
+        val releaseHydration = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            hydrationInsideCriticalSection.countDown()
+                            releaseHydration.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val hydrationWrote = AtomicBoolean(false)
+        val hydration = Thread({
+            hydrationWrote.set(
+                SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+                    instrumentedCtx,
+                    "France",
+                    franceServers,
+                    selectedIndex = 1,
+                    expectedCountry = "France",
+                    expectedConfig = "cfg-fr-1",
+                    expectedIp = "1.1.1.1"
+                )
+            )
+        }, BACKFILL_THREAD)
+        hydration.start()
+        assertTrue(hydrationInsideCriticalSection.await(20, TimeUnit.SECONDS))
+
+        val selectionCompleted = CountDownLatch(1)
+        val userSelection = Thread {
+            SelectedCountryStore.saveSelection(base, "Germany", germanyServers)
+            selectionCompleted.countDown()
+        }
+        userSelection.start()
+        assertTrue(
+            "the newer selection never queued on the selection monitor",
+            awaitBlocked(userSelection)
+        )
+        assertFalse(
+            "a newer selection must not complete while the atomic write holds the lock",
+            selectionCompleted.count == 0L
+        )
+
+        releaseHydration.countDown()
+        hydration.join(20_000)
+        userSelection.join(20_000)
+
+        assertTrue("the guarded hydration write should have been applied", hydrationWrote.get())
+        assertEquals("Germany", SelectedCountryStore.getSelectedCountry(base))
+        assertEquals(
+            listOf("cfg-de-1", "cfg-de-2", "cfg-de-3"),
+            SelectedCountryStore.getServers(base).map { it.config }
+        )
+        // Germany's own write set index 0; France's index 1 never reached this pool.
+        assertEquals("cfg-de-1", SelectedCountryStore.currentServer(base)?.config)
+    }
+
+    // Regression: the write-time guard used to compare only the country name. A deferred writer
+    // that captured server A and then found the user on server B of the SAME country still passed
+    // the guard, so its pool and its index (measured against A) landed and re-pointed the persisted
+    // current server back at A -- reverting the user's choice at the write itself, before any
+    // post-write freshness check could observe anything wrong.
+    @Test
+    fun saveSelectionAndSetIndexIfCurrent_rejectsWhenSameCountryServerChanged() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "France", franceServers)
+        // The deferred writer captured server 2...
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        val captured = SelectedCountryStore.currentServer(ctx)
+        assertEquals("cfg-fr-2", captured?.config)
+
+        // ...and while it was in flight the user picked server 1 of the same country.
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+            ctx,
+            "France",
+            franceServers,
+            selectedIndex = 1,
+            expectedCountry = "France",
+            expectedConfig = captured?.config,
+            expectedIp = captured?.ip
+        )
+
+        assertFalse("the superseded same-country write must be rejected", written)
+        // The user's newer choice stands, untouched.
+        assertEquals("cfg-fr-1", SelectedCountryStore.currentServer(ctx)?.config)
+    }
+
+    // ...and the guard must still let a genuinely current write through.
+    @Test
+    fun saveSelectionAndSetIndexIfCurrent_appliesWhenSelectionUnchanged() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val franceServers = listOf(
+            server(name = "fr-1", city = "Paris", country = Country("France", "FR"), config = "cfg-fr-1", lineIndex = 1, ip = "1.1.1.1"),
+            server(name = "fr-2", city = "Lyon", country = Country("France", "FR"), config = "cfg-fr-2", lineIndex = 2, ip = "1.1.1.2")
+        )
+        SelectedCountryStore.saveSelection(ctx, "France", franceServers)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+            ctx,
+            "France",
+            franceServers,
+            selectedIndex = 1,
+            expectedCountry = "France",
+            expectedConfig = "cfg-fr-2",
+            expectedIp = "1.1.1.2"
+        )
+
+        assertTrue("an unsuperseded write must be applied", written)
+        assertEquals("cfg-fr-2", SelectedCountryStore.currentServer(ctx)?.config)
+    }
+
+    // The silent V2 backfill's freshness predicate -- which compares the server-source epoch -- is
+    // evaluated inside the selection monitor, immediately before the pool is written under that
+    // same monitor. Persisting a server-source change is a separate write; unless it is serialized
+    // against this critical section it can land between the predicate and the write, leaving a V2
+    // candidate pool stored against a VPN Gate source. Nothing necessarily repairs that: the
+    // source-change sync returns early when the country is missing from the new source or its
+    // configs fail to load, so the incompatible pool survives for the whole cache TTL.
+    //
+    // The backfill thread is parked at its write, i.e. exactly in that window. A concurrent source
+    // change must not be able to complete while it sits there.
+    @Test(timeout = 30_000)
+    fun guardedSelectionWrite_blocksAConcurrentServerSourceChange() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        UserSettingsStore.saveServerSource(base, ServerSource.DEFAULT_V2)
+
+        val seeded = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val backfilled = seeded + server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2")
+        SelectedCountryStore.saveSelection(base, "CountryA", seeded)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(
+                instrumentedCtx,
+                "CountryA",
+                backfilled
+            ) { UserSettingsStore.load(base).serverSource == ServerSource.DEFAULT_V2 }
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "the guarded write must reach its parked window",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        val sourceWriter = Thread(
+            { UserSettingsStore.saveServerSource(base, ServerSource.VPNGATE) },
+            SOURCE_WRITER_THREAD
+        )
+        sourceWriter.start()
+
+        assertTrue(
+            "a server source change must not complete between the freshness check and the guarded write",
+            awaitBlocked(sourceWriter)
+        )
+        assertEquals(
+            "the persisted source must still be the one the guarded write was validated against",
+            ServerSource.DEFAULT_V2,
+            UserSettingsStore.load(base).serverSource
+        )
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        sourceWriter.join(20_000)
+
+        assertEquals(
+            "the guarded write ran to completion before the source moved",
+            2,
+            SelectedCountryStore.getServers(base).size
+        )
+        assertEquals(
+            "the source change lands once the critical section is over",
+            ServerSource.VPNGATE,
+            UserSettingsStore.load(base).serverSource
+        )
+    }
+
+    // The same window, the other epoch. The backfill's freshness predicate also compares the app
+    // language epoch, and it is evaluated inside the selection monitor immediately before the pool
+    // is written under it. A language change that is not serialized against that critical section
+    // can land between the two, leaving a pool assembled in the old language stored against the
+    // new one -- and the relocalization job that would repair it can be cancelled during
+    // configuration recreation or fail to load its data. Coverage here is all-or-nothing: guarding
+    // only the source writers leaves the predicate's language term exposed while reading as safe.
+    //
+    // The backfill thread is parked at its write, inside that window. A concurrent language change
+    // must not be able to complete -- neither its epoch bump nor its publish.
+    @Test(timeout = 30_000)
+    fun guardedSelectionWrite_blocksAConcurrentLanguageChange() {
+        val base = RuntimeEnvironment.getApplication()
+        base.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        UserSettingsStore.saveLanguage(base, LanguageOption.ENGLISH)
+        val epochAtLaunch = AppLocaleEpoch.current()
+
+        val seeded = listOf(
+            server(name = "s1", city = "C1", config = "config-1", lineIndex = 1, ip = "1.1.1.1")
+        )
+        val backfilled = seeded + server(name = "s2", city = "C2", config = "config-2", lineIndex = 2, ip = "2.2.2.2")
+        SelectedCountryStore.saveSelection(base, "CountryA", seeded)
+
+        val backfillReachedWrite = CountDownLatch(1)
+        val releaseBackfillWrite = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+
+        val instrumentedCtx = object : ContextWrapper(base) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val delegate = base.getSharedPreferences(name, mode)
+                return object : SharedPreferences by delegate {
+                    override fun edit(): SharedPreferences.Editor {
+                        if (Thread.currentThread().name == BACKFILL_THREAD && armed.compareAndSet(true, false)) {
+                            backfillReachedWrite.countDown()
+                            releaseBackfillWrite.await(20, TimeUnit.SECONDS)
+                        }
+                        return delegate.edit()
+                    }
+                }
+            }
+        }
+
+        val backfill = Thread({
+            SelectedCountryStore.saveSelectionPreservingIndex(
+                instrumentedCtx,
+                "CountryA",
+                backfilled
+            ) { AppLocaleEpoch.current() == epochAtLaunch }
+        }, BACKFILL_THREAD)
+        backfill.start()
+        assertTrue(
+            "the guarded write must reach its parked window",
+            backfillReachedWrite.await(20, TimeUnit.SECONDS)
+        )
+
+        val languageWriter = Thread(
+            { UserSettingsStore.saveLanguage(base, LanguageOption.RUSSIAN) },
+            LANGUAGE_WRITER_THREAD
+        )
+        languageWriter.start()
+
+        assertTrue(
+            "a language change must not complete between the freshness check and the guarded write",
+            awaitBlocked(languageWriter)
+        )
+        assertEquals(
+            "the epoch the guarded write was validated against must not advance inside its critical section",
+            epochAtLaunch,
+            AppLocaleEpoch.current()
+        )
+        assertEquals(
+            "the persisted language must still be the one the guarded write was validated against",
+            LanguageOption.ENGLISH,
+            UserSettingsStore.load(base).language
+        )
+
+        releaseBackfillWrite.countDown()
+        backfill.join(20_000)
+        languageWriter.join(20_000)
+
+        assertEquals(
+            "the guarded write ran to completion before the language moved",
+            2,
+            SelectedCountryStore.getServers(base).size
+        )
+        assertEquals(
+            "the language change lands once the critical section is over",
+            LanguageOption.RUSSIAN,
+            UserSettingsStore.load(base).language
+        )
+    }
+
+    /** Waits until [thread] parks on a monitor, so the race window is entered deterministically. */
+    private fun awaitBlocked(thread: Thread, timeoutMs: Long = 20_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            when (thread.state) {
+                Thread.State.BLOCKED -> return true
+                Thread.State.TERMINATED -> return false
+                else -> Thread.sleep(5)
+            }
+        }
+        return false
+    }
+
+    private companion object {
+        private const val BACKFILL_THREAD = "selected-country-store-test-backfill"
+        private const val SOURCE_WRITER_THREAD = "selected-country-store-test-source-writer"
+        private const val LANGUAGE_WRITER_THREAD = "selected-country-store-test-language-writer"
     }
 }
 

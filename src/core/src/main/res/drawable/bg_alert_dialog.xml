@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SUB-08 defect fix: app-styled window background for FavoriteActionDialog's TV AlertDialog
+<!-- App-styled window background for FavoriteActionDialog's TV AlertDialog
      (and other app AlertDialogs sharing alertDialogTheme, e.g. MainActivityCore.showUpdateDialog).
      Plain androidx.appcompat.app.AlertDialog.Builder does not derive android:windowBackground
      from ?attr/colorSurface (that indirection is MaterialAlertDialogBuilder-only — see themes.xml

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SUB-08: app-styled background for the mobile favorite-toggle PopupMenu — dedicated
+<!-- App-styled background for the mobile favorite-toggle PopupMenu — dedicated
      ovpnPopupMenuBackground fill (distinct from ?attr/colorSurface, which the row cards behind
      it also use) plus a subtle stroke, with item_corner_radius corners, replacing the stock
      platform popup appearance. Wired via Widget.OpenVPNClientGate.PopupMenu's

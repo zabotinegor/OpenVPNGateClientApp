@@ -78,6 +78,28 @@ class DefaultMainSelectionInteractor(
                     cacheOnly = cacheOnly
                 )
                 if (hydrated != null) return hydrated
+                // Hydration returns null either because it could not resolve fresher data or
+                // because the selection changed underneath it. In the latter case `stored` and
+                // `country` are a snapshot of a country the user has already navigated away
+                // from, and reporting them as the current selection would drift the UI (and, via
+                // the caller, the connection) back to it. Fall through only while the snapshot is
+                // still the live selection.
+                // Country *and* server: switching to another server of the same country leaves the
+                // country name unchanged, so a country-only check would let the superseded
+                // `stored` snapshot through.
+                if (!SelectedCountryStore.isCurrentSelection(
+                        appContext,
+                        country,
+                        stored.config,
+                        stored.ip
+                    )
+                ) {
+                    AppLog.w(
+                        TAG,
+                        "loadInitialSelectionV2: selection changed while hydrating '$country', skipping stale result"
+                    )
+                    return null
+                }
             }
             return InitialSelection(
                 country = country,
@@ -163,8 +185,9 @@ class DefaultMainSelectionInteractor(
         if (servers.isEmpty()) return null
 
         val legacyServers = servers.map { it.toLegacyServer() }
-        SelectedCountryStore.saveSelection(appContext, country.name, legacyServers)
-
+        // The index is resolved against `legacyServers` only -- no persisted state -- so it can
+        // be computed before the write and handed to the store, which applies list and index
+        // together under one lock.
         val selectedIndex = when {
             !selectedConfig.isNullOrBlank() ->
                 legacyServers.indexOfFirst { it.configData == selectedConfig }
@@ -176,9 +199,66 @@ class DefaultMainSelectionInteractor(
                 legacyServers.indexOfFirst { it.ip == selectedIp }.takeIf { it >= 0 } ?: 0
             else -> 0
         }
-        SelectedCountryStore.setCurrentIndex(appContext, selectedIndex)
 
+        // Hydration is a *deferred* write: this path is entered from
+        // MainViewModel.onStoreVersionChanged() with a selection captured before the country and
+        // server loads above, so the user can pick a different country while they are in flight.
+        // An unguarded write here would resurrect the captured country on top of that newer
+        // choice. Guarding on the selection we read at entry makes the check, the server-list write
+        // and the dependent index write ONE critical section inside SelectedCountryStore's
+        // selection monitor -- the same monitor the newer selection takes -- so this hydration
+        // either lands whole before that selection or stands down entirely. Splitting the index
+        // write out of that section would reopen the gap: the newer country's pool would be
+        // persisted with an index measured against this (now discarded) list.
+        //
+        // The guard passes the captured *server* identity, not just the country: switching to
+        // another server of the same country leaves the country name equal, so a country-only
+        // guard would let this write land and re-point the persisted current server back at the
+        // captured one -- silently reverting the user's newer choice. And the post-write check
+        // below could not catch it, because it would be revalidating against exactly the server
+        // this write had just persisted.
+        val written = SelectedCountryStore.saveSelectionAndSetIndexIfCurrent(
+            appContext,
+            country.name,
+            legacyServers,
+            selectedIndex,
+            expectedCountry = selectedCountryName,
+            expectedConfig = selectedConfig,
+            expectedIp = selectedIp
+        )
+        if (!written) {
+            AppLog.w(
+                TAG,
+                "hydrateStoredSelectionFromV2: selection changed while hydrating '$selectedCountryName', discarding hydration"
+            )
+            return null
+        }
+
+        // The write landed, but a newer selection may have committed on top of it right after the
+        // monitor was released. Returning this result then would push a selection the user has
+        // already moved off back into the UI (and, via the caller, the connection), so revalidate
+        // before handing it out. The persisted store is already consistent either way.
+        //
+        // The check must cover the *server*, not just the country: picking a different server
+        // inside the same country only moves the index, so getSelectedCountry() stays equal and a
+        // country-only check would wave the superseded pairing through -- reconnecting to the
+        // server the user just moved away from. isCurrentSelection compares country and persisted
+        // current-server identity as one atomic read under the selection monitor.
         val selected = legacyServers[selectedIndex]
+        if (!SelectedCountryStore.isCurrentSelection(
+                appContext,
+                country.name,
+                selected.configData,
+                selected.ip
+            )
+        ) {
+            AppLog.w(
+                TAG,
+                "hydrateStoredSelectionFromV2: selection changed after hydrating '${country.name}', discarding stale result"
+            )
+            return null
+        }
+
         return InitialSelection(
             country = country.name,
             city = selected.city,

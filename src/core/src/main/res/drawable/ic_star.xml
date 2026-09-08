@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SUB-09: small star icon shown next to the "Favorites" section header title. -->
+<!-- Small star icon shown next to the "Favorites" section header title. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"

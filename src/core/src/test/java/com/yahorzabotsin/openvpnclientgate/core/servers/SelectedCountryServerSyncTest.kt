@@ -8,6 +8,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
@@ -145,6 +146,47 @@ class SelectedCountryServerSyncTest {
 
         assertEquals("Australia", SelectedCountryStore.getSelectedCountry(context))
         assertEquals(2, SelectedCountryStore.getServers(context).size)
+    }
+
+    // A source switch (DEFAULT_V2 -> VPN Gate) routes straight through this sync, which replaces
+    // the selected country's whole candidate pool with the new source's data. Any DEFAULT_V2
+    // silent backfill still in flight for that country must be superseded, otherwise its guard
+    // still reads as current and its V2 pages land on top of the pool written here -- resetting
+    // the active server to index 0 when its config is absent from the older V2 data.
+    @Test
+    fun `syncAfterRefresh supersedes in-flight backfills for the synced country`() = runBlocking {
+        CountrySyncGenerations.resetForTests()
+        val servers = listOf(
+            makeServer(name = "srv-au-1", city = "Sydney", lineIndex = 1, country = "Australia", countryCode = "AU", ip = "10.4.0.1", config = "config-au-1"),
+            makeServer(name = "srv-au-2", city = "Melbourne", lineIndex = 2, country = "Australia", countryCode = "AU", ip = "10.4.0.2", config = "config-au-2")
+        )
+        val repository = ServerRepository(FixedApi(sampleCsv(servers)))
+
+        SelectedCountryStore.saveSelection(
+            context,
+            "Australia",
+            listOf(
+                makeServer(name = "old-1", city = "OldSydney", lineIndex = 1, country = "Australia", countryCode = "AU", ip = "10.4.0.1", config = "config-au-1")
+            )
+        )
+
+        // What an in-flight backfill for this country would have captured at launch.
+        val nameGenerationAtBackfillLaunch = CountrySyncGenerations.bump("Australia")
+        val codeGenerationAtBackfillLaunch = CountrySyncGenerations.bump("AU")
+
+        val freshServers = repository.getServers(context, forceRefresh = true, cacheOnly = false)
+        SelectedCountryServerSync(context, repository).syncAfterRefresh(freshServers)
+
+        assertNotEquals(
+            "a name-keyed backfill must be superseded by the source-change sync",
+            nameGenerationAtBackfillLaunch,
+            CountrySyncGenerations.current("Australia")
+        )
+        assertNotEquals(
+            "a code-keyed backfill must be superseded by the source-change sync",
+            codeGenerationAtBackfillLaunch,
+            CountrySyncGenerations.current("AU")
+        )
     }
 
     private fun sampleCsv(servers: List<Server>): String {

@@ -9,9 +9,9 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 /**
  * Favorites toggle affordance shared by [ServerListActivity] and [CountryServersActivity].
  *
- * Mobile (touch) uses an anchored [android.widget.PopupMenu] (SUB-02/SUB-03). PopupMenu does
+ * Mobile (touch) uses an anchored [android.widget.PopupMenu]. PopupMenu does
  * not anchor or focus well with D-pad navigation, so TV uses a self-contained, remote-navigable
- * [AlertDialog] instead (SUB-04). The favorite/not-favorite state machine and the ViewModel
+ * [AlertDialog] instead. The favorite/not-favorite state machine and the ViewModel
  * ToggleFavorite action are identical on both surfaces; only the presentation differs.
  *
  * [resolvePresentation] and [actionLabelRes] are extracted as testable seams (mirrors the
@@ -50,7 +50,7 @@ internal object FavoriteActionDialog {
      * dismisses without action.
      *
      * Returns the dialog so callers can track it and dismiss it in onDestroy (window-leak
-     * guard, mirrors the activePopupMenu pattern from SUB-02/SUB-03).
+     * guard, mirrors the activePopupMenu pattern).
      *
      * Returns `null` without showing anything when [activity] is finishing or destroyed —
      * favorite-state resolution is asynchronous, so a rapid D-pad long-press can race with
