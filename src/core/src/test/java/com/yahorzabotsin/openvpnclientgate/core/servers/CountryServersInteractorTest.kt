@@ -1266,6 +1266,62 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Comparing the resolved locale against the launch locale is an equality check on a captured
+    // value, so it reads as unchanged once the language has moved away and back. Each page
+    // request resolves the locale on its own and may have been served in the intermediate
+    // language, so the merged list can mix languages while that comparison still passes. The
+    // language epoch advances on every write, which makes away-and-back visible.
+    @Test
+    fun resolveSelection_v2_backfill_stands_down_when_the_app_language_changed_away_and_back_mid_flight() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        val gate = CompletableDeferred<Unit>()
+        val reachedGate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate, reachedGate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "localeToggle1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        reachedGate.await()
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a backfill must not write its pool after the language moved away and back mid-flight",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertFalse(
+            "nor cache a list that may mix languages under the launch locale's key",
+            java.io.File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+        assertFalse(
+            "nor under the intermediate language's key",
+            java.io.File(context.cacheDir, "v2_servers_jp_ru.json").exists()
+        )
+    }
+
     /** The countries cache file the repository actually writes -- cacheDir, normalized locale. */
     private fun countriesCacheFile(): java.io.File =
         java.io.File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json")

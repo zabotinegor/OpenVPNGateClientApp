@@ -78,9 +78,11 @@ object UserSettingsStore {
     }
 
     fun save(ctx: Context, settings: UserSettings) {
-        // Advanced BEFORE the value is published so no source-dependent background job can
-        // observe the new source paired with the old epoch. See [ServerSourceEpoch].
+        // Both epochs are advanced BEFORE the values are published so no source- or
+        // language-dependent background job can observe a new value paired with an old epoch.
+        // See [ServerSourceEpoch] and [AppLocaleEpoch].
         ServerSourceEpoch.bump()
+        AppLocaleEpoch.bump()
         prefs(ctx).edit()
             .putString(KEY_LANGUAGE, settings.language.name)
             .putString(KEY_THEME, settings.theme.name)
@@ -92,8 +94,16 @@ object UserSettingsStore {
             .apply()
     }
 
-    fun saveLanguage(ctx: Context, language: LanguageOption) =
+    fun saveLanguage(ctx: Context, language: LanguageOption) {
+        // Advanced BEFORE the value is published, and unconditionally -- including a write that
+        // stores the same language again. The epoch is what lets an in-flight, language-specific
+        // background job (the silent V2 backfill) stand down even when the language moved away
+        // and back while one of its page requests was in flight: that request resolved the
+        // locale on its own and may have been served in the intermediate language, which a plain
+        // equality check against the launch locale cannot see. See [AppLocaleEpoch].
+        AppLocaleEpoch.bump()
         prefs(ctx).edit().putString(KEY_LANGUAGE, language.name).apply()
+    }
 
     fun saveTheme(ctx: Context, theme: ThemeOption) =
         prefs(ctx).edit().putString(KEY_THEME, theme.name).apply()

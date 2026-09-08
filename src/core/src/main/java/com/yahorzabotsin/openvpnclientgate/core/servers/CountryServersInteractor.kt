@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.annotation.VisibleForTesting
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.settings.AppLocaleEpoch
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSourceEpoch
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
@@ -422,8 +423,11 @@ class DefaultCountryServersInteractor(
         // merge them with the seed pages fetched in the old one, and persist that mixed list
         // under the NEW locale's cache key with a fresh timestamp. Relocalization does not
         // reliably bump a generation either -- it returns early on a fresh cache and is
-        // cancelled on activity recreation -- so the locale is checked directly.
+        // cancelled on activity recreation -- so the locale is checked directly. The resolved
+        // locale alone reads as unchanged after a language that moved away and back while a page
+        // request was in flight, so the launch epoch is captured with it.
         val launchSourceEpoch = ServerSourceEpoch.current()
+        val launchLocaleEpoch = AppLocaleEpoch.current()
         val launchLocale = UserSettingsStore.resolvePreferredLocale(appContext)
         lastBackfillJob = backfillScope.launch {
             try {
@@ -486,8 +490,18 @@ class DefaultCountryServersInteractor(
                 // Pins this paging session to the language it started in: a mid-flight change
                 // stands the job down instead of letting it merge pages fetched in two
                 // languages and cache them under the new locale's key.
+                //
+                // The resolved-locale comparison alone is an equality check on a captured value,
+                // so it cannot see a language that moved away and back (en -> ru -> en) while a
+                // page request was in flight: that request resolves the locale on its own and
+                // may have been served in the intermediate language, yet the comparison reads as
+                // unchanged. The epoch advances on every language write, so away-and-back is
+                // visible. The live comparison is still needed alongside it: an OS locale change
+                // under the SYSTEM language option never goes through the settings store and so
+                // advances no epoch.
                 fun isLocaleUnchanged(): Boolean =
-                    UserSettingsStore.resolvePreferredLocale(appContext) == launchLocale
+                    AppLocaleEpoch.current() == launchLocaleEpoch &&
+                        UserSettingsStore.resolvePreferredLocale(appContext) == launchLocale
                 fun mayStillWrite(): Boolean =
                     isCurrentGeneration() && isSourceStillDefaultV2() && isLocaleUnchanged()
                 val accumulatedLegacy = LinkedHashMap<Any, Server>()

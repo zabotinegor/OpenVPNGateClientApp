@@ -174,6 +174,32 @@ class UserSettingsStoreTest {
         )
     }
 
+    // The epoch is what lets a language-specific background job stand down when the language
+    // moved away and back while one of its requests was in flight -- comparing the resolved
+    // locale alone reads as unchanged in that case. It must advance on every persisted language
+    // write, including one that stores the same value again.
+    @Test
+    fun save_language_advances_the_language_epoch_on_every_write() {
+        val start = AppLocaleEpoch.current()
+
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+        val afterFirst = AppLocaleEpoch.current()
+        assertTrue("saveLanguage must advance the epoch", afterFirst > start)
+
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+        assertTrue(
+            "re-storing the same language must still advance the epoch",
+            AppLocaleEpoch.current() > afterFirst
+        )
+
+        val beforeBulkSave = AppLocaleEpoch.current()
+        UserSettingsStore.save(context, UserSettings(language = LanguageOption.ENGLISH))
+        assertTrue(
+            "the bulk save() writes the language too and must advance the epoch",
+            AppLocaleEpoch.current() > beforeBulkSave
+        )
+    }
+
     // UT-1.5 — DEFAULT_V2 does not expose CSV URLs directly
     @Test
     fun resolve_server_urls_default_v2_returns_empty_csv_list() {
