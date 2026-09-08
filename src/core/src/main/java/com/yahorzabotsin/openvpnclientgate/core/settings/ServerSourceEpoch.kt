@@ -41,5 +41,5 @@ object ServerSourceEpoch {
      * direction.
      */
     @VisibleForTesting
-    fun bump(): Long = epoch.incrementAndGet()
+    internal fun bump(): Long = epoch.incrementAndGet()
 }

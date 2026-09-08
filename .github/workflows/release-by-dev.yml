@@ -55,7 +55,9 @@ jobs:
           echo "$CHANGED_FILES"
 
           HAS_CODE=false
-          if echo "$CHANGED_FILES" | grep -qE '^(src/|media)'; then
+          # "media" is a submodule: git reports its pointer bump as the bare path
+          # "media", so the alternation must accept both "media" and "media/...".
+          if echo "$CHANGED_FILES" | grep -qE '^(src/|media(/|$))'; then
             HAS_CODE=true
           fi
 
