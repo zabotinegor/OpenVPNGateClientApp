@@ -1110,6 +1110,56 @@ class CountryServersInteractorTest {
         )
     }
 
+    // Switching the server source away from DEFAULT_V2 while a silent V2 backfill is in flight
+    // must stand that backfill down. The source-change sync repopulates the same country from the
+    // new source; the older job's V2 pages landing afterwards would replace that pool (and reset
+    // the current server to index 0 when its config is absent from the V2 data). The generation
+    // guard alone cannot catch this: the source-change sync path can return early without ever
+    // writing (country missing from the new source, configs unavailable), so no bump happens.
+    @Test
+    fun resolveSelection_v2_backfill_skips_writes_when_the_server_source_changed_mid_flight() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "src1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is parked on the gate. The user switches the source in Settings.
+        setSource(ServerSource.VPNGATE)
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a V2 backfill must not write its pool after the source switched away from V2",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertFalse(
+            "a V2 backfill must not persist a V2 full-list cache after the source switched away",
+            serversCacheFile("jp").exists()
+        )
+    }
+
     /** The countries cache file the repository actually writes -- cacheDir, normalized locale. */
     private fun countriesCacheFile(): java.io.File =
         java.io.File(context.cacheDir, "v2_countries_${currentLocaleCode()}.json")

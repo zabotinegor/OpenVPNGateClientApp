@@ -386,12 +386,7 @@ class DefaultCountryServersInteractor(
      * are only ever compared for equality with a captured value.
      */
     private fun supersedeInFlightBackfills(countryName: String, countryCode: String?) {
-        val nameKey = CountrySyncGenerations.key(countryName)
-        CountrySyncGenerations.bump(nameKey)
-        countryCode
-            ?.let { CountrySyncGenerations.key(it) }
-            ?.takeIf { it != nameKey }
-            ?.let { CountrySyncGenerations.bump(it) }
+        CountrySyncGenerations.supersede(countryName, countryCode)
     }
 
     private fun dedupKey(id: Int, ip: String?, configData: String): Any =
@@ -450,6 +445,20 @@ class DefaultCountryServersInteractor(
                 fun isCurrentGeneration(): Boolean =
                     CountrySyncGenerations.current(launchKey) == generation &&
                         CountrySyncGenerations.current(codeKey) == codeGeneration
+                // This backfill only ever exists for the DEFAULT_V2 source and carries V2 data.
+                // Switching the source away from V2 mid-flight (Settings -> VPN Gate) makes every
+                // remaining page of this job wrong for the pool it would write into: the
+                // source-change sync repopulates the same country from the new source, and these
+                // V2 rows landing afterwards would replace it -- resetting the active server to
+                // index 0 whenever its config is absent from the V2 data. The source-change sync
+                // path also supersedes this job's generation (see
+                // CountrySyncGenerations.supersede), but that only helps when that sync actually
+                // reaches its write: it returns early when the country is missing from the new
+                // source's list or its configs fail to load. Rechecking the live source here
+                // stands the job down in those cases too.
+                fun isSourceStillDefaultV2(): Boolean =
+                    UserSettingsStore.load(appContext).serverSource == ServerSource.DEFAULT_V2
+                fun mayStillWrite(): Boolean = isCurrentGeneration() && isSourceStillDefaultV2()
                 val accumulatedLegacy = LinkedHashMap<Any, Server>()
                 val accumulatedV2 = LinkedHashMap<Any, ServerV2>()
                 initialServers.forEach { server ->
@@ -470,10 +479,10 @@ class DefaultCountryServersInteractor(
                     // Bailing out here is safe precisely because the writes are already guarded:
                     // a drifted generation can never be un-drifted (tickets are monotonic), so
                     // this job had no reachable write left to perform.
-                    if (!isCurrentGeneration()) {
+                    if (!mayStillWrite()) {
                         AppLog.w(
                             TAG,
-                            "Silent backfill for country=$countryName aborted after $pagesFetched page(s): generation drifted"
+                            "Silent backfill for country=$countryName aborted after $pagesFetched page(s): generation drifted or server source changed"
                         )
                         return@launch
                     }
@@ -511,12 +520,13 @@ class DefaultCountryServersInteractor(
                 // skipped in this case.
                 val backfillIncomplete = hasMore
                 // Per-country generation guard: skip writes when a newer same-country
-                // backfill or sync started (generation drifted on either key).
-                val generationDrifted = !isCurrentGeneration()
-                if (generationDrifted) {
+                // backfill or sync started (generation drifted on either key), or when the user
+                // switched the server source away from DEFAULT_V2 while this job was running.
+                val superseded = !mayStillWrite()
+                if (superseded) {
                     AppLog.w(
                         TAG,
-                        "Silent backfill for country=$countryName skipped its writes: generation drifted"
+                        "Silent backfill for country=$countryName skipped its writes: generation drifted or server source changed"
                     )
                 } else {
                     // The guard is re-evaluated INSIDE SelectedCountryStore's selection monitor,
@@ -529,10 +539,10 @@ class DefaultCountryServersInteractor(
                         appContext,
                         countryName,
                         accumulatedLegacy.values.toList()
-                    ) { isCurrentGeneration() }
+                    ) { mayStillWrite() }
                     if (!backfillIncomplete) {
                         repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
-                            isCurrentGeneration()
+                            mayStillWrite()
                         }
                     } else {
                         AppLog.w(

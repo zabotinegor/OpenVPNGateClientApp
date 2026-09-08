@@ -91,6 +91,33 @@ internal object CountrySyncGenerations {
     }
 
     /**
+     * Bumps every distinct, non-blank key among [rawCountryKeys], so any same-country backfill
+     * still in flight stands down instead of overwriting the pool the caller is about to write.
+     *
+     * Several keys are accepted because [DefaultCountryServersInteractor.launchSilentBackfill]
+     * keys its launch generation by `countryCode ?: countryName`: a backfill started from a screen
+     * opened *by name* guards on the name key, while one started with a code guards on the code
+     * key, and a sync may additionally know the country under a freshly relocalized name. Bumping
+     * only the key the caller happens to hold would leave the other kinds unsuperseded. Bumping a
+     * key nothing is guarding on is harmless -- generations are monotonic tickets that are only
+     * ever compared for equality with a captured value.
+     *
+     * Every caller that *replaces a country's persisted candidate pool* must call this first --
+     * not only a new selection of the same source. A server-source switch (DEFAULT_V2 -> VPN Gate)
+     * routes through [SelectedCountryServerSync], which rewrites the same country's pool from a
+     * different source entirely; without a bump here, an in-flight V2 backfill's guard still reads
+     * as current and its pages land on top of the just-synced pool, resetting the active server to
+     * index 0 whenever its config is absent from the V2 data.
+     */
+    fun supersede(vararg rawCountryKeys: String?) {
+        rawCountryKeys.asSequence()
+            .filterNot { it.isNullOrBlank() }
+            .map { key(it!!) }
+            .distinct()
+            .forEach { bump(it) }
+    }
+
+    /**
      * Drops every recorded generation. Tests only: this object is a process-wide singleton, so a
      * generation left behind by a previous test would otherwise decide the next test's drift
      * guard. The sequence itself is deliberately NOT reset -- monotonicity must survive.

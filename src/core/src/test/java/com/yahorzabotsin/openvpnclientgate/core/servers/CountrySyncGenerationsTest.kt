@@ -133,6 +133,29 @@ class CountrySyncGenerationsTest {
         )
     }
 
+    /**
+     * Every caller that replaces a country's persisted pool supersedes in-flight backfills through
+     * this helper, and a backfill may be guarding on either the name key or the code key. Blanks
+     * and nulls are the normal case (a selection without a country code), and duplicates are
+     * normal too (name == code for a country screen opened by code).
+     */
+    @Test
+    fun supersede_bumps_every_distinct_non_blank_key() {
+        val nameBefore = CountrySyncGenerations.bump("Japan")
+        val codeBefore = CountrySyncGenerations.bump("JP")
+
+        CountrySyncGenerations.supersede("Japan", "jp", null, "  ")
+
+        assertTrue(
+            "a name-keyed backfill must be superseded",
+            CountrySyncGenerations.current("Japan") > nameBefore
+        )
+        assertTrue(
+            "a code-keyed backfill must be superseded, case-insensitively",
+            CountrySyncGenerations.current("JP") > codeBefore
+        )
+    }
+
     @Test
     fun keys_are_canonicalized_across_case_and_whitespace() {
         val claimed = CountrySyncGenerations.bump("  by ")
