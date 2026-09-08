@@ -78,6 +78,9 @@ object UserSettingsStore {
     }
 
     fun save(ctx: Context, settings: UserSettings) {
+        // Advanced BEFORE the value is published so no source-dependent background job can
+        // observe the new source paired with the old epoch. See [ServerSourceEpoch].
+        ServerSourceEpoch.bump()
         prefs(ctx).edit()
             .putString(KEY_LANGUAGE, settings.language.name)
             .putString(KEY_THEME, settings.theme.name)
@@ -95,8 +98,15 @@ object UserSettingsStore {
     fun saveTheme(ctx: Context, theme: ThemeOption) =
         prefs(ctx).edit().putString(KEY_THEME, theme.name).apply()
 
-    fun saveServerSource(ctx: Context, source: ServerSource) =
+    fun saveServerSource(ctx: Context, source: ServerSource) {
+        // Advanced BEFORE the value is published, and unconditionally -- including a write that
+        // stores the same source again. The epoch is what lets an in-flight, source-specific
+        // background job (the silent V2 backfill) stand down even when the source-change sync
+        // that would normally supersede it is cancelled or returns before writing, and even when
+        // the source moved away and back while that job was parked. See [ServerSourceEpoch].
+        ServerSourceEpoch.bump()
         prefs(ctx).edit().putString(KEY_SERVER_SOURCE, source.name).apply()
+    }
 
     fun saveCacheTtlMs(ctx: Context, ttlMs: Long) =
         prefs(ctx).edit().putLong(KEY_CACHE_TTL_MS, ttlMs.coerceAtLeast(MIN_CACHE_TTL_MS)).apply()

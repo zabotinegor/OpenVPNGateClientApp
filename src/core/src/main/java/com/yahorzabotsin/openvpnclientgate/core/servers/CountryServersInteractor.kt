@@ -5,6 +5,7 @@ import androidx.annotation.VisibleForTesting
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
+import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSourceEpoch
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -407,6 +408,23 @@ class DefaultCountryServersInteractor(
         // launch key falls back to the country name — see the code-key adoption below.
         val launchKey = CountrySyncGenerations.key(countryCode ?: countryName)
         val generation = CountrySyncGenerations.bump(launchKey)
+        // Captured synchronously at launch, for the same reason as the generation above: both
+        // are compared for equality later, so they must describe the world this backfill's seed
+        // pages (initialServers) came from, not the world at the moment the coroutine starts.
+        //
+        // Server source: the live `serverSource == DEFAULT_V2` check below cannot see a source
+        // that was switched away and back while this job was parked (the VPN Gate sync in
+        // between already rewrote this country's pool), nor a switch whose sync was cancelled
+        // before it advanced any generation. The epoch moves on every persisted source write.
+        //
+        // Locale: every ServersV2Repository call resolves the current locale independently, so a
+        // language change mid-backfill would fetch the remaining pages in the new language,
+        // merge them with the seed pages fetched in the old one, and persist that mixed list
+        // under the NEW locale's cache key with a fresh timestamp. Relocalization does not
+        // reliably bump a generation either -- it returns early on a fresh cache and is
+        // cancelled on activity recreation -- so the locale is checked directly.
+        val launchSourceEpoch = ServerSourceEpoch.current()
+        val launchLocale = UserSettingsStore.resolvePreferredLocale(appContext)
         lastBackfillJob = backfillScope.launch {
             try {
                 val countryV2 = resolveCountryV2(repo, countryName, countryCode, cacheOnly = false)
@@ -456,9 +474,22 @@ class DefaultCountryServersInteractor(
                 // reaches its write: it returns early when the country is missing from the new
                 // source's list or its configs fail to load. Rechecking the live source here
                 // stands the job down in those cases too.
+                //
+                // The live read alone is a check-then-write against a value the Settings flow
+                // can change in between, and it reads the same for a source that was switched
+                // away and back. Pairing it with the launch epoch closes both: the epoch is
+                // advanced by the source write itself, before the new value is published, so it
+                // does not depend on the source-change sync ever reaching its own write.
                 fun isSourceStillDefaultV2(): Boolean =
-                    UserSettingsStore.load(appContext).serverSource == ServerSource.DEFAULT_V2
-                fun mayStillWrite(): Boolean = isCurrentGeneration() && isSourceStillDefaultV2()
+                    ServerSourceEpoch.current() == launchSourceEpoch &&
+                        UserSettingsStore.load(appContext).serverSource == ServerSource.DEFAULT_V2
+                // Pins this paging session to the language it started in: a mid-flight change
+                // stands the job down instead of letting it merge pages fetched in two
+                // languages and cache them under the new locale's key.
+                fun isLocaleUnchanged(): Boolean =
+                    UserSettingsStore.resolvePreferredLocale(appContext) == launchLocale
+                fun mayStillWrite(): Boolean =
+                    isCurrentGeneration() && isSourceStillDefaultV2() && isLocaleUnchanged()
                 val accumulatedLegacy = LinkedHashMap<Any, Server>()
                 val accumulatedV2 = LinkedHashMap<Any, ServerV2>()
                 initialServers.forEach { server ->
@@ -482,7 +513,7 @@ class DefaultCountryServersInteractor(
                     if (!mayStillWrite()) {
                         AppLog.w(
                             TAG,
-                            "Silent backfill for country=$countryName aborted after $pagesFetched page(s): generation drifted or server source changed"
+                            "Silent backfill for country=$countryName aborted after $pagesFetched page(s): generation drifted, server source changed, or app language changed"
                         )
                         return@launch
                     }
@@ -520,13 +551,15 @@ class DefaultCountryServersInteractor(
                 // skipped in this case.
                 val backfillIncomplete = hasMore
                 // Per-country generation guard: skip writes when a newer same-country
-                // backfill or sync started (generation drifted on either key), or when the user
-                // switched the server source away from DEFAULT_V2 while this job was running.
+                // backfill or sync started (generation drifted on either key), when the user
+                // switched the server source away from DEFAULT_V2 while this job was running,
+                // or when the app language changed and these pages are no longer all in the
+                // locale this session started in.
                 val superseded = !mayStillWrite()
                 if (superseded) {
                     AppLog.w(
                         TAG,
-                        "Silent backfill for country=$countryName skipped its writes: generation drifted or server source changed"
+                        "Silent backfill for country=$countryName skipped its writes: generation drifted, server source changed, or app language changed"
                     )
                 } else {
                     // The guard is re-evaluated INSIDE SelectedCountryStore's selection monitor,
@@ -541,7 +574,17 @@ class DefaultCountryServersInteractor(
                         accumulatedLegacy.values.toList()
                     ) { mayStillWrite() }
                     if (!backfillIncomplete) {
-                        repo.persistFullServerList(appContext, resolvedCode, accumulatedV2.values.toList()) {
+                        // expectedLocale is the launch locale, not just the guard above: the
+                        // repository resolves the locale itself to build the cache key, so a
+                        // language change landing between the predicate and that resolution
+                        // would otherwise still file this list under the new locale. Compared
+                        // against the very value the write is keyed by, the check is exact.
+                        repo.persistFullServerList(
+                            appContext,
+                            resolvedCode,
+                            accumulatedV2.values.toList(),
+                            expectedLocale = launchLocale
+                        ) {
                             mayStillWrite()
                         }
                     } else {

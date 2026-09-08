@@ -148,6 +148,32 @@ class UserSettingsStoreTest {
         assertEquals(ServerSource.DEFAULT_V2, settings.serverSource)
     }
 
+    // The epoch is what lets a source-specific background job stand down even when the
+    // source-change sync that would normally supersede it never runs. It must advance on every
+    // persisted source write -- including one that stores the same value again, which is what
+    // makes a switch away and back visible.
+    @Test
+    fun save_server_source_advances_the_source_epoch_on_every_write() {
+        val start = ServerSourceEpoch.current()
+
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
+        val afterFirst = ServerSourceEpoch.current()
+        assertTrue("saveServerSource must advance the epoch", afterFirst > start)
+
+        UserSettingsStore.saveServerSource(context, ServerSource.VPNGATE)
+        assertTrue(
+            "re-storing the same source must still advance the epoch",
+            ServerSourceEpoch.current() > afterFirst
+        )
+
+        val beforeBulkSave = ServerSourceEpoch.current()
+        UserSettingsStore.save(context, UserSettings(serverSource = ServerSource.DEFAULT_V2))
+        assertTrue(
+            "the bulk save() writes the source too and must advance the epoch",
+            ServerSourceEpoch.current() > beforeBulkSave
+        )
+    }
+
     // UT-1.5 — DEFAULT_V2 does not expose CSV URLs directly
     @Test
     fun resolve_server_urls_default_v2_returns_empty_csv_list() {

@@ -2,6 +2,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 
 import android.content.Context
 import com.google.gson.Gson
+import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CompletableDeferred
@@ -1157,6 +1158,111 @@ class CountryServersInteractorTest {
         assertFalse(
             "a V2 backfill must not persist a V2 full-list cache after the source switched away",
             serversCacheFile("jp").exists()
+        )
+    }
+
+    // A live `serverSource == DEFAULT_V2` read cannot see a source that moved away and back
+    // while the backfill was parked: the VPN Gate sync in between already rewrote this country's
+    // pool, and these older V2 pages must not land on top of it. The launch-time source epoch is
+    // what makes that visible.
+    @Test
+    fun resolveSelection_v2_backfill_stands_down_when_the_source_switched_away_and_back_mid_flight() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        val gate = CompletableDeferred<Unit>()
+        val reachedGate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate, reachedGate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "srcflip1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        // The backfill is parked INSIDE its page fetch -- past its own pre-fetch guard, which is
+        // the window a live source read leaves open.
+        reachedGate.await()
+        setSource(ServerSource.VPNGATE)
+        setSource(ServerSource.DEFAULT_V2)
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a V2 backfill must not write its pool after the source was switched away and back",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertFalse(
+            "a V2 backfill must not persist a full-list cache after the source was switched away and back",
+            serversCacheFile("jp").exists()
+        )
+    }
+
+    // Every ServersV2Repository call resolves the current locale on its own, so a language change
+    // mid-backfill would merge pages fetched in two languages and cache the result under the NEW
+    // locale's key with a fresh timestamp. The backfill pins the locale it launched in instead.
+    @Test
+    fun resolveSelection_v2_backfill_stands_down_when_the_app_language_changed_mid_flight() = runBlocking {
+        setSource(ServerSource.DEFAULT_V2)
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        val gate = CompletableDeferred<Unit>()
+        val reachedGate = CompletableDeferred<Unit>()
+        val api = FakeServersV2Api(
+            countriesJson = """[{"code":"JP","name":"Japan","serverCount":3}]""",
+            serversPageResponses = listOf(
+                buildZeroIdServersJson(listOf("10.0.0.1", "10.0.0.2"), total = 3),
+                buildZeroIdServersJson(listOf("10.0.0.3"), total = 3)
+            )
+        )
+        val v2Repo = ServersV2Repository(GatedOnSecondCallServersApi(api, gate, reachedGate))
+        v2Repo.getCountries(context, forceRefresh = true)
+        val interactor = DefaultCountryServersInteractor(context, ServerRepository(FailingVpnServersApi()), v2Repo)
+
+        val firstPage = interactor.getServersPage("Japan", "JP", skip = 0, take = 50, cacheOnly = false, pagingSessionId = "locale1")
+        assertTrue(firstPage.hasMore)
+
+        interactor.resolveSelection(
+            countryName = "Japan",
+            countryCode = "JP",
+            servers = firstPage.servers,
+            selectedServer = firstPage.servers[0],
+            hasMorePages = firstPage.hasMore,
+            nextSkip = firstPage.nextSkip
+        )
+        assertTrue(interactor.lastBackfillJob != null)
+
+        reachedGate.await()
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+        gate.complete(Unit)
+        interactor.lastBackfillJob?.join()
+
+        assertEquals(
+            "a backfill must not merge pages across a language change into the persisted pool",
+            2,
+            SelectedCountryStore.getServers(context).size
+        )
+        assertFalse(
+            "the mixed-language list must not be cached under the new locale's key",
+            java.io.File(context.cacheDir, "v2_servers_jp_ru.json").exists()
+        )
+        assertFalse(
+            "nor under the locale the session started in",
+            java.io.File(context.cacheDir, "v2_servers_jp_en.json").exists()
         )
     }
 

@@ -375,14 +375,30 @@ class ServersV2Repository(
      * with `accumulate = false` and therefore built its own merged list instead of relying on
      * [pageAccumulators]. Acquires this country+locale's paging lock itself. No-op for an empty
      * list (mirrors [persistFullListCache]'s own guard).
+     *
+     * [expectedLocale] pins the write to the locale the caller's pages were fetched in. The cache
+     * key is derived from the locale resolved *here*, so without this check a language change
+     * landing after the caller's own guard would file a list built in the previous language under
+     * the new language's key, with a fresh TTL stamp -- stranding the wrong-language list for the
+     * rest of the TTL. Compared against the very value the key is built from, so there is no
+     * window left between the check and the write.
      */
     suspend fun persistFullServerList(
         context: Context,
         countryCode: String,
         servers: List<ServerV2>,
+        expectedLocale: String? = null,
         shouldPersist: (() -> Boolean)? = null
     ) {
         val normalizedLocale = normalizeLocale(resolvePreferredLocale(context))
+        if (expectedLocale != null && normalizeLocale(expectedLocale) != normalizedLocale) {
+            AppLog.w(
+                TAG,
+                "persistFullServerList[$countryCode]: skipping write -- locale changed from " +
+                    "${normalizeLocale(expectedLocale)} to $normalizedLocale while the caller was fetching"
+            )
+            return
+        }
         val normalizedCountryCode = normalizeCountryCode(countryCode)
         val lockKey = "$normalizedCountryCode|$normalizedLocale"
         val mutex = serversMutexMap.computeIfAbsent(lockKey) { Mutex() }
