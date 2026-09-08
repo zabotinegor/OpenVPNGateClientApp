@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
+import com.yahorzabotsin.openvpnclientgate.core.settings.AppLocaleEpoch
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,7 @@ import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Result of a single lazy-loaded page fetch. [nextSkip] is derived from the raw
@@ -33,6 +35,40 @@ data class ServersV2Page(
 /** Identity of a paging entry that has no stable server id: equality over the full
  * connection attributes, so distinct connections never collide (unlike a hash). */
 internal data class NoIdKey(val ip: String?, val configData: String)
+
+/**
+ * Everything a foreground paging session captures at its first page (`skip = 0`) and then
+ * validates for every later page and for its final cache write.
+ *
+ * Each repository call resolves the app language and the country's sync generation on its own,
+ * so without a capture taken once per session a session has no notion of "the conditions I
+ * started under" — every page silently adopts whatever is true at the moment it runs.
+ *
+ * @param locale the normalized locale the session's first page was fetched in. The cache key is
+ * built from the locale resolved per call, so a language change landing mid-session would append
+ * pages fetched in the new language to an accumulator built in the old one and file the mixed
+ * result under the new language's key with a fresh TTL stamp.
+ * @param localeEpoch pairs with [locale] because the equality check alone cannot see a language
+ * that moved away and back (en -> ru -> en) while a page request was in flight. The live
+ * comparison is still needed alongside it: an OS locale change under the system-language option
+ * never goes through the settings store and so advances no epoch.
+ * @param syncGeneration the country's sync generation at session start, so a full-list persist is
+ * skipped when a newer same-country sync completed while the user was scrolling.
+ * @param persistTicket a monotonic ticket ordering this session against every other paging
+ * session for the same country, so an older session that finishes last cannot overwrite a newer
+ * session's already-written cache.
+ * @param languageChanged set once a later page was served in a different language than [locale].
+ * The already-consumed offsets can never be re-fetched in the new language, so such a session can
+ * no longer produce a valid full list: it stops accumulating and never persists, instead of
+ * silently caching a partial or mixed-language list.
+ */
+internal data class PagingSessionPin(
+    val locale: String,
+    val localeEpoch: Long,
+    val syncGeneration: Long,
+    val persistTicket: Long,
+    val languageChanged: Boolean = false
+)
 
 /**
  * Fetches and caches v2 country and server lists.
@@ -61,12 +97,28 @@ class ServersV2Repository(
     // fetchAllPages's MAX_PAGES_SAFETY_LIMIT bound: without it, a backend that reports a wrong
     // or hostile `total` keeps `hasMore=true` forever and the accumulator/adapter/UI state grow
     // without bound. Reset on a fresh skip=0 session and removed alongside the accumulator.
-    private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap(),
-    // Captures SelectedCountryVersionSignal.version at skip=0 of each foreground
-    // accumulate session so a full-list cache persist at hasMore=false can be skipped when a
-    // newer same-country sync completed in the meantime.
-    private val pageStartVersions: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
+    private val pagesFetchedForSession: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
 ) {
+
+    // What each foreground accumulate session captured at skip=0 -- language, language epoch,
+    // country sync generation and its cache-write ordering ticket -- keyed the same as
+    // [pageAccumulators] and removed alongside them. See [PagingSessionPin]. Not a constructor
+    // parameter: a public constructor may not expose this internal type, and nothing outside
+    // this class has any business seeding a session's capture.
+    private val pageSessionPins: ConcurrentHashMap<String, PagingSessionPin> = ConcurrentHashMap()
+
+    // Highest paging-session ticket that has already written a country's full-list cache, keyed
+    // by canonical country key. A session may only write when no LATER-started session has
+    // written this country already, which is what stops an older session that finishes last from
+    // replacing a newer session's list and re-stamping the TTL. One Long per country the user
+    // actually paged, so it stays bounded for the process lifetime.
+    private val lastPersistedPagingTicket: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
+
+    // Session tickets come from one process-wide sequence so they stay comparable, and are
+    // allocated at session start -- starting a foreground paging session deliberately does NOT
+    // advance CountrySyncGenerations, which would stand down the unrelated silent backfill for
+    // the same country and drop the auto-switch candidate pool it is building.
+    private val pagingTicketSequence = AtomicLong(0L)
 
     private companion object {
         private val TAG = LogTags.APP + ":ServersV2Repository"
@@ -240,6 +292,11 @@ class ServersV2Repository(
      * the same cache file [getServersForCountry] reads once [ServersV2Page.hasMore] turns
      * false (the session reached its last page), so a later re-open within the TTL takes the
      * warm-cache fast path. [abandonPagingSession] releases the session's state.
+     *
+     * The session also captures the language it started in and a cache-write ordering ticket at
+     * its first page (see [PagingSessionPin]), so a language change mid-scroll cannot produce a
+     * mixed-language cached list, and an older session finishing after a newer one cannot
+     * overwrite the newer session's list.
      */
     suspend fun getServersPage(
         context: Context,
@@ -321,42 +378,100 @@ class ServersV2Repository(
                 AppLog.w(TAG, "getServersPage[$countryCode]: stopped by safety page limit ($MAX_PAGES_SAFETY_LIMIT)")
             }
 
-            // De-duplicate by server id when accumulating. Pages are now requested
-            // seconds-to-minutes apart (the user scrolling) instead of the old eager loop's
-            // milliseconds, so the backend's active-server cache can shift between page fetches
-            // and yield the same server again at a different offset.
+            // Pin the language to the SESSION, not to the individual request. A screen kept
+            // across configuration recreation keeps its paging session, while this method
+            // resolves the language again for every page, so an app-language or OS-locale change
+            // mid-scroll would otherwise append pages fetched in the new language to the
+            // accumulator built in the old one and cache that mixed list under the new
+            // language's key with a fresh TTL stamp. The offsets already consumed cannot be
+            // re-fetched in the new language, so a session that saw a change can no longer
+            // produce a valid full list: it drops what it accumulated and gives up its write.
+            // The live locale comparison and the epoch are both required -- the epoch catches a
+            // language that moved away and back between two pages, and the live comparison
+            // catches an OS locale change under the system-language option, which advances no
+            // epoch because it never goes through the settings store.
+            val pinnedBeforeThisPage = pageSessionPins[sessionKey]
+            val languageChanged = skip != 0 && pinnedBeforeThisPage != null &&
+                (pinnedBeforeThisPage.locale != normalizedLocale ||
+                    pinnedBeforeThisPage.localeEpoch != AppLocaleEpoch.current())
+            if (languageChanged) {
+                AppLog.w(
+                    TAG,
+                    "getServersPage[$countryCode]: language changed mid-session " +
+                        "(${pinnedBeforeThisPage!!.locale} -> $normalizedLocale) -- dropping this " +
+                        "session's accumulated pages instead of merging two languages"
+                )
+                pageAccumulators.remove(sessionKey)
+                pageSessionPins[sessionKey] = pinnedBeforeThisPage.copy(languageChanged = true)
+            }
+            val sessionGaveUpItsWrite = languageChanged || pinnedBeforeThisPage?.languageChanged == true
+
+            fun pinThisSession() {
+                pageSessionPins[sessionKey] = PagingSessionPin(
+                    locale = normalizedLocale,
+                    localeEpoch = AppLocaleEpoch.current(),
+                    syncGeneration = CountrySyncGenerations.current(generationKey),
+                    persistTicket = pagingTicketSequence.incrementAndGet()
+                )
+            }
             if (skip == 0) {
                 pageAccumulators[sessionKey] = filtered.toMutableList()
-                pageStartVersions[sessionKey] = CountrySyncGenerations.current(generationKey)
-            } else {
+                pinThisSession()
+            } else if (!sessionGaveUpItsWrite) {
+                // De-duplicate by server id when accumulating. Pages are requested
+                // seconds-to-minutes apart (the user scrolling) instead of the old eager loop's
+                // milliseconds, so the backend's active-server cache can shift between page
+                // fetches and yield the same server again at a different offset.
                 val accumulated = pageAccumulators.getOrPut(sessionKey) { mutableListOf() }
                 // De-dup keys fall back to connection attributes for entries without a stable
                 // id, so zero-id servers neither collapse onto one row nor get discarded.
                 val seenKeys = accumulated.mapTo(HashSet()) { dedupKey(it) }
                 filtered.forEach { server -> if (seenKeys.add(dedupKey(server))) accumulated.add(server) }
+                // A page arriving for a session that holds no capture -- its state was released
+                // while this fetch was in flight, and the accumulator above was rebuilt from
+                // scratch -- starts a new session's worth of accumulation here, so it takes a
+                // capture here too. Leaving it unpinned would make its write unordered against
+                // the other sessions for this country, which is the hazard being closed.
+                if (pinnedBeforeThisPage == null) pinThisSession()
             }
             if (!hasMore) {
                 pagesFetchedForSession.remove(sessionKey)
                 val fullList = pageAccumulators.remove(sessionKey).orEmpty()
-                val startVersion = pageStartVersions.remove(sessionKey)
+                val pin = pageSessionPins.remove(sessionKey)
                 // A stop forced by the safety limit means the accumulated list is
                 // knowingly incomplete -- do not cache it as this country's authoritative full
                 // list, which would otherwise stick for the whole TTL.
                 // A same-country sync (SSE push, periodic, or foreground refresh)
                 // completing while this paging session was in flight writes a fresher full-list
                 // cache -- do not overwrite it with the paging session's older accumulated data.
-                val selectionMovedOn = startVersion != null &&
-                    CountrySyncGenerations.current(generationKey) != startVersion
-                if (reachedSafetyLimit) {
-                    // already logged above
-                } else if (selectionMovedOn) {
-                    AppLog.w(
+                val selectionMovedOn = pin != null &&
+                    CountrySyncGenerations.current(generationKey) != pin.syncGeneration
+                when {
+                    reachedSafetyLimit -> Unit // already logged above
+                    sessionGaveUpItsWrite -> AppLog.w(
+                        TAG,
+                        "getServersPage[$countryCode]: skipping full-list cache persist -- " +
+                            "the app language changed while this session was paging"
+                    )
+                    selectionMovedOn -> AppLog.w(
                         TAG,
                         "getServersPage[$countryCode]: skipping full-list cache persist -- " +
                             "selection version moved (a newer sync completed while paging was in flight)"
                     )
-                } else {
-                    persistFullListCache(context, countryCode, normalizedLocale, fullList)
+                    fullList.isEmpty() -> Unit // persistFullListCache is a no-op for an empty list
+                    // Order the write against every other paging session for this country. Two
+                    // overlapping sessions capture the same sync generation -- starting a session
+                    // does not advance it -- so the guard above cannot tell them apart, and the
+                    // session-keyed accumulators only stop them sharing memory, not sharing this
+                    // one cache file. Without this, a session that started earlier but finished
+                    // later replaces the newer session's list and re-stamps the TTL, stranding
+                    // the older pages for its whole duration.
+                    !claimCachePersistSlot(generationKey, pin?.persistTicket) -> AppLog.w(
+                        TAG,
+                        "getServersPage[$countryCode]: skipping full-list cache persist -- " +
+                            "a newer paging session for this country already wrote its list"
+                    )
+                    else -> persistFullListCache(context, countryCode, normalizedLocale, fullList)
                 }
             }
 
@@ -436,7 +551,10 @@ class ServersV2Repository(
      */
     fun abandonPagingSession(pagingSessionId: String) {
         pagesFetchedForSession.remove(pagingSessionId)
-        pageStartVersions.remove(pagingSessionId)
+        // Only this session's own state is released. The per-country write watermark is
+        // deliberately left alone: it records which session last wrote the shared cache, so
+        // clearing it on one screen's teardown would re-open the very ordering hole it closes.
+        pageSessionPins.remove(pagingSessionId)
         if (pageAccumulators.remove(pagingSessionId) != null) {
             AppLog.d(TAG, "abandonPagingSession[session=$pagingSessionId]: cleared accumulator for abandoned session")
         }
@@ -450,6 +568,33 @@ class ServersV2Repository(
      * would collapse distinct zero-id servers into one row). */
     private fun dedupKey(server: ServerV2): Any =
         if (server.id > 0) server.id else NoIdKey(server.ip, server.configData)
+
+    /**
+     * Reserves the right for the paging session holding [persistTicket] to write [generationKey]'s
+     * full-list cache, returning false when a session that started later already wrote it.
+     *
+     * The check and the claim are one atomic step per key, mirroring
+     * [CountrySyncGenerations.bumpUnlessBumpedSince]. The surrounding paging lock is not enough on
+     * its own: it is keyed by country **and locale**, while this watermark is per country, so two
+     * sessions on the same country in different languages hold different locks and would otherwise
+     * be free to interleave a read and a write here.
+     *
+     * A session with no pin (its state was released while the last page was in flight) is treated
+     * as unordered and declines the write rather than claiming the country's watermark.
+     */
+    private fun claimCachePersistSlot(generationKey: String, persistTicket: Long?): Boolean {
+        if (persistTicket == null) return false
+        var claimed = false
+        lastPersistedPagingTicket.compute(generationKey) { _, previous ->
+            if (previous != null && previous > persistTicket) {
+                previous
+            } else {
+                claimed = true
+                persistTicket
+            }
+        }
+        return claimed
+    }
 
     private suspend fun persistFullListCache(
         context: Context,

@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.servers
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.yahorzabotsin.openvpnclientgate.core.settings.LanguageOption
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -13,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +28,7 @@ import java.util.Locale
 class ServersV2RepositoryTest {
 
     private val context: Context = RuntimeEnvironment.getApplication()
+    private val defaultLocale: Locale = Locale.getDefault()
 
     @Before
     fun setUp() {
@@ -36,6 +39,14 @@ class ServersV2RepositoryTest {
         // Process-wide singleton shared with the interactor's backfill guard: reset it so a
         // generation left behind by a previous test cannot decide this one's persist guard.
         CountrySyncGenerations.resetForTests()
+    }
+
+    @After
+    fun tearDown() {
+        // The persisted language and the JVM default locale both feed the cache key every test
+        // here derives, so a language pinned by one locale test must not decide the next one's.
+        UserSettingsStore.saveLanguage(context, LanguageOption.SYSTEM)
+        Locale.setDefault(defaultLocale)
     }
 
     // UT-2.1 — parses countries JSON into CountryV2 list
@@ -971,9 +982,112 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // A paging session outlives a configuration recreation, but every page resolves the app
+    // language on its own. Under the system-language option an OS locale change never reaches
+    // the settings store, so it advances no language epoch: only a live comparison against the
+    // language the session started in can see it. Pages fetched in the new language must not be
+    // merged into the accumulator built in the old one, and the resulting mixed list must not be
+    // filed under either language's cache key with a fresh TTL stamp.
+    @Test
+    fun foregroundPaging_skipsFullListCachePersist_whenOsLocaleChangesBetweenPages() = runBlocking {
+        Locale.setDefault(Locale("en"))
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "os-locale")
+        assertTrue(first.hasMore)
+
+        Locale.setDefault(Locale("ru"))
+
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, pagingSessionId = "os-locale")
+        assertFalse(second.hasMore)
+
+        assertFalse(
+            "a list assembled across two languages must not be cached under the new language",
+            File(context.cacheDir, "v2_servers_jp_ru.json").exists()
+        )
+        assertFalse(
+            "a list assembled across two languages must not be cached under the old language either",
+            File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+    }
+
+    // A language that moved away and back between two pages resolves to the language the session
+    // started in, so a live comparison alone reads as unchanged -- yet the page requested in
+    // between was served in the intermediate language. The language epoch is what makes that
+    // visible, and the session must give up its cache write.
+    @Test
+    fun foregroundPaging_skipsFullListCachePersist_whenLanguageMovedAwayAndBackBetweenPages() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+        val page1 = buildServersJsonWithTotal("JP", 2, 3)
+        val page2 = buildServersJsonWithTotal("JP", 1, 3)
+        val api = FakeServersV2Api(serversPageResponses = listOf(page1, page2))
+        val repo = ServersV2Repository(api)
+
+        val first = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "away-back")
+        assertTrue(first.hasMore)
+
+        UserSettingsStore.saveLanguage(context, LanguageOption.RUSSIAN)
+        UserSettingsStore.saveLanguage(context, LanguageOption.ENGLISH)
+
+        val second = repo.getServersPage(context, "JP", skip = first.nextSkip, take = 2, pagingSessionId = "away-back")
+        assertFalse(second.hasMore)
+
+        assertFalse(
+            "a language that moved away and back mid-session must still cancel the cache write",
+            File(context.cacheDir, "v2_servers_jp_en.json").exists()
+        )
+    }
+
+    // Two paging sessions for the same country overlap. Starting a session deliberately does not
+    // advance the country's sync generation, so the sync-freshness guard sees both as equally
+    // current, and the session-keyed accumulators only keep them out of each other's memory --
+    // not out of the one cache file they share. The session that started first but finished last
+    // must not replace the newer session's list and re-stamp its TTL.
+    @Test
+    fun foregroundPaging_olderSessionMustNotOverwriteNewerSessionsFullListCache() = runBlocking {
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithIdsAndTotal(listOf(1, 2), total = 4),   // older, first page
+                buildServersJsonWithIdsAndTotal(listOf(11, 12), total = 4), // newer, first page
+                buildServersJsonWithIdsAndTotal(listOf(13, 14), total = 4), // newer, last page
+                buildServersJsonWithIdsAndTotal(listOf(3, 4), total = 4)    // older, last page
+            )
+        )
+        val repo = ServersV2Repository(api)
+
+        val older1 = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "older")
+        assertTrue(older1.hasMore)
+        val newer1 = repo.getServersPage(context, "JP", skip = 0, take = 2, pagingSessionId = "newer")
+        assertTrue(newer1.hasMore)
+
+        // The newer session reaches its last page first and writes the country's full-list cache.
+        val newer2 = repo.getServersPage(context, "JP", skip = newer1.nextSkip, take = 2, pagingSessionId = "newer")
+        assertFalse(newer2.hasMore)
+        // The older session completes afterwards, with the same captured sync generation.
+        val older2 = repo.getServersPage(context, "JP", skip = older1.nextSkip, take = 2, pagingSessionId = "older")
+        assertFalse(older2.hasMore)
+
+        val cached = repo.getServersForCountry(context, "JP", serverCount = 4, forceRefresh = false)
+        assertEquals(
+            "the newer session's list must survive an older session completing after it",
+            setOf(11, 12, 13, 14),
+            cached.map { it.id }.toSet()
+        )
+    }
+
     /** Mirrors the sync-completion bump in [ServersV2Repository.getServersForCountry]. */
     private fun bumpSyncGeneration(countryCode: String) {
         CountrySyncGenerations.bump(countryCode)
+    }
+
+    private fun buildServersJsonWithIdsAndTotal(ids: List<Int>, total: Int): String {
+        val items = ids.joinToString(",") { id ->
+            """{"ip":"10.0.0.$id","countryCode":"JP","countryName":"Japan","configData":"CFG$id","id":$id}"""
+        }
+        return """{"items":[$items],"total":$total}"""
     }
 
     /** The full-list cache file the repository actually writes (cacheDir, normalized code). */
