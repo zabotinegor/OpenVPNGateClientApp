@@ -37,7 +37,7 @@ Then execute `.github/skills/agent-sync/SKILL.md` as the authoritative workflow.
 - Never hide `.github/hooks/`, `.githooks/`, or protected-branch guard scripts through `.gitignore`; these must remain trackable in client repositories.
 - Never create, switch to, or check out a different branch. Agent Sync operates exclusively in the current branch.
 - Never commit, stage, or push. Agent Sync only syncs file contents into the working tree.
-- Never sync protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless the user explicitly asked for it and the sync command includes `-AllowRootMdSync`.
+- Never write protected root markdown files (`AGENTS.md`, `README.md`, `AGENTS.local.md`, `README.local.md`) unless the user explicitly asked for it and the sync command includes `-AllowRootMdSync`. This covers the marker-based governance-section injection into an existing `AGENTS.md` too — it is gated behind `-AllowRootMdSync`, so a plain sync leaves `AGENTS.md` untouched.
 - If any post-sync file mismatches source, stop and report the mismatch.
 - Resolve source from the configured CopilotTools Git repository (`.github/scripts/sync-agent-assets.ps1` defaults to `SourceRepo`/`SourceRef`) using foreground git/terminal first, then authenticated GitHub connector/API if terminal is unavailable. Do not use unauthenticated browser pages as source evidence for private repositories.
 - Do not delegate sync execution or comparison to a subagent. Run Agent Sync in this chat because subagents may not receive terminal tools or the target workspace context.

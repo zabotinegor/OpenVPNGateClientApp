@@ -180,6 +180,7 @@ docs/qa-evidence
 /.github/scripts/test-sdlc-lease.ps1
 /.github/scripts/test-session-recovery-config.ps1
 /.github/scripts/test-session-tracking.ps1
+/.github/scripts/test-sync-agent-assets.ps1
 /.github/scripts/test-tracking-preflight.ps1
 /.github/scripts/test-ui-detection.ps1
 /.github/scripts/test-unified-orchestrator.ps1
