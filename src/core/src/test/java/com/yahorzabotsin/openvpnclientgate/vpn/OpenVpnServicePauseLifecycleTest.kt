@@ -149,4 +149,65 @@ class OpenVpnServicePauseLifecycleTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // Regression for the fix cycle on the flicker above: while connected and bound, isAidlFresh()
+    // is true, so updateState() (the VpnStatus fallback exercised by the test above) returns early
+    // and never reaches the guard -- the device actually runs the AIDL path, entered synchronously
+    // on the binder thread via statusCallbacks.updateStateString() -> syncEngineState(). This drives
+    // that callback directly (the same ReflectionHelpers pattern as
+    // OpenVpnServicePauseTimeoutTest.aidlPausedCallback_clearsPauseTimeoutAndInFlightFlag) and
+    // reproduces the real pauseVpn sequence: CONNECTED -> beginPauseTransition (state -> PAUSING)
+    // -> stale AIDL LEVEL_CONNECTING_NO_SERVER_REPLY_YET -> LEVEL_VPNPAUSED.
+    @Test
+    fun pauseAction_aidlCallback_ignoresStaleConnectingStatus_neverFlickersToConnecting() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        // Mirrors VpnManager.pauseVpn: move state to PAUSING before the engine confirms, then
+        // dispatch ACTION_PAUSE so the service arms the in-flight flag and timeout.
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 6)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+
+        // Stale status delivered on the AIDL binder thread before the engine actually applied pause.
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTING"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(
+                ConnectionStatus::class.java,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET
+            ),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }

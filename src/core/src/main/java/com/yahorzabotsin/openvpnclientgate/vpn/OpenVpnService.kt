@@ -277,7 +277,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var probeQueue: ProbeRequestQueue? = null
 
     // Track pause action to ensure PAUSED state is reached
-    private var pauseActionInFlight = false
+    @Volatile private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
     // Track resume action to detect engine stall and roll back to PAUSED
     private var resumeActionInFlight = false
