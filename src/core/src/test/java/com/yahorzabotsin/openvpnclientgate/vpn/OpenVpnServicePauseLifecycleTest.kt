@@ -111,6 +111,32 @@ class OpenVpnServicePauseLifecycleTest {
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 
+    // The VpnStatus fallback path's terminal-level branch abandons an in-flight pause on
+    // LEVEL_NOTCONNECTED/LEVEL_NONETWORK/LEVEL_AUTH_FAILED, but omitted UNKNOWN_LEVEL, unlike the
+    // AIDL path's STOP_TERMINAL_LEVELS set which already treats it as terminal. Left unguarded, a
+    // session ending with an unrecognized/unknown level would leave pauseActionInFlight true and
+    // PAUSE_RETRY_AT_MS would resend PAUSE_VPN 5s later into whatever unrelated session has started
+    // by then.
+    @Test
+    fun pauseAction_vpnStatusUnknownLevel_abandonsInFlightPause() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 5)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        service.updateState("UNKNOWN", null, 0, ConnectionStatus.UNKNOWN_LEVEL, null)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
+
     // A status queued by the engine just before it actually applied a pause request could still
     // arrive afterward as a transient connecting-family level. Forwarding that
     // stale status flashed the UI to CONNECTING for a frame between CONNECTED and PAUSED. This

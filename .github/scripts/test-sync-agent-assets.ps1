@@ -1,8 +1,8 @@
 #!/usr/bin/env pwsh
 # Tests for sync-agent-assets.ps1 — specifically the AGENTS.md governance-marker
-# injection gate. That injection is gated behind -AllowRootMdSync (CopilotTools PR
-# #3 / tf-20260905): a plain sync must not touch a client AGENTS.md, markers
-# included; a sync WITH -AllowRootMdSync injects/refreshes the
+# injection gate. That injection is gated behind -AllowRootMdSync: a plain sync
+# must not touch a client AGENTS.md, markers included; a sync WITH
+# -AllowRootMdSync injects/refreshes the
 # <!-- BEGIN AGENT SYNC -->..<!-- END AGENT SYNC --> block while leaving content
 # outside the markers byte-for-byte unchanged.
 # Run: pwsh -File test-sync-agent-assets.ps1 [-WorkingDirectory <repo>]

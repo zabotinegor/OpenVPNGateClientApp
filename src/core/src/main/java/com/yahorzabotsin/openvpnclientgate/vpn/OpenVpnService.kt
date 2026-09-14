@@ -1232,7 +1232,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 ConnectionStatus.LEVEL_VPNPAUSED -> {
                     ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
                 }
-                else -> Unit
+                else -> {
+                    // No engine level was ever observed, or it's one we can't confidently map to a
+                    // resumed/paused state. isPauseGuardActive() also treats ConnectionState.PAUSING
+                    // as pause-in-flight, so if the state is still stuck there once
+                    // pauseActionInFlight is cleared, the guard would stay active forever, discarding
+                    // every later transient CONNECTING callback. Only reconcile when state is really
+                    // still PAUSING -- otherwise (e.g. a level bookkeeping gap) some other path has
+                    // already moved it on and this would incorrectly stomp that. PAUSING ->
+                    // DISCONNECTED is an allowed transition.
+                    if (ConnectionStateManager.state.value == ConnectionState.PAUSING) {
+                        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                    }
+                }
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
@@ -1652,7 +1664,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED,
-            ConnectionStatus.LEVEL_AUTH_FAILED -> {
+            ConnectionStatus.LEVEL_AUTH_FAILED,
+            ConnectionStatus.UNKNOWN_LEVEL -> {
                 // Reached when auto-switch is disabled (or the level isn't handled by the
                 // auto-switch block above): a failed user-initiated start must still clear
                 // userInitiatedStart here, otherwise syncEngineState's reconnectPending guard

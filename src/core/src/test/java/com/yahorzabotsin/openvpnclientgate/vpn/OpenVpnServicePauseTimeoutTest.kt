@@ -114,6 +114,33 @@ class OpenVpnServicePauseTimeoutTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
+    // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously; isPauseGuardActive()
+    // treats that state as pause-in-flight in addition to pauseActionInFlight. If no engine level
+    // ever arrives (or only an unrecognized one, as here where setUp()'s LEVEL_NOTCONNECTED
+    // sentinel is still the latest observed level), the pauseActionTimeoutRunnable clears
+    // pauseActionInFlight but must also move ConnectionState out of PAUSING -- otherwise
+    // isPauseGuardActive() stays true forever and silently discards every later transient
+    // CONNECTING callback, leaving a subsequent reconnect stuck.
+    @Test
+    fun pauseActionTimeout_reconcilesPausingToDisconnectedWhenNoRecognizedLevelObserved() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        // No engine callback ever confirms PAUSED or reports a recognized level.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+    }
+
     @Test
     fun resumeAction_clearsPauseTimeoutAndSetResumeInFlight() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
