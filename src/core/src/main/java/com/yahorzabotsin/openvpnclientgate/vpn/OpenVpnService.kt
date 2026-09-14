@@ -1650,6 +1650,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 userInitiatedStart = false
                 resumeActionInFlight = false
                 statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
+                // A terminal/failure level abandons any in-flight pause -- there's no session left
+                // to confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would
+                // resend PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect)
+                // has started by then.
+                if (pauseActionInFlight) {
+                    pauseActionInFlight = false
+                    clearPauseWatch()
+                }
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
                 pauseActionInFlight = false
@@ -2401,6 +2409,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (pauseActionInFlight && level in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (AIDL)")
             return
+        }
+        // A terminal/failure level abandons any in-flight pause -- there's no session left to
+        // confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would resend
+        // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
+        // by then.
+        if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
+            pauseActionInFlight = false
+            clearPauseWatch()
         }
         if (allowAutoSwitch) {
             dispatchAutoSwitcherOnEngineLevel(normalizedLevel)

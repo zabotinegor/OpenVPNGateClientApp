@@ -320,4 +320,43 @@ class OpenVpnServicePauseTimeoutTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // Codex PR review: if the connection reports a terminal level (LEVEL_NOTCONNECTED here) after
+    // Pause was tapped -- the session ended instead of confirming PAUSED -- pauseActionInFlight was
+    // left true, so PAUSE_RETRY_AT_MS would fire 5s later and resend PAUSE_VPN into whatever
+    // unrelated session (e.g. a fresh reconnect) had started by then. The terminal-level branch now
+    // clears the pause watch immediately.
+    @Test
+    fun pauseAction_aidlCallback_terminalLevelAbandonsPause_cancelsRetryAndTimeout() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "NOPROCESS"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NOTCONNECTED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        // Advance past both the retry window and the final timeout: neither should do anything --
+        // pauseActionInFlight is already false, so both runnables must no-op.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10_100L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
 }
