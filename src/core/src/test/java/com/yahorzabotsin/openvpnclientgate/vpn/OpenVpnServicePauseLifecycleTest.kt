@@ -210,4 +210,74 @@ class OpenVpnServicePauseLifecycleTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // ConnectionStateManager.normalizeEngineLevel() maps any non-CONNECTED level whose detail is
+    // exactly "CONNECTED" to LEVEL_CONNECTED -- a mapping outside PAUSE_TRANSIENT_CONNECTING_LEVELS.
+    // The AIDL guard used to test the *normalized* level, so a stale connecting-family callback
+    // carrying detail="CONNECTED" bypassed it and reached ConnectionStateManager.updateFromEngine()
+    // and the auto-switcher dispatch. The app's visible *state* is shielded from the worst case by
+    // ConnectionStateManager's own transition whitelist (PAUSING -> CONNECTED is outside
+    // allowedFromPausing, so _state.value can't be corrupted this way even with the bug present) --
+    // but engineLevel, which updateFromEngine() sets unconditionally before that whitelist check,
+    // still got corrupted to LEVEL_CONNECTED, and the auto-switcher dispatch this guard exists to
+    // also block still fired. Guard must test the raw level, not the normalized one.
+    @Test
+    fun pauseAction_aidlCallback_ignoresStaleConnectingStatusWithConnectedDetail() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        // engineLevel is left at LEVEL_NOTCONNECTED by setUp() and untouched by the state
+        // transitions above (those go through updateState() directly, not updateFromEngine()) --
+        // it doubles as the sentinel the assertion below checks: distinct from LEVEL_CONNECTED, so
+        // a bypassed guard (which would leave engineLevel at LEVEL_CONNECTED) is observable.
+
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 7)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+
+        // Stale connecting-family status whose detail string happens to be "CONNECTED" --
+        // normalizeEngineLevel() would turn this into LEVEL_CONNECTED if the guard read the
+        // normalized value instead of this raw level.
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(
+                ConnectionStatus::class.java,
+                ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+            ),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        // A working guard returns before updateFromEngine() ever runs, so engineLevel stays at the
+        // sentinel; a bypassed guard (checking normalizedLevel) would leave it at LEVEL_CONNECTED.
+        assertEquals(ConnectionStatus.LEVEL_NOTCONNECTED, ConnectionStateManager.engineLevel.value)
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }

@@ -2393,9 +2393,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (shouldIgnoreLevelAfterUserStop(level)) return
         // Pause race guard: while a pause request is in flight, a stale transient connecting-family
         // status queued before the engine applied the pause must not reach the auto-switcher or
-        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above.
-        if (pauseActionInFlight && normalizedLevel in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
-            AppLog.d(TAG, "Ignoring stale connecting-family level=$normalizedLevel while pause is in flight (AIDL)")
+        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above. Tests the raw
+        // `level`, not `normalizedLevel`: normalizeEngineLevel() maps any non-CONNECTED level whose
+        // detail is exactly "CONNECTED" to LEVEL_CONNECTED, which is outside this set -- a stale
+        // connecting-family callback carrying that detail would silently bypass the guard and flash
+        // the UI to CONNECTED mid-pause if this checked the normalized value instead.
+        if (pauseActionInFlight && level in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
+            AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (AIDL)")
             return
         }
         if (allowAutoSwitch) {
