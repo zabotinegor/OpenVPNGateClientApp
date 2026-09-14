@@ -26,7 +26,11 @@ enum class ConnectionButtonStyle {
 
 data class PauseButtonModel(
     val visible: Boolean,
-    val text: CharSequence
+    val text: CharSequence,
+    // False while PAUSING: the pause request is already in flight, so a repeat tap here would
+    // just re-dispatch it pointlessly (or, once VpnManager.pauseVpn's CONNECTED-only guard is
+    // considered, do nothing) while still being visible enough to bait a user into tapping again.
+    val enabled: Boolean = true
 )
 
 data class LocationFieldModel(
@@ -133,9 +137,24 @@ class ConnectionControlsPresenter(
 
     fun buildPauseButtonModel(state: ConnectionState): PauseButtonModel {
         return when (state) {
+            // PAUSING starts synchronously the instant the user taps Pause, before the engine
+            // confirms -- it can last anywhere from under 100ms to several hundred ms depending on
+            // engine/network timing (see ClickUp 86cbf4e58). Treating it as invisible here, unlike
+            // buildButtonModel() which already keeps the Stop button visible through PAUSING, hid
+            // this button for that whole window: whenever it lasted long enough to be visible, the
+            // row above STOP CONNECTION collapsed and the layout below it jumped up and back. Keep
+            // showing "Pause" (not yet toggled to "Resume") until PAUSED actually confirms.
             ConnectionState.CONNECTED -> PauseButtonModel(
                 visible = true,
                 text = context.getString(R.string.pause_connection)
+            )
+            // Stays visible (see above) but disabled: the pause request is already in flight, so a
+            // repeat tap here can only re-dispatch it pointlessly -- avoids the multi-tap window
+            // this state is otherwise wide open to (ClickUp 86cbf4e58).
+            ConnectionState.PAUSING -> PauseButtonModel(
+                visible = true,
+                text = context.getString(R.string.pause_connection),
+                enabled = false
             )
             ConnectionState.PAUSED -> PauseButtonModel(
                 visible = true,

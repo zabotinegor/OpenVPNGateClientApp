@@ -2,11 +2,15 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Intent
 import android.os.Handler
+import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import de.blinkt.openvpn.core.ConnectionStatus
+import java.time.Duration
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -250,6 +254,70 @@ class OpenVpnServicePauseTimeoutTest {
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         // The timeout runnable should already be canceled by the AIDL PAUSED callback.
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    // ClickUp 86cbf4e58 follow-up: a slow engine teardown (explicit-exit-notify retries, TLS
+    // session close) before the management HOLD checkpoint can legitimately take several seconds
+    // -- the fixed 3s watchdog gave up and forced CONNECTED back before the engine ever reported
+    // PAUSED. PAUSE_CONFIRMATION_TIMEOUT_MS is now 10s, with a resend of PAUSE_VPN at the 5s
+    // halfway point as a safety net for a lost intent. This verifies the resend fires once at the
+    // halfway point without abandoning the pause, and the final timeout still fires if nothing
+    // ever confirms.
+    @Test
+    fun pauseAction_resendsOnceAtRetryWindow_thenGivesUpAtFinalTimeoutIfNeverConfirmed() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+
+        // Just past the 5s retry window, before the 10s final timeout.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_100L))
+
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // Past the full 10s timeout with nothing ever confirming: still gives up eventually.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_000L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
+
+    @Test
+    fun pauseAction_confirmedBeforeRetryWindow_cancelsScheduledResend() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+
+        // Advance well past the retry window: the cancelled resend must not fire.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6_000L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 }

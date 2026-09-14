@@ -72,6 +72,25 @@ class ConnectionControlsPresenterTest {
         assertEquals("", model.text)
     }
 
+    // ClickUp 86cbf4e58: PAUSING starts synchronously the instant Pause is tapped, before the
+    // engine confirms, and can last long enough to be visible. Hiding the button for that whole
+    // window (the pre-fix behavior -- the same `else -> visible=false` branch as DISCONNECTED)
+    // collapsed this row and shifted the layout below it up and back, which is what read as a
+    // screen flicker. buildButtonModel() (the Stop/Start button) already keeps PAUSING mapped to
+    // the same visible "Stop Connection" as CONNECTED; this keeps the Pause button consistent
+    // with that instead of disappearing.
+    //
+    // Not unit-testable in this class: any buildPauseButtonModel branch that returns a real
+    // context.getString(R.string....) value (CONNECTED/PAUSED, unchanged by this fix, and now
+    // PAUSING) throws Resources.NotFoundException under this file's Robolectric configuration --
+    // pre-existing and unrelated to this change (confirmed by triggering the same failure via the
+    // untouched CONNECTED branch). Every existing passing test in this file that touches a real
+    // string resource only compares the R.id int, never resolves the text (see the
+    // connection_detail_*_label assertions below); serverPositionPlaceholder's lazy init already
+    // catches Resources.NotFoundException for the same reason. Verified instead via on-device
+    // testing (see ClickUp 86cbf4e58 investigation notes) and confirmed against the exact bug
+    // clip: the button no longer disappears through the CONNECTED -> PAUSING -> PAUSED sequence.
+
     @Test
     fun `formatTraffic formats both directions via usecase`() {
         val (down, up) = presenter.formatTraffic(
