@@ -135,7 +135,7 @@ class ConnectionControlsPresenter(
         return when (state) {
             // PAUSING starts synchronously the instant the user taps Pause, before the engine
             // confirms -- it can last anywhere from under 100ms to several hundred ms depending on
-            // engine/network timing (see ClickUp 86cbf4e58). Treating it as invisible here, unlike
+            // engine/network timing. Treating it as invisible here, unlike
             // buildButtonModel() which already keeps the Stop button visible through PAUSING, hid
             // this button for that whole window: whenever it lasted long enough to be visible, the
             // row above STOP CONNECTION collapsed and the layout below it jumped up and back. Stays
@@ -143,7 +143,7 @@ class ConnectionControlsPresenter(
             //
             // No separate disable for the in-flight window: MainViewModel.onPauseButtonClicked()
             // already no-ops a repeat tap here (it only dispatches PauseVpn from CONNECTED). An
-            // isEnabled=false was tried and reverted (round 4 review) -- it silently disabled the
+            // isEnabled=false was tried and reverted -- it silently disabled the
             // button with no visual change (this theme's button style has no state_enabled color)
             // and broke TV D-pad focus (View.setFlags clears focus on disable; requestFocusNoSearch
             // requires ENABLED, so FocusTarget.PAUSE's requestFocus() became a no-op that still

@@ -111,8 +111,8 @@ class OpenVpnServicePauseLifecycleTest {
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 
-    // ClickUp 86cbf4e58: a status queued by the engine just before it actually applied a pause
-    // request could still arrive afterward as a transient connecting-family level. Forwarding that
+    // A status queued by the engine just before it actually applied a pause request could still
+    // arrive afterward as a transient connecting-family level. Forwarding that
     // stale status flashed the UI to CONNECTING for a frame between CONNECTED and PAUSED. This
     // reproduces the exact device sequence (CONNECTED -> pauseVpn -> stale
     // LEVEL_CONNECTING_NO_SERVER_REPLY_YET -> LEVEL_VPNPAUSED) and asserts the state goes straight
@@ -150,8 +150,8 @@ class OpenVpnServicePauseLifecycleTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
-    // Regression for the fix cycle on the flicker above: while connected and bound, isAidlFresh()
-    // is true, so updateState() (the VpnStatus fallback exercised by the test above) returns early
+    // While connected and bound, isAidlFresh() is true, so updateState() (the VpnStatus fallback
+    // exercised by the test above) returns early
     // and never reaches the guard -- the device actually runs the AIDL path, entered synchronously
     // on the binder thread via statusCallbacks.updateStateString() -> syncEngineState(). This drives
     // that callback directly (the same ReflectionHelpers pattern as

@@ -72,16 +72,18 @@ class ConnectionControlsPresenterTest {
         assertEquals("", model.text)
     }
 
-    // ClickUp 86cbf4e58: PAUSING starts synchronously the instant Pause is tapped, before the
-    // engine confirms, and can last long enough to be visible. Hiding the button for that whole
-    // window (the pre-fix behavior -- the same `else -> visible=false` branch as DISCONNECTED)
-    // collapsed this row and shifted the layout below it up and back, which is what read as a
-    // screen flicker. buildButtonModel() (the Stop/Start button) already keeps PAUSING mapped to
-    // the same visible "Stop Connection" as CONNECTED; this keeps the Pause button consistent
-    // with that instead of disappearing. (Round 4 review also fixed the Robolectric config this
-    // class needs to resolve real string resources -- manifest path + sdk pin + packageName,
-    // matching CountryListAdapterTest/SpeedometerViewTest -- so this can assert exact text too,
-    // not just the R.id int the other resource-backed tests in this file compare.)
+    // PAUSING starts synchronously the instant Pause is tapped, before the engine confirms, and
+    // can last long enough to be visible. Hiding the button for that whole window (the pre-fix
+    // behavior -- the same `else -> visible=false` branch as DISCONNECTED) collapsed this row and
+    // shifted the layout below it up and back, which is what read as a screen flicker.
+    // buildButtonModel() (the Stop/Start button) already keeps PAUSING mapped to the same visible
+    // "Stop Connection" as CONNECTED; this keeps the Pause button consistent with that instead of
+    // disappearing.
+    //
+    // The @Config override below is the Robolectric setup this class needs to resolve real string
+    // resources -- manifest path + sdk pin + packageName, matching
+    // CountryListAdapterTest/SpeedometerViewTest -- so this can assert exact text too, not just
+    // the R.id int the other resource-backed tests in this file compare.
     @Test
     @Config(manifest = "src/main/AndroidManifest.xml", sdk = [27], packageName = "com.yahorzabotsin.openvpnclientgate.core")
     fun `buildPauseButtonModel keeps button visible while pausing`() {

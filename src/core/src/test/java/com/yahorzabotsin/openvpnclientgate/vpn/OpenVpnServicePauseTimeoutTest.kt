@@ -257,8 +257,8 @@ class OpenVpnServicePauseTimeoutTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
-    // ClickUp 86cbf4e58 follow-up: a slow engine teardown (explicit-exit-notify retries, TLS
-    // session close) before the management HOLD checkpoint can legitimately take several seconds
+    // A slow engine teardown (explicit-exit-notify retries, TLS session close) before the
+    // management HOLD checkpoint can legitimately take several seconds
     // -- the fixed 3s watchdog gave up and forced CONNECTED back before the engine ever reported
     // PAUSED. PAUSE_CONFIRMATION_TIMEOUT_MS is now 10s, with a resend of PAUSE_VPN at the 5s
     // halfway point as a safety net for a lost intent. This verifies the resend fires once at the
