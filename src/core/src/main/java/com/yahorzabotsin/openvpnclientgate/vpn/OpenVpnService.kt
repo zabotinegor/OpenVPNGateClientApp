@@ -79,6 +79,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_AUTH_FAILED
         )
+        // Transient "connecting" statuses the engine can still emit for a moment after a pause
+        // request has already been sent: pauseVpn() asks the engine to pause, but a status queued
+        // just before the engine actually applies it can still arrive afterward. Forwarding one of
+        // these to ConnectionStateManager/ServerAutoSwitcher while pauseActionInFlight is true would
+        // flash the UI to CONNECTING right before the real LEVEL_VPNPAUSED lands, and could also
+        // wrongly arm the auto-switcher for a connection that is only pausing, not failing.
+        private val PAUSE_TRANSIENT_CONNECTING_LEVELS = setOf(
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT
+        )
         private val STOP_TERMINAL_LEVELS = setOf(
             ConnectionStatus.LEVEL_NOTCONNECTED,
             ConnectionStatus.LEVEL_NONETWORK,
@@ -1526,13 +1538,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED
         )
-        if (level !in failureLevelsHandledByService) {
+        // Pause race guard: while a pause request is in flight, a stale transient connecting-family
+        // status queued before the engine applied the pause must not reach the auto-switcher or
+        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above.
+        val isPauseTransientConnecting = pauseActionInFlight && level in PAUSE_TRANSIENT_CONNECTING_LEVELS
+        if (level !in failureLevelsHandledByService && !isPauseTransientConnecting) {
             AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
         }
         if (maybeStartStaleStopReconciliation(level, "VPN_STATUS")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "VPN_STATUS")
         if (shouldIgnoreLevelAfterUserStop(level)) return
+        if (isPauseTransientConnecting) {
+            AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (VPN_STATUS)")
+            return
+        }
         ConnectionStateManager.updateFromEngine(level, state)
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
@@ -2326,6 +2346,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (maybeStartStaleStopReconciliation(level, "AIDL")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "AIDL")
         if (shouldIgnoreLevelAfterUserStop(level)) return
+        // Pause race guard: while a pause request is in flight, a stale transient connecting-family
+        // status queued before the engine applied the pause must not reach the auto-switcher or
+        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above.
+        if (pauseActionInFlight && normalizedLevel in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
+            AppLog.d(TAG, "Ignoring stale connecting-family level=$normalizedLevel while pause is in flight (AIDL)")
+            return
+        }
         if (allowAutoSwitch) {
             dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
         }

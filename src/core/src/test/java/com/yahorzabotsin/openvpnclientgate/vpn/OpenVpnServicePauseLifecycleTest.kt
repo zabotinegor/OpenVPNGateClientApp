@@ -110,4 +110,43 @@ class OpenVpnServicePauseLifecycleTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "resumeActionInFlight"))
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
+
+    // ClickUp 86cbf4e58: a status queued by the engine just before it actually applied a pause
+    // request could still arrive afterward as a transient connecting-family level. Forwarding that
+    // stale status flashed the UI to CONNECTING for a frame between CONNECTED and PAUSED. This
+    // reproduces the exact device sequence (CONNECTED -> pauseVpn -> stale
+    // LEVEL_CONNECTING_NO_SERVER_REPLY_YET -> LEVEL_VPNPAUSED) and asserts the state goes straight
+    // to PAUSED without ever observing CONNECTING in between.
+    @Test
+    fun pauseAction_ignoresStaleConnectingStatus_neverFlickersToConnecting() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 5)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        // Stale status from the engine, queued before the pause was actually applied.
+        service.updateState(
+            "CONNECTING",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            null
+        )
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        service.updateState("PAUSED", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }
