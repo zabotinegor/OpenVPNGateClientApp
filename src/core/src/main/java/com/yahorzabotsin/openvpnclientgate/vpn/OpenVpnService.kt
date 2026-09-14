@@ -61,6 +61,8 @@ import java.net.Socket
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener, VpnStatus.ByteCountListener {
 
@@ -152,9 +154,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var sessionAttempt: Int = 0
     private var currentAttemptStartMs: Long = 0L
     private var currentAttemptStartElapsedRealtimeMs: Long = 0L
-    private val connectionAttemptGeneration = AtomicInteger(0)
-
-    @Volatile private var reconnectDispatchPendingGeneration: Int = -1
+    // See ReconnectDispatchGuard's class-level KDoc for the state machine this replaces (six
+    // interacting fields layered on over a long series of fixes), the LEVEL_VPNPAUSED decoupling
+    // exception, and why the enqueue-point window class is closed.
+    private val reconnectDispatchGuard = ReconnectDispatchGuard()
 
     // Byte count tracking for local listener vs AIDL callbacks
     private var lastLocalByteUpdateTs: Long = 0L
@@ -173,7 +176,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var lastStatusSnapshotMs: Long = 0L
     @Volatile private var lastLiveStatusMs: Long = 0L
     @Volatile private var lastLiveStatusElapsedRealtimeMs: Long = 0L
-    private var staleSnapshotCount: Int = 0
+    // Written to 0 on the AIDL binder thread (the statusCallbacks.updateStateString callback)
+    // and read-increment-written on the main thread inside the snapshot-poll path below
+    // (trySyncStatusSnapshot).
+    // @Volatile alone only guarantees cross-thread VISIBILITY of the latest write -- it does not
+    // make `staleSnapshotCount += 1` atomic. That is a genuine read-modify-write: the binder
+    // thread's reset to 0 can land between the main thread's read of the old count and its write
+    // of the incremented value, silently losing the reset. A retained pre-reset count can then
+    // reach the 3-snapshot threshold before a live status callback should have re-armed it (the
+    // grace window this counter exists to gate). AtomicInteger's set()/incrementAndGet() make both
+    // operations atomic with respect to each other, closing that window.
+    private val staleSnapshotCount = AtomicInteger(0)
     private enum class StatusSource { AIDL, VPN_STATUS }
     private var statusSource: StatusSource? = null
     private var lastStatusSourceSwitchMs: Long = 0L
@@ -442,6 +455,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // Sweeps any reconnect engine-dispatch still queued from a prior auto-switch retry --
         // see reconnectEngineDispatchToken's declaration comment.
         statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+        // That sweep can prevent the start holding supersededStopDispatch from ever resolving its
+        // own custody, so this teardown resolves it. Dropping is correct rather than merely
+        // convenient: requestStopIcsOpenVpn() below delivers a real stop to the engine and arms this
+        // service's own bounded confirmation/retry/STOP_FAILED escalation, which is exactly the
+        // replacement teardown the held Runnable was standing in for. Re-arming it here would
+        // instead schedule a second, non-preserve ACTION_STOP into a teardown already under way.
+        dropSupersededStopDispatch()
         // This function can be reached synchronously from the AIDL binder thread (via
         // maybeStartStaleStopReconciliation), so the cancellation must be dispatched onto the main
         // thread -- ServerAutoSwitcher's internal timer state assumes a single main-looper caller.
@@ -491,7 +511,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
         ignoreConnectedUntilNotConnected = false
         userInitiatedStop = false
-        connectionAttemptGeneration.incrementAndGet()
+        reconnectDispatchGuard.beginNewAttempt()
         ConnectionStateManager.clearStopFailure()
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         val serverId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
@@ -806,10 +826,101 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 currentAttemptStartMs = watchdogNowMs()
                 currentAttemptStartElapsedRealtimeMs = elapsedRealtimeMs()
-                val attemptGeneration = connectionAttemptGeneration.incrementAndGet()
-                if (config.isNullOrBlank()) { AppLog.e(TAG, "No config to start"); stopSelf(); return START_NOT_STICKY }
+                val attemptGeneration = reconnectDispatchGuard.beginNewAttempt()
+                if (config.isNullOrBlank()) {
+                    AppLog.e(TAG, "No config to start")
+                    // This guard returns AFTER beginNewAttempt() above but BEFORE the custody detach
+                    // site below, so it is the one abort that supersedes an in-flight reconnect
+                    // WITHOUT inheriting the custody that reconnect is holding. Left unresolved, the
+                    // buffered dispatch's superseded-generation branch then deliberately walks away
+                    // from custody on the assumption that a newer start inherited it -- which is
+                    // false here -- stranding the Runnable in the service: unscheduled in
+                    // ServerAutoSwitcher, owned by nothing that could reschedule it, and no longer
+                    // the previous tunnel's bounded teardown.
+                    //
+                    // RESTORE is the correct resolution, matching onDestroy()'s: this start asked no
+                    // engine to start and delivered no stop, so it replaced nothing, and the aborted
+                    // reconnect it superseded will never launch either. Nothing new is live for the
+                    // re-armed ACTION_STOP to hit -- only the possibly still-live previous tunnel it
+                    // was always owed to.
+                    restoreSupersededStopDispatchIfHeld()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                // A start that has actually committed supersedes any stop-retry-timeout re-dispatch
+                // ServerAutoSwitcher still has armed from an earlier, REJECTED blank-config stop.
+                // Left armed, that retry fires up to TIMEOUT_STOP_DISPATCH_RETRY_DELAY_MS later and
+                // dispatches a real, non-preserve ACTION_STOP against THIS start -- reaching
+                // startUserStopTeardown() and, through its cancelForUserStop(), tearing down the new
+                // cycle as well as the tunnel. So it cannot simply be left alone until the engine
+                // launch resolves; it has to stop being scheduled now.
+                //
+                // But reaching this line is not yet a commit, so this takes CUSTODY of the Runnable
+                // rather than dropping it: the engine launch below can still fail (a malformed OVPN
+                // config throws out of startIcsOpenVpn()), and on a reconnect the launch does not
+                // even happen here -- it is deferred past ENGINE_RECONNECT_DISPATCH_BUFFER_MS and
+                // can still bail. Only an outcome that actually reached the engine may drop the
+                // Runnable; every other outcome must hand it back, because it is the ONLY remaining
+                // teardown for the possibly still-live previous tunnel. Unlike the service-side stop
+                // runnables discarded above -- which merely retry a stop that already reached
+                // startUserStopTeardown() and requestStopIcsOpenVpn() -- this one stands in for a
+                // stop that never reached anything at all, because its dispatch was rejected before
+                // the service ever saw it. Losing it leaves that tunnel with no stop pending
+                // anywhere and no bounded escalation to STOP_FAILED. See supersededStopDispatch's
+                // declaration comment for how each outcome resolves custody -- including the
+                // teardown paths that sweep this branch's deferred dispatch and so must resolve it
+                // on the branch's behalf.
+                //
+                // Still deliberately placed AFTER both guards that can abort this branch
+                // (enterControllerForeground() and the blank-config check), not up with the
+                // pending-stop bookkeeping at the top: those guards return without starting any
+                // engine and without reaching any resolution site, so the safest thing they can do
+                // is never take custody in the first place. Deferring is race-free: onStartCommand()
+                // and the re-dispatch share the main looper, so the retry cannot run between those
+                // guards and this call.
+                //
+                // Deliberately the narrow detach, not cancelForUserStop(): see
+                // detachStopDispatchForPendingStart()'s KDoc for why resetting the switch cycle here
+                // would regress nextServerCircular's wrap detection on every auto-switch retry
+                // commit (which reaches ACTION_START through ServerAutoSwitcher.starter).
+                // onStartCommand() runs on the main looper, matching ServerAutoSwitcher's
+                // single-main-looper-caller invariant, as do all of this custody's resolution sites.
+                //
+                // Custody is carried forward, never stacked: a newer ACTION_START landing while an
+                // older attempt still holds the Runnable inherits it here (the switcher's own field
+                // is already null, so the detach returns null), which is what lets the older
+                // attempt's superseded-generation branch simply walk away instead of re-arming a
+                // stale stop against the newer, live start.
+                //
+                // Detaching and publishing are two steps, and only the first of them is on the main
+                // thread's own timeline: startUserStopTeardown() resolves this custody by DROPPING
+                // it, and is reachable synchronously from the AIDL binder thread (via
+                // maybeStartStaleStopReconciliation). A binder-thread drop landing between the
+                // detach and the publish would find the field still empty, resolve nothing, and
+                // then be overwritten by a publish that re-takes custody the teardown had already
+                // settled -- leaving this start holding a Runnable whose tunnel now HAS a real
+                // replacement stop with its own bounded escalation, so an abort below would re-arm
+                // a stale ACTION_STOP against the teardown already under way.
+                //
+                // Resolved with the epoch stamped by dropSupersededStopDispatch() rather than a new
+                // lock: publish first, then re-read the epoch. Because that epoch is bumped BEFORE
+                // the drop clears the field, the re-read below splits every racing drop cleanly in
+                // two: one whose bump the re-read sees, which the retracting compareAndSet resolves
+                // on the teardown's behalf, and one whose bump it does not -- which therefore has
+                // not cleared the field yet either, and so lands on this publication and resolves
+                // it. Either way the custody ends resolved-as-dropped, which is the correct
+                // resolution here: the teardown delivered the replacement stop this Runnable was
+                // standing in for. See dropSupersededStopDispatch() for why the reverse bump order
+                // would leave a window open instead.
+                val stopDispatchEpochBeforeDetach = supersededStopDispatchDropEpoch.get()
+                ServerAutoSwitcher.detachStopDispatchForPendingStart()?.let { detached ->
+                    supersededStopDispatch.set(detached)
+                    if (supersededStopDispatchDropEpoch.get() != stopDispatchEpochBeforeDetach) {
+                        supersededStopDispatch.compareAndSet(detached, null)
+                    }
+                }
                 if (isReconnect) {
-                    reconnectDispatchPendingGeneration = attemptGeneration
+                    reconnectDispatchGuard.armPending(attemptGeneration)
                 }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
@@ -834,27 +945,71 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 suppressEngineState = false
                 if (isReconnect) {
                     val dispatchGeneration = attemptGeneration
+                    // Accepted residual risk, pre-existing and not widened by the extraction of
+                    // ReconnectDispatchGuard: this check-then-act pair (userInitiatedStop read here, then
+                    // startIcsOpenVpn() below) races startUserStopTeardown() when the latter is
+                    // reached synchronously from the AIDL binder thread via
+                    // maybeStartStaleStopReconciliation()'s stale_relaunch path. If this Runnable
+                    // has already passed this check on the main thread when the binder-thread
+                    // teardown begins, statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+                    // in startUserStopTeardown() cannot recall a Runnable already executing, so
+                    // startIcsOpenVpn() below can still run. The generation guard does not help
+                    // here either, because startUserStopTeardown() deliberately does not call
+                    // reconnectDispatchGuard.beginNewAttempt() (a user-initiated stop must not
+                    // itself count as a superseding attempt). Not fixed here: the window is
+                    // sub-millisecond, requires the specific stale_relaunch reconciliation path (not
+                    // a plain user Disconnect, which arrives on main), and is bounded/self-healing --
+                    // startUserStopTeardown() unconditionally calls requestStopIcsOpenVpn()
+                    // afterwards, so an engine started in the window is stopped by the same
+                    // teardown, and finishStopFlowConfirmed()'s stopSelf() is independently gated by
+                    // VpnManager.hasRecentActionStartDispatch(). A real fix would need to make
+                    // startUserStopTeardown() and this Runnable agree through a single synchronized
+                    // check-and-clear rather than two independent reads, which risks destabilizing
+                    // this heavily interlocked subsystem; left as a documented risk instead. See
+                    // docs/guides/troubleshooting.md for this subsystem's defect history.
                     statusHandler.postAtTime(Runnable {
                         fun clearMarkerIfOwn() {
-                            if (reconnectDispatchPendingGeneration == dispatchGeneration) {
-                                reconnectDispatchPendingGeneration = -1
-                            }
+                            reconnectDispatchGuard.clearPendingIfOwnedBy(dispatchGeneration)
                         }
                         if (userInitiatedStop || serviceDestroyed) {
                             clearMarkerIfOwn()
+                            // No engine was asked to start. Both flags are normally set by paths
+                            // that sweep this very token and resolve custody themselves
+                            // (startUserStopTeardown() drops it, onDestroy() restores it), so this
+                            // is usually a no-op on already-resolved custody. It is not redundant:
+                            // startUserStopTeardown() can be reached from the AIDL binder thread
+                            // while this Runnable is already executing, and a sweep cannot recall a
+                            // Runnable mid-flight -- see the accepted-residual-risk comment on this
+                            // dispatch's own scheduling site.
+                            restoreSupersededStopDispatchIfHeld()
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but stop/destroy landed first; skipping start")
                             return@Runnable
                         }
-                        if (connectionAttemptGeneration.get() != dispatchGeneration) {
+                        if (reconnectDispatchGuard.currentGeneration != dispatchGeneration) {
                             clearMarkerIfOwn()
+                            // Custody is deliberately NOT resolved here. Whatever bumped the
+                            // generation already owns the previous tunnel's teardown: a newer
+                            // ACTION_START inherited this same Runnable at its own detach site and
+                            // will resolve it on its own outcome, and a preserveReconnect
+                            // ACTION_STOP or a confirmed stop delivered a real teardown. Restoring
+                            // here would re-arm a real, non-preserve ACTION_STOP against that newer,
+                            // live start -- exactly the defect the detach exists to prevent.
                             AppLog.i(TAG, "Reconnect engine-dispatch buffer elapsed but a newer attempt has begun; skipping start")
                             return@Runnable
                         }
-                        startIcsOpenVpn(config, title)
+                        if (startIcsOpenVpn(config, title)) {
+                            dropSupersededStopDispatch()
+                        } else {
+                            restoreSupersededStopDispatchIfHeld()
+                        }
                         clearMarkerIfOwn()
                     }, reconnectEngineDispatchToken, SystemClock.uptimeMillis() + ENGINE_RECONNECT_DISPATCH_BUFFER_MS)
                 } else {
-                    startIcsOpenVpn(config, title)
+                    if (startIcsOpenVpn(config, title)) {
+                        dropSupersededStopDispatch()
+                    } else {
+                        restoreSupersededStopDispatchIfHeld()
+                    }
                 }
             }
             VpnManager.ACTION_STOP -> {
@@ -875,10 +1030,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     userInitiatedStop = false
                     userInitiatedStart = true
                     ignoreConnectedUntilNotConnected = false
-                    connectionAttemptGeneration.incrementAndGet()
+                    reconnectDispatchGuard.beginNewAttempt()
                     // Sweep the reconnect engine-dispatch token too (defence in depth alongside the
                     // generation bump above) -- see reconnectEngineDispatchToken's declaration comment.
                     statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+                    // Same reasoning as in startUserStopTeardown(): this branch sweeps the deferred
+                    // dispatch that would otherwise resolve the custody, and its own
+                    // requestStopIcsOpenVpn() below is the replacement teardown that earns the drop.
+                    dropSupersededStopDispatch()
                     statusHandler.removeCallbacks(stopRetryRunnable)
                     statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
@@ -1028,7 +1187,84 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?) {
+    /**
+     * Custody of a stop-retry-timeout re-dispatch taken from [ServerAutoSwitcher] by the
+     * ACTION_START branch and held until something in this service either replaces the teardown it
+     * stands in for ([dropSupersededStopDispatch]) or establishes that nothing will
+     * ([restoreSupersededStopDispatchIfHeld]). Null whenever nothing is owed.
+     *
+     * Held on the service rather than as a local of the ACTION_START branch for two reasons. A newer
+     * ACTION_START must INHERIT an older attempt's still-unresolved custody rather than the two
+     * racing to resolve the same Runnable; and the teardown paths that sweep
+     * [reconnectEngineDispatchToken] can prevent the deferred dispatch from ever running, so
+     * resolution cannot live only inside that Runnable or the Runnable's custody would be stranded
+     * -- neither scheduled nor owned by anything that could ever reschedule it.
+     *
+     * An [AtomicReference] rather than a plain field because [startUserStopTeardown] resolves it and
+     * can be reached synchronously from the AIDL binder thread, racing the main-thread resolution
+     * sites. Taking the Runnable with `getAndSet` is what makes a restore happen at most once no
+     * matter how those interleave, which matters because restoring twice would post the same
+     * Runnable twice and split one bounded teardown chain into two.
+     */
+    private val supersededStopDispatch = AtomicReference<Runnable?>(null)
+
+    /**
+     * Counts drops of [supersededStopDispatch], so the ACTION_START branch can tell a drop that
+     * landed while it was mid-way through taking custody from one that never happened.
+     *
+     * Taking custody is not a single operation -- the Runnable leaves [ServerAutoSwitcher] before it
+     * arrives in [supersededStopDispatch] -- and [dropSupersededStopDispatch] can run on the AIDL
+     * binder thread in that window, where it would find the field still empty and resolve nothing.
+     * The counter is what makes that drop observable after the fact: the call site samples it before
+     * detaching and re-reads it after publishing, and retracts its own publication when the value
+     * moved. Only drops are counted; a restore must not retract a publication, since a restore that
+     * ran in the same window found nothing to put back.
+     */
+    private val supersededStopDispatchDropEpoch = AtomicLong(0L)
+
+    /**
+     * Resolves the custody described on [supersededStopDispatch] for an outcome that DID replace the
+     * teardown the held Runnable stands in for -- an engine launch actually requested, or a real
+     * stop delivered to the engine with its own bounded confirmation/retry escalation armed. The
+     * Runnable is then correctly dropped rather than re-armed against the replacement.
+     *
+     * The epoch is bumped BEFORE the field is cleared, and that order is what actually closes the
+     * custody-transfer race rather than merely narrowing it. Let R be the ACTION_START branch's
+     * re-read of the epoch, which follows its publication P. Either R observes this bump -- and the
+     * call site retracts P itself -- or it does not, in which case this bump, and therefore the
+     * clear that follows it, are both still to come, so the clear below lands on P and resolves it.
+     * Bumping AFTER the clear loses that second case: R could miss the bump while the clear had
+     * already run ahead of P as a no-op on the still-empty field, leaving P standing with nothing
+     * left anywhere to resolve it -- exactly the drop-swallowed-by-publish defect the epoch exists
+     * to prevent. Observing a bump whose clear has not landed yet is harmless in the other
+     * direction: the call site's retraction and this clear both write null.
+     */
+    private fun dropSupersededStopDispatch() {
+        supersededStopDispatchDropEpoch.incrementAndGet()
+        supersededStopDispatch.set(null)
+    }
+
+    /**
+     * Resolves the custody described on [supersededStopDispatch] for an outcome that replaced
+     * nothing: no engine was asked to start and no stop was delivered. The Runnable goes back to
+     * [ServerAutoSwitcher] with its bounded attempt count intact, because it is again the only
+     * teardown attempt still owed to a possibly live previous tunnel.
+     */
+    private fun restoreSupersededStopDispatchIfHeld() {
+        supersededStopDispatch.getAndSet(null)?.let {
+            ServerAutoSwitcher.restoreStopDispatchAfterAbandonedStart(it)
+        }
+    }
+
+    /**
+     * Asks the engine to launch [ovpnConfig].
+     *
+     * Returns true once `VPNLaunchHelper.startOpenVpn()` has been called, false if parsing,
+     * conversion or the launch itself threw. The result is load-bearing, not diagnostic: a start
+     * that never reached the engine performed no teardown for whatever it superseded, so its caller
+     * must put back any [supersededStopDispatch] custody it took.
+     */
+    private fun startIcsOpenVpn(ovpnConfig: String, displayName: String?): Boolean {
         try {
             val cp = ConfigParser()
             val isr = InputStreamReader(ByteArrayInputStream(ovpnConfig.toByteArray()))
@@ -1042,11 +1278,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ProfileManager.setTemporaryProfile(this, profile)
             VPNLaunchHelper.startOpenVpn(profile, applicationContext, null, true)
             AppLog.i(TAG, "Requested engine start (profile=${profile.mName})")
+            return true
         } catch (e: ConfigParseError) {
             AppLog.e(TAG, "OVPN parse error", e); stopSelf()
         } catch (e: Exception) {
             AppLog.e(TAG, "Start error", e); stopSelf()
         }
+        return false
     }
 
     private fun applyAppFilter(profile: VpnProfile) {
@@ -1196,6 +1434,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // queued before onDestroy() would retain a strong reference to this Service for up to
         // ENGINE_RECONNECT_DISPATCH_BUFFER_MS after destroy.
         statusHandler.removeCallbacksAndMessages(reconnectEngineDispatchToken)
+        // The opposite resolution to the teardown paths': a destroyed service delivered no stop and
+        // started no engine, and every runnable it owned has just been swept, so anything it still
+        // holds custody of must go back to ServerAutoSwitcher -- whose Handler outlives this
+        // instance and is then the only thing left able to stop a possibly live previous tunnel.
+        restoreSupersededStopDispatchIfHeld()
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
@@ -1382,7 +1625,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
-            staleSnapshotCount = 0
+            staleSnapshotCount.set(0)
             updateStatusSource(StatusSource.AIDL, "AIDL update")
             logEngineStateChange("AIDL", level, state)
             try {
@@ -1974,9 +2217,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.w(TAG, "Skipping stale snapshot (live updates present) level=$level age=${ageMs}ms")
                     return
                 }
-                AppLog.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=${staleSnapshotCount + 1}")
-                staleSnapshotCount += 1
-                if (staleSnapshotCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
+                val staleCount = staleSnapshotCount.incrementAndGet()
+                AppLog.w(TAG, "Skipping stale snapshot level=$level age=${ageMs}ms count=$staleCount")
+                if (staleCount >= 3 && now - lastLiveStatusMs > staleSnapshotMaxAgeMs) {
                     forceRebindStatusService("stale snapshots age=${ageMs}ms")
                 }
                 return
@@ -1997,7 +2240,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 currentAttemptStartElapsedRealtimeMs = nowElapsedRealtimeMs - ageMs
             }
         }
-        staleSnapshotCount = 0
+        staleSnapshotCount.set(0)
         lastStatusSnapshotMs = if (ts > 0L) ts else now
         logEngineStateChange("AIDL", level, snapshot.state)
         // isAidlFresh() also covers boundToStatus and lastLiveStatusMs > 0 (a live push has ever
@@ -2122,9 +2365,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // While a reconnect engine-dispatch buffer is pending for the current generation, no new
         // engine process has been asked to start yet, so any level received right now is
         // necessarily a stray delivery from the just-stopped previous engine -- forwarding it would
-        // let it skip the selected server without ever trying it. See
-        // reconnectDispatchPendingGeneration's declaration comment.
-        if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
+        // let it skip the selected server without ever trying it. See ReconnectDispatchGuard's
+        // class-level KDoc.
+        if (reconnectDispatchGuard.isBufferPendingForCurrentGeneration()) {
             AppLog.i(TAG, "Ignoring AIDL level=$level while reconnect engine-dispatch buffer is pending (stale from just-stopped engine)")
             return
         }
@@ -2139,10 +2382,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             false
         }
         // Snapshot the attempt generation valid right now, at the moment this level was received --
-        // see connectionAttemptGeneration's declaration comment. If a fresh ACTION_START bumps the
-        // live counter before the runnable below actually executes, the mismatch proves a newer
-        // attempt has begun since this dispatch was queued.
-        val dispatchedForGeneration = connectionAttemptGeneration.get()
+        // see ReconnectDispatchGuard's class-level KDoc. If a fresh ACTION_START bumps the live
+        // counter before the runnable below actually executes, the mismatch proves a newer attempt
+        // has begun since this dispatch was queued.
+        val dispatchedForGeneration = reconnectDispatchGuard.currentGeneration
         val invoke = Runnable {
             // Defensive re-check: even if teardown's removeCallbacksAndMessages() raced with this
             // runnable already being pulled off the main-looper queue, don't act on it once the
@@ -2154,18 +2397,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // ACTION_START clears it back to false as part of starting the new attempt, even
             // though this dispatch was queued for a now-superseded attempt. A generation mismatch
             // means exactly that happened, so skip unconditionally regardless of the flag above.
-            if (connectionAttemptGeneration.get() != dispatchedForGeneration) return@Runnable
+            if (reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) return@Runnable
             // Re-evaluate the same suppression predicate checked above, but here at execution time
-            // rather than trusting the capture-time read: reconnectDispatchPendingGeneration and
-            // connectionAttemptGeneration are updated by two separate statements in ACTION_START, so
-            // a level captured strictly between the generation bump and the marker arm can observe
-            // a torn (marker=stale, generation=G) snapshot and evade suppression at the earlier
-            // check. This Runnable always executes on statusHandler's main looper -- the same
-            // thread that owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) --
-            // so if onStartCommand() has since armed the marker to match the live generation, this
+            // rather than trusting the capture-time read: a level captured strictly between
+            // ReconnectDispatchGuard's generation bump and its marker arm can observe a torn
+            // (marker=stale, generation=G) snapshot and evade suppression at the earlier check.
+            // This Runnable always executes on statusHandler's main looper -- the same thread that
+            // owns the marker's only writers (ACTION_START and clearMarkerIfOwn()) -- so if
+            // onStartCommand() has since armed the marker to match the live generation, this
             // catches it even though the capture-time check could not.
-            if (reconnectDispatchPendingGeneration == connectionAttemptGeneration.get()) {
-                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine, R19-1)")
+            if (reconnectDispatchGuard.isBufferPendingForCurrentGeneration()) {
+                AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine)")
                 return@Runnable
             }
             try {

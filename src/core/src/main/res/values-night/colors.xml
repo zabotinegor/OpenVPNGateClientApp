@@ -74,10 +74,10 @@
     <color name="switch_thumb_unchecked">#B0B0B0</color>
     <color name="switch_track_unchecked">#4D808080</color>
 
-    <!-- Section: Favorites section card (SUB-09) -->
+    <!-- Section: Favorites section card -->
     <color name="favorites_card_background">#242424</color>
 
-    <!-- Section: Popup menu / dialog surfaces (SUB-08 defect fix) -->
+    <!-- Section: Popup menu / dialog surfaces -->
     <!-- Lighter than both app_background (#121212) and nav_bar_background/colorSurface (#1A1A1A,
          used by row cards) — matches Material dark-theme elevation convention (raised = lighter)
          so the mobile favorite-toggle PopupMenu and app AlertDialogs read as distinct raised

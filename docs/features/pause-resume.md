@@ -45,7 +45,7 @@ and the visibility of `pause_connection_button` change.
 ## Source of Truth
 
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/VpnManager.kt` —
-  `pauseVpn(context)` (line 53) and `resumeVpn(context)` (line 83) are the entry points that drive
+  `pauseVpn(context)` and `resumeVpn(context)` are the entry points that drive
   the transitions above.
 - `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/ConnectionState.kt` — the state
   enum/model consumed by the UI layer to render the controls above.

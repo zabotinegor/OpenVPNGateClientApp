@@ -20,7 +20,7 @@ import com.yahorzabotsin.openvpnclientgate.core.ui.common.text.resolve
  */
 sealed interface ServerListItem {
     /**
-     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header;
      * the "All servers" header shown below the pinned block does not get the star icon.
      */
     data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : ServerListItem
@@ -30,20 +30,31 @@ sealed interface ServerListItem {
      * "Favorites" block at the top of the list (immediately after [SectionHeader]). A
      * favorited server also appears a second time at its normal position in the regular
      * list below with [isPinnedSection] = false (see [ServerPickerAdapter] doc). Used
-     * purely for visual framing (SUB-06); does not affect click/long-click behavior.
+     * purely for visual framing; does not affect click/long-click behavior.
      */
     data class ServerRow(
         val server: Server,
         val isFavorite: Boolean,
         val isPinnedSection: Boolean = false
     ) : ServerListItem
+
+    /**
+     * Loading-footer row appended after the regular list while a lazy-loaded next page is in
+     * flight or has failed. Always the last adapter item when present; never
+     * counted by [ServerPickerAdapter.pinnedSectionItemCount].
+     */
+    data class LoadingFooter(val state: FooterState) : ServerListItem
 }
+
+/** State rendered by [ServerPickerAdapter]'s [ServerListItem.LoadingFooter] row. */
+enum class FooterState { LOADING, ERROR }
 
 class ServerPickerAdapter(
     private var items: List<ServerListItem>,
     private val isDefaultV2Source: Boolean,
     private val onClick: (Server) -> Unit,
-    private val onLongClick: (view: View, server: Server, isFavorite: Boolean) -> Unit
+    private val onLongClick: (view: View, server: Server, isFavorite: Boolean) -> Unit,
+    private val onRetryLoadMore: () -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     fun updateItems(newItems: List<ServerListItem>) {
@@ -54,6 +65,7 @@ class ServerPickerAdapter(
     override fun getItemViewType(position: Int): Int = when (items[position]) {
         is ServerListItem.SectionHeader -> VIEW_TYPE_HEADER
         is ServerListItem.ServerRow -> VIEW_TYPE_SERVER
+        is ServerListItem.LoadingFooter -> VIEW_TYPE_FOOTER
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -62,6 +74,10 @@ class ServerPickerAdapter(
             VIEW_TYPE_HEADER -> {
                 val v = inflater.inflate(R.layout.item_country_section_header, parent, false)
                 HeaderViewHolder(v)
+            }
+            VIEW_TYPE_FOOTER -> {
+                val v = inflater.inflate(R.layout.item_server_list_footer, parent, false)
+                FooterViewHolder(v, onRetryLoadMore)
             }
             else -> {
                 val v = inflater.inflate(R.layout.item_server_row, parent, false)
@@ -73,6 +89,7 @@ class ServerPickerAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
             is ServerListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
+            is ServerListItem.LoadingFooter -> (holder as FooterViewHolder).bind(item.state)
             is ServerListItem.ServerRow -> {
                 val rowHolder = holder as ViewHolder
                 rowHolder.bind(item.server, item.isFavorite)
@@ -101,8 +118,8 @@ class ServerPickerAdapter(
      * Number of leading items (the [ServerListItem.SectionHeader] plus its pinned
      * [ServerListItem.ServerRow] entries) that make up the pinned "Favorites" block, or 0
      * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
-     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
-     * "All servers" header inserted below the pinned block (SUB-09) is a [ServerListItem.SectionHeader],
+     * to draw a filled card behind exactly that block. The second
+     * "All servers" header inserted below the pinned block is a [ServerListItem.SectionHeader],
      * not a pinned [ServerListItem.ServerRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
@@ -181,10 +198,10 @@ class ServerPickerAdapter(
                     SignalStrength.WEAK -> R.drawable.signal_weak
                 }
             )
-            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Per-row favorite indicator, shown on this row both inside the pinned
             // Favorites card and again at its normal position in the full list below.
             favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
-            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            // Announce favorite state to accessibility services
             favoriteStar?.contentDescription = if (isFavorite) {
                 itemView.context.getString(R.string.favorites_section_title)
             } else {
@@ -193,8 +210,33 @@ class ServerPickerAdapter(
         }
     }
 
+    class FooterViewHolder(
+        itemView: View,
+        private val onRetry: () -> Unit
+    ) : RecyclerView.ViewHolder(itemView) {
+        private val progress: View = itemView.findViewById(R.id.footer_progress)
+        private val errorGroup: View = itemView.findViewById(R.id.footer_error_group)
+        private val retryButton: View = itemView.findViewById(R.id.footer_retry_button)
+
+        fun bind(state: FooterState) {
+            when (state) {
+                FooterState.LOADING -> {
+                    progress.visibility = View.VISIBLE
+                    errorGroup.visibility = View.GONE
+                    retryButton.setOnClickListener(null)
+                }
+                FooterState.ERROR -> {
+                    progress.visibility = View.GONE
+                    errorGroup.visibility = View.VISIBLE
+                    retryButton.setOnClickListener { onRetry() }
+                }
+            }
+        }
+    }
+
     private companion object {
         const val VIEW_TYPE_HEADER = 0
         const val VIEW_TYPE_SERVER = 1
+        const val VIEW_TYPE_FOOTER = 2
     }
 }

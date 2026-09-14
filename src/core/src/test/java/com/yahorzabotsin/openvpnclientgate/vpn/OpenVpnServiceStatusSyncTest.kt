@@ -1123,7 +1123,7 @@ class OpenVpnServiceStatusSyncTest {
 
         val originalStopper = ServerAutoSwitcher.stopper
         var stopCalls = 0
-        ServerAutoSwitcher.stopper = { _ -> stopCalls += 1 }
+        ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; true }
 
         // Prime the auto-switch timeout timer via a FRESH CONNECTING snapshot first: without an
         // active timer (or state==CONNECTING), ServerAutoSwitcher.onEngineLevel's
@@ -2455,7 +2455,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
 
@@ -2780,10 +2780,12 @@ class OpenVpnServiceStatusSyncTest {
             // and is infrastructure unrelated to the race under test -- the same reason the
             // existing currentAttemptStartMs-based tests above set that field directly instead of
             // going through onStartCommand.
-            // R20-1 (fix-cycle 21): connectionAttemptGeneration is now an AtomicInteger, not a
-            // plain Int field, so it cannot be overwritten via ReflectionHelpers.setField -- fetch
-            // the existing AtomicInteger instance and mutate it in place instead.
-            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(1)
+            // The attempt generation is an AtomicInteger, not a plain Int field, so it cannot be
+            // overwritten via ReflectionHelpers.setField -- fetch the existing AtomicInteger
+            // instance and mutate it in place instead. The counter lives on the extracted
+            // ReconnectDispatchGuard, reached via one extra reflection hop.
+            val reconnectDispatchGuard = ReflectionHelpers.getField<ReconnectDispatchGuard>(service, "reconnectDispatchGuard")
+            ReflectionHelpers.getField<AtomicInteger>(reconnectDispatchGuard, "attemptGeneration").set(1)
 
             // Race step 2: the main thread runs the REAL user-stop sweep via a genuine ACTION_STOP
             // intent (startUserStopTeardown()), which sets userInitiatedStop=true and cancels
@@ -2825,7 +2827,7 @@ class OpenVpnServiceStatusSyncTest {
             // ACTION_START mutates for this purpose (see onStartCommand's ACTION_START branch),
             // for the same Robolectric-FGS reason as step 0 above.
             ReflectionHelpers.setField(service, "userInitiatedStop", false)
-            ReflectionHelpers.getField<AtomicInteger>(service, "connectionAttemptGeneration").set(2)
+            ReflectionHelpers.getField<AtomicInteger>(reconnectDispatchGuard, "attemptGeneration").set(2)
 
             // Prime the NEW attempt's OWN switch timer with a genuinely fresh CONNECTING callback
             // on the main/test thread (dispatched synchronously, generation 2 matches generation
@@ -3079,7 +3081,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         try {
             ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
@@ -3142,7 +3144,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
         ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
-        ServerAutoSwitcher.stopper = { _ -> }
+        ServerAutoSwitcher.stopper = { _ -> true }
 
         try {
             ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")

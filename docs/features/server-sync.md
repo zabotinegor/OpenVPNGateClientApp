@@ -74,7 +74,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 ### Components
 - `ServersV2Api` → `ServersV2Repository` → `ServersV2SyncCoordinator`
 - `SplashServerPreloadInteractor` routes to the v2 path or the legacy path based on `UserSettingsStore.serverSource`.
-- `CountryServersInteractor` calls `ServersV2Repository.getServersForCountry()` to drive lazy per-country loads.
+- `CountryServersInteractor` drives lazy per-country loads: UI paged browsing via `getServersPage(skip, take)` (US-23) and eager full fetches via `getServersForCountry()`; it also owns selection resolution and the session-isolated silent backfill.
 - `DefaultServerSelectionSyncCoordinator` owns the `DEFAULT_V2 -> VPN Gate CSV` fallback handoff for shared sync triggers. There is no legacy-CSV hop: the dead `ApiConstants.primaryLegacyServersUrl()` helper (zero callers) was removed.
 
 ### Localization
@@ -97,7 +97,10 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - On network error or parse failure (including Gson deserialization exceptions), stale cache is returned if available. If no cache exists, IOException is propagated to the caller for graceful handling. This behavior is implemented in `ServersV2Repository.getCountries()` and `ServersV2Repository.getServersForCountry()`.
 
 ### Pagination
-Page size 50. Pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the authoritative `page.total` field from the API response (or `serverCount` as a fallback when `total=0`).
+Two paging paths exist under DEFAULT_V2:
+
+- **Eager full fetch** (`ServersV2Repository.getServersForCountry()` / `fetchAllPages()`) — used by shared sync entrypoints (splash preload, periodic refresh, selected-country sync, relocalization). Page size 50; pages are fetched in a loop until the raw page count is less than 50 or the accumulated total meets or exceeds the authoritative `page.total` field (or `serverCount` fallback when `total=0`), bounded by a 200-page safety limit.
+- **UI paged browsing (US-23)** — the country servers screen loads one page at a time via `CountryServersInteractor.getServersPage(skip, take)`. Page size is derived from the device's real screen height and a measured server-row height at runtime (`ServerListPageSizeCalculator` — no hardcoded item-count constant), scrolling within 5 rows of the loaded end triggers the next page, and a loading footer shows while the fetch is in flight. Paging state mutations run on a deferred non-immediate main scope guarded by a synchronous in-flight claim, so adapter updates never execute inside RecyclerView's scroll-callback frame. A failed page keeps `nextSkip` untouched and surfaces an error-footer Retry control that resumes from the same skip. Selecting a server from a partial list resolves the selection immediately and kicks off a session-isolated silent background backfill (`accumulate=false`: own local merge, same 200-page safety limit, non-advancing-cursor guard) that persists the full auto-switch candidate pool plus the country's full-list cache only when complete. Leaving the screen mid-session releases the repository accumulator via `abandonPagingSession()`. Re-opening a country whose full-list cache is still within TTL serves the entire list instantly through the warm-cache fast path with zero network paging requests.
 
 ### Filtering
 Servers with empty `configData` are dropped silently before caching.

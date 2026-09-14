@@ -20,7 +20,7 @@ class FavoritesStoreTest {
         return ctx
     }
 
-    // --- Country favorites: add/remove/persist (AC1, AC2) ---
+    // --- Country favorites: add/remove/persist ---
 
     @Test
     fun addFavoriteCountry_persistsAndIsQueryable() {
@@ -72,7 +72,7 @@ class FavoritesStoreTest {
         assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
     }
 
-    // --- Country favorites: case-insensitivity regression (SUB-02 review finding #1) ---
+    // --- Country favorites: case-insensitivity regression ---
     //
     // ServerListViewModel.buildItems() matches favorites case-insensitively when rendering
     // the pinned favorites section, but toggleFavorite() decides add-vs-remove via
@@ -169,7 +169,7 @@ class FavoritesStoreTest {
         assertTrue(FavoritesStore.getFavoriteCountryCodes(ctx).isEmpty())
     }
 
-    // --- Server favorites: add/remove/persist (AC1, AC2) ---
+    // --- Server favorites: add/remove/persist ---
 
     @Test
     fun addFavoriteServer_persistsAndIsQueryable() {

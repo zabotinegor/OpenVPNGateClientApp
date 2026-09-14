@@ -19,6 +19,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [How to safely change `SpeedometerView`'s needle/label geometry ratios](#how-to-safely-change-speedometerviews-needlelabel-geometry-ratios)
 - [Layout orientation-split files: when TV and mobile use different XML structures](#layout-orientation-split-files-when-tv-and-mobile-use-different-xml-structures)
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
+- [Verify a flaky-test fix does not destroy regression coverage with injection mutation testing](#verify-a-flaky-test-fix-does-not-destroy-regression-coverage-with-injection-mutation-testing)
+- [README language variants and the canonical technical entry point](#readme-language-variants-and-the-canonical-technical-entry-point)
 
 ---
 
@@ -953,3 +955,100 @@ draft held `ConnectionState.CONNECTING` constant across both the 1000ms and 400m
 deadlines and survived a revert of either individual guard alone (`OpenVpnService.kt` lines 302 and
 327) — code review caught it by mutation-testing each guard separately. The fix transitioned state
 to `DISCONNECTED` only after the first deadline, pinning the first guard specifically.
+
+---
+
+## Verify a flaky-test fix does not destroy regression coverage with injection mutation testing
+
+**When to use**
+
+When you've fixed a flaky test by restructuring its state machine or timing (e.g., splitting it into
+tighter, more isolated scenarios to eliminate timing races), you need to verify that the fix did not
+accidentally remove the regression coverage the test was originally meant to protect. This is especially
+important for tests guarding against known production bugs: if the fix makes the test pass but fails
+to catch the original bug when it is re-introduced, the fix has traded one problem (flakiness) for a
+worse one (silent coverage loss).
+
+**Steps**
+
+1. Confirm the test passes in isolation and under full-suite contention after your flakiness fix.
+
+2. Temporarily inject the exact regression the test was written to guard against into production code
+   at the guard point (the condition/check the fix was meant to protect):
+   - Copy the production code file aside as a backup
+   - Revert the specific guard (e.g., delete an `if` check, comment out a validation, remove a
+     `return` statement) to recreate the pre-fix bug state
+   - Inject the **narrowest** mutation that reproduces the original bug. Do not delete a whole callback
+     or method that other behavior also depends on — a broad deletion can fail the test for reasons
+     unrelated to the regression, which proves nothing
+   - Run **only the test you fixed**, not the full suite. Note the aggregate `testDebugUnitTestApp`
+     task does **not** accept `--tests` (see
+     [device-qa-phone.md](../operations/device-qa-phone.md)); scope to the module task instead:
+     `./gradlew :core:testDebugUnitTest --tests <ClassName>`
+
+3. Verify the test **fails** with the regression injected:
+   - If the test fails: the fix preserved the regression coverage — continue to step 4
+   - If the test passes: your fix eliminated the test without capturing the regression — the fix is
+     broken and must be restructured; go back to the drawing board
+
+   Either way, **always** continue to step 4 and revert the mutation before running anything else —
+   never rerun tests with the injected bug still in the tree.
+
+4. Restore the production code from your backup (revert the regression injection):
+   - Confirm `git status` shows the file clean or only expected edits
+   - If you have unrelated in-progress work in the file, use your backup copy to restore only the
+     regression injection (`git checkout -- <file>` is safe only if the file was clean before mutation
+     testing started)
+
+5. Re-run the test in isolation and under full suite to confirm it still passes after reverting the
+   injection:
+   - If it passes: the fix is complete — the test detects the regression and passes without it
+   - If it fails: your mutation reversal was incomplete; check the diff carefully and restore again
+
+**Rationale**
+
+- A green test after a flakiness fix proves only that the test no longer races — it does not prove
+  the test still catches what it was written to catch
+- Injection mutation testing bridges that gap: forcing the regression to re-appear proves the test
+  has teeth
+- This technique is narrowly scoped (inject one specific regression, run one test) compared to
+  coverage-analysis tools, which may miss implicit dependencies on test ordering or state
+
+**First encountered**
+
+ClickUp task `86cb9kpx9` (SseServerEventsClientTest onOpen-reset flake): the test was fixed by
+splitting it into separate scenarios with different stability thresholds. Before acceptance, the fix
+was verified by re-introducing the *exact* original bug in `SseServerEventsClient` — adding
+`failuresOnCurrentUrl.set(0)` back inside `onOpen()`, so the URL-failure counter is zeroed
+unconditionally on connect — confirming the new test failed, then removing that line and confirming
+it passed again. This proved the restructured test still detects the regression it guards.
+
+Note what was *not* done: deleting the whole `onOpen()` callback. That would also have killed the
+`doSync()` dispatch the test's `openLatch` waits on, so the test would have failed for an unrelated
+reason and the mutation would have proven nothing. Mutate the one line that carries the bug.
+
+---
+
+## README language variants and the canonical technical entry point
+
+**What changed**
+
+This repository's documentation was split into:
+- **Public README** (user-facing): `README.md` (English) + `README.ru.md` (Russian) + `README.pl.md` (Polish), each with a manual language switcher nav (a plain Markdown line at the top of the file)
+- **Technical entry point** (developer-facing): `docs/DEVELOPMENT.md` carrying all the prior technical build, configuration, and architecture content that lived in the root `README.md`
+
+**Why this matters**
+
+GitHub cannot auto-detect visitor language on static Markdown, so the public README is served in one language; translations live as separate files in the same directory with a manual switcher in the source. Any agent or human adding new developer documentation should direct them to `docs/DEVELOPMENT.md` (or the appropriate `docs/` subdirectory per [docs/INDEX.md](../INDEX.md)) instead of the root README.
+
+**Reference files**
+
+- `README.md` — public, user-facing introduction (English)
+- `README.ru.md` — public translation (Russian)
+- `README.pl.md` — public translation (Polish)
+- `docs/DEVELOPMENT.md` — canonical technical reference (prerequisites, build config, architecture, repository layout)
+- `docs/INDEX.md` — the catalog linking all developer documentation, including the new `docs/DEVELOPMENT.md`
+
+**First documented**
+
+US-25 (`feature/us-25-friendly-readme-and-dev-docs`) — split the single README into friendly public variants + technical development guide.

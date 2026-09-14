@@ -35,6 +35,8 @@
     <string name="favorites_removed_toast">Removed from favorites</string>
     <string name="all_countries_section_title">All countries</string>
     <string name="all_servers_section_title">All servers</string>
+    <string name="action_retry">Retry</string>
+    <string name="country_servers_page_load_error">Couldn\'t load more servers</string>
 
     <!-- Section: Error screen -->
     <string name="error_fragment_message">An error occurred</string>

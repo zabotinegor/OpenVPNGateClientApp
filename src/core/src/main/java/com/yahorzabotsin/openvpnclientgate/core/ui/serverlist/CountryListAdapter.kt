@@ -23,7 +23,7 @@ data class CountryWithServers(
  */
 sealed interface CountryListItem {
     /**
-     * @param showFavoriteIcon true only for the pinned "Favorites" section header (SUB-09);
+     * @param showFavoriteIcon true only for the pinned "Favorites" section header;
      * the "All countries" header shown below the pinned block does not get the star icon.
      */
     data class SectionHeader(val title: UiText, val showFavoriteIcon: Boolean = false) : CountryListItem
@@ -33,7 +33,7 @@ sealed interface CountryListItem {
      * "Favorites" block at the top of the list (immediately after [SectionHeader]). A
      * favorited country also appears a second time at its normal alphabetical position in
      * the regular list below with [isPinnedSection] = false (see [CountryListAdapter] doc).
-     * Used purely for visual framing (SUB-06); does not affect click/long-click behavior.
+     * Used purely for visual framing; does not affect click/long-click behavior.
      */
     data class CountryRow(
         val countryWithServers: CountryWithServers,
@@ -103,8 +103,8 @@ class CountryListAdapter(
      * Number of leading items (the [CountryListItem.SectionHeader] plus its pinned
      * [CountryListItem.CountryRow] entries) that make up the pinned "Favorites" block, or 0
      * when the section is hidden (no favorites). Used by [com.yahorzabotsin.openvpnclientgate.core.ui.common.decor.FavoritesSectionCardDecoration]
-     * to draw a filled card behind exactly that block (SUB-09; SUB-06 originally). The second
-     * "All countries" header inserted below the pinned block (SUB-09) is a [CountryListItem.SectionHeader],
+     * to draw a filled card behind exactly that block. The second
+     * "All countries" header inserted below the pinned block is a [CountryListItem.SectionHeader],
      * not a pinned [CountryListItem.CountryRow], so it naturally stops this count.
      */
     fun pinnedSectionItemCount(): Int {
@@ -153,10 +153,10 @@ class CountryListAdapter(
                 country.serverCount
             )
             chevronIcon.visibility = View.VISIBLE
-            // SUB-09 AC8: per-row favorite indicator, shown on this row both inside the pinned
+            // Per-row favorite indicator, shown on this row both inside the pinned
             // Favorites card and again at its normal position in the full list below.
             favoriteStar?.visibility = if (isFavorite) View.VISIBLE else View.GONE
-            // Announce favorite state to accessibility services (SUB-09 AC8 accessibility fix)
+            // Announce favorite state to accessibility services
             favoriteStar?.contentDescription = if (isFavorite) {
                 itemView.context.getString(R.string.favorites_section_title)
             } else {

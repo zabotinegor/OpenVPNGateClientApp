@@ -388,10 +388,10 @@ class ServerListViewModelTest {
         }
     }
 
-    // --- SUB-02 acceptance criteria: pinned favorites section + long-press toggle ---
+    // --- pinned favorites section + long-press toggle ---
 
     @Test
-    fun `AC1 - pinned favorites section appears above regular list when a favorite is available`() = runTest {
+    fun `pinned favorites section appears above regular list when a favorite is available`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
@@ -410,7 +410,7 @@ class ServerListViewModelTest {
         val favoriteRow = items[1] as CountryListItem.CountryRow
         assertEquals("United States", favoriteRow.countryWithServers.country.name)
         assertTrue(favoriteRow.isFavorite)
-        // SUB-09: second "All countries" header marks the start of the full list below.
+        // second "All countries" header marks the start of the full list below.
         assertTrue(items[2] is CountryListItem.SectionHeader)
         assertFalse((items[2] as CountryListItem.SectionHeader).showFavoriteIcon)
         // regular list still contains both countries afterwards, alphabetically
@@ -419,10 +419,10 @@ class ServerListViewModelTest {
         assertEquals(5, items.size)
     }
 
-    // --- SUB-09: second "All countries" header above the full list ---
+    // --- second "All countries" header above the full list ---
 
     @Test
-    fun `SUB-09 AC3 - second header labeled All countries appears only when favorites section is visible`() = runTest {
+    fun `second header labeled All countries appears only when favorites section is visible`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
@@ -444,7 +444,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `SUB-09 AC4 - no second header when there are no favorites`() = runTest {
+    fun `no second header when there are no favorites`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
@@ -460,7 +460,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `SUB-09 edge case - every country favorited still shows both headers and the full list below`() = runTest {
+    fun `edge case - every country favorited still shows both headers and the full list below`() = runTest {
         // When 100% of countries are favorited, the pinned block and the "All countries" list
         // below it end up with identical content (minus ordering) - buildItems must not special
         // case this away or crash; both sections should render additively as usual.
@@ -493,7 +493,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC2 - no favorites section when none available`() = runTest {
+    fun `no favorites section when none available`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
@@ -514,7 +514,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC3 - toggle favorite reflects current state via add then remove`() = runTest {
+    fun `toggle favorite reflects current state via add then remove`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(CountryV2(code = "US", name = "United States", serverCount = 5))
@@ -538,7 +538,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC4 - selecting a country from the favorites section navigates like the regular list`() = runTest {
+    fun `selecting a country from the favorites section navigates like the regular list`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(CountryV2(code = "US", name = "United States", serverCount = 5))
@@ -564,7 +564,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC5 - favoriting updates pinned section immediately without reload`() = runTest {
+    fun `favoriting updates pinned section immediately without reload`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
@@ -589,8 +589,8 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC3 regression - toggle agrees with pinned section display when favorite casing differs from synced country code`() = runTest {
-        // Reproduces the SUB-02 review finding: a favorite persisted as "us" (lowercase) but a
+    fun `regression - toggle agrees with pinned section display when favorite casing differs from synced country code`() = runTest {
+        // Reproduces the review finding: a favorite persisted as "us" (lowercase) but a
         // later sync surfaces the country with code "US" (uppercase). buildItems() matches
         // favorites case-insensitively, so "US" is shown pinned as a favorite. With the fix,
         // the backing store (mirrored here by a case-sensitive fake, matching the real
@@ -695,7 +695,7 @@ class ServerListViewModelTest {
     }
 
     @Test
-    fun `AC6 - short-tap navigation for non-favorite countries is unchanged`() = runTest {
+    fun `short-tap navigation for non-favorite countries is unchanged`() = runTest {
         val interactor = FakeInteractor(
             v2Source = true,
             countriesV2 = listOf(
