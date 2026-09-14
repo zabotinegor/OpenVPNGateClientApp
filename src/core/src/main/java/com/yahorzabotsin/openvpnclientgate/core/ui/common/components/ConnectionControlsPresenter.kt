@@ -138,16 +138,16 @@ class ConnectionControlsPresenter(
             // engine/network timing (see ClickUp 86cbf4e58). Treating it as invisible here, unlike
             // buildButtonModel() which already keeps the Stop button visible through PAUSING, hid
             // this button for that whole window: whenever it lasted long enough to be visible, the
-            // row above STOP CONNECTION collapsed and the layout below it jumped up and back. Keep
+            // row above STOP CONNECTION collapsed and the layout below it jumped up and back. Stays
             // showing "Pause" (not yet toggled to "Resume") until PAUSED actually confirms.
-            // Stays showing "Pause" (not yet toggled to "Resume") through PAUSING -- MainViewModel.
-            // onPauseButtonClicked() already no-ops a repeat tap here (it only dispatches PauseVpn
-            // from CONNECTED), so no separate disable is needed; an isEnabled=false was tried and
-            // reverted (ClickUp 86cbf4e58 round 4 review) -- it silently disabled the button with
-            // no visual change (this theme's button style has no state_enabled color) and broke TV
-            // D-pad focus (View.setFlags clears focus on disable; requestFocusNoSearch requires
-            // ENABLED, so FocusTarget.PAUSE's requestFocus() became a no-op that still consumed
-            // pauseActionFocusPending, leaving focus stuck once PAUSED re-enabled the button).
+            //
+            // No separate disable for the in-flight window: MainViewModel.onPauseButtonClicked()
+            // already no-ops a repeat tap here (it only dispatches PauseVpn from CONNECTED). An
+            // isEnabled=false was tried and reverted (round 4 review) -- it silently disabled the
+            // button with no visual change (this theme's button style has no state_enabled color)
+            // and broke TV D-pad focus (View.setFlags clears focus on disable; requestFocusNoSearch
+            // requires ENABLED, so FocusTarget.PAUSE's requestFocus() became a no-op that still
+            // consumed pauseActionFocusPending, leaving focus stuck once PAUSED re-enabled it).
             ConnectionState.CONNECTED,
             ConnectionState.PAUSING -> PauseButtonModel(
                 visible = true,
