@@ -280,4 +280,66 @@ class OpenVpnServicePauseLifecycleTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously via
+    // beginPauseTransition(), then dispatches ACTION_PAUSE via startService() -- an asynchronous
+    // call. Between those two steps, pauseActionInFlight is still false (only onStartCommand sets
+    // it), so a stale connecting-family status arriving in that exact gap must still be caught by
+    // the guard via ConnectionState.PAUSING, not just the service-local flag. This drives the
+    // callback BEFORE onStartCommand runs, unlike the other AIDL guard tests in this class.
+    @Test
+    fun pauseAction_aidlCallback_ignoresStaleConnectingStatus_beforeServiceProcessesActionPause() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        // Mirrors VpnManager.pauseVpn's synchronous half only -- the ACTION_PAUSE dispatch has not
+        // reached onStartCommand yet, so pauseActionInFlight is still false here.
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+
+        // Stale status delivered in the dispatch gap, before onStartCommand ever runs.
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTING"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(
+                ConnectionStatus::class.java,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET
+            ),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        // PAUSING -> CONNECTING is an allowed transition (unlike PAUSING -> CONNECTED), so an
+        // unguarded callback here really would have moved the state and hidden the pause button.
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        // The dispatch finally arrives; the rest of the flow proceeds normally.
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 8)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }

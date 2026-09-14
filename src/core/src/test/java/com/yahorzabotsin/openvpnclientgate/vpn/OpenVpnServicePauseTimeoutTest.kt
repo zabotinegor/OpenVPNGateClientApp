@@ -321,11 +321,11 @@ class OpenVpnServicePauseTimeoutTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
-    // Codex PR review: if the connection reports a terminal level (LEVEL_NOTCONNECTED here) after
-    // Pause was tapped -- the session ended instead of confirming PAUSED -- pauseActionInFlight was
-    // left true, so PAUSE_RETRY_AT_MS would fire 5s later and resend PAUSE_VPN into whatever
-    // unrelated session (e.g. a fresh reconnect) had started by then. The terminal-level branch now
-    // clears the pause watch immediately.
+    // If the connection reports a terminal level (LEVEL_NOTCONNECTED here) after Pause was tapped
+    // -- the session ended instead of confirming PAUSED -- pauseActionInFlight was left true, so
+    // PAUSE_RETRY_AT_MS would fire 5s later and resend PAUSE_VPN into whatever unrelated session
+    // (e.g. a fresh reconnect) had started by then. The terminal-level branch now clears the pause
+    // watch immediately.
     @Test
     fun pauseAction_aidlCallback_terminalLevelAbandonsPause_cancelsRetryAndTimeout() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()

@@ -1171,6 +1171,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         scheduleOneShotStop()
     }
 
+    // pauseActionInFlight is only set true once onStartCommand actually processes ACTION_PAUSE, but
+    // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously, before the (async)
+    // service intent dispatch delivers that. A stale connecting-family status arriving in that gap
+    // would sail through the guard below with pauseActionInFlight still false, and PAUSING ->
+    // CONNECTING is an allowed transition (unlike PAUSING -> CONNECTED), so the original flicker
+    // could still occur through this narrow window. PAUSING is set exclusively by
+    // beginPauseTransition() as part of this same flow, so treating it as equivalent to
+    // pauseActionInFlight here is safe and closes the gap.
+    private fun isPauseGuardActive() =
+        pauseActionInFlight || ConnectionStateManager.state.value == ConnectionState.PAUSING
+
     // Cancels both the final timeout and the mid-window retry together, and resets the retry's
     // one-shot guard -- every site that gives up on or confirms a pause must clear all three in
     // step, or a stale retry could fire after the pause has already been abandoned or confirmed.
@@ -1586,7 +1597,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // Pause race guard: while a pause request is in flight, a stale transient connecting-family
         // status queued before the engine applied the pause must not reach the auto-switcher or
         // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above.
-        val isPauseTransientConnecting = pauseActionInFlight && level in PAUSE_TRANSIENT_CONNECTING_LEVELS
+        val isPauseTransientConnecting = isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS
         if (level !in failureLevelsHandledByService && !isPauseTransientConnecting) {
             AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
             try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
@@ -2406,7 +2417,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // detail is exactly "CONNECTED" to LEVEL_CONNECTED, which is outside this set -- a stale
         // connecting-family callback carrying that detail would silently bypass the guard and flash
         // the UI to CONNECTED mid-pause if this checked the normalized value instead.
-        if (pauseActionInFlight && level in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
+        if (isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS) {
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (AIDL)")
             return
         }
