@@ -26,11 +26,7 @@ enum class ConnectionButtonStyle {
 
 data class PauseButtonModel(
     val visible: Boolean,
-    val text: CharSequence,
-    // False while PAUSING: the pause request is already in flight, so a repeat tap here would
-    // just re-dispatch it pointlessly (or, once VpnManager.pauseVpn's CONNECTED-only guard is
-    // considered, do nothing) while still being visible enough to bait a user into tapping again.
-    val enabled: Boolean = true
+    val text: CharSequence
 )
 
 data class LocationFieldModel(
@@ -144,17 +140,18 @@ class ConnectionControlsPresenter(
             // this button for that whole window: whenever it lasted long enough to be visible, the
             // row above STOP CONNECTION collapsed and the layout below it jumped up and back. Keep
             // showing "Pause" (not yet toggled to "Resume") until PAUSED actually confirms.
-            ConnectionState.CONNECTED -> PauseButtonModel(
-                visible = true,
-                text = context.getString(R.string.pause_connection)
-            )
-            // Stays visible (see above) but disabled: the pause request is already in flight, so a
-            // repeat tap here can only re-dispatch it pointlessly -- avoids the multi-tap window
-            // this state is otherwise wide open to (ClickUp 86cbf4e58).
+            // Stays showing "Pause" (not yet toggled to "Resume") through PAUSING -- MainViewModel.
+            // onPauseButtonClicked() already no-ops a repeat tap here (it only dispatches PauseVpn
+            // from CONNECTED), so no separate disable is needed; an isEnabled=false was tried and
+            // reverted (ClickUp 86cbf4e58 round 4 review) -- it silently disabled the button with
+            // no visual change (this theme's button style has no state_enabled color) and broke TV
+            // D-pad focus (View.setFlags clears focus on disable; requestFocusNoSearch requires
+            // ENABLED, so FocusTarget.PAUSE's requestFocus() became a no-op that still consumed
+            // pauseActionFocusPending, leaving focus stuck once PAUSED re-enabled the button).
+            ConnectionState.CONNECTED,
             ConnectionState.PAUSING -> PauseButtonModel(
                 visible = true,
-                text = context.getString(R.string.pause_connection),
-                enabled = false
+                text = context.getString(R.string.pause_connection)
             )
             ConnectionState.PAUSED -> PauseButtonModel(
                 visible = true,

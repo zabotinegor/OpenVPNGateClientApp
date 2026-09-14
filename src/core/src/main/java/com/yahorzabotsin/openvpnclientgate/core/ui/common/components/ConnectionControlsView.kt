@@ -290,7 +290,6 @@ class ConnectionControlsView @JvmOverloads constructor(
 
         val pauseModel = presenter.buildPauseButtonModel(state)
         pauseButton.isVisible = pauseModel.visible
-        pauseButton.isEnabled = pauseModel.enabled
         if (pauseModel.visible) pauseButton.text = pauseModel.text
 
         when (resolveFocusTarget(TvUtils.isTvDevice(context), focusPolicyRequested, pauseModel.visible)) {

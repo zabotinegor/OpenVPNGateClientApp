@@ -291,9 +291,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Track pause action to ensure PAUSED state is reached
     @Volatile private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
-    // Main-thread only (onStartCommand and the statusHandler runnables that touch it all run on
-    // the main looper) -- guards PAUSE_RETRY_AT_MS's single resend from firing more than once.
-    private var pauseRetrySent = false
+    // clearPauseWatch() (which resets this) is also called from statusCallbacks.updateStateString
+    // on the AIDL binder thread, not just onStartCommand/statusHandler on the main looper -- same
+    // cross-thread reason pauseActionInFlight is @Volatile. Guards PAUSE_RETRY_AT_MS's single
+    // resend from firing more than once.
+    @Volatile private var pauseRetrySent = false
     // Track resume action to detect engine stall and roll back to PAUSED
     private var resumeActionInFlight = false
     private var lastAidlLevel: ConnectionStatus? = null
