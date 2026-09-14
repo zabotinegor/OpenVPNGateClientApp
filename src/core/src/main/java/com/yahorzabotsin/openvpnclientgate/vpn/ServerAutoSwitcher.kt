@@ -98,8 +98,8 @@ object ServerAutoSwitcher {
     // class, so cancel() can remove it deterministically -- a user-initiated stop
     // (cancelForUserStop()) dispatches its own ACTION_STOP and must not race a stale re-dispatch.
     private var timeoutStopDispatchRunnable: Runnable? = null
-    // QG4-2 (fix-cycle 8, docs/qa-evidence/86cb35fbt-vpn-foreground-service-crash-gate-4.md): the
-    // retry-commit dispatch used to be posted as an anonymous `handler.postDelayed({ ... }, ...)`
+    // The retry-commit dispatch must stay addressable: it used to be posted as an anonymous
+    // `handler.postDelayed({ ... }, ...)`
     // lambda, which cancel() could not reference and therefore could never remove. A user
     // Disconnect landing inside the START_AFTER_STOP_DELAY_MS window (cancelForUserStop() ->
     // cancel(resetCycle = true)) cleared waitingStopForRetry/pendingConfig but left that lambda
@@ -110,8 +110,7 @@ object ServerAutoSwitcher {
     // remove it deterministically, closing both the functional and crash-adjacent routes at once.
     // Both retry-commit call sites (NOTCONNECTED-observed and stop-retry-timeout) share this single
     // field: only one of the two can ever be in flight at a time (waitingStopForRetry is true
-    // until whichever site fires first, and each site clears it before posting this Runnable --
-    // R9-4, fix-cycle 9: the prior wording of this parenthetical had the polarity backwards).
+    // until whichever site fires first, and each site clears it before posting this Runnable).
     private var retryStartRunnable: Runnable? = null
     @Volatile private var retryCommitInFlight: Boolean = false
     private var idleToleranceRunnable: Runnable? = null
@@ -491,7 +490,7 @@ object ServerAutoSwitcher {
      * already-running timer from a prior engine state cannot fire after the stop and
      * silently reconnect. Must be called from the main thread -- see onEngineLevel's
      * declaration comment on why this object's internal timer state assumes a single
-     * (main-looper) caller. See PR #126 round 18 (Codex P1, comment 3736956722).
+     * (main-looper) caller.
      */
     fun cancelForUserStop() {
         cancel(resetCycle = true)

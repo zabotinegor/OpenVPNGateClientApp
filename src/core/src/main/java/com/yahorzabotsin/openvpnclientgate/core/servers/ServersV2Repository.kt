@@ -313,6 +313,15 @@ class ServersV2Repository(
      * its first page (see [PagingSessionPin]), so a language change mid-scroll cannot produce a
      * mixed-language cached list, and an older session finishing after a newer one cannot
      * overwrite the newer session's list.
+     *
+     * [pinnedLocale] makes the request use the caller's own language instead of resolving the
+     * current one. A caller that accumulates pages across several calls of its own -- the
+     * background country backfill does -- otherwise has no way to keep them in one language: this
+     * function resolves the language independently per call, and under the system-language option
+     * the OS locale can change and change back inside a single request, which leaves the caller's
+     * own before/after comparison reading "unchanged" while the page it just merged was served in
+     * the intermediate language. Pinning removes the window instead of trying to detect it: every
+     * page of the caller's run is requested in the one language the caller started in.
      */
     suspend fun getServersPage(
         context: Context,
@@ -320,9 +329,10 @@ class ServersV2Repository(
         skip: Int,
         take: Int = PAGE_SIZE,
         accumulate: Boolean = true,
-        pagingSessionId: String? = null
+        pagingSessionId: String? = null,
+        pinnedLocale: String? = null
     ): ServersV2Page {
-        val locale = resolvePreferredLocale(context)
+        val locale = pinnedLocale ?: resolvePreferredLocale(context)
         val normalizedLocale = normalizeLocale(locale)
         // Captured together with the locale above, BEFORE the request is issued, and never
         // re-read after the response. The pin records a (locale, epoch) pair, and the two halves
@@ -422,8 +432,13 @@ class ServersV2Repository(
             // system-language option (live locale, which advances no epoch) that landed after the
             // request went out. It applies to every page, `skip == 0` included -- that is the only
             // staleness check the first page of a session has.
+            //
+            // The live-locale half is skipped for a pinned request: the page was served in the
+            // caller's pinned language regardless of what the OS locale did, so comparing it
+            // against the live one would report a move that cannot have affected this response.
             val localeMovedInFlight = AppLocaleEpoch.current() != requestLocaleEpoch ||
-                normalizeLocale(resolvePreferredLocale(context)) != normalizedLocale
+                (pinnedLocale == null &&
+                    normalizeLocale(resolvePreferredLocale(context)) != normalizedLocale)
             val languageChanged = localeMovedInFlight ||
                 (skip != 0 && pinnedBeforeThisPage != null &&
                     (pinnedBeforeThisPage.locale != normalizedLocale ||

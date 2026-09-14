@@ -517,6 +517,13 @@ class DefaultCountryServersInteractor(
                 // visible. The live comparison is still needed alongside it: an OS locale change
                 // under the SYSTEM language option never goes through the settings store and so
                 // advances no epoch.
+                //
+                // Neither half can see a language that moved away and back inside a single page
+                // request, so this predicate does not carry that case alone -- the page fetch
+                // below pins the request to launchLocale, which makes the language of every page
+                // independent of what the OS locale does while the request is in flight. What
+                // this predicate still decides is whether a change that is CURRENT should stand
+                // the job down before spending more network on pages it could not persist.
                 fun isLocaleUnchanged(): Boolean =
                     AppLocaleEpoch.current() == launchLocaleEpoch &&
                         UserSettingsStore.resolvePreferredLocale(appContext) == launchLocale
@@ -549,7 +556,24 @@ class DefaultCountryServersInteractor(
                         )
                         return@launch
                     }
-                    val page = repo.getServersPage(appContext, resolvedCode, skip = skip, accumulate = false)
+                    // Pin every page to the language this backfill launched in instead of letting
+                    // the repository resolve it per call. The guard above is a check-then-fetch:
+                    // under the SYSTEM language option the OS locale can change after it passes
+                    // and change back before the response returns, which serves that one page in
+                    // the intermediate language while both halves of isLocaleUnchanged() -- the
+                    // epoch (OS changes never write the settings store, so it does not advance)
+                    // and the resolved locale (back to its launch value) -- still read as
+                    // unchanged. The page would then be merged with the launch-language rows and
+                    // persisted under the launch locale with a fresh TTL. Pinning removes the
+                    // window rather than trying to observe it: the request carries the launch
+                    // locale, so no OS-locale timing can change the language it is served in.
+                    val page = repo.getServersPage(
+                        appContext,
+                        resolvedCode,
+                        skip = skip,
+                        accumulate = false,
+                        pinnedLocale = launchLocale
+                    )
                     page.servers.forEach { v2 ->
                         val pageKey = dedupKey(v2.id, v2.ip, v2.configData)
                 accumulatedLegacy[pageKey] = v2.toLegacyServer()

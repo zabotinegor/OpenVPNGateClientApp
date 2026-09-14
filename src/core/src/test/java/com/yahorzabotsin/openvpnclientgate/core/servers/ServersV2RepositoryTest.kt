@@ -1154,6 +1154,77 @@ class ServersV2RepositoryTest {
         )
     }
 
+    // The background country backfill accumulates pages across several getServersPage calls of its
+    // own, and its language guard is a check-then-fetch. Under the system-language option the OS
+    // locale can move after that guard passes -- so the next page is resolved and served in the
+    // temporary language -- and move back before the response returns, at which point nothing the
+    // caller can read shows it: an OS change never writes the settings store, so the language
+    // epoch has not advanced, and the resolved locale is back to its launch value. The page would
+    // then be merged with the launch-language rows and persisted under the launch locale with a
+    // fresh TTL. A pinned request removes the window instead of trying to observe it: the language
+    // travels with the request rather than being resolved per call.
+    @Test
+    fun pagedRequest_pinnedLocale_isServedInTheCallersLanguage_whenTheOsLocaleFlapsAroundTheRequest() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.SYSTEM)
+        Locale.setDefault(Locale("en"))
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(
+                buildServersJsonWithTotal("JP", 2, 4),
+                buildServersJsonWithTotal("JP", 2, 4)
+            ),
+            onServersRequest = { callIndex ->
+                when (callIndex) {
+                    // Away once the first page is in hand, so the second page would resolve the
+                    // temporary language...
+                    0 -> Locale.setDefault(Locale("ru"))
+                    // ...and back while that second request is still in flight, so every check the
+                    // caller can make afterwards reads as unchanged.
+                    1 -> Locale.setDefault(Locale("en"))
+                }
+            }
+        )
+        val repo = ServersV2Repository(api)
+        val launchLocale = UserSettingsStore.resolvePreferredLocale(context)
+
+        repo.getServersPage(context, "JP", skip = 0, take = 2, accumulate = false, pinnedLocale = launchLocale)
+        repo.getServersPage(context, "JP", skip = 2, take = 2, accumulate = false, pinnedLocale = launchLocale)
+
+        assertEquals(
+            "every pinned page must be requested in the caller's language, whatever the OS locale did around it",
+            listOf("en", "en"),
+            api.requestedLocales.toList()
+        )
+    }
+
+    // The mirror of the in-flight check for a pinned request: the response came back in the pinned
+    // language by construction, so an OS locale move that could not have affected it must not be
+    // reported as a mid-session language change and restart the caller.
+    @Test
+    fun pagedRequest_pinnedLocale_doesNotReportALanguageChangeForAnOsLocaleItWasNeverServedIn() = runBlocking {
+        UserSettingsStore.saveLanguage(context, LanguageOption.SYSTEM)
+        Locale.setDefault(Locale("en"))
+        val api = FakeServersV2Api(
+            serversPageResponses = listOf(buildServersJsonWithTotal("JP", 2, 4)),
+            onServersRequest = { callIndex -> if (callIndex == 0) Locale.setDefault(Locale("ru")) }
+        )
+        val repo = ServersV2Repository(api)
+
+        val page = repo.getServersPage(
+            context,
+            "JP",
+            skip = 0,
+            take = 2,
+            pagingSessionId = "pinned",
+            pinnedLocale = "en"
+        )
+
+        assertFalse(
+            "a pinned page was served in the pinned language, so an OS locale move it could not have affected must not restart the session",
+            page.languageChanged
+        )
+        assertEquals("en", api.requestedLocales.single())
+    }
+
     // Two paging sessions for the same country overlap. Starting a session deliberately does not
     // advance the country's sync generation, so the sync-freshness guard sees both as equally
     // current, and the session-keyed accumulators only keep them out of each other's memory --
@@ -1360,6 +1431,8 @@ class ServersV2RepositoryTest {
         var serversCallCount = 0
         var lastCountriesLocale: String? = null
         var lastServersLocale: String? = null
+        /** Every language getServers() was actually called with, in call order. */
+        val requestedLocales = mutableListOf<String>()
 
         override suspend fun getCountries(locale: String): List<CountryV2> {
             throwOnCountries?.let { throw it }
@@ -1379,6 +1452,7 @@ class ServersV2RepositoryTest {
             val pageJson = serversPageResponses?.getOrElse(serversCallCount) { "{\"items\":[]}" } ?: serversJson
             serversCallCount++
             lastServersLocale = locale
+            requestedLocales.add(locale)
             return Gson().fromJson(pageJson, ServersPageResponse::class.java)
         }
     }
