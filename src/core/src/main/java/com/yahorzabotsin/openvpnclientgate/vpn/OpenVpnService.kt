@@ -1125,17 +1125,32 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                             pauseActionInFlight = true
                             pauseActionStartedMs = System.currentTimeMillis()
                             clearPauseWatch()
-                            statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
-                            statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
-                            try {
-                                startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
-                                    setAction(ENGINE_ACTION_PAUSE_VPN)
-                                })
-                                AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
-                            } catch (e: Exception) {
-                                AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                            // The check above and this flag set are not atomic with a concurrent AIDL
+                            // binder-thread terminal callback: syncEngineState()'s own terminal cleanup
+                            // reads pauseActionInFlight too, and would see it still false (and no-op)
+                            // if that callback ran in the narrow gap between the check and this line.
+                            // Re-reading state now, immediately after setting the flag, closes that gap
+                            // for a callback that already finished by this point -- anything that races
+                            // AFTER this re-check is already handled by that cleanup seeing the flag as
+                            // true (statusHandler.post {...} above it, round-8/round-9 fixes).
+                            val stateAfterArming = ConnectionStateManager.state.value
+                            if (stateAfterArming != ConnectionState.CONNECTED && stateAfterArming != ConnectionState.PAUSING) {
+                                AppLog.w(TAG, "ACTION_PAUSE: aborting after arming, state changed to $stateAfterArming during the race window -- session likely ended concurrently")
+                                pauseActionInFlight = false
                                 clearPauseWatch()
-                                statusHandler.post(pauseActionTimeoutRunnable)
+                            } else {
+                                statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
+                                statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
+                                try {
+                                    startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                        setAction(ENGINE_ACTION_PAUSE_VPN)
+                                    })
+                                    AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
+                                } catch (e: Exception) {
+                                    AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                                    clearPauseWatch()
+                                    statusHandler.post(pauseActionTimeoutRunnable)
+                                }
                             }
                         }
                     }
