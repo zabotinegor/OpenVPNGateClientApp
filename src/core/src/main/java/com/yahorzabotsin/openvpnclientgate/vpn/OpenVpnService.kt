@@ -1109,20 +1109,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 when (action) {
                     VpnManager.ACTION_PAUSE -> {
                         AppLog.i(TAG, "ACTION_PAUSE")
-                        pauseActionInFlight = true
-                        pauseActionStartedMs = System.currentTimeMillis()
-                        clearPauseWatch()
-                        statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
-                        statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
-                        try {
-                            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
-                                setAction(ENGINE_ACTION_PAUSE_VPN)
-                            })
-                            AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
-                        } catch (e: Exception) {
-                            AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                        // VpnManager.pauseVpn() only ever dispatches this from CONNECTED/PAUSING (it
+                        // moves state to PAUSING synchronously before the async dispatch, but a test
+                        // or other direct caller may still be sitting in CONNECTED here). A terminal
+                        // AIDL callback can race that async dispatch and move state to DISCONNECTED in
+                        // the gap -- pauseActionInFlight is still false then, so the terminal-level
+                        // cleanup elsewhere is a no-op. Arming and dispatching PAUSE_VPN here anyway
+                        // would send it 5s later (via the retry) into whatever unrelated session (e.g.
+                        // a fresh reconnect) had started by then. Anything outside CONNECTED/PAUSING
+                        // means the session already ended in that gap.
+                        val stateAtDispatch = ConnectionStateManager.state.value
+                        if (stateAtDispatch != ConnectionState.CONNECTED && stateAtDispatch != ConnectionState.PAUSING) {
+                            AppLog.w(TAG, "ACTION_PAUSE: ignoring, state is no longer CONNECTED/PAUSING (state=${stateAtDispatch}) -- session likely ended before this dispatch arrived")
+                        } else {
+                            pauseActionInFlight = true
+                            pauseActionStartedMs = System.currentTimeMillis()
                             clearPauseWatch()
-                            statusHandler.post(pauseActionTimeoutRunnable)
+                            statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
+                            statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
+                            try {
+                                startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                    setAction(ENGINE_ACTION_PAUSE_VPN)
+                                })
+                                AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
+                            } catch (e: Exception) {
+                                AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                                clearPauseWatch()
+                                statusHandler.post(pauseActionTimeoutRunnable)
+                            }
                         }
                     }
                     VpnManager.ACTION_RESUME -> {
@@ -2354,7 +2368,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
         staleSnapshotCount.set(0)
         lastStatusSnapshotMs = if (ts > 0L) ts else now
-        logEngineStateChange("AIDL", level, snapshot.state)
+        // Not recorded via logEngineStateChange() here: syncEngineState() below now does that
+        // itself, after its own pause-transient-connecting guard -- see the comment there. Recording
+        // it here too, before that guard runs, would reintroduce exactly the stale-snapshot flicker
+        // that ordering was fixed to prevent, just reached through the traffic-poll snapshot path
+        // instead of the direct AIDL callback.
         // isAidlFresh() also covers boundToStatus and lastLiveStatusMs > 0 (a live push has ever
         // arrived), not just the freshness-window comparison -- both can independently make it
         // false, e.g. the status binder dying on another thread mid-read of this snapshot.

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import de.blinkt.openvpn.core.ConnectionStatus
+import de.blinkt.openvpn.core.StatusSnapshot
 import java.time.Duration
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -21,6 +22,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -434,5 +436,45 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
+
+    // The traffic-poll snapshot path (applyStatusSnapshot()) used to call logEngineStateChange()
+    // before syncEngineState()'s pause-transient-connecting guard could reject a stale snapshot, the
+    // same bug as the direct AIDL callback path but reached through a different caller. A rejected
+    // snapshot must not become the "latest observed engine level" the pause timeout reconciles to.
+    @Test
+    fun pauseActionTimeout_doesNotReconcileToConnectingFromSnapshotRejectedByPauseGuard() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        // Stale connecting-family snapshot queued before the engine actually applied the pause --
+        // rejected by the pause guard and must not be recorded as "latest observed".
+        val snapshot = StatusSnapshot(
+            "CONNECTING",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            System.currentTimeMillis(),
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, snapshot)
+        )
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // PAUSED never arrives -- run out the full pause timeout.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 }

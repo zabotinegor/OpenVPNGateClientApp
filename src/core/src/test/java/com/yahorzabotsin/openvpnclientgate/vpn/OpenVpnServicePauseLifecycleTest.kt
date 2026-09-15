@@ -374,4 +374,38 @@ class OpenVpnServicePauseLifecycleTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // VpnManager.pauseVpn() only ever dispatches ACTION_PAUSE from CONNECTED/PAUSING and moves state
+    // to PAUSING synchronously before the (async) dispatch. A terminal AIDL callback racing that
+    // dispatch can move state to DISCONNECTED before onStartCommand ever processes ACTION_PAUSE --
+    // pauseActionInFlight is still false then, so the terminal-level cleanup elsewhere is a no-op.
+    // Arming and dispatching PAUSE_VPN here anyway would resend it 5s later into whatever unrelated
+    // session (e.g. a fresh reconnect) had started by then.
+    @Test
+    fun pauseAction_ignoredWhenTerminalCallbackRacedDispatch_doesNotArmOrDispatch() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        // The session ends (terminal AIDL callback) before ACTION_PAUSE's dispatch arrives.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 9)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        // No PAUSE_VPN dispatched to the engine among whatever else the service may have started
+        // (e.g. binding to the status service on create()).
+        val shadowService = org.robolectric.Shadows.shadowOf(service)
+        val dispatchedPause = generateSequence { shadowService.nextStartedService }
+            .any { it.action == "de.blinkt.openvpn.PAUSE_VPN" }
+        assertFalse(dispatchedPause)
+    }
 }
