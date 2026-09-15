@@ -114,6 +114,49 @@ class OpenVpnServicePauseTimeoutTest {
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
 
+    // logEngineStateChange() used to run before the AIDL pause-transient-connecting guard could
+    // reject a callback, so a stale connecting-family status ignored by that guard still became the
+    // "latest observed engine level". If PAUSED never actually arrives, the pause timeout reads that
+    // rejected level via getLatestObservedEngineState() and reconciles ConnectionState to CONNECTING
+    // (CONNECTED -> CONNECTING is an allowed transition) -- exactly the flicker this guard exists to
+    // prevent, just delayed until the timeout instead of happening immediately.
+    @Test
+    fun pauseActionTimeout_doesNotReconcileToConnectingFromLevelRejectedByPauseGuard() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        // Stale connecting-family status queued before the engine actually applied the pause --
+        // rejected by the pause guard and must not be recorded as "latest observed".
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTING"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(
+                ConnectionStatus::class.java,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET
+            ),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // PAUSED never arrives -- run out the full pause timeout.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
     // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously; isPauseGuardActive()
     // treats that state as pause-in-flight in addition to pauseActionInFlight. If no engine level
     // ever arrives (or only an unrecognized one, as here where setUp()'s LEVEL_NOTCONNECTED

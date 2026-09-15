@@ -1593,14 +1593,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     ) {
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
-            logEngineStateChange("VPN_STATUS", level, state)
+            // Not recorded via logEngineStateChange() here: shouldSupplementAidlWithVpnStatus()
+            // already requires state==CONNECTING (never PAUSING), so this branch cannot forward a
+            // connecting-family level while a pause is in flight -- there is no stale-callback
+            // bookkeeping to avoid in this branch the way there is below.
             if (shouldSupplementAidlWithVpnStatus(level)) {
                 syncEngineState(level, state, allowAutoSwitch = false)
             }
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
-        logEngineStateChange("VPN_STATUS", level, state)
         val failureLevelsHandledByService = setOf(
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.LEVEL_NONETWORK,
@@ -1621,6 +1623,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (VPN_STATUS)")
             return
         }
+        // Recorded here, after the pause guard above, for the same reason as the AIDL path in
+        // syncEngineState(): a callback ignored as stale must not become the "latest observed
+        // engine level" that pause-timeout reconciliation reads via getLatestObservedEngineState().
+        logEngineStateChange("VPN_STATUS", level, state)
         ConnectionStateManager.updateFromEngine(level, state)
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
@@ -1724,7 +1730,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
             staleSnapshotCount.set(0)
             updateStatusSource(StatusSource.AIDL, "AIDL update")
-            logEngineStateChange("AIDL", level, state)
+            // logEngineStateChange() is called from inside syncEngineState(), only once this
+            // callback clears the pause-transient-connecting guard -- see the comment there.
             try {
                 syncEngineState(level, state, allowAutoSwitch = true)
                 onOneShotInitialStateSynced("AIDL callback")
@@ -2442,6 +2449,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (AIDL)")
             return
         }
+        // Recorded here, after the guard above, rather than by the caller before syncEngineState()
+        // is even entered: a stale connecting-family callback ignored by that guard must not become
+        // the "latest observed engine level" getLatestObservedEngineState() hands to the pause
+        // timeout/resume-timeout reconciliation -- otherwise a callback this guard deliberately
+        // discarded would still resurface and reconcile state to CONNECTING if the real PAUSED
+        // confirmation never arrives.
+        logEngineStateChange("AIDL", level, detail)
         // A terminal/failure level abandons any in-flight pause -- there's no session left to
         // confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would resend
         // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
