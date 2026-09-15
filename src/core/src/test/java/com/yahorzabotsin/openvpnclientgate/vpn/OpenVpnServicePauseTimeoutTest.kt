@@ -273,6 +273,9 @@ class OpenVpnServicePauseTimeoutTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
+        // updateStateString()'s LEVEL_VPNPAUSED handling is posted to statusHandler (serialized
+        // against the main-thread pause retry/timeout runnables), so pump the looper first.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         val pauseActionInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
         assertEquals(false, pauseActionInFlight)
@@ -376,6 +379,9 @@ class OpenVpnServicePauseTimeoutTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NOTCONNECTED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
+        // The terminal-level clear in syncEngineState() is posted to statusHandler (serialized
+        // against the main-thread pause retry/timeout runnables), so pump the looper first.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
 

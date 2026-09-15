@@ -1734,8 +1734,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
                 } else if (level == ConnectionStatus.LEVEL_VPNPAUSED) {
-                    pauseActionInFlight = false
-                    clearPauseWatch()
+                    // updateStateString() runs on an AIDL binder thread, while
+                    // pauseActionRetryRunnable/pauseActionTimeoutRunnable run on the main thread via
+                    // statusHandler. @Volatile makes pauseActionInFlight visible across threads but
+                    // does not make a racing runnable's check-then-resend atomic with this clear --
+                    // posting serializes it to strictly precede or follow any main-thread runnable
+                    // instead of interleaving with it mid-check.
+                    statusHandler.post {
+                        pauseActionInFlight = false
+                        clearPauseWatch()
+                    }
                 }
             } catch (t: Throwable) {
                 AppLog.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
@@ -2439,8 +2447,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
         // by then.
         if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
-            pauseActionInFlight = false
-            clearPauseWatch()
+            // syncEngineState() is reached from here on an AIDL binder thread (updateStateString's
+            // direct call), racing pauseActionRetryRunnable/pauseActionTimeoutRunnable on the main
+            // thread the same way the LEVEL_VPNPAUSED clear above does -- serialize for the same
+            // reason.
+            statusHandler.post {
+                pauseActionInFlight = false
+                clearPauseWatch()
+            }
         }
         if (allowAutoSwitch) {
             dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
