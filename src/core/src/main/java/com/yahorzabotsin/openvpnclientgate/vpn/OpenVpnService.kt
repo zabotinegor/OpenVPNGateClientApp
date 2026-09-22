@@ -288,6 +288,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     
     @Volatile private var probeQueue: ProbeRequestQueue? = null
 
+    // Guards the compound "is a pause still legitimately in flight" invariant (pauseActionInFlight
+    // together with whatever ConnectionState/updateFromEngine transition a terminal AIDL callback is
+    // making) across the main thread (ACTION_PAUSE arming) and the AIDL binder thread (terminal-level
+    // cleanup in syncEngineState). @Volatile alone makes pauseActionInFlight visible across threads
+    // but not the check-then-act sequence atomic with a concurrent state transition on the other
+    // thread -- narrowing the window with re-checks (rounds 10-11) never fully closed it, since a
+    // callback could still land in between a check and the following assignment. Holding this lock
+    // across both sides' check+set/check+clear makes one side's critical section strictly precede or
+    // follow the other's, never interleave with it.
+    private val pauseLock = Any()
     // Track pause action to ensure PAUSED state is reached
     @Volatile private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
@@ -1113,44 +1123,35 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                         // moves state to PAUSING synchronously before the async dispatch, but a test
                         // or other direct caller may still be sitting in CONNECTED here). A terminal
                         // AIDL callback can race that async dispatch and move state to DISCONNECTED in
-                        // the gap -- pauseActionInFlight is still false then, so the terminal-level
-                        // cleanup elsewhere is a no-op. Arming and dispatching PAUSE_VPN here anyway
-                        // would send it 5s later (via the retry) into whatever unrelated session (e.g.
-                        // a fresh reconnect) had started by then. Anything outside CONNECTED/PAUSING
-                        // means the session already ended in that gap.
-                        val stateAtDispatch = ConnectionStateManager.state.value
-                        if (stateAtDispatch != ConnectionState.CONNECTED && stateAtDispatch != ConnectionState.PAUSING) {
-                            AppLog.w(TAG, "ACTION_PAUSE: ignoring, state is no longer CONNECTED/PAUSING (state=${stateAtDispatch}) -- session likely ended before this dispatch arrived")
-                        } else {
-                            pauseActionInFlight = true
-                            pauseActionStartedMs = System.currentTimeMillis()
-                            clearPauseWatch()
-                            // The check above and this flag set are not atomic with a concurrent AIDL
-                            // binder-thread terminal callback: syncEngineState()'s own terminal cleanup
-                            // reads pauseActionInFlight too, and would see it still false (and no-op)
-                            // if that callback ran in the narrow gap between the check and this line.
-                            // Re-reading state now, immediately after setting the flag, closes that gap
-                            // for a callback that already finished by this point -- anything that races
-                            // AFTER this re-check is already handled by that cleanup seeing the flag as
-                            // true (statusHandler.post {...} above it, round-8/round-9 fixes).
-                            val stateAfterArming = ConnectionStateManager.state.value
-                            if (stateAfterArming != ConnectionState.CONNECTED && stateAfterArming != ConnectionState.PAUSING) {
-                                AppLog.w(TAG, "ACTION_PAUSE: aborting after arming, state changed to $stateAfterArming during the race window -- session likely ended concurrently")
-                                pauseActionInFlight = false
-                                clearPauseWatch()
+                        // the gap. The check and the pauseActionInFlight=true set below are done under
+                        // pauseLock, the same lock the AIDL terminal-level cleanup in syncEngineState()
+                        // holds around its own check-and-clear-and-updateFromEngine -- so whichever of
+                        // the two runs first is fully ordered before the other, and the loser always
+                        // sees a consistent, already-resolved view instead of a stale flag.
+                        val armed = synchronized(pauseLock) {
+                            val stateAtDispatch = ConnectionStateManager.state.value
+                            if (stateAtDispatch != ConnectionState.CONNECTED && stateAtDispatch != ConnectionState.PAUSING) {
+                                AppLog.w(TAG, "ACTION_PAUSE: ignoring, state is no longer CONNECTED/PAUSING (state=${stateAtDispatch}) -- session likely ended before this dispatch arrived")
+                                false
                             } else {
-                                statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
-                                statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
-                                try {
-                                    startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
-                                        setAction(ENGINE_ACTION_PAUSE_VPN)
-                                    })
-                                    AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
-                                } catch (e: Exception) {
-                                    AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
-                                    clearPauseWatch()
-                                    statusHandler.post(pauseActionTimeoutRunnable)
-                                }
+                                pauseActionInFlight = true
+                                pauseActionStartedMs = System.currentTimeMillis()
+                                true
+                            }
+                        }
+                        if (armed) {
+                            clearPauseWatch()
+                            statusHandler.postDelayed(pauseActionTimeoutRunnable, PAUSE_CONFIRMATION_TIMEOUT_MS)
+                            statusHandler.postDelayed(pauseActionRetryRunnable, PAUSE_RETRY_AT_MS)
+                            try {
+                                startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                                    setAction(ENGINE_ACTION_PAUSE_VPN)
+                                })
+                                AppLog.d(TAG, "Forwarded PAUSE_VPN to engine, waiting for PAUSED confirmation (timeout=${PAUSE_CONFIRMATION_TIMEOUT_MS}ms)")
+                            } catch (e: Exception) {
+                                AppLog.w(TAG, "Failed to forward PAUSE_VPN to engine", e)
+                                clearPauseWatch()
+                                statusHandler.post(pauseActionTimeoutRunnable)
                             }
                         }
                     }
@@ -1224,8 +1225,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // legitimately still tearing down): re-sending is a no-op except for restarting the teardown,
     // since DeviceStateReceiver.userPause(true) and the SIGUSR1 it triggers are idempotent.
     private val pauseActionRetryRunnable = Runnable {
-        if (!pauseActionInFlight || pauseRetrySent) return@Runnable
-        pauseRetrySent = true
+        // Runs on the main thread via statusHandler, but pauseActionInFlight can be cleared
+        // concurrently from the AIDL binder thread -- the check-and-claim is done under pauseLock,
+        // the same lock every other pauseActionInFlight read/write site uses, so this can never act
+        // on a value a concurrent clear is simultaneously invalidating.
+        val shouldRetry = synchronized(pauseLock) {
+            if (!pauseActionInFlight || pauseRetrySent) {
+                false
+            } else {
+                pauseRetrySent = true
+                true
+            }
+        }
+        if (!shouldRetry) return@Runnable
         AppLog.d(TAG, "Pause not yet confirmed after ${PAUSE_RETRY_AT_MS}ms; re-sending PAUSE_VPN to engine")
         try {
             startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
@@ -1237,10 +1249,18 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private val pauseActionTimeoutRunnable = Runnable {
-        if (!pauseActionInFlight) return@Runnable
         if (userInitiatedStop) return@Runnable
+        // Same pauseLock-guarded check-and-claim as pauseActionRetryRunnable above.
+        val shouldTimeout = synchronized(pauseLock) {
+            if (!pauseActionInFlight) {
+                false
+            } else {
+                pauseActionInFlight = false
+                true
+            }
+        }
+        if (!shouldTimeout) return@Runnable
         val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
-        pauseActionInFlight = false
         statusHandler.removeCallbacks(pauseActionRetryRunnable)
         pauseRetrySent = false
         val (level, detail) = getLatestObservedEngineState()
@@ -1712,15 +1732,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // A terminal/failure level abandons any in-flight pause -- there's no session left
                 // to confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would
                 // resend PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect)
-                // has started by then.
-                if (pauseActionInFlight) {
-                    pauseActionInFlight = false
-                    clearPauseWatch()
+                // has started by then. VpnStatus.StateListener.updateState() is called synchronously
+                // by the engine's VpnStatus.updateStateString() on whatever thread invoked it (not
+                // necessarily main), same cross-thread hazard as the AIDL path -- guarded by the same
+                // pauseLock as ACTION_PAUSE's arming and syncEngineState()'s terminal cleanup.
+                synchronized(pauseLock) {
+                    if (pauseActionInFlight) {
+                        pauseActionInFlight = false
+                        statusHandler.post { clearPauseWatch() }
+                    }
                 }
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
-                pauseActionInFlight = false
-                clearPauseWatch()
+                synchronized(pauseLock) { pauseActionInFlight = false }
+                statusHandler.post { clearPauseWatch() }
                 AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
@@ -1770,16 +1795,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
                 } else if (level == ConnectionStatus.LEVEL_VPNPAUSED) {
-                    // updateStateString() runs on an AIDL binder thread, while
-                    // pauseActionRetryRunnable/pauseActionTimeoutRunnable run on the main thread via
-                    // statusHandler. @Volatile makes pauseActionInFlight visible across threads but
-                    // does not make a racing runnable's check-then-resend atomic with this clear --
-                    // posting serializes it to strictly precede or follow any main-thread runnable
-                    // instead of interleaving with it mid-check.
-                    statusHandler.post {
-                        pauseActionInFlight = false
-                        clearPauseWatch()
-                    }
+                    // updateStateString() runs on an AIDL binder thread; guarded by pauseLock along
+                    // with ACTION_PAUSE's arming and every other pauseActionInFlight write, so this
+                    // clear can never interleave with a concurrent arm/re-arm.
+                    synchronized(pauseLock) { pauseActionInFlight = false }
+                    statusHandler.post { clearPauseWatch() }
                 }
             } catch (t: Throwable) {
                 AppLog.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
@@ -2489,24 +2509,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // discarded would still resurface and reconcile state to CONNECTING if the real PAUSED
         // confirmation never arrives.
         logEngineStateChange("AIDL", level, detail)
-        // A terminal/failure level abandons any in-flight pause -- there's no session left to
-        // confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would resend
-        // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
-        // by then.
-        if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
-            // syncEngineState() is reached from here on an AIDL binder thread (updateStateString's
-            // direct call), racing pauseActionRetryRunnable/pauseActionTimeoutRunnable on the main
-            // thread the same way the LEVEL_VPNPAUSED clear above does -- serialize for the same
-            // reason.
-            statusHandler.post {
-                pauseActionInFlight = false
-                clearPauseWatch()
-            }
-        }
         if (allowAutoSwitch) {
             dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
         }
-        ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
+        // A terminal/failure level abandons any in-flight pause -- there's no session left to
+        // confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would resend
+        // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
+        // by then. The check-and-clear is held under pauseLock together with the state transition
+        // below, the same lock ACTION_PAUSE's arming holds around its own check-and-set -- so an
+        // arm racing this terminal transition is always fully ordered before or after it, never
+        // interleaved, and pauseActionInFlight can never be read stale by either side.
+        synchronized(pauseLock) {
+            if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
+                pauseActionInFlight = false
+                statusHandler.post { clearPauseWatch() }
+            }
+            ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
+        }
         handleEngineLevelForStop(level, "AIDL")
     }
 
