@@ -72,6 +72,40 @@ class ConnectionControlsPresenterTest {
         assertEquals("", model.text)
     }
 
+    // PAUSING starts synchronously the instant Pause is tapped, before the engine confirms, and
+    // can last long enough to be visible. Hiding the button for that whole window (the pre-fix
+    // behavior -- the same `else -> visible=false` branch as DISCONNECTED) collapsed this row and
+    // shifted the layout below it up and back, which is what read as a screen flicker.
+    // buildButtonModel() (the Stop/Start button) already keeps PAUSING mapped to the same visible
+    // "Stop Connection" as CONNECTED; this keeps the Pause button consistent with that instead of
+    // disappearing.
+    //
+    // The @Config override below is the Robolectric setup this class needs to resolve real string
+    // resources -- manifest path + sdk pin + packageName, matching
+    // CountryListAdapterTest/SpeedometerViewTest -- so this can assert exact text too, not just
+    // the R.id int the other resource-backed tests in this file compare.
+    @Test
+    @Config(manifest = "src/main/AndroidManifest.xml", sdk = [27], packageName = "com.yahorzabotsin.openvpnclientgate.core")
+    fun `buildPauseButtonModel keeps button visible while pausing`() {
+        val context = RuntimeEnvironment.getApplication()
+        val presenter = ConnectionControlsPresenter(context, ConnectionControlsUseCase())
+
+        val connected = presenter.buildPauseButtonModel(ConnectionState.CONNECTED)
+        val pausing = presenter.buildPauseButtonModel(ConnectionState.PAUSING)
+        val paused = presenter.buildPauseButtonModel(ConnectionState.PAUSED)
+
+        assertTrue(connected.visible)
+        assertEquals(context.getString(R.string.pause_connection), connected.text)
+
+        // The fix: PAUSING keeps the row occupied (no layout collapse/jump) with the same label as
+        // CONNECTED, until PAUSED actually confirms and flips it to "Resume".
+        assertTrue(pausing.visible)
+        assertEquals(context.getString(R.string.pause_connection), pausing.text)
+
+        assertTrue(paused.visible)
+        assertEquals(context.getString(R.string.resume_connection), paused.text)
+    }
+
     @Test
     fun `formatTraffic formats both directions via usecase`() {
         val (down, up) = presenter.formatTraffic(

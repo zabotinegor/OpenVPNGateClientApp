@@ -2,11 +2,16 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import android.content.Intent
 import android.os.Handler
+import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import de.blinkt.openvpn.core.ConnectionStatus
+import de.blinkt.openvpn.core.StatusSnapshot
+import java.time.Duration
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,6 +22,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -108,6 +114,76 @@ class OpenVpnServicePauseTimeoutTest {
 
         // Verify state remains PAUSED (not overwritten)
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    // logEngineStateChange() used to run before the AIDL pause-transient-connecting guard could
+    // reject a callback, so a stale connecting-family status ignored by that guard still became the
+    // "latest observed engine level". If PAUSED never actually arrives, the pause timeout reads that
+    // rejected level via getLatestObservedEngineState() and reconciles ConnectionState to CONNECTING
+    // (CONNECTED -> CONNECTING is an allowed transition) -- exactly the flicker this guard exists to
+    // prevent, just delayed until the timeout instead of happening immediately.
+    @Test
+    fun pauseActionTimeout_doesNotReconcileToConnectingFromLevelRejectedByPauseGuard() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ReflectionHelpers.setField(service, "suppressEngineState", false)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        // Stale connecting-family status queued before the engine actually applied the pause --
+        // rejected by the pause guard and must not be recorded as "latest observed".
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTING"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(
+                ConnectionStatus::class.java,
+                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET
+            ),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // PAUSED never arrives -- run out the full pause timeout.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously; isPauseGuardActive()
+    // treats that state as pause-in-flight in addition to pauseActionInFlight. If no engine level
+    // ever arrives (or only an unrecognized one, as here where setUp()'s LEVEL_NOTCONNECTED
+    // sentinel is still the latest observed level), the pauseActionTimeoutRunnable clears
+    // pauseActionInFlight but must also move ConnectionState out of PAUSING -- otherwise
+    // isPauseGuardActive() stays true forever and silently discards every later transient
+    // CONNECTING callback, leaving a subsequent reconnect stuck.
+    @Test
+    fun pauseActionTimeout_reconcilesPausingToDisconnectedWhenNoRecognizedLevelObserved() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        // No engine callback ever confirms PAUSED or reports a recognized level.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
     }
 
     @Test
@@ -242,6 +318,9 @@ class OpenVpnServicePauseTimeoutTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
+        // updateStateString()'s LEVEL_VPNPAUSED handling is posted to statusHandler (serialized
+        // against the main-thread pause retry/timeout runnables), so pump the looper first.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         val pauseActionInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
         assertEquals(false, pauseActionInFlight)
@@ -251,5 +330,151 @@ class OpenVpnServicePauseTimeoutTest {
 
         // The timeout runnable should already be canceled by the AIDL PAUSED callback.
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    // A slow engine teardown (explicit-exit-notify retries, TLS session close) before the
+    // management HOLD checkpoint can legitimately take several seconds
+    // -- the fixed 3s watchdog gave up and forced CONNECTED back before the engine ever reported
+    // PAUSED. PAUSE_CONFIRMATION_TIMEOUT_MS is now 10s, with a resend of PAUSE_VPN at the 5s
+    // halfway point as a safety net for a lost intent. This verifies the resend fires once at the
+    // halfway point without abandoning the pause, and the final timeout still fires if nothing
+    // ever confirms.
+    @Test
+    fun pauseAction_resendsOnceAtRetryWindow_thenGivesUpAtFinalTimeoutIfNeverConfirmed() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+
+        // Just past the 5s retry window, before the 10s final timeout.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_100L))
+
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // Past the full 10s timeout with nothing ever confirming: still gives up eventually.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_000L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
+
+    @Test
+    fun pauseAction_confirmedBeforeRetryWindow_cancelsScheduledResend() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "VPNPAUSED"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+
+        // Advance well past the retry window: the cancelled resend must not fire.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6_000L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
+
+    // If the connection reports a terminal level (LEVEL_NOTCONNECTED here) after Pause was tapped
+    // -- the session ended instead of confirming PAUSED -- pauseActionInFlight was left true, so
+    // PAUSE_RETRY_AT_MS would fire 5s later and resend PAUSE_VPN into whatever unrelated session
+    // (e.g. a fresh reconnect) had started by then. The terminal-level branch now clears the pause
+    // watch immediately.
+    @Test
+    fun pauseAction_aidlCallback_terminalLevelAbandonsPause_cancelsRetryAndTimeout() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
+        ReflectionHelpers.callInstanceMethod<Any>(
+            callbacks,
+            "updateStateString",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "NOPROCESS"),
+            ReflectionHelpers.ClassParameter.from(String::class.java, null),
+            ReflectionHelpers.ClassParameter.from(Int::class.javaPrimitiveType!!, 0),
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NOTCONNECTED),
+            ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
+        )
+        // The terminal-level clear in syncEngineState() is posted to statusHandler (serialized
+        // against the main-thread pause retry/timeout runnables), so pump the looper first.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        // Advance past both the retry window and the final timeout: neither should do anything --
+        // pauseActionInFlight is already false, so both runnables must no-op.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10_100L))
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
+
+    // The traffic-poll snapshot path (applyStatusSnapshot()) used to call logEngineStateChange()
+    // before syncEngineState()'s pause-transient-connecting guard could reject a stale snapshot, the
+    // same bug as the direct AIDL callback path but reached through a different caller. A rejected
+    // snapshot must not become the "latest observed engine level" the pause timeout reconciles to.
+    @Test
+    fun pauseActionTimeout_doesNotReconcileToConnectingFromSnapshotRejectedByPauseGuard() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        // Stale connecting-family snapshot queued before the engine actually applied the pause --
+        // rejected by the pause guard and must not be recorded as "latest observed".
+        val snapshot = StatusSnapshot(
+            "CONNECTING",
+            null,
+            0,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            System.currentTimeMillis(),
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, snapshot)
+        )
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+        // PAUSED never arrives -- run out the full pause timeout.
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
 }
