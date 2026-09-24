@@ -135,7 +135,7 @@
     "pr": {
       "azure": {"file": "azure-pipelines.yml", "definition": "AZDO_PR_CI_PIPELINE_ID", "serviceConnection": "openvpn-android-azure-pr-ci", "secretConsumer": "azure-pr-ci", "gateServiceConnection": "openvpn-android-azure-pr-gate", "gateSecretConsumer": "azure-pr-gate", "jobs": {"build": "build", "gate": "gate"}},
       "github": {"file": ".github/workflows/build-by-pull-request.yml", "buildJob": "build", "gateJob": "gate", "checkoutSecret": "PR_CI_READ_PAT", "buildPermissions": {"actions": "read", "contents": "read", "pull-requests": "write"}, "gatePermissions": {"statuses": "write"}},
-      "triggers": {"azurePullRequestBranches": ["*"], "githubPullRequestTypes": ["opened", "synchronize", "reopened", "ready_for_review"], "manual": true},
+      "triggers": {"azurePullRequestBranches": ["*"], "githubPullRequestTypes": ["opened", "synchronize", "reopened", "ready_for_review"], "manual": false},
       "concurrency": {"github": {"group": "pr-", "cancelInProgress": true}, "azure": {"autoCancel": true}},
       "configVariables": ["PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL"],
       "secrets": ["PR_CI_READ_PAT"],

@@ -51,6 +51,9 @@ jobs:
       - bash: |
           set -euo pipefail
           git rev-parse --verify --quiet 'HEAD^2' > /dev/null || { echo "HEAD is not a pull request merge commit; refusing to trust the scripts." >&2; exit 1; }
+          case "${SYSTEM_PULLREQUEST_TARGETBRANCH:-}" in refs/heads/dev|refs/heads/main|dev|main) ;; *) echo "Pull request target is not dev or main; refusing to trust the scripts." >&2; exit 1;; esac
+          tb="${SYSTEM_PULLREQUEST_TARGETBRANCH#refs/heads/}"
+          git merge-base --is-ancestor 'HEAD^1' "refs/remotes/origin/$tb" || git merge-base --is-ancestor "refs/remotes/origin/$tb" 'HEAD^1' || { echo "HEAD^1 is not on the $tb history; refusing to trust the scripts." >&2; exit 1; }
           mkdir -p "$(Agent.TempDirectory)/trusted"
           git archive 'HEAD^1' scripts/ci .ci | tar -x -C "$(Agent.TempDirectory)/trusted"
         displayName: Stage trusted CI scripts from the target branch
@@ -186,6 +189,7 @@ jobs:
       - bash: |
           set -euo pipefail
           git rev-parse --verify --quiet 'HEAD^2' > /dev/null || { echo "HEAD is not a pull request merge commit; refusing to trust the scripts." >&2; exit 1; }
+          case "${SYSTEM_PULLREQUEST_TARGETBRANCH:-}" in refs/heads/dev|refs/heads/main|dev|main) ;; *) echo "Pull request target is not dev or main; refusing to trust the scripts." >&2; exit 1;; esac
           mkdir -p "$(Agent.TempDirectory)/trusted"
           git archive 'HEAD^1' scripts/ci .ci | tar -x -C "$(Agent.TempDirectory)/trusted"
         displayName: Stage trusted CI scripts from the target branch

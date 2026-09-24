@@ -110,10 +110,13 @@ Trust boundaries: `azure-pipelines.yml` (PR code) has two jobs with two identiti
 token and its Gradle steps do not even receive it. The **gate** job holds the statuses-only token and runs the vault loader
 and `android_ci.py ci-gate` from a copy of the target branch (`git archive HEAD^1`, the first parent of the PR merge commit),
 never from the PR tree, so a PR cannot read the statuses token or forge its own `CI Gate` by editing `scripts/ci`. The build
-job also loads its vault secret through that trusted copy. Both jobs fail closed when `HEAD` is not a merge commit.
+job also loads its vault secret through that trusted copy. Both jobs fail closed when `HEAD` is not a merge commit or the PR target is not `dev`/`main`; the build job also requires `HEAD^1` to be on the target branch history. A manual run of the PR pipeline is not supported (it has no merge commit and always fails that check).
 `azure-release.yml` never runs for pull requests. The GitHub `CI Gate` job uses no checkout. Azure posts no `pending` status.
-Residual: Azure runs the YAML of the PR merge commit, so someone who can push a branch can still edit it; the settings in
-[Azure trust settings](#azure-trust-settings-required) are what bound that.
+Residual: Azure runs the YAML of the PR merge commit, so someone who can push a branch can still edit it and, for example, skip the
+trusted-copy step; the trust settings only bound which secrets and service connections such a run can reach (fork secrets,
+branch control on the release connection, identity separation). They do not make the PR YAML trustworthy. Add a *Required
+template* check (Approvals and checks) on the PR service connections pointing at a template on `dev`/`main` if you need that.
+[Azure trust settings](#azure-trust-settings-required) list the settings.
 
 The `GH_PAT` GitHub secret must additionally be able to **read Actions variables** (fine-grained: Variables read; classic:
 `repo`). The GitHub-side guard reads `CI_PROVIDER` live; if that read is refused it falls back to the workflow-start value
@@ -129,7 +132,8 @@ change all three places together to rename them.
 `azure-release.yml` on `refs/heads/main` (Azure). Until the release merge that brings these files to `main` has happened,
 that call fails ("Unexpected inputs" or a missing YAML), so **the switch rolls back and the fallback cannot be used**; the
 scheduled `ci-provider-reset.yml` only exists on the default branch, so it needs the same merge. This is fail-safe, not
-harmful. Merge to `main` first, then rely on the switch or the reset. Also create the `PR_CI_READ_PAT` secret first.
+harmful. Merge to `main` first, then rely on the switch or the reset. Also create the `PR_CI_READ_PAT` secret first. Azure PR CI needs these files on the PR target branch (`dev` as well as `main`), and
+`PR_CI_READ_PAT` must exist before this branch's own pull request runs.
 
 ## One-time setup (manual, needs credentials)
 

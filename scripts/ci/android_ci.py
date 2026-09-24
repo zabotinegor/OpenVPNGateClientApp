@@ -284,6 +284,10 @@ def decide_changes(event: str, before: str | None, after: str, pattern: str, cwd
             tag = latest_release_tag_ref(after, cwd)
             if tag and is_ancestor(baseline, f"{tag}^{{commit}}", cwd):
                 baseline = tag
+        if not baseline or baseline == ZERO_SHA:
+            # No usable baseline (no prior build, lookup failure, unknown/force-pushed commit): use the latest release
+            # tag rather than diffing the whole history; with no tag either, the whole history is inspected.
+            baseline = latest_release_tag_ref(after, cwd)
     files = changed_files(baseline, after, cwd)
     if not files:
         if replay:

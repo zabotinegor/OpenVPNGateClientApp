@@ -193,6 +193,28 @@ class ChangeDetectionTests(unittest.TestCase):
         self.assertFalse(proceed)
         self.assertEqual(files, ["docs/x.md"])
 
+    def test_push_without_baseline_falls_back_to_release_tag(self):
+        released = commit(self.repo, {"src/a": "1"})
+        self._tag("v1.1.1-auto(5)", released)
+        head = commit(self.repo, {"docs/x.md": "1"})
+        # (a) lookup returns None
+        proceed, _, files = ci.decide_changes("push", None, head, self.pattern, self.repo, previous_lookup=lambda: None)
+        self.assertFalse(proceed)
+        self.assertEqual(files, ["docs/x.md"])
+        # (b) lookup returns an unknown commit
+        proceed, _, files = ci.decide_changes("push", None, head, self.pattern, self.repo, previous_lookup=lambda: "f" * 40)
+        self.assertFalse(proceed)
+        self.assertEqual(files, ["docs/x.md"])
+        # GitHub push whose before sha is not present locally
+        proceed, _, _ = ci.decide_changes("push", "e" * 40, head, self.pattern, self.repo)
+        self.assertFalse(proceed)
+
+    def test_push_without_baseline_and_without_tag_inspects_whole_history(self):
+        commit(self.repo, {"src/a": "1"})
+        head = commit(self.repo, {"docs/x.md": "1"})
+        proceed, _, _ = ci.decide_changes("push", None, head, self.pattern, self.repo, previous_lookup=lambda: None)
+        self.assertTrue(proceed)
+
     def test_push_with_a_real_before_sha_is_not_overridden_by_a_tag(self):
         base = commit(self.repo, {"src/a": "1"})
         tagged = commit(self.repo, {"src/b": "2"})
