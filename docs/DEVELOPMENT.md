@@ -166,6 +166,13 @@ cd src
 ./gradlew bundleReleaseApp -PappVersionName=1.0.0 -PappVersionCode=1 -PPRIMARY_SERVERS_URL=... -PFALLBACK_SERVERS_URL=...
 ```
 
+### CI and release pipelines
+PR builds and dev/main/tag releases run through GitHub Actions by default, with an Azure DevOps fallback controlled by
+one command (`./scripts/ci/pipeline-mode.ps1 azure|github|status`). Both providers are thin adapters over
+`scripts/ci/android_ci.py` and `.ci/pipeline-contract.json`; see
+[operations/ci-provider-fallback.md](operations/ci-provider-fallback.md). Check locally with
+`python scripts/ci/check_pipeline_parity.py`.
+
 ### Version override per launcher
 - `appVersionCodeMobile`
 - `appVersionCodeTv`

@@ -1,0 +1,171 @@
+# Azure DevOps fallback PR CI for the Android client. Connected directly to the GitHub repository (no Azure Repos copy).
+# Thin adapter: all build logic is in scripts/ci/android_ci.py and .ci/pipeline-contract.json;
+# scripts/ci/check_pipeline_parity.py fails when this file drifts from the contract.
+#
+# The pipeline definition is enabled only while CI_PROVIDER=azure (scripts/ci/pipeline-mode.ps1), so no hosted agent is
+# allocated in GitHub mode; the guard step re-checks the live provider as a second line of defence.
+#
+# Least privilege: this pipeline builds and runs pull-request-controlled code. It uses ONLY the service connection
+# openvpn-android-azure-pr-ci and loads ONLY the secret github-android-pr-ci-pat (exported as GH_PAT, Metadata/Contents
+# read, Actions Variables read, Commit statuses read+write). That token carries no Contents write, no Actions write and no
+# Variables write, and it is passed only to the steps that need it - never to the Gradle steps. It holds no signing key,
+# release credential or provider-switch credential; those are loaded by azure-release.yml (never runs for PRs) and by
+# pipeline-mode.ps1.
+
+trigger: none
+
+pr:
+  autoCancel: true
+  branches:
+    include:
+      - '*'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # Bootstrap constants; they must equal keyVault.bootstrap in .ci/pipeline-contract.json (parity-checked).
+  AZURE_PR_CI_SERVICE_CONNECTION: openvpn-android-azure-pr-ci
+  AZURE_KEY_VAULT_NAME: openvpngateclient-prd-kv
+  JDK_VERSION: '17'
+
+steps:
+  - checkout: self
+    fetchDepth: 0
+    fetchTags: false
+    submodules: false
+    persistCredentials: false
+
+  - task: AzureCLI@2
+    displayName: Load the PR CI GitHub token from Key Vault
+    inputs:
+      azureSubscription: $(AZURE_PR_CI_SERVICE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: python3 scripts/ci/load_vault_secrets.py --provider azure --consumer azure-pr-ci --vault "$AZURE_KEY_VAULT_NAME"
+    env:
+      AZURE_KEY_VAULT_NAME: $(AZURE_KEY_VAULT_NAME)
+
+  # Guard: run only when GitHub says azure is the active provider (after any running switch finishes). Unset means the
+  # documented default github. A real read failure fails the build (fail-safe: the required status stays unreported).
+  - bash: python3 scripts/ci/android_ci.py guard --provider azure
+    name: guard
+    displayName: Guard - check active CI provider
+    env:
+      GH_PAT: $(GH_PAT)
+      CI_REPOSITORY: $(Build.Repository.Name)
+
+  - bash: bash scripts/ci/checkout-submodules.sh
+    displayName: Checkout PR head and private submodules
+    condition: eq(variables['guard.active'], 'true')
+    env:
+      GH_PAT: $(GH_PAT)
+      PR_HEAD_SHA: $(System.PullRequest.SourceCommitId)
+
+  - bash: python3 scripts/ci/load_repo_variables.py --pipeline pr --repository "$(Build.Repository.Name)"
+    displayName: Load repository variables from GitHub
+    condition: eq(variables['guard.active'], 'true')
+    env:
+      GH_PAT: $(GH_PAT)
+
+  - bash: >-
+      python3 scripts/ci/android_ci.py ci-gate --provider azure --state pending
+      --sha "$(System.PullRequest.SourceCommitId)"
+      --target-url "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+    displayName: Report pending CI Gate status
+    condition: and(eq(variables['guard.active'], 'true'), ne(variables['System.PullRequest.SourceCommitId'], ''))
+    env:
+      GH_PAT: $(GH_PAT)
+      CI_REPOSITORY: $(Build.Repository.Name)
+
+  - task: JavaToolInstaller@0
+    displayName: Set up JDK 17
+    condition: eq(variables['guard.active'], 'true')
+    inputs:
+      versionSpec: $(JDK_VERSION)
+      jdkArchitectureOption: x64
+      jdkSourceOption: PreInstalled
+
+  - bash: python3 scripts/ci/android_ci.py pr-metadata --sha "$(System.PullRequest.SourceCommitId)"
+    name: meta
+    displayName: Set build metadata
+    condition: eq(variables['guard.active'], 'true')
+
+  - bash: bash scripts/ci/run-ci-tests.sh
+    displayName: Pipeline parity check and CI script tests
+    condition: eq(variables['guard.active'], 'true')
+
+  - bash: python3 scripts/ci/android_ci.py install-swig
+    displayName: Install swig
+    condition: eq(variables['guard.active'], 'true')
+
+  - bash: python3 scripts/ci/android_ci.py install-android-sdk
+    displayName: Install Android SDK packages
+    condition: eq(variables['guard.active'], 'true')
+
+  - bash: python3 scripts/ci/android_ci.py gradle unit-tests
+    displayName: Run Unit Tests (app)
+    condition: eq(variables['guard.active'], 'true')
+    env:
+      PRIMARY_SERVERS_URL: $(repo.PRIMARY_SERVERS_URL)
+      FALLBACK_SERVERS_URL: $(repo.FALLBACK_SERVERS_URL)
+
+  - task: CopyFiles@2
+    displayName: Collect unit test reports
+    condition: failed()
+    inputs:
+      SourceFolder: src
+      Contents: |
+        **/build/reports/tests/testDebugUnitTest/**
+        **/build/test-results/testDebugUnitTest/**
+      TargetFolder: $(Build.ArtifactStagingDirectory)/unit-test-report
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish unit test reports (on failure)
+    condition: failed()
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/unit-test-report
+      artifact: unit-test-report
+
+  - bash: python3 scripts/ci/android_ci.py gradle debug-apks
+    displayName: Build Debug APKs (mobile + tv)
+    condition: eq(variables['guard.active'], 'true')
+    env:
+      PRIMARY_SERVERS_URL: $(repo.PRIMARY_SERVERS_URL)
+      FALLBACK_SERVERS_URL: $(repo.FALLBACK_SERVERS_URL)
+
+  - bash: python3 scripts/ci/android_ci.py gradle release-sanity
+    displayName: Build Release APKs (unsigned sanity check)
+    condition: eq(variables['guard.active'], 'true')
+    env:
+      PRIMARY_SERVERS_URL: $(repo.PRIMARY_SERVERS_URL)
+      FALLBACK_SERVERS_URL: $(repo.FALLBACK_SERVERS_URL)
+
+  - bash: python3 scripts/ci/android_ci.py rename-apks --sha "$(System.PullRequest.SourceCommitId)"
+    displayName: Rename APKs with commit SHA
+    condition: eq(variables['guard.active'], 'true')
+
+  - task: PublishPipelineArtifact@1
+    displayName: Upload Debug APK (mobile)
+    condition: and(always(), eq(variables['guard.active'], 'true'))
+    inputs:
+      targetPath: src/mobile/build/outputs/apk/debug
+      artifact: apk-mobile-debug_$(meta.short_sha)
+
+  - task: PublishPipelineArtifact@1
+    displayName: Upload Debug APK (tv)
+    condition: and(always(), eq(variables['guard.active'], 'true'))
+    inputs:
+      targetPath: src/tv/build/outputs/apk/debug
+      artifact: apk-tv-debug_$(meta.short_sha)
+
+  # Final verdict. Runs only when CI actually ran, so an inactive or crashed pipeline never reports success.
+  - bash: >-
+      python3 scripts/ci/android_ci.py ci-gate --provider azure --job-result "$(Agent.JobStatus)"
+      --sha "$(System.PullRequest.SourceCommitId)"
+      --target-url "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+    displayName: Report final CI Gate status
+    condition: and(always(), eq(variables['guard.active'], 'true'), ne(variables['System.PullRequest.SourceCommitId'], ''))
+    env:
+      GH_PAT: $(GH_PAT)
+      CI_REPOSITORY: $(Build.Repository.Name)

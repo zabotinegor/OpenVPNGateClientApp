@@ -1,0 +1,271 @@
+{
+  "version": 1,
+  "description": "Provider-neutral contract for the Android client CI/release pipelines. GitHub Actions (.github/workflows/build-by-pull-request.yml, release-by-dev.yml, release-by-main.yml, release-by-tag.yml) and Azure DevOps (azure-pipelines.yml, azure-release.yml) are thin adapters around the shared scripts under scripts/ci/. scripts/ci/check_pipeline_parity.py fails when either adapter drifts from this file. Change this file first, then the adapters.",
+  "providerState": {
+    "variable": "CI_PROVIDER",
+    "lockVariable": "CI_PROVIDER_SWITCHING",
+    "default": "github",
+    "values": ["github", "azure"],
+    "resetWorkflow": ".github/workflows/ci-provider-reset.yml",
+    "resetCron": "10 1 1 * *",
+    "switchCommand": "scripts/ci/pipeline-mode.ps1"
+  },
+  "repositoryVariables": [
+    "CI_PROVIDER",
+    "CI_PROVIDER_SWITCHING",
+    "AZDO_ORG",
+    "AZDO_PROJECT",
+    "AZDO_PR_CI_PIPELINE_ID",
+    "AZDO_RELEASE_PIPELINE_ID",
+    "PRIMARY_SERVERS_URL",
+    "FALLBACK_SERVERS_URL",
+    "VERSIONS_API_BASE_URL",
+    "AZURE_GITHUB_OIDC_CLIENT_ID",
+    "AZURE_TENANT_ID",
+    "AZURE_SUBSCRIPTION_ID",
+    "AZURE_KEY_VAULT_NAME"
+  ],
+  "reservedVariables": ["CI_PROVIDER_SWITCHING"],
+  "toolchain": {
+    "jdkVersion": "17",
+    "jdkDistribution": "temurin",
+    "swig": true,
+    "androidSdkPackages": [
+      "platform-tools",
+      "platforms;android-36",
+      "build-tools;36.0.0",
+      "cmake;3.22.1",
+      "ndk;29.0.14206865"
+    ],
+    "androidSdkNote": "platforms;android-37 is deliberately NOT installed here: the runner bundled sdkmanager cannot resolve it and Gradle/AGP auto-downloads it mid-build (docs/guides/troubleshooting.md).",
+    "gradleWrapperDir": "src",
+    "submodules": "recursive"
+  },
+  "gradle": {
+    "profiles": {
+      "pr": {
+        "gradleOpts": "-Xmx5120m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2",
+        "flags": ["--no-daemon", "--max-workers=2", "--stacktrace"]
+      },
+      "release": {
+        "gradleOpts": "-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+        "flags": ["--no-daemon", "--stacktrace"]
+      }
+    },
+    "taskSets": {
+      "unit-tests": {"profile": "pr", "tasks": ["testDebugUnitTestApp"]},
+      "debug-apks": {"profile": "pr", "tasks": [":mobile:assembleDebug", ":tv:assembleDebug"]},
+      "release-sanity": {"profile": "pr", "tasks": ["assembleReleaseApp"]},
+      "stage-release": {"profile": "release", "tasks": ["stageReleaseArtifacts"]}
+    },
+    "buildConfigVariables": {
+      "PRIMARY_SERVERS_URL": "ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL",
+      "FALLBACK_SERVERS_URL": "ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL"
+    }
+  },
+  "signing": {
+    "secrets": ["SIGNING_KEY_BASE64", "KEY_ALIAS", "KEY_PASSWORD", "STORE_PASSWORD"],
+    "keystoreFile": "src/keystore.jks",
+    "propertiesFile": "src/keystore.properties",
+    "note": "Only release pipelines materialize the keystore. The PR pipelines never receive signing secrets; the PR release build is an unsigned sanity build."
+  },
+  "changeDetection": {
+    "codePathRegex": "^(src/|media(/|$))",
+    "note": "media is a submodule: its pointer bump is reported as the bare path 'media'.",
+    "manualAlwaysProceeds": true,
+    "replayBaseline": "latest release tag (-auto(N)) reachable from the replay commit; an empty range skips",
+    "azureBeforeSource": "azure has no push 'before' sha: the previous completed build of the same pipeline and branch is used, then the replay baseline"
+  },
+  "release": {
+    "outputDir": "output",
+    "metadataFile": "build/ci/release-meta.json",
+    "stableBaseline": {"tagGlob": "v1.1.*", "excludeContains": "beta", "seedVersion": "1.1.0"},
+    "buildNumber": {
+      "rule": "highest N among tags ending in -auto(N), plus 1; shared by mobile and tv version codes",
+      "serialization": "one release at a time across dev, main and tag flows"
+    },
+    "assets": {
+      "namePattern": "OpenVPNGateClient_{variant}_{version}_build{build}.{ext}",
+      "variants": ["mobile", "tv"],
+      "extensions": ["apk", "aab"],
+      "platformIds": {"mobile": 0, "tv": 1}
+    },
+    "versionsApi": {
+      "createPath": "/api/v1/versions",
+      "translatePath": "/api/v1/versions/{id}/localizations/{language}/auto-translate",
+      "sourceLocale": "en",
+      "autoTranslateLanguages": ["en", "ru", "pl"],
+      "conflictStatusMeansAlreadyPublished": 409
+    },
+    "types": {
+      "beta": {
+        "workflow": "release-dev",
+        "branch": "dev",
+        "appReleaseType": "beta",
+        "prerelease": true,
+        "generateReleaseNotes": true,
+        "tagPattern": "v{version}-beta.{beta}-auto({build})",
+        "releaseNamePrefix": "Beta Release",
+        "versionsReleaseType": 1
+      },
+      "stable": {
+        "workflow": "release-main",
+        "branch": "main",
+        "appReleaseType": "release",
+        "prerelease": false,
+        "generateReleaseNotes": false,
+        "tagPattern": "v{version}-auto({build})",
+        "releaseNamePrefix": "Release",
+        "versionsReleaseType": 0
+      },
+      "tag": {
+        "workflow": "release-tag",
+        "tagGlob": "v*",
+        "ignoreTagsContaining": "-auto",
+        "appReleaseType": "release",
+        "prerelease": false,
+        "generateReleaseNotes": false,
+        "buildMarkerTagPattern": "tagbuild-v{version}-auto({build})",
+        "releaseNamePrefix": "Release",
+        "versionsReleaseType": 0
+      }
+    }
+  },
+  "pipelines": {
+    "pr": {
+      "github": {"file": ".github/workflows/build-by-pull-request.yml"},
+      "azure": {"file": "azure-pipelines.yml", "definition": "AZDO_PR_CI_PIPELINE_ID", "serviceConnection": "openvpn-android-azure-pr-ci", "secretConsumer": "azure-pr-ci"},
+      "triggers": {"azurePullRequestBranches": ["*"], "githubPullRequestTypes": ["opened", "synchronize", "reopened", "ready_for_review"], "manual": true},
+      "concurrency": {"github": {"group": "pr-", "cancelInProgress": true}, "azure": {"autoCancel": true}},
+      "configVariables": ["PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL"],
+      "secrets": ["GH_PAT"],
+      "gradleTaskSets": ["unit-tests", "debug-apks", "release-sanity"],
+      "sharedSteps": [
+        "android_ci.py pr-metadata",
+        "run-ci-tests.sh",
+        "android_ci.py install-swig",
+        "android_ci.py install-android-sdk",
+        "android_ci.py gradle unit-tests",
+        "android_ci.py gradle debug-apks",
+        "android_ci.py gradle release-sanity",
+        "android_ci.py rename-apks"
+      ],
+      "providerSteps": {
+        "github": [],
+        "azure": [
+          "android_ci.py ci-gate",
+          "load_vault_secrets.py",
+          "android_ci.py guard",
+          "checkout-submodules.sh",
+          "load_repo_variables.py"
+        ]
+      },
+      "artifacts": {
+        "names": ["apk-mobile-debug_{short_sha}", "apk-tv-debug_{short_sha}"],
+        "paths": ["src/mobile/build/outputs/apk/debug", "src/tv/build/outputs/apk/debug"],
+        "githubRetentionDays": 3,
+        "unitTestReport": {"name": "unit-test-report", "onFailureOnly": true, "githubRetentionDays": 5}
+      },
+      "status": {"context": "CI Gate", "postedBy": "the provider that actually ran CI"}
+    },
+    "release-dev": {
+      "github": {"file": ".github/workflows/release-by-dev.yml"},
+      "azure": {"mode": "beta"},
+      "releaseType": "beta",
+      "triggers": {"branches": ["dev"], "paths": ["src/**", "media", "media/**"], "manual": true, "replay": true}
+    },
+    "release-main": {
+      "github": {"file": ".github/workflows/release-by-main.yml"},
+      "azure": {"mode": "stable"},
+      "releaseType": "stable",
+      "triggers": {"branches": ["main"], "manual": true, "replay": true}
+    },
+    "release-tag": {
+      "github": {"file": ".github/workflows/release-by-tag.yml"},
+      "azure": {"mode": "tag"},
+      "releaseType": "tag",
+      "omitSteps": {"github": ["android_ci.py detect-changes"]},
+      "triggers": {"tags": ["v*"], "excludeTags": ["*-auto*"], "manual": false, "replay": false}
+    },
+    "release-common": {
+      "azure": {"file": "azure-release.yml", "definition": "AZDO_RELEASE_PIPELINE_ID", "serviceConnection": "openvpn-android-azure-release", "secretConsumer": "azure-release"},
+      "concurrency": {
+        "github": {"group": "release-build-number", "cancelInProgress": false},
+        "azure": {"lockBehavior": "sequential", "environment": "android-release-build-number"}
+      },
+      "configVariables": ["PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL", "VERSIONS_API_BASE_URL"],
+      "secrets": ["GH_PAT", "SIGNING_KEY_BASE64", "KEY_ALIAS", "KEY_PASSWORD", "STORE_PASSWORD", "VERSIONS_API_KEY"],
+      "sharedSteps": [
+        "android_ci.py detect-changes",
+        "android_ci.py install-swig",
+        "android_ci.py version",
+        "android_ci.py write-signing",
+        "android_ci.py gradle stage-release",
+        "android_ci.py stage-artifacts",
+        "android_ci.py create-tag",
+        "android_ci.py publish-release",
+        "android_ci.py versions-api"
+      ],
+      "providerSteps": {
+        "github": ["android_ci.py guard"],
+        "azure": [
+          "load_vault_secrets.py",
+          "android_ci.py guard",
+          "android_ci.py resolve-mode",
+          "checkout-submodules.sh",
+          "load_repo_variables.py"
+        ]
+      }
+    }
+  },
+  "gitHubSecrets": ["GH_PAT", "SIGNING_KEY_BASE64", "KEY_ALIAS", "KEY_PASSWORD", "STORE_PASSWORD", "VERSIONS_API_KEY", "GITHUB_TOKEN"],
+  "keyVault": {
+    "bootstrap": {
+      "vaultName": "openvpngateclient-prd-kv",
+      "prServiceConnection": "openvpn-android-azure-pr-ci",
+      "releaseServiceConnection": "openvpn-android-azure-release"
+    },
+    "secrets": {
+      "github-android-pr-ci-pat": {"env": "GH_PAT", "purpose": "Azure PR CI only: guard (Variables read), private submodule checkout (Contents read), CI Gate commit status (Commit statuses read+write). Carries no Contents write, no Actions write, no Variables write: PR-controlled code runs with it."},
+      "github-android-release-pat": {"env": "GH_PAT", "purpose": "Azure release only: private submodules, tags and GitHub Releases (Contents read+write), provider guard and stale-replay check (Variables read)."},
+      "android-signing-keystore-base64": {"env": "SIGNING_KEY_BASE64", "purpose": "Release keystore (single-line base64, identical to the GitHub secret value)."},
+      "android-signing-key-alias": {"env": "KEY_ALIAS", "purpose": "Release key alias."},
+      "android-signing-key-password": {"env": "KEY_PASSWORD", "purpose": "Release key password."},
+      "android-signing-store-password": {"env": "STORE_PASSWORD", "purpose": "Release keystore password."},
+      "android-versions-api-key": {"env": "VERSIONS_API_KEY", "purpose": "Versions API X-API-Key."},
+      "github-android-provider-switch-pat": {"env": "CI_SWITCH_PAT", "purpose": "Provider switch: Actions read+write (replay dispatch) and repository Variables read+write. Loaded only by the trusted monthly reset workflow (OIDC on main) or an operator; never by a pull-request-triggered pipeline."},
+      "azure-devops-android-pipeline-control-pat": {"env": "AZDO_PAT", "purpose": "Azure DevOps PAT (Build read and execute) that enables/disables both Azure pipelines and queues the destination replay."}
+    }
+  },
+  "secretConsumers": {
+    "azure-pr-ci": {"secrets": ["github-android-pr-ci-pat"]},
+    "azure-release": {
+      "secrets": [
+        "github-android-release-pat",
+        "android-signing-keystore-base64",
+        "android-signing-key-alias",
+        "android-signing-key-password",
+        "android-signing-store-password",
+        "android-versions-api-key"
+      ]
+    },
+    "ci-provider-reset": {"secrets": ["github-android-provider-switch-pat", "azure-devops-android-pipeline-control-pat"]}
+  },
+  "additionalWorkflows": {
+    ".github/workflows/ci-provider-reset.yml": "GitHub-only by design: the monthly reset runs on a GitHub schedule and restores github as the provider.",
+    "audit": "No other workflow builds, signs, publishes or recovers an Android release; the four workflows above are the complete set."
+  },
+  "intentionalDifferences": [
+    {"id": "pr-comment", "detail": "GitHub posts the PR comment with artifact links. Azure does not: the PR CI token is Commit-statuses-only (least privilege), so the artifact link travels in the CI Gate status target_url instead."},
+    {"id": "ci-gate-poster", "detail": "GitHub posts the CI Gate status from a checkout-free github-script job using the workflow GITHUB_TOKEN; Azure posts it with android_ci.py ci-gate using the PR CI token. Same context, same states."},
+    {"id": "gradle-cache", "detail": "GitHub caches Gradle through setup-java/setup-gradle; Azure builds without a Gradle cache (correctness is unaffected, builds are slower)."},
+    {"id": "azure-branch-paths", "detail": "GitHub dev release uses an on.push.paths filter; Azure cannot scope a path filter to one branch of a shared trigger, so the dev/main run always starts and change detection (the same code-path regex) skips it before any build work."},
+    {"id": "installers", "detail": "JDK, Gradle cache and Android command-line tool installers are provider-native actions/tasks; the versions and package lists they install come from this contract."},
+    {"id": "secret-source", "detail": "GitHub keeps using GitHub Actions secrets. Azure reads the same values from Key Vault through per-pipeline identities. The Key Vault values are populated once by an operator; nothing is copied into Azure pipeline variables."},
+    {"id": "artifact-retention", "detail": "Retention days are a GitHub setting; Azure uses the organization retention policy."},
+    {"id": "change-detection-before", "detail": "GitHub uses the push before-sha; Azure has none and uses the previous completed build of the same branch, falling back to the latest release tag."},
+    {"id": "concurrency-primitive", "detail": "GitHub serializes with concurrency group release-build-number (cancel-in-progress false); Azure uses lockBehavior sequential plus an Exclusive Lock check on the android-release-build-number environment. The two providers never run at once: the switch refuses while the provider being left has a release in flight."},
+    {"id": "release-workflow-shape", "detail": "GitHub has one workflow per release type; Azure has one pipeline (azure-release.yml) that selects the release type from the triggering ref (android_ci.py resolve-mode)."},
+    {"id": "release-mechanics-harmonized", "detail": "Release publication (tag, GitHub Release, Versions API) moved from inline steps and ncipollo/release-action into android_ci.py so both providers run identical code. dev, main and tag releases now share the beta Gradle profile (--no-daemon, 6g heap)."}
+  ]
+}

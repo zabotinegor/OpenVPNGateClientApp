@@ -1,0 +1,63 @@
+name: CI Provider Monthly Reset
+
+# GitHub Actions free minutes reset monthly, so both PR CI and the release pipelines return to GitHub on the 1st
+# (CI_PROVIDER controls both; both Azure pipelines are disabled). Also runnable by hand for testing or recovery.
+# GitHub-only by design (see additionalWorkflows in .ci/pipeline-contract.json).
+on:
+  schedule:
+    - cron: "10 1 1 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the planned changes without applying them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # OIDC login to Azure for the Key Vault secrets. The federated credential only trusts refs/heads/main, so this
+  # workflow works from main (the schedule always runs there); run it by hand only from main.
+  id-token: write
+
+concurrency:
+  group: ci-provider-switch
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Reset CI and release providers to github
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_GITHUB_OIDC_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # github-android-provider-switch-pat (CI_SWITCH_PAT: Actions read/write + repository Variables read/write; a
+      # trusted credential that pull-request-controlled code never receives) and
+      # azure-devops-android-pipeline-control-pat (AZDO_PAT: controls both Azure pipelines) come from Key Vault.
+      - name: Load secrets from Key Vault
+        shell: bash
+        env:
+          AZURE_KEY_VAULT_NAME: ${{ vars.AZURE_KEY_VAULT_NAME }}
+        run: python3 scripts/ci/load_vault_secrets.py --provider github --consumer ci-provider-reset
+
+      - name: Reset providers
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.CI_SWITCH_PAT }}
+          AZDO_ORG: ${{ vars.AZDO_ORG }}
+          AZDO_PROJECT: ${{ vars.AZDO_PROJECT }}
+          AZDO_PR_CI_PIPELINE_ID: ${{ vars.AZDO_PR_CI_PIPELINE_ID }}
+          AZDO_RELEASE_PIPELINE_ID: ${{ vars.AZDO_RELEASE_PIPELINE_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          $params = @{ Mode = 'github'; Repository = '${{ github.repository }}' }
+          if ($env:DRY_RUN -eq 'true') { $params.DryRun = $true }
+          ./scripts/ci/pipeline-mode.ps1 @params

@@ -55,10 +55,11 @@ Current behaviour, not change history.
 | [guides/adb-cookbook.md](guides/adb-cookbook.md) | Topic-organised reusable ADB one-liners: device control, app lifecycle, prefs, probe/autoswitch, SSE signals |
 | [guides/engine-update.md](guides/engine-update.md) | Post-engine-bump regression checklist and pass criteria |
 
-## Operations — device and QA environment
+## Operations — device, QA environment and CI/release pipelines
 
 | Doc | Covers |
 |---|---|
+| [operations/ci-provider-fallback.md](operations/ci-provider-fallback.md) | GitHub Actions <-> Azure DevOps CI/release fallback: the `pipeline-mode.ps1` switch, provider-neutral contract (`.ci/pipeline-contract.json`) and parity check, secret/Key Vault trust boundaries, one-time Azure setup, release serialization and stale-replay guard, recovery, validation matrix |
 | [operations/device-qa-phone.md](operations/device-qa-phone.md) | ADB workarounds for a multi-user MIUI phone, launch/resolve, log filters, orientation-lock verification, tablet simulation via density override, drawer-state persistence |
 | [operations/device-qa-miui.md](operations/device-qa-miui.md) | MIUI readiness commands and known device blockers |
 | [operations/device-qa-tv.md](operations/device-qa-tv.md) | MIBOX4 Leanback launch, D-pad injection, focus gotchas, landscape-lock verification, drawer-state persistence |

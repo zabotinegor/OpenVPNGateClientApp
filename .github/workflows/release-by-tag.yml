@@ -1,5 +1,10 @@
 name: Release from Tag
 
+# Thin GitHub adapter. Release logic lives in scripts/ci/android_ci.py and .ci/pipeline-contract.json;
+# scripts/ci/check_pipeline_parity.py fails when this file drifts from that contract.
+# Runs only while CI_PROVIDER is not 'azure' (scripts/ci/pipeline-mode.ps1): the job-level condition is a coarse
+# zero-runner admission hint, and the guard step waits for a running provider switch and re-reads CI_PROVIDER live.
+
 on:
   push:
     tags:
@@ -10,18 +15,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    name: Check active provider
+    # Tags created by the branch release flows contain '-auto' and are ignored here.
+    if: "vars.CI_PROVIDER != 'azure' && !contains(github.ref_name, '-auto')"
+    runs-on: ubuntu-latest
+    outputs:
+      active: ${{ steps.guard.outputs.active }}
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      CI_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Check active provider
+        id: guard
+        run: python3 scripts/ci/android_ci.py guard --provider github --snapshot "${{ vars.CI_PROVIDER }}"
+
   build:
     name: Build and Release
+    needs: guard
+    if: needs.guard.outputs.active == 'true'
     runs-on: ubuntu-latest
     env:
-      ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
-      ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
-      ORG_GRADLE_PROJECT_appReleaseType: release
+      PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+      FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
       VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
-      VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
-      RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON: '["en","ru","pl"]'
-
-    if: "!contains(github.ref_name, '-auto')" # Ignore tags created by other workflows
+      CI_REPOSITORY: ${{ github.repository }}
 
     steps:
       - name: Checkout code
@@ -33,10 +57,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
 
       - name: Install swig
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y swig
-          swig -version
+        run: python3 scripts/ci/android_ci.py install-swig
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -44,26 +65,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Extract Version from Tag
-        id: versioning
-        shell: bash
-        run: |
-          RAW_TAG="${GITHUB_REF_NAME#v}"
-          VERSION=$(echo "$RAW_TAG" | sed -E 's/-auto\([0-9]+\)$//' | sed -E 's/\([0-9]+\)$//')
-          LAST_USED_BUILD=$(git tag --list | sed -nE 's/.*-auto\(([0-9]+)\)$/\1/p' | sort -n | tail -n 1)
-          LAST_USED_BUILD=${LAST_USED_BUILD:-0}
-          BUILD_NUMBER=$((LAST_USED_BUILD + 1))
-          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "version_code_mobile=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
-          echo "version_code_tv=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
-          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
-          echo "build_marker_tag=tagbuild-v${VERSION}-auto(${BUILD_NUMBER})" >> $GITHUB_OUTPUT
-          {
-            echo 'last_commit<<EOF'
-            echo "$LAST_COMMIT_MSG"
-            echo EOF
-          } >> $GITHUB_OUTPUT
+      - name: Extract version from tag
+        run: python3 scripts/ci/android_ci.py version --mode tag --ref-name "$GITHUB_REF_NAME"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -71,230 +74,31 @@ jobs:
           gradle-version: wrapper
           cache-read-only: false
 
-      - name: Decode Keystore
-        run: |
-          echo "Decoding signing key..."
-          echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > keystore.jks
-          
-          echo "Creating keystore.properties file..."
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" > keystore.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> keystore.properties
-          echo "storeFile=keystore.jks" >> keystore.properties
-        working-directory: ./src
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-        working-directory: ./src
-
-      - name: Stage Artifacts
-        shell: bash
-        run: |
-          V=${{ steps.versioning.outputs.version }}
-          BUILD_NUMBER=${{ steps.versioning.outputs.build_number }}
-          ./gradlew stageReleaseArtifacts \
-            -PappVersionName="${{ steps.versioning.outputs.version }}" \
-            -PappVersionCodeMobile="${{ steps.versioning.outputs.version_code_mobile }}" \
-            -PappVersionCodeTv="${{ steps.versioning.outputs.version_code_tv }}"
-          mkdir -p ../output
-          APK_MOBILE=$(find build/staged/mobile -name '*.apk' | head -n1)
-          APK_TV=$(find build/staged/tv -name '*.apk' | head -n1)
-          AAB_MOBILE=$(find build/staged/mobile -name '*.aab' | head -n1)
-          AAB_TV=$(find build/staged/tv -name '*.aab' | head -n1)
-          if [[ -n "$APK_MOBILE" ]]; then
-            mv "$APK_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${BUILD_NUMBER}.apk"
-          fi
-          if [[ -n "$APK_TV" ]]; then
-            mv "$APK_TV" "../output/OpenVPNGateClient_tv_${V}_build${BUILD_NUMBER}.apk"
-          fi
-          if [[ -n "$AAB_MOBILE" ]]; then
-            mv "$AAB_MOBILE" "../output/OpenVPNGateClient_mobile_${V}_build${BUILD_NUMBER}.aab"
-          fi
-          if [[ -n "$AAB_TV" ]]; then
-            mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}_build${BUILD_NUMBER}.aab"
-          fi
-        working-directory: ./src
-
-      - name: Create Build Marker Tag
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          script: |
-            const tag = '${{ steps.versioning.outputs.build_marker_tag }}';
-            const sha = context.sha;
-            console.log(`Attempting to create build marker tag: ${tag} at SHA: ${sha}`);
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tag}`,
-                sha: sha
-              });
-              console.log(`Successfully created build marker tag ${tag}`);
-            } catch (error) {
-              if (error.status === 422) {
-                console.log(`Build marker tag ${tag} already exists. Skipping.`);
-              } else {
-                throw error;
-              }
-            }
-
-      - name: Publish Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: |
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.apk
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.apk
-            output/OpenVPNGateClient_mobile_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.aab
-            output/OpenVPNGateClient_tv_${{ steps.versioning.outputs.version }}_build${{ steps.versioning.outputs.build_number }}.aab
-          token: ${{ secrets.GH_PAT }}
-          tag: ${{ github.ref_name }}
-          name: "Release ${{ github.ref_name }}"
-          body: |
-            Automated release build for tag `${{ github.ref_name }}`
-            App version: `${{ steps.versioning.outputs.version }}`
-            
-            What's new:
-            ```
-            ${{ steps.versioning.outputs.last_commit }}
-            ```
-          allowUpdates: true
-          replacesArtifacts: true
-          prerelease: false
-
-      - name: Push unified version release
-        id: push_version_release
-        shell: bash
+      - name: Write signing configuration
         env:
-          LAST_COMMIT_MESSAGE: ${{ steps.versioning.outputs.last_commit }}
-        run: |
-          set -euo pipefail
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: python3 scripts/ci/android_ci.py write-signing
 
-          if [[ -z "${VERSIONS_API_BASE_URL:-}" || -z "${VERSIONS_API_KEY:-}" ]]; then
-            echo "::error::VERSIONS_API_BASE_URL (repo variable) and VERSIONS_API_KEY (repo secret) must be configured."
-            exit 1
-          fi
+      - name: Build signed release artifacts
+        run: python3 scripts/ci/android_ci.py gradle stage-release
 
-          API_BASE="${VERSIONS_API_BASE_URL%/}"
-          VERSION_NUMBER="${{ steps.versioning.outputs.version }}"
-          BUILD_NUMBER="${{ steps.versioning.outputs.build_number }}"
-          RELEASE_TAG="${{ github.ref_name }}"
-          CHANGELOG="${LAST_COMMIT_MESSAGE}"
-          RELEASE_TYPE=0
-          ASSET_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
-          ASSET_MOBILE_APK="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
-          ASSET_MOBILE_AAB="OpenVPNGateClient_mobile_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
-          ASSET_TV_APK="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.apk"
-          ASSET_TV_AAB="OpenVPNGateClient_tv_${VERSION_NUMBER}_build${BUILD_NUMBER}.aab"
-          ASSET_MOBILE_APK_PATH="output/${ASSET_MOBILE_APK}"
-          ASSET_MOBILE_AAB_PATH="output/${ASSET_MOBILE_AAB}"
-          ASSET_TV_APK_PATH="output/${ASSET_TV_APK}"
-          ASSET_TV_AAB_PATH="output/${ASSET_TV_AAB}"
-          RELEASE_TITLE="Release v${VERSION_NUMBER}-auto(${BUILD_NUMBER})"
+      - name: Stage artifacts
+        run: python3 scripts/ci/android_ci.py stage-artifacts
 
-          if [[ ! -f "$ASSET_MOBILE_APK_PATH" || ! -f "$ASSET_MOBILE_AAB_PATH" || ! -f "$ASSET_TV_APK_PATH" || ! -f "$ASSET_TV_AAB_PATH" ]]; then
-            echo "::error::Expected release artifacts are missing."
-            exit 1
-          fi
+      - name: Create build marker tag
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python3 scripts/ci/android_ci.py create-tag
 
-          MOBILE_APK_SIZE=$(stat -c%s "$ASSET_MOBILE_APK_PATH")
-          MOBILE_AAB_SIZE=$(stat -c%s "$ASSET_MOBILE_AAB_PATH")
-          TV_APK_SIZE=$(stat -c%s "$ASSET_TV_APK_PATH")
-          TV_AAB_SIZE=$(stat -c%s "$ASSET_TV_AAB_PATH")
-          MOBILE_APK_HASH=$(sha256sum "$ASSET_MOBILE_APK_PATH" | awk '{print $1}')
-          MOBILE_AAB_HASH=$(sha256sum "$ASSET_MOBILE_AAB_PATH" | awk '{print $1}')
-          TV_APK_HASH=$(sha256sum "$ASSET_TV_APK_PATH" | awk '{print $1}')
-          TV_AAB_HASH=$(sha256sum "$ASSET_TV_AAB_PATH" | awk '{print $1}')
+      - name: Publish GitHub release
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python3 scripts/ci/android_ci.py publish-release
 
-          payload=$(jq -n \
-            --arg versionNumber "$VERSION_NUMBER" \
-            --argjson buildNumber "$BUILD_NUMBER" \
-            --arg name "$RELEASE_TITLE" \
-            --argjson releaseType "$RELEASE_TYPE" \
-            --arg changelog "$CHANGELOG" \
-            --arg assetBaseUrl "$ASSET_BASE_URL" \
-            --arg mobileApkName "$ASSET_MOBILE_APK" \
-            --arg mobileAabName "$ASSET_MOBILE_AAB" \
-            --arg tvApkName "$ASSET_TV_APK" \
-            --arg tvAabName "$ASSET_TV_AAB" \
-            --arg mobileApkHash "$MOBILE_APK_HASH" \
-            --arg mobileAabHash "$MOBILE_AAB_HASH" \
-            --arg tvApkHash "$TV_APK_HASH" \
-            --arg tvAabHash "$TV_AAB_HASH" \
-            --argjson mobileApkSize "$MOBILE_APK_SIZE" \
-            --argjson mobileAabSize "$MOBILE_AAB_SIZE" \
-            --argjson tvApkSize "$TV_APK_SIZE" \
-            --argjson tvAabSize "$TV_AAB_SIZE" \
-            '{
-              versionNumber:$versionNumber,
-              name:$name,
-              releaseType:$releaseType,
-              changelog:$changelog,
-              assets:[
-                {name:$mobileApkName,platform:0,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $mobileApkName),assetType:"apk",sizeBytes:$mobileApkSize,contentHash:$mobileApkHash},
-                {name:$mobileAabName,platform:0,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $mobileAabName),assetType:"aab",sizeBytes:$mobileAabSize,contentHash:$mobileAabHash},
-                {name:$tvApkName,platform:1,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $tvApkName),assetType:"apk",sizeBytes:$tvApkSize,contentHash:$tvApkHash},
-                {name:$tvAabName,platform:1,buildNumber:$buildNumber,downloadUrl:($assetBaseUrl + "/" + $tvAabName),assetType:"aab",sizeBytes:$tvAabSize,contentHash:$tvAabHash}
-              ]
-            }')
-
-          create_response=$(mktemp)
-          create_status=$(curl -sS -o "$create_response" -w "%{http_code}" \
-            -X POST "${API_BASE}/api/v1/versions" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: ${VERSIONS_API_KEY}" \
-            --data "$payload")
-
-          if [[ "$create_status" == "409" ]]; then
-            echo "::warning::Version ${VERSION_NUMBER} build ${BUILD_NUMBER} already exists."
-            cat "$create_response"
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            echo "version_id=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$create_status" != "200" ]]; then
-            echo "::error::Failed to push version. HTTP ${create_status}"
-            cat "$create_response"
-            exit 1
-          fi
-
-          VERSION_ID=$(jq -r '.data.id // empty' "$create_response")
-          if [[ -z "$VERSION_ID" ]]; then
-            echo "::error::Version created but response does not contain data.id"
-            cat "$create_response"
-            exit 1
-          fi
-
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Auto-translate release notes
-        if: steps.push_version_release.outputs.created == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          API_BASE="${VERSIONS_API_BASE_URL%/}"
-          VERSION_ID="${{ steps.push_version_release.outputs.version_id }}"
-          SOURCE_LOCALE="en"
-
-          mapfile -t TARGET_LANGUAGES < <(jq -r '.[]' <<< '${{ env.RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON }}')
-          if [[ ${#TARGET_LANGUAGES[@]} -eq 0 ]]; then
-            echo "::warning::No auto-translate target languages configured."
-            exit 0
-          fi
-
-          for language_code in "${TARGET_LANGUAGES[@]}"; do
-            echo "Auto-translating release notes to '${language_code}' for versionId=${VERSION_ID}"
-            translate_response=$(mktemp)
-            translate_status=$(curl -sS -o "$translate_response" -w "%{http_code}" \
-              -X POST "${API_BASE}/api/v1/versions/${VERSION_ID}/localizations/${language_code}/auto-translate?sourceLocale=${SOURCE_LOCALE}" \
-              -H "X-API-Key: ${VERSIONS_API_KEY}")
-
-            if [[ "$translate_status" != "200" ]]; then
-              echo "::error::Auto-translate failed for '${language_code}'. HTTP ${translate_status}"
-              cat "$translate_response"
-              exit 1
-            fi
-          done
+      - name: Publish version and release notes
+        env:
+          VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}
+        run: python3 scripts/ci/android_ci.py versions-api
