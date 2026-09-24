@@ -79,7 +79,7 @@ jobs:
             - bash: python3 scripts/ci/android_ci.py resolve-mode
               name: mode
               displayName: Resolve release type from the triggering ref
-              condition: eq(variables['guard.active'], 'true')
+              condition: and(succeeded(), eq(variables['guard.active'], 'true'))
 
             - bash: >-
                 python3 scripts/ci/android_ci.py detect-changes --event auto
@@ -87,7 +87,7 @@ jobs:
                 --before auto --after "$(Build.SourceVersion)" --pinned-sha "$(Build.SourceVersion)"
               name: detect
               displayName: Detect code changes (and refuse a stale replay)
-              condition: and(eq(variables['guard.active'], 'true'), eq(variables['mode.run'], 'true'))
+              condition: and(succeeded(), eq(variables['guard.active'], 'true'), eq(variables['mode.run'], 'true'))
               env:
                 GH_PAT: $(GH_PAT)
                 CI_REPOSITORY: $(Build.Repository.Name)
@@ -95,19 +95,19 @@ jobs:
 
             - bash: bash scripts/ci/checkout-submodules.sh
               displayName: Checkout private submodules
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 GH_PAT: $(GH_PAT)
 
             - bash: python3 scripts/ci/load_repo_variables.py --pipeline release-common --repository "$(Build.Repository.Name)"
               displayName: Load repository variables from GitHub
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 GH_PAT: $(GH_PAT)
 
             - task: JavaToolInstaller@0
               displayName: Set up JDK 17
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               inputs:
                 versionSpec: $(JDK_VERSION)
                 jdkArchitectureOption: x64
@@ -115,17 +115,17 @@ jobs:
 
             - bash: python3 scripts/ci/android_ci.py install-swig
               displayName: Install swig
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
 
             - bash: python3 scripts/ci/android_ci.py version --mode "$(mode.mode)" --ref-name "$(Build.SourceBranch)"
               displayName: Generate version
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 CI_REPOSITORY: $(Build.Repository.Name)
 
             - bash: python3 scripts/ci/android_ci.py write-signing
               displayName: Write signing configuration
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 SIGNING_KEY_BASE64: $(SIGNING_KEY_BASE64)
                 KEY_ALIAS: $(KEY_ALIAS)
@@ -134,32 +134,32 @@ jobs:
 
             - bash: python3 scripts/ci/android_ci.py gradle stage-release
               displayName: Build signed release artifacts
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 PRIMARY_SERVERS_URL: $(repo.PRIMARY_SERVERS_URL)
                 FALLBACK_SERVERS_URL: $(repo.FALLBACK_SERVERS_URL)
 
             - bash: python3 scripts/ci/android_ci.py stage-artifacts
               displayName: Stage artifacts
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
 
             - bash: python3 scripts/ci/android_ci.py create-tag --sha "$(Build.SourceVersion)"
               displayName: Create Git tag
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 GH_PAT: $(GH_PAT)
                 CI_REPOSITORY: $(Build.Repository.Name)
 
             - bash: python3 scripts/ci/android_ci.py publish-release
               displayName: Publish GitHub release
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 GH_PAT: $(GH_PAT)
                 CI_REPOSITORY: $(Build.Repository.Name)
 
             - bash: python3 scripts/ci/android_ci.py versions-api
               displayName: Publish version and release notes
-              condition: eq(variables['detect.has_code_changes'], 'true')
+              condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))
               env:
                 VERSIONS_API_KEY: $(VERSIONS_API_KEY)
                 VERSIONS_API_BASE_URL: $(repo.VERSIONS_API_BASE_URL)

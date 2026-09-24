@@ -38,7 +38,7 @@ jobs:
     env:
       GH_PAT: ${{ secrets.GH_PAT }}
       CI_REPOSITORY: ${{ github.repository }}
-      REPLAY_SHA: ${{ inputs.replay_sha }}
+      REPLAY_SHA: ${{ inputs.replay && inputs.replay_sha || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
           submodules: false
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ inputs.replay_sha || github.sha }}
+          ref: ${{ inputs.replay && inputs.replay_sha || github.sha }}
 
       - name: Check active provider
         id: guard
@@ -82,7 +82,7 @@ jobs:
           fetch-tags: true
           submodules: recursive
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ inputs.replay_sha || github.sha }}
+          ref: ${{ inputs.replay && inputs.replay_sha || github.sha }}
 
       - name: Install swig
         run: python3 scripts/ci/android_ci.py install-swig

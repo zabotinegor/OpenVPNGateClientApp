@@ -9,11 +9,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-permissions:
-  actions: read
-  contents: read
-  pull-requests: write
-  statuses: write
+# Least privilege: no workflow-level grant. The build job runs pull-request-controlled code and gets no statuses scope;
+# only the checkout-free gate job may write commit statuses.
+permissions: {}
 
 concurrency:
   group: pr-${{ github.event.pull_request.number || github.ref }}
@@ -24,6 +22,10 @@ jobs:
     name: Build Debug APKs
     if: vars.CI_PROVIDER != 'azure'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
     env:
       PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
       FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
@@ -35,7 +37,10 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-          token: ${{ secrets.GH_PAT }}
+          # Dedicated read-only token (Contents read on this repo and the private submodules). The release PAT GH_PAT
+          # is never used here, and the credential is not left in .git/config for the PR-controlled steps below.
+          token: ${{ secrets.PR_CI_READ_PAT }}
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set build metadata
@@ -173,6 +178,8 @@ jobs:
       always() && vars.CI_PROVIDER != 'azure' && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
     steps:
       - name: Report CI Gate status
         uses: actions/github-script@v7

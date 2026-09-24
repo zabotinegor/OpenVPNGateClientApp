@@ -161,6 +161,46 @@ class ChangeDetectionTests(unittest.TestCase):
         proceed, _, _ = ci.decide_changes("push", None, second, self.pattern, self.repo, previous_lookup=lambda: "f" * 40)
         self.assertTrue(proceed)
 
+    def _tag(self, name, sha):
+        subprocess.run(["git", "-C", str(self.repo), "tag", name, sha], check=True)
+
+    def test_azure_replay_ignores_the_previous_azure_build_and_uses_the_latest_release_tag(self):
+        # Azure released X, GitHub later released Y (tag). A replay at Y must find an empty range and skip.
+        azure_built = commit(self.repo, {"src/a": "1"})
+        released_elsewhere = commit(self.repo, {"src/b": "2"})
+        self._tag("v1.1.2-auto(6)", released_elsewhere)
+        head = released_elsewhere
+        proceed, reason, _ = ci.decide_changes("replay", None, head, self.pattern, self.repo, previous_lookup=lambda: azure_built)
+        self.assertFalse(proceed)
+        self.assertIn("Replay", reason)
+
+    def test_azure_push_prefers_the_latest_release_tag_when_it_is_newer_than_the_previous_build(self):
+        azure_built = commit(self.repo, {"src/a": "1"})
+        released_elsewhere = commit(self.repo, {"src/b": "2"})
+        self._tag("v1.1.2-auto(6)", released_elsewhere)
+        head = commit(self.repo, {"docs/x.md": "1"})
+        # Baseline azure_built would list src/b and release again; the tag baseline sees a docs-only change.
+        proceed, reason, files = ci.decide_changes("push", None, head, self.pattern, self.repo, previous_lookup=lambda: azure_built)
+        self.assertFalse(proceed)
+        self.assertEqual(files, ["docs/x.md"])
+
+    def test_azure_push_keeps_the_previous_build_when_it_is_newer_than_the_release_tag(self):
+        old_release = commit(self.repo, {"src/a": "1"})
+        self._tag("v1.1.1-auto(5)", old_release)
+        azure_built = commit(self.repo, {"src/b": "2"})
+        head = commit(self.repo, {"docs/x.md": "1"})
+        proceed, _, files = ci.decide_changes("push", None, head, self.pattern, self.repo, previous_lookup=lambda: azure_built)
+        self.assertFalse(proceed)
+        self.assertEqual(files, ["docs/x.md"])
+
+    def test_push_with_a_real_before_sha_is_not_overridden_by_a_tag(self):
+        base = commit(self.repo, {"src/a": "1"})
+        tagged = commit(self.repo, {"src/b": "2"})
+        self._tag("v1.1.2-auto(6)", tagged)
+        head = commit(self.repo, {"src/c": "3"})
+        _, _, files = ci.decide_changes("push", base, head, self.pattern, self.repo)
+        self.assertEqual(sorted(files), ["src/b", "src/c"])
+
 
 class StaleReplayTests(unittest.TestCase):
     def test_pinned_sha_that_is_no_longer_tip_is_stale(self):
@@ -345,7 +385,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_tag_creation_tolerates_existing_tag_but_not_other_errors(self):
         for status, expected in ((201, 0), (422, 0), (403, 1)):
-            api = FakeApi({("POST", "/git/refs"): (status, None)})
+            api = FakeApi({("POST", "/git/refs"): (status, None), ("GET", "/git/ref/tags/"): (200, {"object": {"sha": "a" * 40}})})
             with tempfile.TemporaryDirectory() as tmp, mock.patch.object(ci, "ROOT", Path(tmp)), \
                     mock.patch.dict(os.environ, {"CI_REPOSITORY": "o/r"}), mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
                 meta_path = Path(tmp) / CONTRACT["release"]["metadataFile"]
@@ -353,6 +393,28 @@ class PublicationTests(unittest.TestCase):
                 meta_path.write_text(json.dumps(self.meta))
                 self.assertEqual(ci.cmd_create_tag(argparse.Namespace(sha="a" * 40), api=api), expected)
                 self.assertEqual(api.calls[0][2]["ref"], f"refs/tags/{self.meta['tag']}")
+
+    def test_422_for_a_tag_at_a_different_commit_or_an_unreadable_ref_fails(self):
+        for ref_response in ((200, {"object": {"sha": "b" * 40}}), (404, None)):
+            api = FakeApi({("POST", "/git/refs"): (422, None), ("GET", "/git/ref/tags/"): ref_response})
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.object(ci, "ROOT", Path(tmp)),                     mock.patch.dict(os.environ, {"CI_REPOSITORY": "o/r"}), mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+                meta_path = Path(tmp) / CONTRACT["release"]["metadataFile"]
+                meta_path.parent.mkdir(parents=True)
+                meta_path.write_text(json.dumps(self.meta))
+                self.assertEqual(ci.cmd_create_tag(argparse.Namespace(sha="a" * 40), api=api), 1)
+
+    def test_release_keeps_the_legacy_latest_rule_and_pins_the_target_commit(self):
+        api = FakeApi({("GET", "/releases/tags/"): (404, None), ("POST", "/releases"): (201, {"id": 99}), ("POST", "uploads.github.com"): (201, {})})
+        ci.publish_github_release(api, "o/r", self.meta, self.assets, sha="c" * 40)
+        create = next(c for c in api.calls if c[0] == "POST" and c[1].endswith("/releases"))
+        self.assertEqual(create[2]["make_latest"], "legacy")
+        self.assertEqual(create[2]["target_commitish"], "c" * 40)
+
+    def test_release_update_also_keeps_the_legacy_latest_rule(self):
+        api = FakeApi({("GET", "/releases/tags/"): (200, {"id": 5, "assets": []}), ("PATCH", "/releases/5"): (200, {}), ("POST", "uploads.github.com"): (201, {})})
+        ci.publish_github_release(api, "o/r", self.meta, self.assets)
+        patch = next(c for c in api.calls if c[0] == "PATCH")
+        self.assertEqual(patch[2]["make_latest"], "legacy")
 
     def test_build_marker_tag_is_used_in_tag_mode(self):
         meta = {**self.meta, "mode": "tag", "tag": "v2.0.0", "build_marker_tag": "tagbuild-v2.0.0-auto(8)"}

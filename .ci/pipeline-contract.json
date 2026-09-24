@@ -133,12 +133,12 @@
   },
   "pipelines": {
     "pr": {
-      "github": {"file": ".github/workflows/build-by-pull-request.yml"},
-      "azure": {"file": "azure-pipelines.yml", "definition": "AZDO_PR_CI_PIPELINE_ID", "serviceConnection": "openvpn-android-azure-pr-ci", "secretConsumer": "azure-pr-ci"},
+      "azure": {"file": "azure-pipelines.yml", "definition": "AZDO_PR_CI_PIPELINE_ID", "serviceConnection": "openvpn-android-azure-pr-ci", "secretConsumer": "azure-pr-ci", "gateServiceConnection": "openvpn-android-azure-pr-gate", "gateSecretConsumer": "azure-pr-gate", "jobs": {"build": "build", "gate": "gate"}},
+      "github": {"file": ".github/workflows/build-by-pull-request.yml", "buildJob": "build", "gateJob": "gate", "checkoutSecret": "PR_CI_READ_PAT", "buildPermissions": {"actions": "read", "contents": "read", "pull-requests": "write"}, "gatePermissions": {"statuses": "write"}},
       "triggers": {"azurePullRequestBranches": ["*"], "githubPullRequestTypes": ["opened", "synchronize", "reopened", "ready_for_review"], "manual": true},
       "concurrency": {"github": {"group": "pr-", "cancelInProgress": true}, "azure": {"autoCancel": true}},
       "configVariables": ["PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL"],
-      "secrets": ["GH_PAT"],
+      "secrets": ["PR_CI_READ_PAT"],
       "gradleTaskSets": ["unit-tests", "debug-apks", "release-sanity"],
       "sharedSteps": [
         "android_ci.py pr-metadata",
@@ -218,15 +218,17 @@
       }
     }
   },
-  "gitHubSecrets": ["GH_PAT", "SIGNING_KEY_BASE64", "KEY_ALIAS", "KEY_PASSWORD", "STORE_PASSWORD", "VERSIONS_API_KEY", "GITHUB_TOKEN"],
+  "gitHubSecrets": ["PR_CI_READ_PAT", "GH_PAT", "SIGNING_KEY_BASE64", "KEY_ALIAS", "KEY_PASSWORD", "STORE_PASSWORD", "VERSIONS_API_KEY", "GITHUB_TOKEN"],
   "keyVault": {
     "bootstrap": {
       "vaultName": "openvpngateclient-prd-kv",
       "prServiceConnection": "openvpn-android-azure-pr-ci",
+      "prGateServiceConnection": "openvpn-android-azure-pr-gate",
       "releaseServiceConnection": "openvpn-android-azure-release"
     },
     "secrets": {
-      "github-android-pr-ci-pat": {"env": "GH_PAT", "purpose": "Azure PR CI only: guard (Variables read), private submodule checkout (Contents read), CI Gate commit status (Commit statuses read+write). Carries no Contents write, no Actions write, no Variables write: PR-controlled code runs with it."},
+      "github-android-pr-ci-pat": {"env": "GH_PAT", "purpose": "Azure PR CI build job only: guard (Variables read) and private submodule checkout (Contents read). READ-ONLY: no commit statuses, no Contents write, no Actions write, no Variables write; PR-controlled code runs with it."},
+      "github-android-pr-gate-pat": {"env": "GH_PAT", "purpose": "Azure PR CI gate job only: posts the CI Gate commit status (Commit statuses write, nothing else). Loaded and used only by trusted target-branch scripts, never by a job that runs PR-controlled code."},
       "github-android-release-pat": {"env": "GH_PAT", "purpose": "Azure release only: private submodules, tags and GitHub Releases (Contents read+write), provider guard and stale-replay check (Variables read)."},
       "android-signing-keystore-base64": {"env": "SIGNING_KEY_BASE64", "purpose": "Release keystore (single-line base64, identical to the GitHub secret value)."},
       "android-signing-key-alias": {"env": "KEY_ALIAS", "purpose": "Release key alias."},
@@ -239,6 +241,7 @@
   },
   "secretConsumers": {
     "azure-pr-ci": {"secrets": ["github-android-pr-ci-pat"]},
+    "azure-pr-gate": {"secrets": ["github-android-pr-gate-pat"]},
     "azure-release": {
       "secrets": [
         "github-android-release-pat",
@@ -256,8 +259,9 @@
     "audit": "No other workflow builds, signs, publishes or recovers an Android release; the four workflows above are the complete set."
   },
   "intentionalDifferences": [
-    {"id": "pr-comment", "detail": "GitHub posts the PR comment with artifact links. Azure does not: the PR CI token is Commit-statuses-only (least privilege), so the artifact link travels in the CI Gate status target_url instead."},
-    {"id": "ci-gate-poster", "detail": "GitHub posts the CI Gate status from a checkout-free github-script job using the workflow GITHUB_TOKEN; Azure posts it with android_ci.py ci-gate using the PR CI token. Same context, same states."},
+    {"id": "pr-comment", "detail": "GitHub posts the PR comment with artifact links. Azure does not: the Azure PR tokens are read-only or statuses-only (least privilege), so the artifact link travels in the CI Gate status target_url instead."},
+    {"id": "ci-gate-poster", "detail": "GitHub posts the CI Gate status from a checkout-free github-script job (job-level statuses: write only there) using the workflow GITHUB_TOKEN; Azure posts it from a separate gate job with its own identity and a statuses-only token, running android_ci.py and the vault loader from a copy of the target branch (first parent of the PR merge commit), never from the PR tree. Same context, same states; Azure posts no pending status."},
+    {"id": "pr-read-token", "detail": "GitHub's PR build checks out with the read-only secret PR_CI_READ_PAT and persist-credentials false; the release PAT GH_PAT is never referenced by the PR workflow. Azure's build job holds the read-only Key Vault secret github-android-pr-ci-pat."},
     {"id": "gradle-cache", "detail": "GitHub caches Gradle through setup-java/setup-gradle; Azure builds without a Gradle cache (correctness is unaffected, builds are slower)."},
     {"id": "azure-branch-paths", "detail": "GitHub dev release uses an on.push.paths filter; Azure cannot scope a path filter to one branch of a shared trigger, so the dev/main run always starts and change detection (the same code-path regex) skips it before any build work."},
     {"id": "installers", "detail": "JDK, Gradle cache and Android command-line tool installers are provider-native actions/tasks; the versions and package lists they install come from this contract."},

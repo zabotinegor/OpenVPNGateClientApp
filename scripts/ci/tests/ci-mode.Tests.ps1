@@ -211,3 +211,17 @@ Describe 'reset workflow wiring' {
         foreach ($name in 'Mode', 'DryRun', 'Repository', 'Force') { $text | Should -Match ('\$' + $name) }
     }
 }
+
+Describe 'Get-GitHubActiveReleaseRuns' {
+    It 'counts queued, pending, waiting and requested runs as in flight, not only queued and in_progress' {
+        $global:CiTestGhStatuses = New-Object System.Collections.ArrayList
+        Mock gh {
+            $global:LASTEXITCODE = 0
+            foreach ($arg in $args) { if ("$arg" -like 'status=*') { [void]$global:CiTestGhStatuses.Add("$arg") } }
+        }
+        Get-GitHubActiveReleaseRuns -Repository 'o/r' | Out-Null
+        foreach ($status in 'in_progress', 'queued', 'pending', 'waiting', 'requested') {
+            $global:CiTestGhStatuses | Should -Contain "status=$status"
+        }
+    }
+}

@@ -75,7 +75,8 @@ $script:AzurePipelines = @(
 )
 # Release automation only (PR CI is intentionally absent, see .DESCRIPTION).
 $script:GitHubReleaseWorkflows = @('release-by-dev.yml', 'release-by-main.yml', 'release-by-tag.yml')
-$script:GitHubActiveRunStatuses = @('in_progress', 'queued')
+# Runs held by the release-build-number concurrency group are 'pending'; include every non-completed state.
+$script:GitHubActiveRunStatuses = @('in_progress', 'queued', 'pending', 'waiting', 'requested')
 $script:AzureActiveBuildStatuses = 'inProgress,notStarted,cancelling'
 # Release branches replayed on the destination provider: branch -> GitHub workflow file.
 $script:ReplayBranches = @(

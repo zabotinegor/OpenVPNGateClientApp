@@ -105,7 +105,7 @@ class ParityTests(unittest.TestCase):
         self.assertViolation("--mode stable")
 
     def test_pr_pipeline_receiving_a_release_secret_fails(self):
-        self.edit("azure-pipelines.yml", "GH_PAT: $(GH_PAT)\n      PR_HEAD_SHA", "GH_PAT: $(GH_PAT)\n      VERSIONS_API_KEY: $(VERSIONS_API_KEY)\n      PR_HEAD_SHA")
+        self.edit("azure-pipelines.yml", "GH_PAT: $(GH_PAT)\n          PR_HEAD_SHA", "GH_PAT: $(GH_PAT)\n          VERSIONS_API_KEY: $(VERSIONS_API_KEY)\n          PR_HEAD_SHA")
         self.assertViolation("must not receive")
 
     def test_pr_pipeline_loading_the_release_secret_consumer_fails(self):
@@ -114,9 +114,79 @@ class ParityTests(unittest.TestCase):
 
     def test_gradle_step_receiving_the_github_token_fails(self):
         self.edit("azure-pipelines.yml",
-                  "    displayName: Run Unit Tests (app)\n    condition: eq(variables['guard.active'], 'true')\n    env:\n",
-                  "    displayName: Run Unit Tests (app)\n    condition: eq(variables['guard.active'], 'true')\n    env:\n      GH_PAT: $(GH_PAT)\n")
+                  "        displayName: Run Unit Tests (app)\n        condition: and(succeeded(), eq(variables['guard.active'], 'true'))\n        env:\n",
+                  "        displayName: Run Unit Tests (app)\n        condition: and(succeeded(), eq(variables['guard.active'], 'true'))\n        env:\n          GH_PAT: $(GH_PAT)\n")
         self.assertViolation("Gradle step must not receive GH_PAT")
+
+    # F1: a custom Azure condition replaces the implicit succeeded().
+    def test_azure_release_step_without_succeeded_fails(self):
+        self.edit("azure-release.yml", "condition: and(succeeded(), eq(variables['detect.has_code_changes'], 'true'))",
+                  "condition: eq(variables['detect.has_code_changes'], 'true')")
+        self.assertViolation("without succeeded()")
+
+    def test_azure_pr_step_without_succeeded_fails(self):
+        self.edit("azure-pipelines.yml", "condition: and(succeeded(), eq(variables['guard.active'], 'true'))",
+                  "condition: eq(variables['guard.active'], 'true')")
+        self.assertViolation("without succeeded()")
+
+    def test_every_gated_azure_step_states_its_failure_semantics(self):
+        for name in ("azure-pipelines.yml", "azure-release.yml"):
+            doc = parity.load_yaml(REAL_ROOT / name)
+            for step in parity.azure_steps(doc):
+                if "condition" in step:
+                    self.assertRegex(str(step["condition"]), r"(succeeded|failed|always|succeededOrFailed)\(\)", f"{name}: {step}")
+
+    # S1: the CI Gate is posted by a separate, trusted job.
+    def test_azure_gate_running_ci_gate_from_the_pr_tree_fails(self):
+        self.edit("azure-pipelines.yml", 'python3 "$(Agent.TempDirectory)/trusted/scripts/ci/android_ci.py" ci-gate',
+                  "python3 scripts/ci/android_ci.py ci-gate")
+        self.assertViolation("trusted target-branch copy")
+
+    def test_azure_vault_loader_from_the_pr_tree_fails(self):
+        self.edit("azure-pipelines.yml", 'python3 "$(Agent.TempDirectory)/trusted/scripts/ci/load_vault_secrets.py" --provider azure --consumer azure-pr-ci',
+                  "python3 scripts/ci/load_vault_secrets.py --provider azure --consumer azure-pr-ci")
+        self.assertViolation("trusted target-branch copy")
+
+    def test_azure_build_job_using_the_gate_identity_fails(self):
+        self.edit("azure-pipelines.yml", "azureSubscription: $(AZURE_PR_CI_SERVICE_CONNECTION)",
+                  "azureSubscription: $(AZURE_PR_GATE_SERVICE_CONNECTION)")
+        self.assertViolation("build job must not")
+
+    def test_azure_gate_job_loading_the_build_consumer_fails(self):
+        self.edit("azure-pipelines.yml", "--consumer azure-pr-gate", "--consumer azure-pr-ci")
+        self.assertViolation("gate job must load exactly")
+
+    def test_azure_pr_without_a_separate_gate_job_fails(self):
+        self.edit("azure-pipelines.yml", "  - job: gate\n", "  - job: gate_renamed\n")
+        self.assertViolation("must both exist")
+
+    def test_pr_token_catalogue_must_not_share_the_gate_secret(self):
+        path = self.root / ".ci" / "pipeline-contract.json"
+        contract = json.loads(path.read_text(encoding="utf-8"))
+        contract["secretConsumers"]["azure-pr-ci"]["secrets"].append("github-android-pr-gate-pat")
+        path.write_text(json.dumps(contract), encoding="utf-8")
+        self.assertViolation("must not share")
+
+    # S2: the GitHub PR adapter never sees the release PAT and keeps no credential.
+    def test_github_pr_workflow_referencing_the_release_pat_fails(self):
+        self.edit(".github/workflows/build-by-pull-request.yml", "secrets.PR_CI_READ_PAT", "secrets.GH_PAT")
+        self.assertViolation("secrets.GH_PAT")
+
+    def test_github_pr_checkout_persisting_credentials_fails(self):
+        self.edit(".github/workflows/build-by-pull-request.yml", "persist-credentials: false", "persist-credentials: true")
+        self.assertViolation("persist-credentials")
+
+    def test_github_pr_statuses_granted_to_the_build_job_fails(self):
+        self.edit(".github/workflows/build-by-pull-request.yml", "      pull-requests: write\n", "      pull-requests: write\n      statuses: write\n")
+        self.assertViolation("(no statuses)")
+
+    def test_github_pr_workflow_level_statuses_fails(self):
+        self.edit(".github/workflows/build-by-pull-request.yml", "permissions: {}", "permissions:\n  statuses: write")
+        self.assertViolation("workflow level")
+
+    def test_github_pr_gate_without_statuses_fails(self):
+        self.edit(".github/workflows/build-by-pull-request.yml", "    permissions:\n      statuses: write\n", "")
+        self.assertViolation("job 'gate' permissions")
 
     def test_release_pipeline_must_not_run_for_pull_requests(self):
         self.edit("azure-release.yml", "\npr: none\n", "\npr:\n  branches:\n    include:\n      - '*'\n")
@@ -187,6 +257,11 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(names, ["github-android-pr-ci-pat"])
         envs = {self.contract["keyVault"]["secrets"][n]["env"] for n in names}
         self.assertTrue(envs.isdisjoint({"SIGNING_KEY_BASE64", "KEY_PASSWORD", "STORE_PASSWORD", "KEY_ALIAS", "VERSIONS_API_KEY", "CI_SWITCH_PAT", "AZDO_PAT"}))
+
+    def test_gate_identity_loads_only_the_statuses_token_and_build_identity_never_does(self):
+        self.assertEqual(vault.select_secrets(self.contract, "azure-pr-gate"), ["github-android-pr-gate-pat"])
+        self.assertNotIn("github-android-pr-gate-pat", vault.select_secrets(self.contract, "azure-pr-ci"))
+        self.assertNotIn("github-android-pr-gate-pat", vault.select_secrets(self.contract, "azure-release"))
 
     def test_vault_loader_refuses_multiline_and_missing_secrets_without_emitting(self):
         out = io.StringIO()

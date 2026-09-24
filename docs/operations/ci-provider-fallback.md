@@ -8,7 +8,9 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Workflow audit and Azure equivalents](#workflow-audit-and-azure-equivalents)
 - [Contract, shared scripts and the parity check](#contract-shared-scripts-and-the-parity-check)
 - [Configuration and secrets](#configuration-and-secrets)
+- [Rollout precondition](#rollout-precondition)
 - [One-time setup (manual, needs credentials)](#one-time-setup-manual-needs-credentials)
+- [Azure trust settings (required)](#azure-trust-settings-required)
 - [Operating the switch](#operating-the-switch)
 - [Release safety: serialization, hand-off, stale replay](#release-safety-serialization-hand-off-stale-replay)
 - [Behaviour that is intentionally different](#behaviour-that-is-intentionally-different)
@@ -83,14 +85,15 @@ runtime (`load_repo_variables.py`); there is no Azure variable group. Derived fr
 | `AZDO_ORG`, `AZDO_PROJECT`, `AZDO_PR_CI_PIPELINE_ID`, `AZDO_RELEASE_PIPELINE_ID` | the switch and the reset |
 | `AZURE_GITHUB_OIDC_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_KEY_VAULT_NAME` | the reset workflow's Azure login and vault |
 
-**Secrets.** GitHub keeps using its Actions secrets (`GH_PAT`, `SIGNING_KEY_BASE64`, `KEY_ALIAS`, `KEY_PASSWORD`,
+**Secrets.** GitHub keeps using its Actions secrets (`PR_CI_READ_PAT` for the PR build checkout only, `GH_PAT` for releases only, `SIGNING_KEY_BASE64`, `KEY_ALIAS`, `KEY_PASSWORD`,
 `STORE_PASSWORD`, `VERSIONS_API_KEY`, `GITHUB_TOKEN`). Azure reads the same values from Key Vault through **separate
 identities per pipeline**; nothing is placed in Azure pipeline variables or variable groups and nothing is printed (values
 are masked before export, a multi-line or empty secret aborts the step).
 
 | Key Vault secret | Env | Loaded by | Purpose and minimum permission |
 |---|---|---|---|
-| `github-android-pr-ci-pat` | `GH_PAT` | Azure PR CI only | Fine-grained token on this repo and `OpenVPNGateClientMedia`: Metadata read, Contents **read**, Actions Variables **read**, Commit statuses read+write. No Contents write, no Actions write, no Variables write: pull-request-controlled code runs with it |
+| `github-android-pr-ci-pat` | `GH_PAT` | Azure PR CI **build job** only | Fine-grained token on this repo and `OpenVPNGateClientMedia`: Metadata read, Contents **read**, Actions Variables **read**. **Read-only: no commit statuses**, no Contents write, no Actions write, no Variables write. Pull-request-controlled code runs with it |
+| `github-android-pr-gate-pat` | `GH_PAT` | Azure PR CI **gate job** only | Fine-grained token on this repo: **Commit statuses write** and nothing else. Only trusted target-branch scripts ever see it |
 | `github-android-release-pat` | `GH_PAT` | Azure release only | Contents read+write (tags, releases, private submodules), Actions Variables read |
 | `android-signing-keystore-base64` | `SIGNING_KEY_BASE64` | Azure release only | Single-line base64 keystore, identical to the GitHub secret |
 | `android-signing-key-alias`, `android-signing-key-password`, `android-signing-store-password` | `KEY_ALIAS`, `KEY_PASSWORD`, `STORE_PASSWORD` | Azure release only | Signing credentials |
@@ -98,9 +101,19 @@ are masked before export, a multi-line or empty secret aborts the step).
 | `github-android-provider-switch-pat` | `CI_SWITCH_PAT` | reset workflow / operator | Actions read+write and Variables read+write (mutates `CI_PROVIDER`, dispatches the replay). Never loaded by a pull-request pipeline |
 | `azure-devops-android-pipeline-control-pat` | `AZDO_PAT` | reset workflow / operator | Azure DevOps PAT, Build read and execute (enable/disable both pipelines, queue the replay) |
 
-Trust boundaries: `azure-pipelines.yml` (PR code) has no signing, release or switch credential and its Gradle steps do not
-even receive the PR token. `azure-release.yml` never runs for pull requests. The GitHub `CI Gate` status job uses no
-checkout, so no PR code runs with a status-write token.
+GitHub side: the PR workflow uses the **read-only** secret `PR_CI_READ_PAT` (Contents read on this repo and the private
+submodules) for its checkout, with `persist-credentials: false`, and never references the release PAT `GH_PAT`. Permissions
+are per job: the build job has `actions: read`, `contents: read`, `pull-requests: write` (no statuses); only the
+checkout-free `CI Gate` job has `statuses: write`. Create `PR_CI_READ_PAT` as a repository secret before merging this change.
+
+Trust boundaries: `azure-pipelines.yml` (PR code) has two jobs with two identities. The **build** job holds the read-only
+token and its Gradle steps do not even receive it. The **gate** job holds the statuses-only token and runs the vault loader
+and `android_ci.py ci-gate` from a copy of the target branch (`git archive HEAD^1`, the first parent of the PR merge commit),
+never from the PR tree, so a PR cannot read the statuses token or forge its own `CI Gate` by editing `scripts/ci`. The build
+job also loads its vault secret through that trusted copy. Both jobs fail closed when `HEAD` is not a merge commit.
+`azure-release.yml` never runs for pull requests. The GitHub `CI Gate` job uses no checkout. Azure posts no `pending` status.
+Residual: Azure runs the YAML of the PR merge commit, so someone who can push a branch can still edit it; the settings in
+[Azure trust settings](#azure-trust-settings-required) are what bound that.
 
 The `GH_PAT` GitHub secret must additionally be able to **read Actions variables** (fine-grained: Variables read; classic:
 `repo`). The GitHub-side guard reads `CI_PROVIDER` live; if that read is refused it falls back to the workflow-start value
@@ -109,6 +122,14 @@ of `vars.CI_PROVIDER` and warns, so a token without the scope cannot block the p
 Assumption to confirm: the vault name `openvpngateclient-prd-kv` (the server's vault) and the Azure object names below are
 defaults. They live only in `keyVault.bootstrap` of the contract and the two Azure YAML `variables:` blocks (parity-checked);
 change all three places together to rename them.
+
+## Rollout precondition
+
+`pipeline-mode.ps1` dispatches `release-by-dev.yml` / `release-by-main.yml` with `replay=true` (GitHub) or queues
+`azure-release.yml` on `refs/heads/main` (Azure). Until the release merge that brings these files to `main` has happened,
+that call fails ("Unexpected inputs" or a missing YAML), so **the switch rolls back and the fallback cannot be used**; the
+scheduled `ci-provider-reset.yml` only exists on the default branch, so it needs the same merge. This is fail-safe, not
+harmful. Merge to `main` first, then rely on the switch or the reset. Also create the `PR_CI_READ_PAT` secret first.
 
 ## One-time setup (manual, needs credentials)
 
@@ -123,12 +144,13 @@ None of this is automated by the repository. Do it once, in this order.
    the pipeline UI; the scripts fetch them with the token.
 3. **Environment lock.** Create the Azure DevOps environment `android-release-build-number` and add an **Exclusive Lock**
    check (Approvals and checks). This, with `lockBehavior: sequential` in `azure-release.yml`, is what serializes releases.
-4. **Identities (least privilege, separate from the server's).** Create two Azure managed identities with workload identity
-   federation service connections: `openvpn-android-azure-pr-ci` (authorized for `azure-pipelines.yml` only) and
+4. **Identities (least privilege, separate from the server's).** Create three Azure managed identities with workload identity
+   federation service connections: `openvpn-android-azure-pr-ci` (PR build job, read-only token) and
+   `openvpn-android-azure-pr-gate` (PR gate job, statuses-only token), both authorized for `azure-pipelines.yml` only, and
    `openvpn-android-azure-release` (authorized for `azure-release.yml` only). Neither needs an Azure resource role. Grant
    each **Key Vault Secrets User scoped to the individual secrets** it loads (table above), not to the vault. Do not reuse or
    widen the server's connections.
-5. **Key Vault secrets.** Create the eight secrets above in the vault. Fine-grained GitHub tokens: see the table; both
+5. **Key Vault secrets.** Create the nine secrets above in the vault. Fine-grained GitHub tokens: see the table; both
    Azure tokens must cover `OpenVPNGateClientApp` and the private `OpenVPNGateClientMedia` submodule (and the engine
    submodule repository if it is private). Copy the keystore/passwords/API key values from the existing GitHub secrets
    (single-line base64 for the keystore).
@@ -138,6 +160,24 @@ None of this is automated by the repository. Do it once, in this order.
 7. **Ruleset (when the plan allows).** Require the `CI Gate` commit status; both providers post it. A skipped GitHub job
    counts as passing, so require the status, never the job.
 8. **Verify before relying on it:** run the validation matrix below on a throwaway branch.
+
+## Azure trust settings (required)
+
+The least-privilege claim (pull-request code cannot reach release, signing or switch credentials) also depends on Azure
+DevOps settings that no YAML can enforce. Set them during setup steps 2-4 and confirm them in the validation matrix.
+
+1. **Fork builds.** In the PR pipeline Triggers > Pull request validation: keep *Make secrets available to builds of forks*
+   **off** and *Require a team member's comment before building a pull request* **on** (the GitHub gate is same-repo only;
+   the Azure pipeline has no fork condition). Never authorize the release service connection or the Key Vault for forks.
+2. **Release pipeline never validates PRs.** `azure-release.yml` declares `pr: none`, but that lives in YAML a PR can edit. In
+   the release pipeline Triggers, **override the YAML pull-request trigger and disable pull request validation** (the UI
+   setting wins over the YAML), so a PR cannot re-enable it and run with `openvpn-android-azure-release`.
+3. **Branch control checks.** Add a *Branch control* check (Approvals and checks) to the service connection
+   `openvpn-android-azure-release` **and** to the environment `android-release-build-number`, allowing only
+   `refs/heads/dev`, `refs/heads/main` and `refs/tags/v*`. Then someone with Queue-builds permission cannot run a modified
+   `azure-release.yml` from another branch with the signing key.
+4. **Identity separation.** `openvpn-android-azure-release` must not be authorized for `azure-pipelines.yml`; the two PR
+   connections must be authorized for `azure-pipelines.yml` only. Key Vault Secrets User stays scoped per secret.
 
 ## Operating the switch
 
@@ -175,7 +215,15 @@ loads the two switch secrets from Key Vault and runs `pipeline-mode.ps1 github`.
   `replay=true`, Azure queue with `replay=true`). A push that neither provider evaluated cannot be lost.
 - **Stale replay.** When a replay starts it re-reads the live branch tip; if the pinned commit is no longer the tip it skips
   cleanly (`skip_reason=stale-replay`) instead of building a superseded commit. Replay change detection diffs against the
-  latest release tag reachable from the commit, so an unchanged branch releases nothing, and an empty range skips.
+  latest release tag reachable from the commit (also on Azure, where the previous Azure build is ignored for replays), so an
+  unchanged branch releases nothing, and an empty range skips. For a normal Azure push the baseline is the previous
+  successful Azure build of the branch, or the latest reachable release tag when that tag is newer (releases the other
+  provider made in the meantime), so code that already shipped is never released twice.
+- **Manual dispatch** ignores `replay_sha` unless `replay=true`; a manual run always builds the dispatched branch tip.
+- **Failure gating.** Every conditional Azure step is `and(succeeded(), ...)` (a custom condition otherwise replaces the
+  implicit `succeeded()`), so a failed build never tags or publishes; the parity check enforces it. The GitHub Release is
+  created with `target_commitish` set to the built commit and `make_latest: legacy` (an older-line hotfix is not marked
+  Latest); tag creation treats HTTP 422 as "already exists" only when the tag points at the same commit.
 - **Tag pushes** cannot be replayed automatically. If a `v*` tag was pushed during a hand-off, re-push it or queue
   `azure-release.yml` manually for `refs/tags/<tag>`.
 
@@ -200,7 +248,8 @@ release before anything is published (previously a partial release could be publ
 | E. Concurrency | Contract-enforced serialization on both providers; switch refusal while a release is in flight (`ci-mode.Tests.ps1`); manual: queue two pushes in Azure and confirm sequential runs |
 | F. `github -> azure -> github` | `ci-mode.Tests.ps1` (order, lock, replay, rollback, no-op); manual: run both directions and read `status` |
 | G. Stale replay | `test_android_ci.py` (`StaleReplayTests`); manual: queue a replay, push to the branch before it starts |
-| H. Parity guard | `test_pipeline_parity.py` introduces drift in triggers, concurrency, steps, secrets, gating and constants and expects failure |
+| H. Parity guard | `test_pipeline_parity.py` introduces drift in triggers, concurrency, steps, secrets, gating, `succeeded()` conditions, PR trust (no `GH_PAT`, persist-credentials, per-job permissions, trusted gate) and constants and expects failure |
+| I. Azure trust settings | Manual: a fork PR obtains no secrets; the release pipeline shows no PR validation; a run of `azure-release.yml` from a feature branch is blocked by the branch control check; a PR that edits `scripts/ci` cannot post `CI Gate` |
 
 ## Recovery
 

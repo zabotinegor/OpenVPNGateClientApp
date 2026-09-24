@@ -253,19 +253,37 @@ def commit_exists(sha: str, cwd: Path | None = None) -> bool:
     return run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=cwd or ROOT, check=False, capture=True).returncode == 0
 
 
+def is_ancestor(ancestor: str, descendant: str, cwd: Path | None = None) -> bool:
+    return run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=cwd or ROOT, check=False,
+               capture=True).returncode == 0
+
+
 def decide_changes(event: str, before: str | None, after: str, pattern: str, cwd: Path | None = None,
                    previous_lookup: Callable[[], str | None] | None = None) -> tuple[bool, str, list[str]]:
-    """Returns (proceed, reason, files). Pure with respect to git state given the arguments."""
+    """Returns (proceed, reason, files). Pure with respect to git state given the arguments.
+
+    Baseline: a replay always diffs against the latest release tag reachable from `after`. A push uses the push
+    `before` sha (GitHub) or, when there is none (Azure), the previous successful build of the branch; if the latest
+    release tag reachable from `after` is newer than that build (releases made by the other provider in the meantime),
+    the tag wins so already-released code is never released again."""
     if event == "manual":
         return True, "Manual trigger: always proceed with release.", []
     replay = event == "replay"
-    baseline = before
-    if (not baseline or baseline == ZERO_SHA) and previous_lookup:
-        baseline = previous_lookup()
-    if baseline and baseline != ZERO_SHA and not commit_exists(baseline, cwd):
-        baseline = None
-    if replay and not baseline:
+    baseline: str | None = None
+    if replay:
         baseline = latest_release_tag_ref(after, cwd)
+    else:
+        baseline = before
+        looked_up = False
+        if (not baseline or baseline == ZERO_SHA) and previous_lookup:
+            baseline = previous_lookup()
+            looked_up = True
+        if baseline and baseline != ZERO_SHA and not commit_exists(baseline, cwd):
+            baseline = None
+        if looked_up and baseline:
+            tag = latest_release_tag_ref(after, cwd)
+            if tag and is_ancestor(baseline, f"{tag}^{{commit}}", cwd):
+                baseline = tag
     files = changed_files(baseline, after, cwd)
     if not files:
         if replay:
@@ -616,7 +634,12 @@ def cmd_create_tag(args, api: GitHubApi | None = None) -> int:
         if status in (200, 201):
             print(f"Created tag {tag} at {sha[:7]}.")
         elif status == 422:
-            print(f"Tag {tag} already exists. Skipping tag creation.")
+            # 422 also means an invalid sha/ref: an existing tag is accepted only when it points at this commit.
+            ref_status, ref = api.request("GET", f"{API}/repos/{repository()}/git/ref/tags/{tag}")
+            existing = (ref or {}).get("object", {}).get("sha") if isinstance(ref, dict) else None
+            if ref_status != 200 or existing != sha:
+                raise CiError(f"Failed to create tag {tag} (HTTP 422): it does not already exist at {sha[:7]}.")
+            print(f"Tag {tag} already exists at {sha[:7]}. Skipping tag creation.")
         else:
             raise CiError(f"Failed to create tag {tag} (HTTP {status}).")
     except CiError as exc:
@@ -633,13 +656,14 @@ def release_body(meta: dict) -> str:
     return f"{header}\nApp version: `{meta['app_version']}`\n\nWhat's new:\n```\n{meta['last_commit']}\n```"
 
 
-def publish_github_release(api: GitHubApi, repo: str, meta: dict, assets: list[dict]) -> None:
+def publish_github_release(api: GitHubApi, repo: str, meta: dict, assets: list[dict], sha: str | None = None) -> None:
     base = f"{API}/repos/{repo}"
     for asset in assets:
         if not Path(asset["path"]).is_file():
             raise CiError(f"Expected release artifact is missing: {asset['name']}.")
     status, existing = api.request("GET", f"{base}/releases/tags/{meta['tag']}")
-    fields = {"name": meta["release_name"], "body": release_body(meta), "prerelease": bool(meta["prerelease"])}
+    fields = {"name": meta["release_name"], "body": release_body(meta), "prerelease": bool(meta["prerelease"]),
+              "make_latest": "legacy"}  # legacy = the previous ncipollo default: date/semver decides, an older hotfix is not Latest
     if status == 200 and isinstance(existing, dict):
         release_id = existing["id"]
         status, _ = api.request("PATCH", f"{base}/releases/{release_id}", fields)
@@ -648,6 +672,8 @@ def publish_github_release(api: GitHubApi, repo: str, meta: dict, assets: list[d
         current = {a["name"]: a["id"] for a in existing.get("assets", [])}
     elif status == 404:
         create = {"tag_name": meta["tag"], **fields}
+        if sha:
+            create["target_commitish"] = sha  # defense in depth: never let GitHub create the tag at the default branch head
         if meta.get("generate_release_notes"):
             create["generate_release_notes"] = True
         status, created = api.request("POST", f"{base}/releases", create)
@@ -673,7 +699,7 @@ def cmd_publish_release(_args, api: GitHubApi | None = None) -> int:
     try:
         meta = read_meta(contract)
         api = api or GitHubApi(os.environ.get("GH_PAT", ""))
-        publish_github_release(api, repository(), meta, asset_list(contract, meta))
+        publish_github_release(api, repository(), meta, asset_list(contract, meta), sha=git("rev-parse", "HEAD"))
     except CiError as exc:
         print(str(exc), file=sys.stderr)
         return 1

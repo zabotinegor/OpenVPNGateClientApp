@@ -58,7 +58,7 @@ def on_block(doc: dict) -> dict:
 def invocations(script: str) -> list[str]:
     """Shared-script invocations in a shell snippet, in order, as contract-style labels."""
     found = []
-    for match in re.finditer(r"scripts/ci/([A-Za-z0-9_.\-]+)((?:\s+[a-z][a-z\-]*){0,2})", script):
+    for match in re.finditer(r"scripts/ci/([A-Za-z0-9_.\-]+)[\x22']?((?:\s+[a-z][a-z\-]*){0,2})", script):
         name, rest = match.group(1), match.group(2).split()
         label = name
         if name == "android_ci.py" and rest:
@@ -176,6 +176,7 @@ def check_github_pr(errors, root, contract):
         return
     doc = load_yaml(path)
     check_github_common(errors, name, path, doc, contract)
+    check_github_pr_trust(errors, name, path, doc, cfg["github"])
     trig = on_block(doc)
     if sorted((trig.get("pull_request") or {}).get("types", [])) != sorted(cfg["triggers"]["githubPullRequestTypes"]):
         errors.append(f"{name}: pull_request types differ from the contract.")
@@ -201,6 +202,33 @@ def check_github_pr(errors, root, contract):
         errors.append(f"{name}: unit-test-report artifact must upload on failure only with the contract retention.")
     if cfg["status"]["context"] not in path.read_text(encoding="utf-8"):
         errors.append(f"{name}: the '{cfg['status']['context']}' commit status is not posted.")
+
+
+def check_github_pr_trust(errors, name, path, doc, gh):
+    """PR-controlled code must not see the release PAT, must not keep credentials in .git/config, and only the
+    checkout-free gate job may hold statuses: write."""
+    text = path.read_text(encoding="utf-8")
+    if "secrets.GH_PAT" in text:
+        errors.append(f"{name}: must never reference secrets.GH_PAT (the release PAT); use secrets.{gh['checkoutSecret']}.")
+    if "statuses" in (doc.get("permissions") or {}):
+        errors.append(f"{name}: statuses must not be granted at workflow level.")
+    jobs = doc.get("jobs") or {}
+    build, gate = jobs.get(gh["buildJob"]) or {}, jobs.get(gh["gateJob"]) or {}
+    if build.get("permissions") != gh["buildPermissions"]:
+        errors.append(f"{name}: job '{gh['buildJob']}' permissions must be exactly {gh['buildPermissions']} (no statuses).")
+    if gate.get("permissions") != gh["gatePermissions"]:
+        errors.append(f"{name}: job '{gh['gateJob']}' permissions must be exactly {gh['gatePermissions']}.")
+    if any(str(s.get("uses", "")).startswith("actions/checkout") for s in gate.get("steps") or []):
+        errors.append(f"{name}: the gate job must not check out code.")
+    checkouts = [s for s in github_steps(doc) if str(s.get("uses", "")).startswith("actions/checkout")]
+    if not checkouts:
+        errors.append(f"{name}: no checkout step found.")
+    for step in checkouts:
+        with_ = step.get("with") or {}
+        if with_.get("persist-credentials") is not False:
+            errors.append(f"{name}: actions/checkout must set persist-credentials: false.")
+        if with_.get("token") != "${{ secrets." + gh["checkoutSecret"] + " }}":
+            errors.append(f"{name}: actions/checkout must use secrets.{gh['checkoutSecret']} (read-only).")
 
 
 def check_github_release(errors, root, contract, key):
@@ -247,6 +275,26 @@ def check_github_release(errors, root, contract, key):
             errors.append(f"{name}: secrets.{secret} is not a release secret in the contract.")
 
 
+def check_azure_conditions(errors, name, steps):
+    """A custom `condition:` replaces Azure's implicit succeeded(): every conditional step must state its failure
+    semantics (succeeded(), failed(), always() or succeededOrFailed()), otherwise it keeps running after a failed step."""
+    for step in steps:
+        condition = step.get("condition")
+        if condition is None:
+            continue
+        if not re.search(r"\b(succeeded|failed|always|succeededOrFailed)\(\)", str(condition)):
+            label = step.get("displayName") or step.get("name") or azure_step_script(step)[:40]
+            errors.append(f"{name}: step '{label}' has condition {condition!r} without succeeded()/failed()/always(): "
+                          "it would keep running after an earlier step failed (use and(succeeded(), ...)).")
+
+
+def azure_job_steps(doc: dict, job_name: str) -> list[dict]:
+    for job in doc.get("jobs") or []:
+        if job.get("job") == job_name or job.get("deployment") == job_name:
+            return list(job.get("steps") or [])
+    return []
+
+
 def check_azure_common(errors, name, text, contract, variable_secrets):
     for var in re.findall(r"\$\(repo\.([A-Z][A-Z0-9_]*)\)", text):
         if var not in contract["repositoryVariables"]:
@@ -269,6 +317,7 @@ def check_azure_pr(errors, root, contract):
     text = path.read_text(encoding="utf-8")
     doc = load_yaml(path)
     check_azure_common(errors, name, text, contract, set())
+    check_azure_conditions(errors, name, azure_steps(doc))
     if doc.get("trigger") not in (None, "none"):
         errors.append(f"{name}: trigger must be 'none' (PR pipeline).")
     pr = doc.get("pr") or {}
@@ -284,9 +333,34 @@ def check_azure_pr(errors, root, contract):
         errors.append(f"{name}: AZURE_PR_CI_SERVICE_CONNECTION must equal keyVault.bootstrap.prServiceConnection.")
     if str(variables.get("JDK_VERSION")) != contract["toolchain"]["jdkVersion"]:
         errors.append(f"{name}: JDK_VERSION must equal the contract jdkVersion.")
-    consumers = re.findall(r"--consumer\s+(\S+)", text)
-    if consumers != [cfg["azure"]["secretConsumer"]]:
-        errors.append(f"{name}: must load exactly the '{cfg['azure']['secretConsumer']}' secret consumer, found {consumers}.")
+    if variables.get("AZURE_PR_GATE_SERVICE_CONNECTION") != boot["prGateServiceConnection"]:
+        errors.append(f"{name}: AZURE_PR_GATE_SERVICE_CONNECTION must equal keyVault.bootstrap.prGateServiceConnection.")
+    build_steps = azure_job_steps(doc, cfg["azure"]["jobs"]["build"])
+    gate_steps = azure_job_steps(doc, cfg["azure"]["jobs"]["gate"])
+    if not build_steps or not gate_steps:
+        errors.append(f"{name}: jobs '{cfg['azure']['jobs']['build']}' and '{cfg['azure']['jobs']['gate']}' must both exist "
+                      "(the CI Gate is posted by a separate job).")
+    build_text = json.dumps(build_steps)
+    gate_text = json.dumps(gate_steps)
+    for job_label, job_text, want in (("build", build_text, cfg["azure"]["secretConsumer"]),
+                                      ("gate", gate_text, cfg["azure"]["gateSecretConsumer"])):
+        found = re.findall(r"--consumer\s+([A-Za-z0-9_-]+)", job_text)
+        if found != [want]:
+            errors.append(f"{name}: the {job_label} job must load exactly the '{want}' secret consumer, found {found}.")
+    if "ci-gate" in build_text or "PR_GATE_SERVICE_CONNECTION" in build_text or cfg["azure"]["gateSecretConsumer"] in build_text:
+        errors.append(f"{name}: the build job must not post the CI Gate or use the statuses identity "
+                      "(pull-request-controlled code runs there).")
+    if "ci-gate" not in gate_text:
+        errors.append(f"{name}: the gate job must post the CI Gate.")
+    if "PR_CI_SERVICE_CONNECTION" in gate_text:
+        errors.append(f"{name}: the gate job must not use the build identity.")
+    for step in build_steps + gate_steps:
+        script = azure_step_script(step)
+        if re.search(r"load_vault_secrets\.py|android_ci\.py\s+ci-gate", script) and "/trusted/scripts/ci/" not in script:
+            errors.append(f"{name}: the vault loader and ci-gate must run from the trusted target-branch copy "
+                          "($(Agent.TempDirectory)/trusted/scripts/ci/), not from the pull-request tree.")
+    if not all("HEAD^1" in json.dumps(steps) for steps in (build_steps, gate_steps)):
+        errors.append(f"{name}: both jobs must stage the trusted scripts from the merge commit's first parent (HEAD^1).")
     for artifact in cfg["artifacts"]["names"]:
         prefix = artifact.split("{")[0]
         if not any(str((s.get("inputs") or {}).get("artifact", "")).startswith(prefix) for s in azure_steps(doc)):
@@ -317,6 +391,7 @@ def check_azure_release(errors, root, contract):
     doc = load_yaml(path)
     release_secret_envs = set(common["secrets"]) - {"GH_PAT"}
     check_azure_common(errors, name, text, contract, release_secret_envs)
+    check_azure_conditions(errors, name, azure_steps(doc))
     types = contract["release"]["types"]
     trigger = doc.get("trigger") or {}
     want_branches = sorted(cfg["triggers"]["branches"][0] for cfg in
@@ -403,7 +478,12 @@ def check_contract(errors, root, contract):
     reset_envs = {catalogue[s]["env"] for s in contract["secretConsumers"]["ci-provider-reset"]["secrets"]}
     if reset_envs != {"CI_SWITCH_PAT", "AZDO_PAT"}:
         errors.append("contract: ci-provider-reset must load exactly CI_SWITCH_PAT and AZDO_PAT.")
-    for consumer in ("azure-pr-ci", "azure-release"):
+    if set(contract["secretConsumers"]["azure-pr-gate"]["secrets"]) & set(contract["secretConsumers"]["azure-pr-ci"]["secrets"]):
+        errors.append("contract: azure-pr-ci (build) and azure-pr-gate must not share a Key Vault secret.")
+    gate_envs = {catalogue[s]["env"] for s in contract["secretConsumers"]["azure-pr-gate"]["secrets"] if s in catalogue}
+    if gate_envs & (PR_FORBIDDEN_SECRET_ENVS - {"GH_PAT"}):
+        errors.append(f"contract: azure-pr-gate must not load {sorted(gate_envs & PR_FORBIDDEN_SECRET_ENVS)}.")
+    for consumer in ("azure-pr-ci", "azure-pr-gate", "azure-release"):
         if reset_envs & {catalogue[s]["env"] for s in contract["secretConsumers"][consumer]["secrets"]}:
             errors.append(f"contract: {consumer} must never load the provider-switch credentials.")
     for name in contract["pipelines"]["pr"]["gradleTaskSets"]:
