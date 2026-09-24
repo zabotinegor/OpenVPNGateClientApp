@@ -2,8 +2,8 @@ param(
     [string]$SourceRepo = 'https://github.com/zabotinegor/CopilotTools.git',
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
-    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', 'opencode.jsonc', '.github/runtime-parity.json', '.mcp.json', '.copilottools'),
-    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets'),
+    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', '.opencode/plugins', 'opencode.jsonc', '.kilo/agents', '.kilo/commands', '.kilo/plugins', 'kilo.jsonc', '.agents/skills', '.codex/agents', '.codex/config.toml', '.github/runtime-parity.json', '.github/runtime-registry.json', '.github/copilottools', '.github/schemas', '.mcp.json', '.copilottools'),
+    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets', 'asset-lock.json'),
     [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
     [string[]]$MergeJsonPaths = @('.claude/settings.json', '.mcp.json'),
     [switch]$DryRun,
@@ -11,6 +11,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# ReviewBot is a separately deployed service. Its service-local assets must never
+# be mirrored into client repositories, even when they sit below a broad sync root.
+# These are anchored service-path patterns, not a generic review/bot blacklist.
+$ExcludeSyncPathPattern = @('(^|/)reviewbot(?:/|[-_.])')
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "sync-agent-assets.ps1 requires PowerShell 7+ (pwsh); it uses APIs missing from Windows PowerShell $($PSVersionTable.PSVersion). Re-run with: pwsh -NoProfile -File .github/scripts/sync-agent-assets.ps1"
+}
+. (Join-Path $PSScriptRoot 'runtime-layer-hash.ps1')
+
+# Every helper this entrypoint dot-sources is needed to run it at all, so it must stay
+# trackable in client repos (a fresh clone cannot obtain it by syncing). Derive the list
+# from this script's own dot-source statements and exempt it from the managed .gitignore block.
+$bootstrapHelpers = @([regex]::Matches((Get-Content -LiteralPath $PSCommandPath -Raw), '(?m)^\.\s+\(Join-Path \$PSScriptRoot ''([^'']+\.ps1)''\)') | ForEach-Object { $_.Groups[1].Value })
+$ExcludeGitignorePattern = @($ExcludeGitignorePattern) + $bootstrapHelpers
 
 function Invoke-ExternalCommand {
     param(
@@ -73,6 +87,87 @@ function Write-AllLinesUtf8WithRetry {
             Start-Sleep -Milliseconds $DelayMs
         }
     }
+}
+
+function Get-TomlTableHeaderName {
+    param([string]$Line)
+
+    # Recognizes a table header tolerant of surrounding whitespace and a
+    # trailing comment (`[agents] # note`). Returns the bare table name, or
+    # $null when the line is not a header.
+    if ($Line -match '^\s*\[\[?\s*([^\[\]#]+?)\s*\]\]?\s*(#.*)?$') { return $Matches[1] }
+    return $null
+}
+
+function Merge-CodexProjectConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    $sourceLines = @(Get-Content -LiteralPath $SourcePath -Encoding UTF8)
+    $targetLines = @(Get-Content -LiteralPath $TargetPath -Encoding UTF8)
+    $sourceConcurrency = @($sourceLines | Where-Object { $_ -match '^\s*max_concurrent_threads_per_session\s*=\s*' })[0]
+    if ([string]::IsNullOrWhiteSpace($sourceConcurrency)) {
+        Write-Warning 'Codex source config has no max_concurrent_threads_per_session setting; leaving the target concurrency setting unchanged.'
+    }
+
+    # Remove the obsolete root-level setting and update/add it only in [agents].
+    $result = New-Object System.Collections.Generic.List[string]
+    $section = ''
+    $agentsSeen = $false
+    $agentsConcurrencySeen = $false
+    foreach ($line in $targetLines) {
+        $headerName = Get-TomlTableHeaderName -Line $line
+        if ($null -ne $headerName) {
+            if ($section -eq 'agents' -and -not $agentsConcurrencySeen -and $sourceConcurrency) {
+                $result.Add($sourceConcurrency)
+                $agentsConcurrencySeen = $true
+            }
+            $section = $headerName
+            if ($section -eq 'agents') { $agentsSeen = $true }
+        }
+        if ($sourceConcurrency -and $line -match '^\s*max_concurrent_threads_per_session\s*=\s*') {
+            if ($section -eq 'agents' -and -not $agentsConcurrencySeen) {
+                $result.Add($sourceConcurrency)
+                $agentsConcurrencySeen = $true
+            }
+            continue
+        }
+        $result.Add($line)
+    }
+    if ($section -eq 'agents' -and -not $agentsConcurrencySeen -and $sourceConcurrency) { $result.Add($sourceConcurrency) }
+    if (-not $agentsSeen -and $sourceConcurrency) {
+        if ($result.Count -gt 0 -and $result[$result.Count - 1] -ne '') { $result.Add('') }
+        $result.Add('[agents]')
+        $result.Add($sourceConcurrency)
+    }
+
+    # Replace only managed MCP server sections. Unrelated target MCP servers
+    # and all other project settings remain untouched.
+    foreach ($managed in @('mcp_servers.fetch', 'mcp_servers.clickup', 'mcp_servers.playwright')) {
+        $sourceStart = -1
+        for ($i = 0; $i -lt $sourceLines.Count; $i++) { if ((Get-TomlTableHeaderName -Line $sourceLines[$i]) -eq $managed -and $sourceLines[$i] -notmatch '^\s*\[\[') { $sourceStart = $i; break } }
+        if ($sourceStart -lt 0) { throw "Codex source config is missing [$managed]." }
+        $sourceEnd = $sourceLines.Count
+        for ($i = $sourceStart + 1; $i -lt $sourceLines.Count; $i++) { if ($null -ne (Get-TomlTableHeaderName -Line $sourceLines[$i])) { $sourceEnd = $i; break } }
+        $block = @($sourceLines[$sourceStart..($sourceEnd - 1)])
+        $filtered = New-Object System.Collections.Generic.List[string]
+        for ($i = 0; $i -lt $result.Count; $i++) {
+            if ((Get-TomlTableHeaderName -Line $result[$i]) -eq $managed -and $result[$i] -notmatch '^\s*\[\[') {
+                $i++
+                while ($i -lt $result.Count -and $null -eq (Get-TomlTableHeaderName -Line $result[$i])) { $i++ }
+                $i--
+                continue
+            }
+            $filtered.Add($result[$i])
+        }
+        while ($filtered.Count -gt 0 -and $filtered[$filtered.Count - 1] -eq '') { $filtered.RemoveAt($filtered.Count - 1) }
+        if ($filtered.Count -gt 0) { $filtered.Add('') }
+        foreach ($line in $block) { $filtered.Add($line) }
+        $result = $filtered
+    }
+    return @($result)
 }
 
 function Get-SectionFromSourceFile {
@@ -220,7 +315,8 @@ function Get-RelativePath {
 function Get-RelativeFileMap {
     param(
         [string]$Root,
-        [string[]]$ScopePaths
+        [string[]]$ScopePaths,
+        [string[]]$ExcludePattern = @()
     )
 
     $map = @{}
@@ -231,12 +327,16 @@ function Get-RelativeFileMap {
         }
 
         if (Test-Path -LiteralPath $absoluteScope -PathType Leaf) {
-            $relative = Get-RelativePath -Root $Root -Path $absoluteScope
-            $map[(Convert-ToRepoRelativePath -Path $relative)] = $absoluteScope
+            $relative = Convert-ToRepoRelativePath -Path (Get-RelativePath -Root $Root -Path $absoluteScope)
+            if (@($ExcludePattern | Where-Object { $relative -match $_ }).Count -eq 0) {
+                $map[$relative] = $absoluteScope
+            }
         } else {
             Get-ChildItem -LiteralPath $absoluteScope -File -Recurse | ForEach-Object {
-                $relative = Get-RelativePath -Root $Root -Path $_.FullName
-                $map[(Convert-ToRepoRelativePath -Path $relative)] = $_.FullName
+                $relative = Convert-ToRepoRelativePath -Path (Get-RelativePath -Root $Root -Path $_.FullName)
+                if (@($ExcludePattern | Where-Object { $relative -match $_ }).Count -eq 0) {
+                    $map[$relative] = $_.FullName
+                }
             }
         }
     }
@@ -254,7 +354,7 @@ function Set-ExactGitignoreEntries {
     $gitignorePath = Join-Path $Root '.gitignore'
     $beginMarker = '# BEGIN synced-agent-assets'
     $endMarker = '# END synced-agent-assets'
-    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**')
+    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**', '/.opencode/plugins/**', '/.kilo/agents/**', '/.kilo/commands/**', '/.kilo/plugins/**', '/.agents/skills/**', '/.codex/agents/**')
     $beginMarkers = @('# BEGIN synced-agent-assets', '# BEGIN synced-copilot-assets')
     $endMarkers = @('# END synced-agent-assets', '# END synced-copilot-assets')
     $existing = @()
@@ -371,7 +471,13 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '/.sdlc/tools-fix.json',
         '**/.sdlc/tools-fix.json',
         '/.claude/settings.local.json',
-        '**/.claude/settings.local.json'
+        '**/.claude/settings.local.json',
+        # The lock every non-dry-run sync writes (revision + runtime-layer hash).
+        # It is generated per machine and PreservePattern keeps later syncs from
+        # deleting it, so without an ignore rule it is a permanent untracked file.
+        # Only the lock is ignored: .copilottools/config.json is a hand-authored
+        # per-repo setting (claude_session_recovery_enabled) and stays trackable.
+        '/.copilottools/asset-lock.json'
     )
 
     $existing = @()
@@ -1012,7 +1118,7 @@ try {
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('clone', '--quiet', '--no-checkout', '--depth', '1', '--branch', $SourceRef, $SourceRepo, $tempRoot) -FailureMessage 'git clone failed.' | Out-Null
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $tempRoot, 'checkout', '--quiet', $sourceCommit) -FailureMessage 'git checkout failed.' | Out-Null
 
-    $sourceFiles = Get-RelativeFileMap -Root $tempRoot -ScopePaths $normalizedScope
+    $sourceFiles = Get-RelativeFileMap -Root $tempRoot -ScopePaths $normalizedScope -ExcludePattern $ExcludeSyncPathPattern
     $targetFiles = Get-RelativeFileMap -Root $targetRootResolved -ScopePaths $normalizedScope
 
     if ($sourceFiles.Count -eq 0) {
@@ -1034,6 +1140,7 @@ try {
         $targetPath = Join-Path $targetRootResolved $relativePath
         $targetDirectory = Split-Path -Parent $targetPath
         $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+        $isCodexConfig = $relativePath -ieq '.codex/config.toml'
 
         if (-not $targetFiles.ContainsKey($relativePath)) {
             if ($isMergeJson) {
@@ -1053,7 +1160,17 @@ try {
             continue
         }
 
-        if ($isRootMd) {
+        if ($isCodexConfig) {
+            # Update the managed [agents] concurrency and MCP sections while
+            # preserving unrelated target settings and comments.
+            $targetLines = Merge-CodexProjectConfig -SourcePath $sourcePath -TargetPath $targetPath
+            $before = [string]::Join("`n", @(Get-Content -LiteralPath $targetPath -Encoding UTF8))
+            $after = [string]::Join("`n", $targetLines)
+            if ($before -ne $after) {
+                $changed.Add($relativePath)
+                if (-not $DryRun) { Write-AllLinesUtf8WithRetry -Path $targetPath -Lines $targetLines }
+            }
+        } elseif ($isRootMd) {
             # Update only the section between sync markers
             $result = Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
             if ($result.changed) {
@@ -1087,6 +1204,34 @@ try {
             continue
         }
 
+        # An explicitly excluded service path may already exist in a client
+        # from an older sync. Only remove it when the managed ignore block
+        # proves Agent Sync previously owned the path; never delete a
+        # client-owned file merely because its name matches the boundary.
+        $isExcludedServicePath = @($ExcludeSyncPathPattern | Where-Object { $relativePath -match $_ }).Count -gt 0
+        if ($isExcludedServicePath) {
+            $managedIgnorePath = "/$relativePath"
+            $managedIgnoreOwned = $false
+            $targetGitignorePath = Join-Path $targetRootResolved '.gitignore'
+            if (Test-Path -LiteralPath $targetGitignorePath) {
+                $gitignoreLines = @(Get-Content -LiteralPath $targetGitignorePath -Encoding UTF8)
+                foreach ($markerPair in @(
+                    @('# BEGIN synced-agent-assets', '# END synced-agent-assets'),
+                    @('# BEGIN synced-copilot-assets', '# END synced-copilot-assets')
+                )) {
+                    $beginManaged = [array]::IndexOf($gitignoreLines, $markerPair[0])
+                    $endManaged = [array]::IndexOf($gitignoreLines, $markerPair[1])
+                    if ($beginManaged -ge 0 -and $endManaged -gt $beginManaged) {
+                        $managedIgnoreOwned = @($gitignoreLines[($beginManaged + 1)..($endManaged - 1)] | Where-Object { $_ -eq $managedIgnorePath }).Count -gt 0
+                        if ($managedIgnoreOwned) { break }
+                    }
+                }
+            }
+            if (-not $managedIgnoreOwned) {
+                continue
+            }
+        }
+
         $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
         if ($isMergeJson) {
             continue
@@ -1095,6 +1240,20 @@ try {
         $deleted.Add($relativePath)
         if (-not $DryRun) {
             Remove-Item -LiteralPath $targetFiles[$relativePath] -Force
+        }
+    }
+
+    # Clean up stale .kilo/command (singular) directory from older sync versions
+    $staleKiloCommand = Join-Path $targetRootResolved '.kilo/command'
+    if (Test-Path -LiteralPath $staleKiloCommand) {
+        $staleFiles = @(Get-ChildItem -LiteralPath $staleKiloCommand -File -Recurse -ErrorAction SilentlyContinue)
+        if ($staleFiles.Count -eq 0) {
+            if (-not $DryRun) {
+                Remove-Item -LiteralPath $staleKiloCommand -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $changed.Add('.kilo/command')
+        } else {
+            Write-Warning "Stale .kilo/command directory still contains $($staleFiles.Count) files. Manually migrate to .kilo/commands/."
         }
     }
 
@@ -1243,6 +1402,36 @@ try {
         $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
     }
 
+    # Reconcile legacy CopilotTools Windows Scheduled Tasks after the scripts
+    # themselves have been synced. Older registrations can keep launching a
+    # visible pwsh/cmd window even though current task creation uses
+    # "-WindowStyle Hidden". Repair only tasks that already exist and belong
+    # to this target repository; never create a task as a side effect of sync.
+    $scheduledTaskWindowRepair = $null
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+        $schedulerWrapperPath = Join-Path $targetRootResolved '.github/scripts/scheduler-wrapper.ps1'
+        if (Test-Path -LiteralPath $schedulerWrapperPath) {
+            try {
+                . $schedulerWrapperPath
+                $scheduledTaskWindowRepair = Repair-CopilotToolsScheduledTaskWindowStyle -RepositoryRoot $targetRootResolved -WhatIf:$DryRun
+            } catch {
+                $scheduledTaskWindowRepair = [pscustomobject]@{
+                    supported   = $true
+                    scanned     = 0
+                    matched     = 0
+                    repaired    = 0
+                    alreadySafe = 0
+                    failed      = 1
+                    reason      = 'repair-failed'
+                    errors      = @($_.Exception.Message)
+                }
+                if (-not $DryRun) {
+                    Write-Warning "Failed to reconcile existing CopilotTools Scheduled Tasks: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+
     # No session-tracking preflight here. Agent Sync is the one workflow exempt
     # from the session-limit stack: it delivers those scripts, it does not
     # depend on them, and running the preflight made a short, idempotent,
@@ -1302,16 +1491,27 @@ try {
         }
     }
 
+    if (-not $DryRun) {
+        $assetLockPath = Join-Path $targetRootResolved '.copilottools/asset-lock.json'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $assetLockPath) -Force | Out-Null
+        $assetLock = [ordered]@{ schemaVersion = 1; sourceRevision = $sourceCommit; manifestHash = (Get-RuntimeLayerHash -Root $targetRootResolved) }
+        $assetLock | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $assetLockPath -Encoding UTF8
+    }
+
     $categoryCounts = [ordered]@{
         githubCopilot = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         claude = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         openCode = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        kilo = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        codex = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         shared = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         branchGuards = [ordered]@{ added = 0; changed = 0; deleted = 0 }
     }
     foreach ($kind in @(@('added', $added), @('changed', $changed), @('deleted', $deleted))) {
         foreach ($path in $kind[1]) {
             if ($path -like '.opencode/*' -or $path -eq 'opencode.jsonc') { $category = 'openCode' }
+            elseif ($path -like '.kilo/*' -or $path -eq 'kilo.jsonc') { $category = 'kilo' }
+            elseif ($path -like '.agents/*' -or $path -like '.codex/*') { $category = 'codex' }
             elseif ($path -like '.claude/*') { $category = 'claude' }
             elseif ($path -like '.github/hooks/*' -or $path -like '.githooks/*') { $category = 'branchGuards' }
             elseif ($path -like '.github/agents/*') { $category = 'githubCopilot' }
@@ -1341,6 +1541,7 @@ try {
         gitignoreExactEntryCount = $gitignoreEntryCount
         transientGitignoreEntryCount = $transientGitignoreEntryCount
         gitHooksConfiguration = $gitHooksConfiguration
+        scheduledTaskWindowRepair = $scheduledTaskWindowRepair
         forbiddenArtifacts = @($forbiddenArtifacts)
         nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
         verification = $(if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' })

@@ -10,6 +10,8 @@ argument-hint: "what should be synced from CopilotTools and to which target path
 
 Synchronize agent, skill, tool, and helper-script assets from the configured CopilotTools Git repository into the current target repository. Prefer deterministic scripts and keep the final report focused on decisions, results, and blockers.
 
+**Ownership boundary:** Agent Sync copies only reusable client-facing SDLC/agent/runtime assets. The custom CopilotTools ReviewBot service is source-repository infrastructure and must never be installed into client repositories by Agent Sync. Generic PR-review automation used by Developer/Release flows remains in scope, including scripts that refer to external reviewers such as Codex or Kody.
+
 **Session-limit exemption — Agent Sync only.** This is the single workflow exempt from the session-limit and session-recovery machinery in [../shared/operational-rules.md](../shared/operational-rules.md#session-limit-rules) and the `MANDATORY FIRST STEP` block of [../shared/agents-core-rules.md](../shared/agents-core-rules.md). Do not run `init-session.ps1`, do not read or report usage/reset state, do not arm or confirm a reset-recovery cron, do not checkpoint to `.sdlc/status.json`, and do not run `check-tracking-preflight.ps1`. Agent Sync ships that stack; it does not consume it. A sync is short, idempotent, and safe to re-run from scratch, so an interrupted one needs no recovery — rerunning it is the recovery. Everything the other agents do here still applies to them; only Agent Sync skips it.
 
 ## When to use
@@ -17,14 +19,14 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 - Mirror-sync agents, skills, tools, scripts, hooks, Claude slash commands, and OpenCode agents/commands into another repository.
 - Reconcile stale synced files in a target repository.
 - Update target `.gitignore` entries for synced non-agent-sync files.
-- Treat `.opencode/agents/**`, `.opencode/commands/**`, `opencode.jsonc`, and `.github/runtime-parity.json` as first-class runtime assets; report their added/changed/deleted counts separately as OpenCode assets.
+- Treat `.opencode/agents/**`, `.opencode/commands/**`, `opencode.jsonc`, `.agents/skills/**`, `.codex/agents/**`, `.codex/config.toml`, and `.github/runtime-parity.json` as first-class runtime assets; report OpenCode and Codex added/changed/deleted counts separately. The Codex project config must contain the native `[agents]` concurrency section and native `mcp_servers` entries for every server in `.mcp.json`.
 - Add target `.gitignore` entries for transient agent handoff/prompt artifacts, runtime `.sdlc/status.json`, `.sdlc/operations/`, `.claude/launch.json`, and `.claude/settings.local.json`.
 - Propagate universal agent governance rules from CopilotTools into client repo `AGENTS.md` without overwriting client-specific content — only when the user approved it and the run includes `-AllowRootMdSync` (a plain sync does not touch `AGENTS.md`).
 
 ## Expected input
 
 - Target repository/worktree.
-- Requested sync scope or default scope (`.github/agents`, `.github/skills`, `.github/tools`, `.github/scripts`, `.github/hooks`, `.githooks`, `.claude/commands`, `.claude/settings.json`, `.opencode/commands`, `.opencode/agents`, `opencode.jsonc`, `.github/runtime-parity.json`).
+- Requested sync scope or default scope (`.github/agents`, `.github/skills`, `.github/tools`, `.github/scripts`, `.github/hooks`, `.githooks`, `.claude/commands`, `.claude/settings.json`, `.opencode/commands`, `.opencode/agents`, `opencode.jsonc`, `.agents/skills`, `.codex/agents`, `.codex/config.toml`, `.github/runtime-parity.json`).
 - Any paths that must be excluded from sync.
 
 ## Blocking gates
@@ -47,12 +49,12 @@ Synchronize agent, skill, tool, and helper-script assets from the configured Cop
 1. Read `AGENTS.md`, `.github/AGENTS-REGISTRY.md`, and target worktree state. Confirm the current branch and proceed — do not create or switch branches.
 2. Resolve the latest source commit SHA from the configured `SourceRepo`/`SourceRef`.
 3. Prefer `.github/scripts/sync-agent-assets.ps1`; perform manual mirror-sync only after real failures of `run_in_terminal` and `runCommands` prove direct script execution is unavailable.
-   Run the script with `run_in_terminal` first (foreground PowerShell), not as a VS Code task:
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-agent-assets.ps1 -DryRun`
+   Run the script with `run_in_terminal` first (foreground `pwsh`; the script requires PowerShell 7+ and stops early under Windows PowerShell 5.1), not as a VS Code task:
+   `pwsh -NoProfile -File .github/scripts/sync-agent-assets.ps1 -DryRun`
    If `run_in_terminal` is unavailable, retry the same command with `runCommands`.
    Keep root markdown protection enabled by default; include `-AllowRootMdSync` only when user explicitly approved syncing protected root markdown files.
    Then run the apply command only after reviewing the dry-run JSON:
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .github/scripts/sync-agent-assets.ps1`
+   `pwsh -NoProfile -File .github/scripts/sync-agent-assets.ps1`
 4. If direct script execution is unavailable, use manual fallback through authenticated GitHub connector/API tools at the resolved source revision; compare source and target assets in scope by relative path and content. Do not use unauthenticated browser pages as source evidence for private repositories.
    **HARD STOP — manual fallback is GitHub connector/API tools only.** When `run_in_terminal` and `runCommands` are unavailable, never attempt `git clone`, `git sparse-checkout`, or any other git command as a substitute. Those require terminal access that has already failed. Use only read/search/edit tools plus authenticated GitHub connector/API calls (e.g. `github/get_file_contents`) to retrieve and compare source files at the resolved commit SHA.
 5. Verify differences before editing, especially frequently changed agent/skill files.
@@ -105,7 +107,7 @@ Then handle what it reports:
 
 ## Output format
 
-Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by GitHub/Copilot, Claude, OpenCode, shared, and branch-guard asset types), stale-file deletion status, `removedDeadHooks` (hook entries dropped from `.claude/settings.json` because the `.github/scripts/` file they invoke no longer exists — name each one, since a retired hook that survives a merge looks configured and guards nothing), `agentsCoreRulesInjection` action for the `AGENTS.md` governance section (added-markers, replaced-section, or no-change; `null` when the run had no `-AllowRootMdSync`, since the injection is gated behind that flag and does not run on a plain sync), post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions. The JSON result's `categoryCounts.openCode` is the authoritative OpenCode added/changed/deleted report.
+Report source repository and commit SHA, target branch, sync scope, added/changed/deleted counts and paths (broken out by GitHub/Copilot, Claude, OpenCode, Codex, shared, and branch-guard asset types), stale-file deletion status, `removedDeadHooks` (hook entries dropped from `.claude/settings.json` because the `.github/scripts/` file they invoke no longer exists — name each one, since a retired hook that survives a merge looks configured and guards nothing), `agentsCoreRulesInjection` action for the `AGENTS.md` governance section (added-markers, replaced-section, or no-change; `null` when the run had no `-AllowRootMdSync`, since the injection is gated behind that flag and does not run on a plain sync), post-sync verification, synced `.gitignore` policy verification, Git hooks path configuration, transient artifact `.gitignore` verification, discovered forbidden artifacts, discovered nested `.sdlc/status.json` files, token-efficiency note for manual fallback, and blockers or assumptions. The JSON result's `categoryCounts.openCode` and `categoryCounts.codex` are authoritative runtime reports. Confirm the target's Codex MCP servers and strict config before reporting a complete Codex sync.
 
 Also report the ClickUp setup outcome, taken from `setup-clickup.ps1`'s JSON: `artifactMode` (`clickup` or `local`), overall `status`, and every non-`OK` check with its remediation — at minimum `clickupMcpEntry`, `clickupConfig` (absent, scaffolded, valid, or malformed), `clickupToken` (present, missing, or tracked-by-git), `clickupIgnore`, `clickupStatusNames`, and `clickupListProbe` (per-List pass/fail for every `qa_suites_list`/`qa_cases_list`, naming any List that hit `ITEM_246` and whether it was reprovisioned).
 

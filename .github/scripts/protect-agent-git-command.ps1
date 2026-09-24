@@ -257,7 +257,10 @@ function Protect-HeredocBodies {
                 while ($i -lt $len -and $Command[$i] -ne "`n") { $i++ }
                 $line = $Command.Substring($lineStart, $i - $lineStart).TrimEnd("`r")
                 $lineForCompare = if ($line -match '^\t*(.*)$') { $Matches[1] } else { $line }
-                $safeLine = $Command.Substring($lineStart, $i - $lineStart) -replace '[''"\\]', [string][char]0
+                # Heredoc body text is stdin, not shell syntax. Neutralize the
+                # entire body line in the normalized copy so quotes, separators,
+                # and words such as "git" cannot affect later command parsing.
+                $safeLine = ([string][char]0) * ($i - $lineStart)
                 [void]$sb.Append($safeLine)
                 if ($lineForCompare -eq $delim) { break }
                 if ($i -ge $len) { break }
@@ -615,6 +618,118 @@ function Get-GitTargetPath {
     return $dir
 }
 
+function Get-ChangedWorkingDirectory {
+    param([string]$Segment, [string]$FallbackPath)
+
+    # A leading literal cd/chdir changes the shell directory for later command
+    # segments. Parse only one static path token. This is deliberately a small
+    # character scanner rather than a backtracking regex: the guard must stay
+    # bounded even when it receives hostile input. Path expansion is intentionally
+    # not performed: ~ and environment-variable forms ($HOME, $env:USERPROFILE,
+    # etc.) are never evaluated, so attacker-controlled shell state is not
+    # consulted. They are not rejected by an explicit check either: they are
+    # treated as literal names, which normally do not exist as directories, so
+    # the fallback path below is kept. Callers must provide a literal,
+    # already-resolved directory.
+    $trimmed = $Segment.Trim()
+    $length = $trimmed.Length
+    $i = 0
+    while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    $verbStart = $i
+    while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    $verb = $trimmed.Substring($verbStart, $i - $verbStart)
+    if (-not [string]::Equals($verb, 'cd', [System.StringComparison]::OrdinalIgnoreCase) -and
+            -not [string]::Equals($verb, 'chdir', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $null
+    }
+
+    $result = [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+    while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    if ($i -ge $length) { return $result }
+
+    $tokenStart = $i
+    $quote = $null
+    $hasTokenText = $false
+    $maxTokenLength = 4096
+    while ($i -lt $length) {
+        if (($i - $tokenStart) -ge $maxTokenLength) { return $result }
+        $ch = $trimmed[$i]
+
+        if ($null -eq $quote) {
+            if ([char]::IsWhiteSpace($ch)) { break }
+            if (($ch -eq '`' -and -not $script:bashSyntax) -or ($ch -eq '\' -and $script:bashSyntax)) {
+                if (($i + 1) -ge $length) { return $result }
+                $hasTokenText = $true
+                $i += 2
+                continue
+            }
+            if ($ch -eq '`' -and $script:bashSyntax) { return $result }
+            if ($ch -eq "'" -or $ch -eq '"') {
+                $quote = $ch
+                $hasTokenText = $true
+                $i++
+                continue
+            }
+            $hasTokenText = $true
+            $i++
+            continue
+        }
+
+        if ($quote -eq "'") {
+            if ($ch -eq "'") { $quote = $null }
+            $hasTokenText = $true
+            $i++
+            continue
+        }
+
+        if (($ch -eq '`' -and -not $script:bashSyntax) -or ($ch -eq '\' -and $script:bashSyntax)) {
+            if (($i + 1) -ge $length) { return $result }
+            $hasTokenText = $true
+            $i += 2
+            continue
+        }
+        if ($ch -eq '"') { $quote = $null }
+        $hasTokenText = $true
+        $i++
+
+        if (($i - $tokenStart) -gt $maxTokenLength) { return $result }
+    }
+
+    if ($null -ne $quote -or -not $hasTokenText -or ($i - $tokenStart) -gt $maxTokenLength) {
+        return $result
+    }
+
+    # Anything after the one path token is an ambiguity, including a second
+    # argument. Reject it instead of letting the later git segment inherit an
+    # accidentally guessed directory.
+    while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    if ($i -lt $length) { return $result }
+
+    $rawToken = $trimmed.Substring($tokenStart, $i - $tokenStart)
+    if ($rawToken -match '^\s*["'']?~' -or $rawToken.Contains('$')) {
+        return $result
+    }
+    $candidate = Resolve-TargetToken -Value $rawToken -BaseDir $FallbackPath
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $result
+    }
+
+    # A literal directory that does not exist is a runtime failure of cd, not
+    # malformed guard input. The shell keeps the current directory, so retain
+    # the fallback path and let later git segments be judged there. Expansion
+    # forms such as ~ and $HOME are never expanded; as literal names they
+    # normally fail this same existence check and take the fallback path too.
+    if (-not (Test-Path -LiteralPath $candidate -PathType Container)) {
+        $result.Valid = $true
+        $result.Path = $FallbackPath
+        return $result
+    }
+
+    $result.Valid = $true
+    $result.Path = $candidate
+    return $result
+}
+
 function Resolve-GitRepoState {
     param([string]$Path)
 
@@ -683,25 +798,43 @@ function Get-CachedRepoState {
 # segment from the pre-command HEAD (still the feature branch) and allowed a
 # commit that the shell actually lands on main.
 $branchByPath = @{}
+$segmentWorkingDirectory = $cwd
 
 $reason = $null
 foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $bashSyntax)) {
     if ($reason) { break }
 
     $text = $segment.Text.Trim()
+    $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory
+    if ($null -ne $directoryChange) {
+        if (-not $directoryChange.Valid) {
+            $reason = 'Unresolvable leading cd/chdir target or extra argument is forbidden.'
+            break
+        }
+        $segmentWorkingDirectory = $directoryChange.Path
+        continue
+    }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
+
+    # Keep malformed/unresolvable long -C values fail-closed without sending
+    # the general mutation regex through an expensive unsuccessful scan. This
+    # is a bounded lexical guard; normal paths continue through full parsing.
+    if ($text.Length -gt 300 -and $text -match '(?i)^git\s+-C\s+\S{256,}\s+(?:commit|push|reset|branch)\b') {
+        $reason = 'Unresolvable long git -C target is forbidden.'
+        continue
+    }
 
     # Resolve and judge THIS segment against its own repository. Collapsing a
     # multi-target command line into one verdict let the wrong branch decide:
     # 'git -C <feature> status && git -C <main> commit' was judged entirely on
     # the feature repo and the protected-branch commit went through.
-    $evalPath = Get-GitTargetPath -Segment $text -FallbackPath $cwd
+    $evalPath = Get-GitTargetPath -Segment $text -FallbackPath $segmentWorkingDirectory
     $state = Get-CachedRepoState -Path $evalPath
 
     # An unresolvable -C path must not become an escape hatch. Fall back to the
     # session repo and keep evaluating rather than sailing through with no branch.
-    if ([string]::IsNullOrWhiteSpace($state.Root) -and $evalPath -ne $cwd) {
-        $evalPath = $cwd
+    if ([string]::IsNullOrWhiteSpace($state.Root) -and $evalPath -ne $segmentWorkingDirectory) {
+        $evalPath = $segmentWorkingDirectory
         $state = Get-CachedRepoState -Path $evalPath
     }
 

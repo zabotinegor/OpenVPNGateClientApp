@@ -12,6 +12,18 @@ if [ -f "$root/.agenttools-source" ]; then
   exit 0
 fi
 
+# Empty means git could not resolve the path; the dev-ref handling below then
+# fails closed instead of silently weakening the archive verification.
+archive_guard_state=$(git rev-parse --git-path copilottools-dev-archive-guard 2>/dev/null || true)
+
+write_archive_guard_state() {
+  [ -n "$archive_guard_state" ] || return 0
+  state_tmp=$(mktemp "${archive_guard_state}.XXXXXX" 2>/dev/null) || return 0
+  main_sha_for_state=$(git rev-parse "$remote_name/main" 2>/dev/null || echo "")
+  printf '%s\n%s\n%s\n' "$remote_name" "$remote_sha" "$main_sha_for_state" > "$state_tmp" 2>/dev/null || return 0
+  mv -f "$state_tmp" "$archive_guard_state" 2>/dev/null || rm -f "$state_tmp"
+}
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master|refs/heads/develop)
@@ -31,6 +43,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       # $1; fall back to the branch's tracking config, then 'origin', only when
       # $1 is empty (older git, or the hook invoked directly). When $1 equals
       # the tracked remote - the common case - this resolves identically.
+      if [ -z "$archive_guard_state" ]; then
+        echo "BLOCKED: cannot resolve the git directory for the dev archive guard state (git rev-parse --git-path failed); refusing to mutate refs/heads/dev without it." >&2
+        exit 1
+      fi
       if [ -n "$push_remote_name" ]; then
         remote_name="$push_remote_name"
       else
@@ -55,28 +71,43 @@ while read -r local_ref local_sha remote_ref remote_sha; do
           echo "BLOCKED: deleting refs/heads/dev requires an archive/archive-dev-* ref at the current dev tip (${remote_sha:-unknown}); archive dev first (release-flow archive step)." >&2
           exit 1
         fi
+        # Leave a local proof tying this successful deletion to both the exact
+        # archived dev tip and the main tip that will be used for recreation.
+        # A squash merge makes the archive tip unrelated to new main, so the
+        # proof records the operation rather than requiring commit ancestry.
+        write_archive_guard_state
       fi
       if [ "$local_sha" != "$zero" ]; then
         # Recreating dev: the local push must match the current remote main
-        # tip. The archive guard here only proves "dev was archived at some
-        # point before recreation" - it cannot require the archive to sit at
-        # main_sha, because a squash merge makes main_sha a brand-new commit
-        # that is never equal to (and, for a squash, not even an ancestor of)
-        # the archived pre-merge dev tip. The deletion guard above is what
-        # actually pins a specific archive to a specific dev tip, at delete
-        # time; by the time dev is recreated, dev no longer exists to compare
-        # against, so existence of any archive-dev-* ref is what's checkable.
+        # tip. A squash merge makes main_sha unrelated to the archived
+        # pre-merge dev tip, so the recreation check uses the proof recorded by
+        # the successful deletion above instead of requiring commit ancestry.
         main_sha=$(git rev-parse "$remote_name/main" 2>/dev/null || echo "")
         if [ -z "$main_sha" ] || [ "$local_sha" != "$main_sha" ]; then
           echo "BLOCKED: direct push or protected-ref mutation to '$remote_ref' is forbidden." >&2
           exit 1
         fi
         archived_match=""
-        if [ -n "$(git for-each-ref --format='%(objectname)' "refs/remotes/$remote_name/archive/archive-dev-*" 2>/dev/null)" ]; then
-          archived_match=1
+        if [ -n "$archive_guard_state" ] && [ -f "$archive_guard_state" ]; then
+          state_remote=$(sed -n '1p' "$archive_guard_state" 2>/dev/null)
+          state_archive_sha=$(sed -n '2p' "$archive_guard_state" 2>/dev/null)
+          state_main_sha=$(sed -n '3p' "$archive_guard_state" 2>/dev/null)
+          # The state file is exactly three lines: remote name, archive SHA,
+          # main SHA. Any other shape is treated as no state, never misread.
+          state_line_count=$(wc -l < "$archive_guard_state" 2>/dev/null | tr -d ' ')
+          if [ "$state_line_count" != "3" ]; then
+            state_remote=""
+            state_archive_sha=""
+            state_main_sha=""
+          fi
+          if [ "$state_remote" = "$remote_name" ] && [ "$state_main_sha" = "$main_sha" ] &&
+             [ -n "$state_archive_sha" ] &&
+             [ -n "$(git for-each-ref --format='%(objectname)' "refs/remotes/$remote_name/archive/archive-dev-*" 2>/dev/null | grep -Fx "$state_archive_sha")" ]; then
+            archived_match=1
+          fi
         fi
         if [ -z "$archived_match" ]; then
-          echo "BLOCKED: recreating refs/heads/dev requires an archive/archive-dev-* ref to exist; archive dev first (release-flow archive step)." >&2
+          echo "BLOCKED: recreating refs/heads/dev requires a verified archive of the replaced dev tip for the current main tip; archive dev first (release-flow archive step)." >&2
           exit 1
         fi
       fi
