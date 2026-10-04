@@ -1,0 +1,6 @@
+{
+  "claude_session_recovery_enabled": false,
+  "anonymous_resource_telemetry_enabled": true,
+  "anonymous_resource_telemetry_repository": "zabotinegor/CopilotTools",
+  "anonymous_resource_telemetry_branch": "resource-telemetry"
+}
