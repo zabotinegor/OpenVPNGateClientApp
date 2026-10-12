@@ -293,8 +293,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // making) across the main thread (ACTION_PAUSE arming) and the AIDL binder thread (terminal-level
     // cleanup in syncEngineState). @Volatile alone makes pauseActionInFlight visible across threads
     // but not the check-then-act sequence atomic with a concurrent state transition on the other
-    // thread -- narrowing the window with re-checks (rounds 10-11) never fully closed it, since a
-    // callback could still land in between a check and the following assignment. Holding this lock
+    // thread -- re-checking after the fact only narrows the window, since a callback can still land
+    // between a check and the following assignment. Holding this lock
     // across both sides' check+set/check+clear makes one side's critical section strictly precede or
     // follow the other's, never interleave with it.
     private val pauseLock = Any()
