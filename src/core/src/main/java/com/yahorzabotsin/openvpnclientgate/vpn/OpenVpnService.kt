@@ -1675,8 +1675,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (!(isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS)) {
                 logEngineStateChange("VPN_STATUS", level, state)
             }
-            // AIDL owns the state update here, but a PAUSED/terminal level still settles the watch.
-            settlePauseOnVpnStatusLevel(level)
+            // AIDL normally owns the state update here, but a PAUSED/terminal level settles the pause
+            // watch, so the state is applied too while a pause is pending: otherwise a stalled AIDL
+            // push would leave the app in PAUSING with nothing left to recover it. The update is the
+            // same transition AIDL delivers later, so it is idempotent.
+            settlePauseOnVpnStatusLevel(level) {
+                if (ConnectionStateManager.state.value == ConnectionState.PAUSING &&
+                    (level == ConnectionStatus.LEVEL_VPNPAUSED || level in STOP_TERMINAL_LEVELS)) {
+                    ConnectionStateManager.updateFromEngine(level, state)
+                }
+            }
             if (shouldSupplementAidlWithVpnStatus(level)) {
                 syncEngineState(level, state, allowAutoSwitch = false)
             }

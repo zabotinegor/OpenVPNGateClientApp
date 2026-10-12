@@ -555,4 +555,28 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // The fallback PAUSED that settles the pause watch while AIDL is fresh must also apply the
+    // state while a pause is pending; otherwise a stalled AIDL push leaves the app in PAUSING.
+    @Test
+    fun pauseAction_vpnStatusPausedWhileAidlFresh_appliesPausedState() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
+
+        service.updateState("USERPAUSE", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }
