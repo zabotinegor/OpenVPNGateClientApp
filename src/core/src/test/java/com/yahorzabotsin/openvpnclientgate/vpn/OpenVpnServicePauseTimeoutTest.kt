@@ -506,4 +506,28 @@ class OpenVpnServicePauseTimeoutTest {
             .any { it.action == "de.blinkt.openvpn.PAUSE_VPN" }
         assertFalse("PAUSE_VPN must not be resent after PAUSED was confirmed", resent)
     }
+
+    // While the AIDL push is still fresh, updateState() skips the VpnStatus path, but a PAUSED
+    // reported through VpnStatus must still settle an in-flight pause: if AIDL then stalls before
+    // delivering the same transition, the 5s retry would resend PAUSE_VPN after pause was confirmed.
+    @Test
+    fun pauseAction_vpnStatusPausedWhileAidlFresh_cancelsRetry() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        val shadowService = Shadows.shadowOf(service)
+        while (shadowService.nextStartedService != null) { /* drain initial dispatch */ }
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
+
+        service.updateState("USERPAUSE", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
 }

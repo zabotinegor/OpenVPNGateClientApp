@@ -1225,13 +1225,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // cross-thread hazard as the AIDL path applies: guarded by the same pauseLock as ACTION_PAUSE's
     // arming and syncEngineState()'s terminal cleanup. A terminal level abandons an in-flight pause
     // (nothing is left to confirm), and PAUSED confirms it.
-    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus) {
+    // applyState runs inside the same critical section, after the flag clear, so the state
+    // transition a terminal level causes can never land between ACTION_PAUSE's state check and its
+    // send (the AIDL path in syncEngineState() orders the clear and updateFromEngine the same way).
+    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus, applyState: () -> Unit = {}) {
         val settle = synchronized(pauseLock) {
             val terminal = level in STOP_TERMINAL_LEVELS && pauseActionInFlight
-            if (terminal || level == ConnectionStatus.LEVEL_VPNPAUSED) {
-                pauseActionInFlight = false
-                true
-            } else false
+            val settled = terminal || level == ConnectionStatus.LEVEL_VPNPAUSED
+            if (settled) pauseActionInFlight = false
+            applyState()
+            settled
         }
         if (settle) statusHandler.post { clearPauseWatchIfIdle() }
     }
@@ -1664,10 +1667,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     ) {
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
-            // Not recorded via logEngineStateChange() here: shouldSupplementAidlWithVpnStatus()
-            // already requires state==CONNECTING (never PAUSING), so this branch cannot forward a
-            // connecting-family level while a pause is in flight -- there is no stale-callback
-            // bookkeeping to avoid in this branch the way there is below.
+            // A stale connecting-family level rejected by the pause guard must not become the latest
+            // observation (see syncEngineState()); everything else is kept as fallback evidence in
+            // case AIDL stalls before delivering the same transition.
+            if (!(isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS)) {
+                logEngineStateChange("VPN_STATUS", level, state)
+            }
+            // AIDL owns the state update here, but a PAUSED/terminal level still settles the watch.
+            settlePauseOnVpnStatusLevel(level)
             if (shouldSupplementAidlWithVpnStatus(level)) {
                 syncEngineState(level, state, allowAutoSwitch = false)
             }
@@ -1698,11 +1705,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // syncEngineState(): a callback ignored as stale must not become the "latest observed
         // engine level" that pause-timeout reconciliation reads via getLatestObservedEngineState().
         logEngineStateChange("VPN_STATUS", level, state)
-        ConnectionStateManager.updateFromEngine(level, state)
-        handleEngineLevelForStop(level, "VPN_STATUS")
         // Before the suppression return: a controller recreated around an already-running VPN keeps
         // suppressEngineState set until it handles ACTION_START, and must still settle a pause here.
-        settlePauseOnVpnStatusLevel(level)
+        settlePauseOnVpnStatusLevel(level) { ConnectionStateManager.updateFromEngine(level, state) }
+        handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
