@@ -1221,14 +1221,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         pauseRetrySent = false
     }
 
+    // For clears posted from another thread: a new ACTION_PAUSE may have re-armed between the
+    // flag clear and this posted run, and cancelling its timeout/retry here would leave the new
+    // pause with no watchdog and the flag stuck true.
+    private fun clearPauseWatchIfIdle() {
+        synchronized(pauseLock) {
+            if (!pauseActionInFlight) clearPauseWatch()
+        }
+    }
+
     // Safety net for a PAUSE_VPN intent that never reached the engine (rather than one that's
     // legitimately still tearing down): re-sending is a no-op except for restarting the teardown,
     // since DeviceStateReceiver.userPause(true) and the SIGUSR1 it triggers are idempotent.
     private val pauseActionRetryRunnable = Runnable {
         // Runs on the main thread via statusHandler, but pauseActionInFlight can be cleared
         // concurrently from the AIDL binder thread -- the check-and-claim is done under pauseLock,
-        // the same lock every other pauseActionInFlight read/write site uses, so this can never act
-        // on a value a concurrent clear is simultaneously invalidating.
+        // the same lock the cross-thread check-and-act sites use, so this can never act on a value a
+        // concurrent clear is simultaneously invalidating.
         val shouldRetry = synchronized(pauseLock) {
             if (!pauseActionInFlight || pauseRetrySent) {
                 false
@@ -1739,13 +1748,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 synchronized(pauseLock) {
                     if (pauseActionInFlight) {
                         pauseActionInFlight = false
-                        statusHandler.post { clearPauseWatch() }
+                        statusHandler.post { clearPauseWatchIfIdle() }
                     }
                 }
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
                 synchronized(pauseLock) { pauseActionInFlight = false }
-                statusHandler.post { clearPauseWatch() }
+                statusHandler.post { clearPauseWatchIfIdle() }
                 AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
@@ -1796,10 +1805,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     tryRestoreTrafficSnapshot()
                 } else if (level == ConnectionStatus.LEVEL_VPNPAUSED) {
                     // updateStateString() runs on an AIDL binder thread; guarded by pauseLock along
-                    // with ACTION_PAUSE's arming and every other pauseActionInFlight write, so this
-                    // clear can never interleave with a concurrent arm/re-arm.
+                    // with ACTION_PAUSE's arming and the other cross-thread pauseActionInFlight
+                    // clears, so this clear can never interleave with a concurrent arm/re-arm.
                     synchronized(pauseLock) { pauseActionInFlight = false }
-                    statusHandler.post { clearPauseWatch() }
+                    statusHandler.post { clearPauseWatchIfIdle() }
                 }
             } catch (t: Throwable) {
                 AppLog.w(TAG, "Failed to sync state from status service: level=$level state=$state", t)
@@ -2522,7 +2531,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         synchronized(pauseLock) {
             if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
                 pauseActionInFlight = false
-                statusHandler.post { clearPauseWatch() }
+                statusHandler.post { clearPauseWatchIfIdle() }
             }
             ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
         }

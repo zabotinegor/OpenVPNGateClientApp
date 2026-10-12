@@ -318,9 +318,6 @@ class OpenVpnServicePauseTimeoutTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
-        // updateStateString()'s LEVEL_VPNPAUSED handling is posted to statusHandler (serialized
-        // against the main-thread pause retry/timeout runnables), so pump the looper first.
-        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         val pauseActionInFlight = ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight")
         assertEquals(false, pauseActionInFlight)
@@ -413,6 +410,9 @@ class OpenVpnServicePauseTimeoutTest {
         }
         service.onStartCommand(pauseIntent, 0, 1)
         assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        // Discard the initial PAUSE_VPN dispatch so only a later resend can show up below.
+        val shadowService = Shadows.shadowOf(service)
+        while (shadowService.nextStartedService != null) { /* drain */ }
 
         val callbacks = ReflectionHelpers.getField<Any>(service, "statusCallbacks")
         ReflectionHelpers.callInstanceMethod<Any>(
@@ -424,18 +424,19 @@ class OpenVpnServicePauseTimeoutTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NOTCONNECTED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
-        // The terminal-level clear in syncEngineState() is posted to statusHandler (serialized
-        // against the main-thread pause retry/timeout runnables), so pump the looper first.
-        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
-
+        // The flag is cleared under pauseLock right away -- asserted before any looper pump, because
+        // pumping delayed tasks would also fire the 10s timeout, which clears the flag on its own and
+        // would mask a missing terminal-level clear.
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
 
-        // Advance past both the retry window and the final timeout: neither should do anything --
-        // pauseActionInFlight is already false, so both runnables must no-op.
+        // Advance past both the retry window and the final timeout: with the pause abandoned, no
+        // PAUSE_VPN resend may be dispatched.
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10_100L))
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseRetrySent"))
-        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        val resent = generateSequence { shadowService.nextStartedService }
+            .any { it.action == "de.blinkt.openvpn.PAUSE_VPN" }
+        assertFalse("PAUSE_VPN must not be resent after a terminal level", resent)
     }
 
     // The traffic-poll snapshot path (applyStatusSnapshot()) used to call logEngineStateChange()

@@ -13,7 +13,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
@@ -233,9 +232,6 @@ class OpenVpnServicePauseLifecycleTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
-        // updateStateString()'s LEVEL_VPNPAUSED handling is posted to statusHandler (serialized
-        // against the main-thread pause retry/timeout runnables), so pump the looper before asserting.
-        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
@@ -306,7 +302,6 @@ class OpenVpnServicePauseLifecycleTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
-        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
@@ -369,7 +364,6 @@ class OpenVpnServicePauseLifecycleTest {
             ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_VPNPAUSED),
             ReflectionHelpers.ClassParameter.from(Intent::class.java, null)
         )
-        ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
