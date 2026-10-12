@@ -196,26 +196,52 @@ object SelectedCountryStore {
             val selectedCountry = getSelectedCountry(ctx)
             if (selectedCountry != country) return
 
-            val previousCurrent = currentServer(ctx)
-            val previousCount = getServers(ctx).size
+            val previousList = getServers(ctx)
+            val previousCount = previousList.size
+            val previousIndex = getIndex(ctx)
+            val previousCurrent = previousList.getOrNull(previousIndex)
 
-            saveSelection(ctx, country, servers, expectedCountry = country)
+            if (!saveSelection(ctx, country, servers, expectedCountry = country)) return
 
-            if (previousCurrent != null) {
-                ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)
-            }
+            // Re-point the persisted index by server IDENTITY, not by config/ip: the same IP may
+            // appear on several entries and a refresh can add/remove/reorder entries, so a
+            // position (or an indexOfFirst on ip) would silently land on a different server.
+            val currentRestored = previousCurrent != null &&
+                restoreIndexByIdentity(ctx, previousList, previousIndex)
 
             val newCount = getServers(ctx).size
-            val restoredCurrent = currentServer(ctx)
-            val currentRestored = previousCurrent != null && restoredCurrent != null &&
-                restoredCurrent.config == previousCurrent.config &&
-                restoredCurrent.ip == previousCurrent.ip
             AppLog.i(
                 TAG,
                 "saveSelectionPreservingIndex: country=$country, count=$previousCount->$newCount, current_restored=$currentRestored"
             )
             SelectedCountryVersionSignal.bump()
         }
+    }
+
+    /**
+     * Points the freshly written list's index at the server that was current in [previousList] at
+     * [previousIndex], matching by [ServerIdentity]. When that server no longer exists, the index is
+     * parked on the PREDECESSOR (in the old order) of the first surviving successor, so a circular
+     * scan that starts after the index resumes exactly at that successor: no survivor is skipped and
+     * none is revisited. Returns whether the very same server was found.
+     */
+    private fun restoreIndexByIdentity(ctx: Context, previousList: List<StoredServer>, previousIndex: Int): Boolean {
+        val newKeys = ServerIdentity.keys(getServers(ctx))
+        if (newKeys.isEmpty() || previousIndex !in previousList.indices) return false
+        val previousKeys = ServerIdentity.keys(previousList)
+        val sameServer = newKeys.indexOf(previousKeys[previousIndex])
+        if (sameServer >= 0) {
+            setIndex(ctx, sameServer)
+            return true
+        }
+        for (step in 1 until previousList.size) {
+            val survivor = newKeys.indexOf(previousKeys[(previousIndex + step) % previousList.size])
+            if (survivor >= 0) {
+                setIndex(ctx, (survivor - 1 + newKeys.size) % newKeys.size)
+                return false
+            }
+        }
+        return false
     }
 
     fun getSelectedCountry(ctx: Context): String? = prefs(ctx).getString(KEY_COUNTRY, null)
@@ -341,17 +367,51 @@ object SelectedCountryStore {
         } else null
     }
 
-    fun nextServerCircular(ctx: Context, startIndex: Int?): StoredServer? =
+    /** Identity keys ([ServerIdentity]) of the persisted list, in list order. */
+    fun currentServerKeys(ctx: Context): List<String> = synchronized(selectionRenameLock) {
+        ServerIdentity.keys(getServers(ctx))
+    }
+
+    /** Identity key of the persisted current server, or null when the index is out of range. */
+    fun currentServerKey(ctx: Context): String? = synchronized(selectionRenameLock) {
+        val list = getServers(ctx)
+        val idx = getIndex(ctx)
+        if (idx in list.indices) ServerIdentity.keys(list)[idx] else null
+    }
+
+    /**
+     * Next auto-switch candidate: scanning circularly from the persisted current index, the first
+     * server whose identity key is not in [visited]. Persists the index of the returned candidate
+     * (so the UI counter follows the connection target) and returns null when every server in the
+     * list has already been attempted -- i.e. the cycle is exhausted.
+     *
+     * Tracking attempts by identity rather than by position means a refresh that adds, removes or
+     * reorders servers mid-cycle can neither get an already-attempted server retried nor make the
+     * wrap look complete too early.
+     */
+    fun nextUnvisitedServer(ctx: Context, visited: Set<String>): CycleCandidate? =
         synchronized(selectionRenameLock) {
             val list = getServers(ctx)
             if (list.isEmpty()) return null
-            val current = getIndex(ctx).let { if (it in list.indices) it else 0 }
-            val start = startIndex?.takeIf { it in list.indices } ?: current
-            val next = (current + 1) % list.size
-            if (next == start) return null
-            setIndex(ctx, next)
-            return list[next]
+            val keys = ServerIdentity.keys(list)
+            val idx = getIndex(ctx)
+            // An out-of-range index (e.g. -1 from prepareAutoSwitchFromStart) scans from position 0.
+            val origin = if (idx in list.indices) idx else -1
+            for (step in 1..list.size) {
+                val i = Math.floorMod(origin + step, list.size)
+                if (keys[i] !in visited) {
+                    setIndex(ctx, i)
+                    return CycleCandidate(list[i], keys[i], i)
+                }
+            }
+            null
         }
+
+    /** Points the persisted index at the server with identity [key]; false when it is gone. */
+    fun setCurrentIndexByKey(ctx: Context, key: String): Boolean = synchronized(selectionRenameLock) {
+        val i = ServerIdentity.keys(getServers(ctx)).indexOf(key)
+        if (i < 0) false else { setIndex(ctx, i); true }
+    }
 
     private fun resolveIpForConfig(ctx: Context, config: String?): String? {
         if (config.isNullOrBlank()) return null

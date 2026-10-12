@@ -1425,7 +1425,7 @@ class ServerAutoSwitcherTest {
         assertTrue(
             "precondition: the timed switch that led here must have set cycleStartIndex (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1450,7 +1450,7 @@ class ServerAutoSwitcherTest {
             "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
                 "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 
@@ -1476,7 +1476,7 @@ class ServerAutoSwitcherTest {
         assertTrue(
             "precondition: the timed switch that led here must have set cycleStartIndex (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1501,7 +1501,7 @@ class ServerAutoSwitcherTest {
             "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
                 "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 

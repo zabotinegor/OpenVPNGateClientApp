@@ -881,7 +881,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 //
                 // Deliberately the narrow detach, not cancelForUserStop(): see
                 // detachStopDispatchForPendingStart()'s KDoc for why resetting the switch cycle here
-                // would regress nextServerCircular's wrap detection on every auto-switch retry
+                // would regress the auto-switch cycle's wrap detection on every auto-switch retry
                 // commit (which reaches ACTION_START through ServerAutoSwitcher.starter).
                 // onStartCommand() runs on the main looper, matching ServerAutoSwitcher's
                 // single-main-looper-caller invariant, as do all of this custody's resolution sites.
@@ -922,7 +922,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
-                val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
+                // A reconnect starts the candidate ServerAutoSwitcher just persisted as current, so
+                // its own entry is authoritative; a config lookup could resolve a duplicate entry.
+                val reconnectCurrentIp = if (isReconnect) {
+                    runCatching { SelectedCountryStore.currentServer(applicationContext) }.getOrNull()
+                        ?.takeIf { it.config == config }?.ip
+                } else null
+                val targetIp = reconnectCurrentIp
+                    ?: runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 // Auto-switch already selected the intended candidate before ACTION_START.
                 // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
