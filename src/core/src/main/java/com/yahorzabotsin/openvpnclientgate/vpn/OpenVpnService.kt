@@ -1228,10 +1228,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // applyState runs inside the same critical section, after the flag clear, so the state
     // transition a terminal level causes can never land between ACTION_PAUSE's state check and its
     // send (the AIDL path in syncEngineState() orders the clear and updateFromEngine the same way).
-    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus, applyState: () -> Unit = {}) {
+    // Decided on the normalized level (the one updateFromEngine() actually applies): a raw terminal
+    // level whose detail says CONNECTED normalizes to CONNECTED, which PAUSING cannot transition to,
+    // so settling on the raw level would cancel the watchdog and leave PAUSING with no recovery.
+    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus, detail: String?, applyState: () -> Unit = {}) {
+        val effective = ConnectionStateManager.normalizeEngineLevel(level, detail)
         val settle = synchronized(pauseLock) {
-            val terminal = level in STOP_TERMINAL_LEVELS && pauseActionInFlight
-            val settled = terminal || level == ConnectionStatus.LEVEL_VPNPAUSED
+            val terminal = effective in STOP_TERMINAL_LEVELS && pauseActionInFlight
+            val settled = terminal || effective == ConnectionStatus.LEVEL_VPNPAUSED
             if (settled) pauseActionInFlight = false
             applyState()
             settled
@@ -1679,9 +1683,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // watch, so the state is applied too while a pause is pending: otherwise a stalled AIDL
             // push would leave the app in PAUSING with nothing left to recover it. The update is the
             // same transition AIDL delivers later, so it is idempotent.
-            settlePauseOnVpnStatusLevel(level) {
+            val effectiveLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
+            settlePauseOnVpnStatusLevel(level, state) {
                 if (ConnectionStateManager.state.value == ConnectionState.PAUSING &&
-                    (level == ConnectionStatus.LEVEL_VPNPAUSED || level in STOP_TERMINAL_LEVELS)) {
+                    (effectiveLevel == ConnectionStatus.LEVEL_VPNPAUSED || effectiveLevel in STOP_TERMINAL_LEVELS)) {
                     ConnectionStateManager.updateFromEngine(level, state)
                 }
             }
@@ -1717,7 +1722,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         logEngineStateChange("VPN_STATUS", level, state)
         // Before the suppression return: a controller recreated around an already-running VPN keeps
         // suppressEngineState set until it handles ACTION_START, and must still settle a pause here.
-        settlePauseOnVpnStatusLevel(level) { ConnectionStateManager.updateFromEngine(level, state) }
+        settlePauseOnVpnStatusLevel(level, state) { ConnectionStateManager.updateFromEngine(level, state) }
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 
@@ -1824,7 +1829,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     statusHandler.removeCallbacks(resumeActionTimeoutRunnable)
                     persistLastSuccessfulConfig()
                     tryRestoreTrafficSnapshot()
-                } else if (level == ConnectionStatus.LEVEL_VPNPAUSED) {
+                } else if (ConnectionStateManager.normalizeEngineLevel(level, state) == ConnectionStatus.LEVEL_VPNPAUSED) {
                     // updateStateString() runs on an AIDL binder thread; guarded by pauseLock along
                     // with ACTION_PAUSE's arming and the other cross-thread pauseActionInFlight
                     // clears, so this clear can never interleave with a concurrent arm/re-arm.
@@ -2550,7 +2555,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // arm racing this terminal transition is always fully ordered before or after it, never
         // interleaved, and pauseActionInFlight can never be read stale by either side.
         synchronized(pauseLock) {
-            if (pauseActionInFlight && level in STOP_TERMINAL_LEVELS) {
+            if (pauseActionInFlight && normalizedLevel in STOP_TERMINAL_LEVELS) {
                 pauseActionInFlight = false
                 statusHandler.post { clearPauseWatchIfIdle() }
             }

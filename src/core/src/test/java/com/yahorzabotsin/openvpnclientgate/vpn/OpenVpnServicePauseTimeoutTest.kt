@@ -579,4 +579,25 @@ class OpenVpnServicePauseTimeoutTest {
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
         assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
     }
+
+    // A raw terminal level whose detail says CONNECTED normalizes to LEVEL_CONNECTED, which PAUSING
+    // cannot transition to. Settling the pause on the raw level would cancel the watchdog and leave
+    // the app in PAUSING with nothing to recover it; the pause must stay armed instead.
+    @Test
+    fun pauseAction_terminalLevelNormalizedToConnected_keepsWatchdogArmed() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+
+        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
 }
