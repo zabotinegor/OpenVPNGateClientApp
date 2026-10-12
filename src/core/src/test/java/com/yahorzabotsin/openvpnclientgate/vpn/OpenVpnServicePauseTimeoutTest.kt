@@ -478,4 +478,32 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
+
+    // A controller recreated around an already-running VPN keeps suppressEngineState set until it
+    // handles ACTION_START. The VpnStatus fallback must still settle an in-flight pause on PAUSED,
+    // otherwise the 5s retry resends PAUSE_VPN after the pause was already confirmed.
+    @Test
+    fun pauseAction_vpnStatusPausedWhileEngineStateSuppressed_cancelsRetry() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        val shadowService = Shadows.shadowOf(service)
+        while (shadowService.nextStartedService != null) { /* drain initial dispatch */ }
+        ReflectionHelpers.setField(service, "suppressEngineState", true)
+
+        service.updateState("USERPAUSE", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10_100L))
+
+        val resent = generateSequence { shadowService.nextStartedService }
+            .any { it.action == "de.blinkt.openvpn.PAUSE_VPN" }
+        assertFalse("PAUSE_VPN must not be resent after PAUSED was confirmed", resent)
+    }
 }

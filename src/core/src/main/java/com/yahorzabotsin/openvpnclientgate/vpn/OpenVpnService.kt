@@ -1221,6 +1221,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         pauseRetrySent = false
     }
 
+    // VpnStatus.StateListener.updateState() is called synchronously by the engine's
+    // VpnStatus.updateStateString() on whatever thread invoked it (not necessarily main), so the same
+    // cross-thread hazard as the AIDL path applies: guarded by the same pauseLock as ACTION_PAUSE's
+    // arming and syncEngineState()'s terminal cleanup. A terminal level abandons an in-flight pause
+    // (nothing is left to confirm), and PAUSED confirms it.
+    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus) {
+        val settle = synchronized(pauseLock) {
+            val terminal = level in STOP_TERMINAL_LEVELS && pauseActionInFlight
+            if (terminal || level == ConnectionStatus.LEVEL_VPNPAUSED) {
+                pauseActionInFlight = false
+                true
+            } else false
+        }
+        if (settle) statusHandler.post { clearPauseWatchIfIdle() }
+    }
+
     // For clears posted from another thread: a new ACTION_PAUSE may have re-armed between the
     // flag clear and this posted run, and cancelling its timeout/retry here would leave the new
     // pause with no watchdog and the flag stuck true.
@@ -1237,23 +1253,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // Runs on the main thread via statusHandler, but pauseActionInFlight can be cleared
         // concurrently from the AIDL binder thread -- the check-and-claim is done under pauseLock,
         // the same lock the cross-thread check-and-act sites use, so this can never act on a value a
-        // concurrent clear is simultaneously invalidating.
-        val shouldRetry = synchronized(pauseLock) {
-            if (!pauseActionInFlight || pauseRetrySent) {
-                false
-            } else {
-                pauseRetrySent = true
-                true
+        // concurrent clear is simultaneously invalidating. The dispatch stays inside the lock too:
+        // claiming under the lock and sending after releasing it would let a terminal clear land in
+        // between and still deliver PAUSE_VPN to a session that already ended. startService() only
+        // enqueues the intent, so holding the lock across it is brief.
+        synchronized(pauseLock) {
+            if (!pauseActionInFlight || pauseRetrySent) return@Runnable
+            pauseRetrySent = true
+            AppLog.d(TAG, "Pause not yet confirmed after ${PAUSE_RETRY_AT_MS}ms; re-sending PAUSE_VPN to engine")
+            try {
+                startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
+                    setAction(ENGINE_ACTION_PAUSE_VPN)
+                })
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to resend PAUSE_VPN to engine", e)
             }
-        }
-        if (!shouldRetry) return@Runnable
-        AppLog.d(TAG, "Pause not yet confirmed after ${PAUSE_RETRY_AT_MS}ms; re-sending PAUSE_VPN to engine")
-        try {
-            startService(Intent(this, de.blinkt.openvpn.core.OpenVPNService::class.java).apply {
-                setAction(ENGINE_ACTION_PAUSE_VPN)
-            })
-        } catch (e: Exception) {
-            AppLog.w(TAG, "Failed to resend PAUSE_VPN to engine", e)
         }
     }
 
@@ -1687,6 +1701,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         logEngineStateChange("VPN_STATUS", level, state)
         ConnectionStateManager.updateFromEngine(level, state)
         handleEngineLevelForStop(level, "VPN_STATUS")
+        // Before the suppression return: a controller recreated around an already-running VPN keeps
+        // suppressEngineState set until it handles ACTION_START, and must still settle a pause here.
+        settlePauseOnVpnStatusLevel(level)
         if (suppressEngineState) return
 
         if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
@@ -1741,20 +1758,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // A terminal/failure level abandons any in-flight pause -- there's no session left
                 // to confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would
                 // resend PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect)
-                // has started by then. VpnStatus.StateListener.updateState() is called synchronously
-                // by the engine's VpnStatus.updateStateString() on whatever thread invoked it (not
-                // necessarily main), same cross-thread hazard as the AIDL path -- guarded by the same
-                // pauseLock as ACTION_PAUSE's arming and syncEngineState()'s terminal cleanup.
-                synchronized(pauseLock) {
-                    if (pauseActionInFlight) {
-                        pauseActionInFlight = false
-                        statusHandler.post { clearPauseWatchIfIdle() }
-                    }
-                }
+                // has started by then. Handled by settlePauseOnVpnStatusLevel(), called earlier.
             }
             ConnectionStatus.LEVEL_VPNPAUSED -> {
-                synchronized(pauseLock) { pauseActionInFlight = false }
-                statusHandler.post { clearPauseWatchIfIdle() }
                 AppLog.d(TAG, "Engine reported PAUSED, pause action complete")
             }
             ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
