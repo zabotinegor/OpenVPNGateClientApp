@@ -704,4 +704,29 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
     }
+
+    // While AIDL is fresh it stays authoritative for terminal levels: a lagging VpnStatus terminal
+    // callback must neither abandon the pause nor drive DISCONNECTED mid-teardown; the pause timeout
+    // stays armed as the backstop.
+    @Test
+    fun pauseAction_vpnStatusTerminalWhileAidlFresh_isDeferredToAidl() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
+
+        service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+    }
 }

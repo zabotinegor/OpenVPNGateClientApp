@@ -1231,10 +1231,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Decided on the normalized level (the one updateFromEngine() actually applies): a raw terminal
     // level whose detail says CONNECTED normalizes to CONNECTED, which PAUSING cannot transition to,
     // so settling on the raw level would cancel the watchdog and leave PAUSING with no recovery.
-    private fun settlePauseOnVpnStatusLevel(level: ConnectionStatus, detail: String?, applyState: () -> Unit = {}) {
+    private fun settlePauseOnVpnStatusLevel(
+        level: ConnectionStatus,
+        detail: String?,
+        settleTerminal: Boolean = true,
+        applyState: () -> Unit = {}
+    ) {
         val effective = ConnectionStateManager.normalizeEngineLevel(level, detail)
         val settle = synchronized(pauseLock) {
-            val terminal = effective in STOP_TERMINAL_LEVELS && pauseActionInFlight
+            val terminal = settleTerminal && effective in STOP_TERMINAL_LEVELS && pauseActionInFlight
             val settled = terminal || effective == ConnectionStatus.LEVEL_VPNPAUSED
             if (settled) pauseActionInFlight = false
             applyState()
@@ -1694,9 +1699,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // push would leave the app in PAUSING with nothing left to recover it. The update is the
             // same transition AIDL delivers later, so it is idempotent.
             val effectiveLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
-            settlePauseOnVpnStatusLevel(level, state) {
+            // Only PAUSED is accepted as the fallback confirmation here. A terminal fallback level is
+            // deferred to AIDL: the authoritative stream may still be tearing the pause down, and
+            // abandoning it on a lagging VpnStatus callback would flicker the state. The pause timeout
+            // stays armed as the backstop if AIDL never reports it.
+            settlePauseOnVpnStatusLevel(level, state, settleTerminal = false) {
                 if (ConnectionStateManager.state.value == ConnectionState.PAUSING &&
-                    (effectiveLevel == ConnectionStatus.LEVEL_VPNPAUSED || effectiveLevel in STOP_TERMINAL_LEVELS)) {
+                    effectiveLevel == ConnectionStatus.LEVEL_VPNPAUSED) {
                     ConnectionStateManager.updateFromEngine(level, state)
                 }
             }
