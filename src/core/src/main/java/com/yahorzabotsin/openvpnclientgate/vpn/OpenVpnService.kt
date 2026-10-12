@@ -2568,7 +2568,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // arm racing this terminal transition is always fully ordered before or after it, never
         // interleaved, and pauseActionInFlight can never be read stale by either side.
         synchronized(pauseLock) {
-            if (pauseActionInFlight && normalizedLevel in STOP_TERMINAL_LEVELS) {
+            // PAUSED settles the watch here too: the polled-snapshot path reaches this function without
+            // the AIDL callback's own PAUSED handling, and would otherwise leave the retry and timeout
+            // armed after the pause was already confirmed.
+            if (pauseActionInFlight &&
+                (normalizedLevel in STOP_TERMINAL_LEVELS || normalizedLevel == ConnectionStatus.LEVEL_VPNPAUSED)) {
                 pauseActionInFlight = false
                 statusHandler.post { clearPauseWatchIfIdle() }
             }

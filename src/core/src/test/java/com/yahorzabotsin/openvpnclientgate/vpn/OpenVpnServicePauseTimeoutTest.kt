@@ -671,4 +671,37 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertEquals(ConnectionStatus.LEVEL_VPNPAUSED, ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAidlLevel"))
     }
+
+    // A PAUSED seen only through a polled status snapshot (the live AIDL callback was missed) must
+    // settle the pause watch like the callback paths do, otherwise the 5s retry resends PAUSE_VPN
+    // after the pause was already confirmed.
+    @Test
+    fun pauseAction_polledPausedSnapshot_settlesPauseWatch() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        assertTrue(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+
+        val snapshot = StatusSnapshot(
+            "USERPAUSE",
+            null,
+            0,
+            ConnectionStatus.LEVEL_VPNPAUSED,
+            System.currentTimeMillis(),
+            0L
+        )
+        ReflectionHelpers.callInstanceMethod<Any>(
+            service,
+            "applyStatusSnapshot",
+            ClassParameter.from(StatusSnapshot::class.java, snapshot)
+        )
+
+        assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+    }
 }
