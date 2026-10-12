@@ -146,9 +146,8 @@ class OpenVpnServiceNotificationTest {
     // startUserStopTeardown() path).
     //
     // This drives the REAL dispatch end to end (VpnManager.stopVpn() -> the actual
-    // onStartCommand(ACTION_STOP) branch), not a fake stopper counter, and asserts both that the
-    // controller notification is cleared (exitControllerForeground() runs unconditionally at
-    // ACTION_STOP entry, before the preserve/non-preserve branch split) and that the app genuinely
+    // onStartCommand(ACTION_STOP) branch), not a fake stopper counter. The controller
+    // notification must remain until the engine stop is confirmed, and the app genuinely
     // enters DISCONNECTING -- proving a real engine-stop was requested, not merely a notification
     // cleanup masquerading as one. DISCONNECTING here is the correct, intentional outcome (not a
     // repeat of the sibling test's latch): OpenVpnService's startUserStopTeardown() arms
@@ -156,7 +155,7 @@ class OpenVpnServiceNotificationTest {
     // DISCONNECTED on a genuine NOTCONNECTED, or to the documented STOP_FAILED error state after
     // repeated engine silence -- never a silent permanent latch.
     @Test
-    fun stopRetryTimeoutBlankConfig_realStopVpnPath_clearsNotificationAndEntersDisconnecting() {
+    fun stopRetryTimeoutBlankConfig_realStopVpnPath_retainsNotificationAndEntersDisconnecting() {
         val app: Application = RuntimeEnvironment.getApplication()
         val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val shadowNotificationManager = shadowOf(notificationManager)
@@ -190,11 +189,9 @@ class OpenVpnServiceNotificationTest {
 
         service.onStartCommand(startedIntent, 0, 1)
 
-        assertTrue(
-            "The real ACTION_STOP path must clear the retained controller foreground notification " +
-                "-- exitControllerForeground() runs unconditionally at ACTION_STOP entry, so " +
-                "choosing the real teardown over idleNotificationStopper does not regress " +
-                "notification cleanup",
+        assertFalse(
+            "The real ACTION_STOP path must keep the controller notification until the engine " +
+                "has confirmed teardown; a failed management dispatch must not hide the live VPN",
             shadowNotificationManager.allNotifications.isEmpty()
         )
         assertEquals(
@@ -206,6 +203,51 @@ class OpenVpnServiceNotificationTest {
             ConnectionState.DISCONNECTING,
             ConnectionStateManager.state.value
         )
+    }
+
+    @Test
+    fun actionStop_managementUnavailable_keepsNotificationAfterStopFailure() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notifications = shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        simulateEnteredControllerForeground(service)
+
+        val stopIntent = Intent().apply {
+            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP)
+        }
+        service.onStartCommand(stopIntent, 0, 1)
+        assertFalse("Stop dispatch must not remove the last ongoing notification",
+            notifications.allNotifications.isEmpty())
+
+        // Simulate exhausting the failed management dispatch without claiming that
+        // Robolectric terminates an actual native VPN process.
+        val markFailure = OpenVpnService::class.java.getDeclaredMethod(
+            "markStopFailure", String::class.java
+        )
+        markFailure.isAccessible = true
+        markFailure.invoke(service, "dispatch_false")
+        assertFalse("STOP_FAILED must retain an ongoing notification",
+            notifications.allNotifications.isEmpty())
+    }
+
+    @Test
+    fun recreatedController_connectedEngineWithoutNotification_keepsSafetyNotification() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val notifications = shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        simulateEnteredControllerForeground(service)
+
+        // Simulate the AIDL status report from an old engine process. No engine
+        // notification exists, so the controller must not relinquish foreground.
+        val sync = OpenVpnService::class.java.getDeclaredMethod(
+            "syncEngineState", ConnectionStatus::class.java,
+            String::class.java, Boolean::class.javaPrimitiveType
+        )
+        sync.isAccessible = true
+        sync.invoke(service, ConnectionStatus.LEVEL_CONNECTED, "CONNECTED", false)
+
+        assertFalse("Live engine with missing engine notification needs controller fallback",
+            notifications.allNotifications.isEmpty())
     }
 
     // ServerAutoSwitcher.dispatchStopAfterStopRetryTimeout() must NOT publish DISCONNECTED itself
