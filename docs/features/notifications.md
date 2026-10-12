@@ -35,7 +35,11 @@ for the full root cause, the mitigation, and the recommended deterministic follo
 engine's own notifications land in a channel the app controls rather than a default one.
 
 The controller's ongoing notification uses id **`CONTROLLER_NOTIFICATION_ID = 7014`** and is posted
-via `startForeground()` as part of the connect path. `enterControllerForeground()` always
+via `startForeground()` as part of the connect path. When an existing engine session reports
+`LEVEL_CONNECTED`, the controller only relinquishes this notification if the engine has an
+active notification of its own. This protects controller-process recreation when the native
+tunnel survives but the engine notification is missing. A failed stop also retains or restores
+the controller notification until the engine confirms disconnection. `enterControllerForeground()` always
 (re)issues this call on a genuine `ACTION_START`, even if the service was already foreground-active
 from an earlier, unrelated promotion — repeated `startForeground()` calls are safe/idempotent, and
 skipping the reissue was the root cause of a foreground-service-start crash; see
