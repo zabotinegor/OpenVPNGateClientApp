@@ -1289,7 +1289,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
             statusHandler.removeCallbacks(pauseActionRetryRunnable)
             pauseRetrySent = false
-            val (level, detail) = getLatestObservedEngineState()
+            // Normalized like every other settle decision: a raw level whose detail says CONNECTED is
+            // applied as CONNECTED by updateFromEngine(), so reconciling on the raw level could be rejected
+            // (PAUSING cannot transition to CONNECTED) and leave PAUSING stuck.
+            val (rawLevel, detail) = getLatestObservedEngineState()
+            val level = rawLevel?.let { ConnectionStateManager.normalizeEngineLevel(it, detail) }
             AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
             if (ConnectionStateManager.state.value == ConnectionState.PAUSED) {
                 // The confirmation was applied after the flag was claimed; nothing to reconcile.
