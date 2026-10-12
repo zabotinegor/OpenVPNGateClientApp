@@ -487,6 +487,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun markStopFailure(reason: String) {
+        // A failed dispatch must not leave a potentially live tunnel invisible.
+        if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
+            enterControllerForeground()
+        }
         stopAwaitingConfirmation = false
         stopBindPending = false
         stopLastFailureReason = reason
@@ -1014,7 +1018,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
-                exitControllerForeground()
+                // Do not remove the last VPN notification before teardown is confirmed.
+                // The engine notification may have vanished while its native tunnel is still live.
+                if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
+                    enterControllerForeground()
+                }
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)
@@ -1487,6 +1495,24 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
             return false
+        }
+    }
+
+    private fun hasEngineOngoingNotification(): Boolean {
+        // Notification IDs belong to the engine process, but are visible to this
+        // process because both services run in the same Android application.
+        val engineIds = setOf(
+            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_BG_ID.hashCode(),
+            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode(),
+            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_USERREQ_ID.hashCode()
+        )
+        return try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.activeNotifications.any { it.id in engineIds }
+        } catch (e: Exception) {
+            // When visibility cannot be verified, keep the controller's safety notification.
+            AppLog.w(TAG, "Cannot verify engine notification ownership", e)
+            false
         }
     }
 
@@ -2299,20 +2325,33 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // `level`, not `normalizedLevel`: it reasons about what the engine literally reported, not
         // about the app's effective interpretation of it.
         val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, detail)
-        // LEVEL_NOTCONNECTED / LEVEL_NONETWORK: the engine is idle. Must NOT exit the FGS
-        // notification in two situations: (1) chained auto-switch (reconnectingHint=true), where
-        // the engine is intentionally stopped before the next server start -- dropping the
-        // notification reopens the AMS FGS-obligation race; and (2) a user-initiated rapid
-        // reconnect (userInitiatedStart=true), where a stale LEVEL_NOTCONNECTED from the previous
-        // session may still be in-flight while a fresh ACTION_START's notification is the safety
-        // net. ACTION_STOP and ACTION_SYNC_STATUS both call exitControllerForeground() explicitly,
-        // so those paths are unaffected by this guard.
+        // Never abandon notification ownership while an engine session may still be alive.
+        // After controller recreation, the engine process can report CONNECTED without having
+        // an active notification; likewise a stop may fail after its notification vanished.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
+        val engineNotificationActive = hasEngineOngoingNotification()
+        if ((level == ConnectionStatus.LEVEL_CONNECTED || userInitiatedStop)
+            && !controllerForegroundActive && !engineNotificationActive) {
+            val restoreNotification = {
+                if (!serviceDestroyed && !controllerForegroundActive
+                    && (userInitiatedStop || ConnectionStateManager.state.value == ConnectionState.CONNECTED)
+                    && !hasEngineOngoingNotification()) {
+                    enterControllerForeground()
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                restoreNotification()
+            } else {
+                statusHandler.post { restoreNotification() }
+            }
+        }
         if (controllerForegroundActive
             && level != ConnectionStatus.LEVEL_START
             && level != ConnectionStatus.UNKNOWN_LEVEL
-            && !reconnectPending) {
+            && !reconnectPending
+            && !userInitiatedStop
+            && (idleLevel || engineNotificationActive)) {
             exitControllerForeground()
         }
         // The only place userInitiatedStart gets cleared while the status service is fresh (the
