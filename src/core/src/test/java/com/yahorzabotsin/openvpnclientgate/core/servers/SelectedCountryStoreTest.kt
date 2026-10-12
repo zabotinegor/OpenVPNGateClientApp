@@ -127,6 +127,28 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun last_started_config_reconnect_keeps_selected_index_with_duplicate_ip() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2)
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        // ACTION_START has a decoded config while the stored configs are still encoded.
+        SelectedCountryStore.saveLastStartedConfig(
+            ctx, "CountryA", "decoded-config", ip = "1.1.1.1", alignIndex = false
+        )
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("encoded2", SelectedCountryStore.currentServer(ctx)?.config)
+        assertEquals("decoded-config", SelectedCountryStore.getLastStartedConfig(ctx)?.config)
+    }
+
+    @Test
     fun next_server_circular_stops_after_full_cycle() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()

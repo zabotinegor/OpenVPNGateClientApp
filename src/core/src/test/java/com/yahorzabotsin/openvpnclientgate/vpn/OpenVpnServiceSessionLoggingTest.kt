@@ -7,6 +7,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -34,7 +35,7 @@ class OpenVpnServiceSessionLoggingTest {
         ShadowLog.clear()
     }
 
-    private fun saveServers(count: Int) {
+    private fun saveServers(count: Int, sameIp: Boolean = false) {
         val list = (1..count).map { idx ->
             Server(
                 lineIndex = idx,
@@ -43,7 +44,7 @@ class OpenVpnServiceSessionLoggingTest {
                 country = Country("RU"),
                 ping = 0,
                 signalStrength = SignalStrength.STRONG,
-                ip = "0.0.0.$idx",
+                ip = if (sameIp) "0.0.0.1" else "0.0.0.$idx",
                 score = 0,
                 speed = 0,
                 numVpnSessions = 0,
@@ -90,6 +91,31 @@ class OpenVpnServiceSessionLoggingTest {
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=3") })
         assertTrue(logs.any { it.contains("Session attempt 2 (serversInCountry=3") })
+    }
+
+    @Test
+    fun reconnectStartKeepsSecondServerWhenConfigsDifferAndIpIsShared() {
+        saveServers(2, sameIp = true)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val intent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), true)
+            // The engine receives decoded config; the selected country stores another representation.
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+
+        service.onStartCommand(intent, 0, 1)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(appContext))
+        assertEquals("conf2", SelectedCountryStore.currentServer(appContext)?.config)
+        assertEquals("client\n", SelectedCountryStore.getLastStartedConfig(appContext)?.config)
+        assertTrue(
+            ShadowLog.getLogs().any {
+                it.tag == logTag && it.msg.contains("server=2/2, ip=0.0.0.1")
+            }
+        )
     }
 
     @Test

@@ -402,7 +402,9 @@ object SelectedCountryStore {
         return if (selected == country) ip else null
     }
 
-    fun saveLastStartedConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
+    fun saveLastStartedConfig(
+        ctx: Context, country: String?, config: String, ip: String? = null, alignIndex: Boolean = true
+    ) {
         if (config.isBlank()) return
         synchronized(selectionRenameLock) {
             val ipToStore = ip ?: resolveIpForConfig(ctx, config)
@@ -411,7 +413,9 @@ object SelectedCountryStore {
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
                 .apply()
-            ensureIndexForConfig(ctx, config, ipToStore)
+            if (alignIndex) {
+                ensureIndexForConfig(ctx, config, ipToStore)
+            }
         }
     }
 

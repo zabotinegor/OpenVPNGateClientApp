@@ -924,10 +924,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
                 val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
-                try {
-                    SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
-                } catch (e: Exception) {
-                    AppLog.w(TAG, "Failed to align server index with config being started", e)
+                // Auto-switch already selected the intended candidate before ACTION_START.
+                // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
+                if (!isReconnect) {
+                    try {
+                        SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
+                    } catch (e: Exception) {
+                        AppLog.w(TAG, "Failed to align server index with config being started", e)
+                    }
                 }
                 run {
                     val titleStr = title?.let { ": $it" } ?: ""
@@ -937,7 +941,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     AppLog.i(TAG, "Session attempt ${sessionAttempt} (serversInCountry=${totalServersStr()}, server=${positionStr}, ip=${ipStr ?: "<none>"})${titleStr}")
                 }
                 try {
-                    SelectedCountryStore.saveLastStartedConfig(applicationContext, title, config, targetIp)
+                    SelectedCountryStore.saveLastStartedConfig(
+                        applicationContext, title, config, targetIp, alignIndex = !isReconnect
+                    )
                 } catch (e: Exception) {
                     AppLog.w(TAG, "Failed to persist last started config", e)
                 }
