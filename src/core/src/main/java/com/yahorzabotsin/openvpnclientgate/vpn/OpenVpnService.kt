@@ -1316,16 +1316,22 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
                     }
                     else -> {
-                        // No engine level was ever observed, or it's one we can't confidently map to a
-                        // resumed/paused state. isPauseGuardActive() also treats ConnectionState.PAUSING
-                        // as pause-in-flight, so if the state is still stuck there once
-                        // pauseActionInFlight is cleared, the guard would stay active forever, discarding
-                        // every later transient CONNECTING callback. Only reconcile when state is really
-                        // still PAUSING -- otherwise (e.g. a level bookkeeping gap) some other path has
-                        // already moved it on and this would incorrectly stomp that. PAUSING ->
-                        // DISCONNECTED is an allowed transition.
+                        // A terminal engine level, or no usable level at all. isPauseGuardActive() also
+                        // treats ConnectionState.PAUSING as pause-in-flight, so leaving the state stuck
+                        // there once pauseActionInFlight is cleared would keep the guard active forever,
+                        // discarding every later transient CONNECTING callback. Only reconcile when the
+                        // state is really still PAUSING -- otherwise some other path has already moved it
+                        // on and this would incorrectly stomp that. A terminal level means the engine
+                        // reported the session gone; with no information at all the tunnel may still be
+                        // up (a pause can only start from CONNECTED), so restore that state through the
+                        // valid transition path rather than claiming a disconnection nobody confirmed.
                         if (ConnectionStateManager.state.value == ConnectionState.PAUSING) {
-                            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                            if (level in STOP_TERMINAL_LEVELS) {
+                                ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                            } else {
+                                ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                                ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                            }
                         }
                     }
                 }

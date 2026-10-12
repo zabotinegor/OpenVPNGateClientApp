@@ -623,4 +623,34 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertFalse(ConnectionStateManager.state.value == ConnectionState.PAUSING)
     }
+
+    // With no engine level ever observed the tunnel may still be up (a pause can only start from
+    // CONNECTED), so the timeout must restore CONNECTED instead of claiming a disconnection nobody
+    // confirmed -- which would drop the Stop control while the VPN stays active.
+    @Test
+    fun pauseActionTimeout_noEngineLevelObserved_restoresConnectedNotDisconnected() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ConnectionStateManager.beginPauseTransition()
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        // Fired directly with the level cleared: idling the looper would let the service's periodic
+        // status polling report a (legitimate) terminal level before the 10s mark and mask this case.
+        ReflectionHelpers.getField<kotlinx.coroutines.flow.MutableStateFlow<ConnectionStatus?>>(
+            ConnectionStateManager, "_engineLevel"
+        ).value = null
+        ReflectionHelpers.setField(service, "lastAidlLevel", null as ConnectionStatus?)
+        ReflectionHelpers.setField(service, "lastVpnStatusLevel", null as ConnectionStatus?)
+        ReflectionHelpers.setField(service, "lastAidlStateUpdateMs", 0L)
+        ReflectionHelpers.setField(service, "lastVpnStatusStateUpdateMs", 0L)
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        ReflectionHelpers.getField<Runnable>(service, "pauseActionTimeoutRunnable").run()
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
 }
