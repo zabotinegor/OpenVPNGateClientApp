@@ -1224,7 +1224,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // VpnStatus.updateStateString() on whatever thread invoked it (not necessarily main), so the same
     // cross-thread hazard as the AIDL path applies: guarded by the same pauseLock as ACTION_PAUSE's
     // arming and syncEngineState()'s terminal cleanup. A terminal level abandons an in-flight pause
-    // (nothing is left to confirm), and PAUSED confirms it.
+    // (nothing is left to confirm) unless settleTerminal is false, and PAUSED confirms it.
     // applyState runs inside the same critical section, after the flag clear, so the state
     // transition a terminal level causes can never land between ACTION_PAUSE's state check and its
     // send (the AIDL path in syncEngineState() orders the clear and updateFromEngine the same way).
@@ -1694,10 +1694,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (!(isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS)) {
                 logEngineStateChange("VPN_STATUS", level, state)
             }
-            // AIDL normally owns the state update here, but a PAUSED/terminal level settles the pause
-            // watch, so the state is applied too while a pause is pending: otherwise a stalled AIDL
-            // push would leave the app in PAUSING with nothing left to recover it. The update is the
-            // same transition AIDL delivers later, so it is idempotent.
+            // AIDL normally owns the state update here, but a PAUSED level settles the pause watch, so
+            // the state is applied too while a pause is pending: otherwise a stalled AIDL push would
+            // leave the app in PAUSING with nothing left to recover it. The update is the same
+            // transition AIDL delivers later, so it is idempotent.
             val effectiveLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
             // Only PAUSED is accepted as the fallback confirmation here. A terminal fallback level is
             // deferred to AIDL: the authoritative stream may still be tearing the pause down, and
