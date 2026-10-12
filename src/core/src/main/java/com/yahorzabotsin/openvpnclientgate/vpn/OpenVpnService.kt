@@ -1275,53 +1275,55 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private val pauseActionTimeoutRunnable = Runnable {
         if (userInitiatedStop) return@Runnable
-        // Same pauseLock-guarded check-and-claim as pauseActionRetryRunnable above.
-        val shouldTimeout = synchronized(pauseLock) {
-            if (!pauseActionInFlight) {
-                false
-            } else {
-                pauseActionInFlight = false
-                true
+        // The claim, the snapshot read and the state reconciliation all happen under pauseLock, the
+        // lock the AIDL/VpnStatus PAUSED and terminal handlers hold around their own state update.
+        // Claiming under the lock but reconciling after releasing it would let a late PAUSED land in
+        // between and then be overwritten by a stale CONNECTED snapshot.
+        synchronized(pauseLock) {
+            if (!pauseActionInFlight) return@Runnable
+            pauseActionInFlight = false
+            val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
+            statusHandler.removeCallbacks(pauseActionRetryRunnable)
+            pauseRetrySent = false
+            val (level, detail) = getLatestObservedEngineState()
+            AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
+            if (ConnectionStateManager.state.value == ConnectionState.PAUSED) {
+                // The confirmation was applied after the flag was claimed; nothing to reconcile.
+                return@Runnable
             }
-        }
-        if (!shouldTimeout) return@Runnable
-        val elapsedMs = System.currentTimeMillis() - pauseActionStartedMs
-        statusHandler.removeCallbacks(pauseActionRetryRunnable)
-        pauseRetrySent = false
-        val (level, detail) = getLatestObservedEngineState()
-        AppLog.w(TAG, "Pause action timeout after ${elapsedMs}ms: engine did not report PAUSED (lastLevel=${level ?: "<null>"})")
-        try {
-            when (level) {
-                ConnectionStatus.LEVEL_CONNECTED -> {
-                    // Restore connected state through valid transition path from PAUSING.
-                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-                    ConnectionStateManager.updateState(ConnectionState.CONNECTED)
-                }
-                ConnectionStatus.LEVEL_START,
-                ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
-                ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
-                ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
-                    ConnectionStateManager.updateState(ConnectionState.CONNECTING)
-                }
-                ConnectionStatus.LEVEL_VPNPAUSED -> {
-                    ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
-                }
-                else -> {
-                    // No engine level was ever observed, or it's one we can't confidently map to a
-                    // resumed/paused state. isPauseGuardActive() also treats ConnectionState.PAUSING
-                    // as pause-in-flight, so if the state is still stuck there once
-                    // pauseActionInFlight is cleared, the guard would stay active forever, discarding
-                    // every later transient CONNECTING callback. Only reconcile when state is really
-                    // still PAUSING -- otherwise (e.g. a level bookkeeping gap) some other path has
-                    // already moved it on and this would incorrectly stomp that. PAUSING ->
-                    // DISCONNECTED is an allowed transition.
-                    if (ConnectionStateManager.state.value == ConnectionState.PAUSING) {
-                        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+            try {
+                when (level) {
+                    ConnectionStatus.LEVEL_CONNECTED -> {
+                        // Restore connected state through valid transition path from PAUSING.
+                        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+                    }
+                    ConnectionStatus.LEVEL_START,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+                    ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
+                        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+                    }
+                    ConnectionStatus.LEVEL_VPNPAUSED -> {
+                        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, detail)
+                    }
+                    else -> {
+                        // No engine level was ever observed, or it's one we can't confidently map to a
+                        // resumed/paused state. isPauseGuardActive() also treats ConnectionState.PAUSING
+                        // as pause-in-flight, so if the state is still stuck there once
+                        // pauseActionInFlight is cleared, the guard would stay active forever, discarding
+                        // every later transient CONNECTING callback. Only reconcile when state is really
+                        // still PAUSING -- otherwise (e.g. a level bookkeeping gap) some other path has
+                        // already moved it on and this would incorrectly stomp that. PAUSING ->
+                        // DISCONNECTED is an allowed transition.
+                        if (ConnectionStateManager.state.value == ConnectionState.PAUSING) {
+                            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
             }
-        } catch (e: Exception) {
-            AppLog.w(TAG, "Failed to reconcile app state after pause timeout", e)
         }
     }
 

@@ -530,4 +530,29 @@ class OpenVpnServicePauseTimeoutTest {
         service.updateState("USERPAUSE", null, 0, ConnectionStatus.LEVEL_VPNPAUSED, null)
         assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
     }
+
+    // The timeout used to read its engine snapshot and apply it after releasing pauseLock, so a
+    // PAUSED confirmation applied between the claim and the reconcile was overwritten by a stale
+    // CONNECTED. When the state is already PAUSED at timeout time, nothing may be reconciled.
+    @Test
+    fun pauseActionTimeout_doesNotOverwritePausedConfirmedAfterClaim() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ReflectionHelpers.setField(service, "lastAidlLevel", ConnectionStatus.LEVEL_CONNECTED)
+        ReflectionHelpers.setField(service, "lastAidlStateUpdateMs", System.currentTimeMillis())
+
+        val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+        }
+        service.onStartCommand(pauseIntent, 0, 1)
+        // PAUSED applied to app state while the observed snapshot still says CONNECTED.
+        ConnectionStateManager.updateState(ConnectionState.PAUSING)
+        ConnectionStateManager.updateState(ConnectionState.PAUSED)
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10_100L))
+
+        assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+    }
 }
