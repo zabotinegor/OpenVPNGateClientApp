@@ -653,4 +653,22 @@ class OpenVpnServicePauseTimeoutTest {
 
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
     }
+
+    // syncEngineState() is also reached from the VpnStatus supplement path while AIDL is fresh. It
+    // must record that level under VPN_STATUS: writing it into the lastAidl* fields would overwrite
+    // the real last AIDL observation (here PAUSED) that the resume/pause timeouts roll back to.
+    @Test
+    fun supplementaryVpnStatusCallback_doesNotOverwriteLastAidlObservation() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
+        ReflectionHelpers.setField(service, "lastAidlLevel", ConnectionStatus.LEVEL_VPNPAUSED)
+
+        service.updateState("CONNECTING", null, 0, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+
+        assertEquals(ConnectionStatus.LEVEL_VPNPAUSED, ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAidlLevel"))
+    }
 }

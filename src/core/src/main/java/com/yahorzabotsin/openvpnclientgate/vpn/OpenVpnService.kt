@@ -1701,7 +1701,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             }
             if (shouldSupplementAidlWithVpnStatus(level)) {
-                syncEngineState(level, state, allowAutoSwitch = false)
+                syncEngineState(level, state, allowAutoSwitch = false, source = "VPN_STATUS")
             }
             return
         }
@@ -2493,7 +2493,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
-    private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean) {
+    @JvmOverloads
+    private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean, source: String = "AIDL") {
         logEngineLevel(level, detail)
         // Normalize ONCE, up front, and forward the SAME result to every consumer that derives an
         // "effective" engine level from (level, detail). Normalizing separately per consumer let
@@ -2553,7 +2554,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // timeout/resume-timeout reconciliation -- otherwise a callback this guard deliberately
         // discarded would still resurface and reconcile state to CONNECTING if the real PAUSED
         // confirmation never arrives.
-        logEngineStateChange("AIDL", level, detail)
+        // Recorded under the caller's real source: the VpnStatus supplement call must not overwrite the
+        // last genuine AIDL observation the resume/pause timeouts fall back to.
+        logEngineStateChange(source, level, detail)
         if (allowAutoSwitch) {
             dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
         }
