@@ -61,15 +61,42 @@ and the visibility of `pause_connection_button` change.
   — `buildPauseButtonModel(state)` is what decides `pause_connection_button` visibility/label;
   `buildButtonModel(state, ...)` does the same for `start_connection_button`'s Stop/Start role. Any
   new `ConnectionState` branch added to one should be checked against the other for consistency.
-- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` —
-  `pauseActionInFlight`/`PAUSE_TRANSIENT_CONNECTING_LEVELS` guard against a stale connecting-family
-  AIDL/VpnStatus status arriving mid-pause; `PAUSE_CONFIRMATION_TIMEOUT_MS` (10s) and
-  `PAUSE_RETRY_AT_MS` (5s, one resend) bound how long the app waits for the engine's `PAUSED`
-  confirmation before reconciling back to whatever the last observed engine level was. The engine's
-  pause is a `SIGUSR1`-triggered disconnect that stops at a management `HOLD` checkpoint before
-  reconnecting (`OpenVpnManagementThread.handleHold` in the vendored engine); a slow teardown before
-  reaching that checkpoint (explicit-exit-notify retries, TLS session close) is what drives the
-  need for a 10s rather than a snappier client-side timeout.
+- `src/core/src/main/java/com/yahorzabotsin/openvpnclientgate/vpn/OpenVpnService.kt` — pause
+  watchdog, guards, and lock; see [Pause Confirmation Logic](#pause-confirmation-logic).
+
+## Pause Confirmation Logic
+
+Implemented in `OpenVpnService.kt`:
+
+- **Watchdog.** `ACTION_PAUSE` arms a 10s confirmation timeout (`PAUSE_CONFIRMATION_TIMEOUT_MS`).
+  At 5s (`PAUSE_RETRY_AT_MS`) `PAUSE_VPN` is re-sent exactly once (guarded by `pauseRetrySent`).
+  The 10s is deliberate: the engine's pause is a `SIGUSR1`-triggered disconnect that reports
+  `PAUSED` at a management `HOLD` checkpoint (`OpenVpnManagementThread.handleHold`), and a slow
+  teardown before that checkpoint (explicit-exit-notify retries, TLS session close) can take
+  several seconds.
+- **Arming.** `ACTION_PAUSE` is ignored unless `ConnectionState` is `CONNECTED` or `PAUSING` at
+  dispatch time (the session may have ended while the intent was queued).
+- **Guard.** While a pause is in flight (`pauseActionInFlight` is set, or state is `PAUSING`), the
+  connecting-family levels in `PAUSE_TRANSIENT_CONNECTING_LEVELS` (`START`,
+  `CONNECTING_NO_SERVER_REPLY_YET`, `CONNECTING_SERVER_REPLIED`, `WAITING_FOR_USER_INPUT`) are
+  dropped on all three ingress paths: the AIDL callback, the VpnStatus callback (which also keeps
+  them away from `ServerAutoSwitcher`), and the traffic-poll snapshot (routed through
+  `syncEngineState`). The guard tests the raw engine level, not the normalized one.
+- **Rejected levels are not recorded.** A level dropped by the guard is never written as the
+  latest-observed engine state, so timeout reconciliation cannot resurrect it.
+- **Terminal levels abandon the pause.** `NOTCONNECTED`, `NONETWORK`, `AUTH_FAILED`, and
+  `UNKNOWN` (`STOP_TERMINAL_LEVELS`) clear `pauseActionInFlight` and the watch, since no session is
+  left to confirm `PAUSED` and the retry must not fire into a later session. `PAUSED` clears them
+  as a completed pause.
+- **Thread safety.** `pauseLock` guards every check-and-act on `pauseActionInFlight`: `ACTION_PAUSE`
+  arming and the retry/timeout claims (main looper), and terminal/`PAUSED` clears from the AIDL
+  binder thread and the VpnStatus callback. Posted clears use `clearPauseWatchIfIdle()` so a pause
+  re-armed in the meantime keeps its watchdog.
+- **Timeout reconciliation.** On timeout, the last observed engine level decides the outcome:
+  `CONNECTED` restores `CONNECTED` via `CONNECTING`; a connecting-family level goes to
+  `CONNECTING`; `VPNPAUSED` goes to `PAUSED`. Otherwise, if state is still `PAUSING`, it goes to
+  `DISCONNECTED`, but only if state is still `PAUSING`, so a transition made by another path is
+  not overwritten.
 
 ## Regression Coverage
 
@@ -142,4 +169,4 @@ having fixed, only one was the reported symptom.
 
 ---
 
-*Last verified against: `VpnManager.kt`/`ConnectionState.kt`/`ConnectionControlsPresenter.kt`/`OpenVpnService.kt` + the pause/resume automated test suite (2026-09-14).*
+*Last verified against: `VpnManager.kt`/`ConnectionState.kt`/`ConnectionControlsPresenter.kt`/`OpenVpnService.kt` + the pause/resume automated test suite (2026-10-12).*
