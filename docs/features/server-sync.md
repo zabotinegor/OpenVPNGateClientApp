@@ -63,6 +63,13 @@ The coordinator owns this flow:
 
 `MainConnectionInteractor.prepareStart()` decides which server config to pass to the VPN engine. When `preferUserSelection=true` (i.e. `pendingUserSelectionOverride` is set), `prepareStart()` reads `configData` from `SelectedCountryStore.currentServer()` at Connect time rather than from the `selectedServer` field in ViewModel state. This is necessary because SSE sync (or any background sync) can push a new server list from the API between user selection and the Connect tap, causing the ViewModel's cached `selectedServer.config` to become stale while `SelectedCountryStore` holds the fresh value.
 
+### Last-successful server restore (shared-IP entries)
+- `SelectedCountryStore.saveLastSuccessfulConfig(...)` also persists `last_success_server_key`, the `ServerIdentity` key of the server that connected.
+- On a plain Connect with auto-switch enabled, `MainConnectionInteractor.prepareStart()` calls `restoreLastSuccessfulServerIndex()` first, which points the index at that key via `setCurrentIndexByKey`. `ensureIndexForConfig(...)` is only the fallback, used when no key is stored or the server was removed by a refresh.
+- `ensureIndexForConfig(...)` matches config+IP, then config, then IP. When the current entry already has the started IP, it keeps the current entry instead of collapsing onto the first same-IP entry.
+- Reconnect `ACTION_START` and the success persist both pass `alignIndex=false`, so neither moves the index.
+- Known limitation (follow-up): re-picking a same-IP server while connected can save a wrong last-success key.
+
 ## V2 Server Source (DEFAULT_V2)
 
 ### Two-Phase Lazy Load
@@ -87,7 +94,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - Country matching is code-first against the refreshed localized country list to avoid stale-name mismatches after locale switch.
 - Server list rewrite uses `SelectedCountryStore.saveSelectionPreservingIndex(...)` so current server identity/index is retained when available.
 - Display label rewrite uses `SelectedCountryStore.updateSelectedCountryName(...)`, which bumps `SelectedCountryVersionSignal` so main UI reloads selection state in-session.
-- If the previously selected server is missing in refreshed data, index selection falls back deterministically and safely.
+- The index is restored by server identity (`restoreIndexByIdentity`, matching `ServerIdentity` keys), not by config or IP. If the previously current server is gone, the index is parked on the predecessor (in the old order) of the first surviving successor, so a circular scan resumes at that successor without skipping or revisiting survivors.
 - Non-v2 sources do not execute this relocalization path and keep existing CSV-backed behavior.
 
 ### Cache Strategy
@@ -121,7 +128,7 @@ trigger point, update it here only.
 
 When a VPN disconnect or inactivity event fires, the following code paths can enqueue a hardprobe request via `ProbeRequestQueue`:
 
-1. **Autoswitch timeout / immediate switch** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `nextServerCircular()` rotates to the next server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled. Added in SUB-04.
+1. **Autoswitch timeout / immediate switch** (`ServerAutoSwitcher.requestSwitchNow()`): the failing server ID is captured *before* `SelectedCountryStore.nextUnvisitedServer()` advances to the next unvisited server. If the VPN status level is `LEVEL_NONETWORK` the ID is forced to 0 (no probe enqueued). If the ID is non-zero, `probeRequestQueue?.enqueue(failingServerId)` is called for the server that stalled. Added in SUB-04.
 
 2. **Watchdog recovery** (`OpenVpnService.handleConnectedProbeResult()`): before watchdog recovery starts, `SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)` is called and a probe is enqueued if the ID is non-zero. The guard matches by server IP to prevent spurious probes when selection changed while connected. Added in SUB-04.
 
