@@ -362,6 +362,37 @@ class ServerAutoSwitcherCycleIdentityTest {
     }
 
     @Test
+    fun refreshReplacingThePoolWithOneServerBeforeFirstFailure_triesThatServer() {
+        select(srv(1, "A"), srv(2, "B"), index = 0)
+
+        // A is in use; a refresh replaces the whole pool before any failure and no cycle exists yet.
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(9, "X")))
+        assertEquals("X", currentConfig())
+        assertNull("the never-started X is only a cursor", SelectedCountryStore.currentAttemptedServerKey(ctx))
+
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals("a one-server replacement must not look exhausted at once", listOf("X"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun refreshReplacingThePoolBeforeFirstFailure_triesEveryNewServerOnce() {
+        select(srv(1, "A"), srv(2, "B"), index = 1)
+
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(7, "X"), srv(8, "Y"), srv(9, "Z")))
+
+        failAndSwitch()
+        failAndSwitch()
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals("the first new server is tried too, not seeded as visited", listOf("Y", "Z", "X"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
     fun parkedCursorSurvivingASecondRefresh_staysUnattempted() {
         select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
         SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))

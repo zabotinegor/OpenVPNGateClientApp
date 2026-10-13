@@ -137,7 +137,7 @@ entries mid-cycle neither re-offers an attempted server nor ends the cycle early
 Identity keys are `id:<id>` when the backend server id is greater than 0. Otherwise the key is
 `ep:<endpoint>|<ip>`, built from the config's `proto` and `remote` lines, so a refresh that re-issues
 an unchanged server's config keeps its key. A config with no readable `remote` uses
-`cfg:<SHA-256 of the config>|<ip>`. A repeated key gets a `#n` ordinal suffix. The IP alone is
+`cfg:<SHA-256 of the config>|<ip>`. A repeated key gets a `#n` ordinal suffix in list order. Repeated `ep:` keys target the same socket, so a reorder that swaps their ordinals only moves a visited mark between profiles of one server. The IP alone is
 never an identity, because several servers can share one IP. The cycle is dropped on user stop, on
 success, on non-reconnect levels, on exhaustion, on an aborted dispatch, and when the selected
 country or pool changes. It is not persisted across process death.

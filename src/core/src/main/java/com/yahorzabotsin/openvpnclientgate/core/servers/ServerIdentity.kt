@@ -24,6 +24,12 @@ import java.security.MessageDigest
  *    entries target the same connection endpoint (or carry the same config), so which of them holds
  *    which ordinal is immaterial; the first occurrence keeps the plain base key, so it does not change
  *    when a duplicate is later added.
+ *
+ * Trade-off for `ep:` duplicates: entries with the same IP and endpoint may still differ in other
+ * config text (certificates, options), but they target the same socket, so the same OpenVPN server.
+ * Their `#n` ordinals follow list order, and a reorder can swap them; that only moves a visited mark
+ * between two profiles of one server. Ordering the ordinals by config content instead would make
+ * them swap whenever the config is re-issued, which the endpoint key exists to tolerate.
  */
 internal object ServerIdentity {
     private val REMOTE_LINE = Regex("(?m)^\\s*remote\\s+\\S")

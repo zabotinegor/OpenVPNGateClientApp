@@ -230,10 +230,12 @@ object SelectedCountryStore {
      * [previousIndex], matching by [ServerIdentity]. When that server no longer exists, the index is
      * parked on the PREDECESSOR (in the old order) of the first surviving successor, so a circular
      * scan that starts after the index resumes exactly at that successor: no survivor is skipped and
-     * none is revisited. Returns whether the very same server was found.
+     * none is revisited. When no old entry survives at all, the index stays on the new list's first
+     * entry. Returns whether the very same server was found.
      *
      * A parked index is marked as such ([isIndexParked]): the entry it points at was never started,
-     * so the auto-switch cycle must not seed it as the failing server. A previously parked index
+     * so the auto-switch cycle must not seed it as the failing server. This holds for the
+     * no-survivor case too. A previously parked index
      * that survives this refresh stays parked.
      */
     private fun restoreIndexByIdentity(
@@ -259,6 +261,10 @@ object SelectedCountryStore {
                 return false
             }
         }
+        // No old entry survived: the pool was replaced outright. saveSelection left the index on 0,
+        // an entry that was never started; park it so the cycle does not seed it as the failing
+        // server (a one-entry replacement would otherwise look exhausted at once).
+        markIndexParked(ctx)
         return false
     }
 
