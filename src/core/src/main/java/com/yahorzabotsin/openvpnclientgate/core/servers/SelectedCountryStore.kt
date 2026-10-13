@@ -47,7 +47,7 @@ object SelectedCountryStore {
     private const val KEY_INDEX = "selected_country_index"
     // True while KEY_INDEX is only a scan cursor parked by restoreIndexByIdentity (the server it
     // tracked was removed by a refresh), i.e. the entry it points at was never started. Cleared by
-    // every other index write and by any start.
+    // other index writes, or by a start only when the parked entry matches the started target.
     private const val KEY_INDEX_PARKED = "selected_country_index_parked"
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"

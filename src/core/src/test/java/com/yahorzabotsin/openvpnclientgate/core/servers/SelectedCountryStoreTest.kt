@@ -102,6 +102,24 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun parked_index_is_unparked_when_started_endpoint_matches_current_entry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        val decoded = "client\nremote 1.1.1.1 443\n"
+        val encoded = android.util.Base64.encodeToString(
+            decoded.toByteArray(), android.util.Base64.NO_WRAP
+        )
+        val removed = server(name = "removed", city = "Old", config = "old", ip = "1.1.1.1")
+        val surviving = server(name = "survivor", city = "New", config = encoded, ip = "1.1.1.1")
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(removed, surviving))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "CountryA", listOf(surviving))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", decoded, "1.1.1.1")
+        assertEquals(SelectedCountryStore.currentServerKey(ctx), SelectedCountryStore.currentAttemptedServerKey(ctx))
+    }
+
+    @Test
     fun success_preserves_key_captured_at_start_when_same_ip_selection_changes() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
