@@ -524,13 +524,17 @@ object SelectedCountryStore {
         if (config.isBlank()) return
         synchronized(selectionRenameLock) {
             val ipToStore = ip ?: resolveIpForConfig(ctx, config)
-            prefs(ctx).edit()
+            val editor = prefs(ctx).edit()
                 .putString(KEY_LAST_STARTED_CONFIG, config)
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
-                // A start makes the current entry a real attempt, parked cursor or not.
-                .remove(KEY_INDEX_PARKED)
-                .apply()
+            // A manual start (alignIndex) starts the current entry, so it becomes a real attempt.
+            // A reconnect start (no alignment) starts the candidate the auto-switch already
+            // selected, and that selection wrote the index and cleared the flag. A flag set again
+            // since then means a refresh removed that candidate before ACTION_START: the index is
+            // only a cursor and must not be taken for the server being started.
+            if (alignIndex) editor.remove(KEY_INDEX_PARKED)
+            editor.apply()
             if (alignIndex) {
                 ensureIndexForConfig(ctx, config, ipToStore)
             }

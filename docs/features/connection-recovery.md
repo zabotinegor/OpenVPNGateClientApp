@@ -151,7 +151,9 @@ Two other entry points drive the same cycle. The `OpenVpnService` `VPN_STATUS` f
 past the last server, returns `null` only when every server was attempted, and then restores the start
 server. Its hardprobe target (`getCurrentServerIdIfMatchingLastStarted()`) is 0 while the index is
 parked, so a removed server's failure is never attributed to the parked entry. A reconnect `ACTION_START` saves its started
-config with `alignIndex=false`, so it does not move the index the cycle is walking.
+config with `alignIndex=false`, so it does not move the index the cycle is walking. It also leaves a parked flag set: the candidate selection already cleared it, so a flag set again means a
+refresh removed that candidate before the start, and the parked entry must not be recorded as the started or
+successful server.
 
 So a country whose servers are all unreachable produces exactly one pass over the list and then a
 clean disconnect at the original selection. That is the termination invariant to test against; the
