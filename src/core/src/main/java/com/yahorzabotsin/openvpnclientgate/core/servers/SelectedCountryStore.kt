@@ -24,18 +24,32 @@ data class LastConfig(
     val ip: String?
 )
 
+/**
+ * Single-entry cache of the identity keys derived from the persisted server list. The raw persisted
+ * JSON string is the cache identity (so entry order and config revisions invalidate it) and only the
+ * latest raw value plus its keys are retained, which bounds the memory to one list.
+ */
 internal class ServerIdentityKeyCache(
     private val derive: (List<StoredServer>) -> List<String> = ServerIdentity::keys
 ) {
-    private var source: String? = null
-    private var keys: List<String> = emptyList()
+    private class Entry(val raw: String?, val keys: List<String>)
 
-    // The raw persisted value is the cache identity, including entry order and config revisions.
-    fun get(raw: String?, servers: List<StoredServer>): List<String> {
-        if (raw != source) {
-            keys = derive(servers)
-            source = raw
-        }
+    // A null raw value is an empty list, which is also the initial state.
+    private var entry = Entry(null, emptyList())
+
+    /** Number of times the keys were derived (cache misses); lets tests assert the hit path. */
+    @get:Synchronized
+    var derivations = 0
+        private set
+
+    /** [parse] runs only on a miss, so a hit costs neither JSON parsing nor key derivation. */
+    @Synchronized
+    fun get(raw: String?, parse: () -> List<StoredServer>): List<String> {
+        val current = entry
+        if (current.raw == raw) return current.keys
+        val keys = derive(parse())
+        entry = Entry(raw, keys)
+        derivations++
         return keys
     }
 }
@@ -225,6 +239,9 @@ object SelectedCountryStore {
             val previousIndex = getIndex(ctx)
             val previousCurrent = previousList.getOrNull(previousIndex)
             val previousParked = isIndexParked(ctx)
+            // Derived before the write: the cache holds one list, so after the write it holds the
+            // new keys and the previous ones would have to be rebuilt.
+            val previousKeys = if (previousCurrent != null) identityKeys(ctx) else emptyList()
 
             if (!saveSelection(ctx, country, servers, expectedCountry = country)) return
 
@@ -232,7 +249,7 @@ object SelectedCountryStore {
             // appear on several entries and a refresh can add/remove/reorder entries, so a
             // position (or an indexOfFirst on ip) would silently land on a different server.
             val currentRestored = previousCurrent != null &&
-                restoreIndexByIdentity(ctx, previousList, previousIndex, previousParked)
+                restoreIndexByIdentity(ctx, previousList, previousKeys, previousIndex, previousParked)
 
             val newCount = getServers(ctx).size
             AppLog.i(
@@ -259,12 +276,12 @@ object SelectedCountryStore {
     private fun restoreIndexByIdentity(
         ctx: Context,
         previousList: List<StoredServer>,
+        previousKeys: List<String>,
         previousIndex: Int,
         previousParked: Boolean
     ): Boolean {
-        val newKeys = currentServerKeys(ctx)
+        val newKeys = identityKeys(ctx)
         if (newKeys.isEmpty() || previousIndex !in previousList.indices) return false
-        val previousKeys = ServerIdentity.keys(previousList)
         val sameServer = newKeys.indexOf(previousKeys[previousIndex])
         if (sameServer >= 0) {
             writeIndex(ctx, sameServer, previousParked)
@@ -298,8 +315,10 @@ object SelectedCountryStore {
 
     fun getSelectedCountry(ctx: Context): String? = prefs(ctx).getString(KEY_COUNTRY, null)
 
-    fun getServers(ctx: Context): List<StoredServer> {
-        val raw = prefs(ctx).getString(KEY_SERVERS, null) ?: return emptyList()
+    fun getServers(ctx: Context): List<StoredServer> = parseServers(prefs(ctx).getString(KEY_SERVERS, null))
+
+    private fun parseServers(raw: String?): List<StoredServer> {
+        if (raw == null) return emptyList()
         return try {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
@@ -420,20 +439,26 @@ object SelectedCountryStore {
         } else null
     }
 
-    // Every identity consumer holds selectionRenameLock, so the shared cache needs no second lock.
-    private fun identityKeys(ctx: Context, servers: List<StoredServer>): List<String> =
-        identityKeyCache.get(prefs(ctx).getString(KEY_SERVERS, null), servers)
+    // Every identity consumer holds selectionRenameLock. The list is only written under that same
+    // monitor, and it is parsed from the very same raw value the cache is keyed by (never from a
+    // second read), so the returned keys always describe the raw value they were looked up under.
+    private fun identityKeys(ctx: Context): List<String> {
+        val raw = prefs(ctx).getString(KEY_SERVERS, null)
+        return identityKeyCache.get(raw) { parseServers(raw) }
+    }
+
+    internal fun identityKeyDerivationsForTest(): Int = identityKeyCache.derivations
 
     /** Identity keys ([ServerIdentity]) of the persisted list, in list order. */
     fun currentServerKeys(ctx: Context): List<String> = synchronized(selectionRenameLock) {
-        identityKeys(ctx, getServers(ctx))
+        identityKeys(ctx)
     }
 
     /** Identity key of the persisted current server, or null when the index is out of range. */
     fun currentServerKey(ctx: Context): String? = synchronized(selectionRenameLock) {
-        val list = getServers(ctx)
+        val keys = identityKeys(ctx)
         val idx = getIndex(ctx)
-        if (idx in list.indices) identityKeys(ctx, list)[idx] else null
+        if (idx in keys.indices) keys[idx] else null
     }
 
     /**
@@ -459,7 +484,7 @@ object SelectedCountryStore {
         synchronized(selectionRenameLock) {
             val list = getServers(ctx)
             if (list.isEmpty()) return null
-            val keys = identityKeys(ctx, list)
+            val keys = identityKeys(ctx)
             val idx = getIndex(ctx)
             // An out-of-range index (e.g. -1 from prepareAutoSwitchFromStart) scans from position 0.
             val origin = if (idx in list.indices) idx else -1
@@ -475,8 +500,7 @@ object SelectedCountryStore {
 
     /** Points the persisted index at the server with identity [key]; false when it is gone. */
     fun setCurrentIndexByKey(ctx: Context, key: String): Boolean = synchronized(selectionRenameLock) {
-        val list = getServers(ctx)
-        val i = identityKeys(ctx, list).indexOf(key)
+        val i = identityKeys(ctx).indexOf(key)
         if (i < 0) false else { setIndex(ctx, i); true }
     }
 
@@ -505,10 +529,11 @@ object SelectedCountryStore {
                 stored.getString(KEY_LAST_STARTED_COUNTRY, null) == country &&
                 stored.getString(KEY_LAST_STARTED_IP, null) == ipToStore
             // A connected UI selection can change while the old VPN session is still running.
-            // Prefer the identity captured at ACTION_START; older/direct callers retain the
-            // previous current-index fallback. A null start identity is intentional when parked.
-            val key = if (matchingStart) {
-                stored.getString(KEY_LAST_STARTED_SERVER_KEY, null)
+            // Prefer the identity captured at ACTION_START. An empty value records that the start
+            // had no identity (parked cursor); an absent value (legacy prefs) and direct callers
+            // without a matching start keep the current-index fallback.
+            val key = if (matchingStart && stored.contains(KEY_LAST_STARTED_SERVER_KEY)) {
+                stored.getString(KEY_LAST_STARTED_SERVER_KEY, null)?.takeIf { it.isNotEmpty() }
             } else {
                 currentAttemptedServerKey(ctx)
             }
@@ -568,14 +593,17 @@ object SelectedCountryStore {
                 startedKey = currentServerKey(ctx)
                 editor.remove(KEY_INDEX_PARKED)
             }
-            editor.putString(KEY_LAST_STARTED_SERVER_KEY, startedKey).apply()
+            // "" (not null, which would remove the entry) marks a start that has no identity.
+            editor.putString(KEY_LAST_STARTED_SERVER_KEY, startedKey.orEmpty()).apply()
         }
     }
 
     private fun currentEntryMatchesStart(ctx: Context, config: String, ip: String?): Boolean {
         val current = currentServer(ctx) ?: return false
-        if (current.config == config && (ip.isNullOrBlank() || current.ip == ip)) return true
-        if (ip.isNullOrBlank() || current.ip != ip) return false
+        if (!ip.isNullOrBlank() && current.ip != ip) return false
+        // ACTION_START carries the decoded config while the store keeps the encoded one.
+        if (ServerIdentity.sameConfig(current.config, config)) return true
+        if (ip.isNullOrBlank()) return false
         val startedEndpoint = ServerIdentity.endpoint(config) ?: return false
         return startedEndpoint == ServerIdentity.endpoint(current.config)
     }

@@ -411,11 +411,15 @@ class ServerAutoSwitcherCycleIdentityTest {
 
     @Test
     fun manualStartOnAParkedEntry_makesItTheAttemptedServer() {
-        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
-        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+        // The store keeps the Base64 config; ACTION_START carries the decoded text of that entry.
+        val decodedC = "client\nremote 9.9.9.9 443\n"
+        val encodedC = android.util.Base64.encodeToString(decodedC.toByteArray(), android.util.Base64.NO_WRAP)
+        select(srv(1, "A"), srv(2, "B"), srv(3, encodedC), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, encodedC)))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
 
-        // The user taps Connect on the parked C: ACTION_START records it as started.
-        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", "decoded", "9.9.9.9")
+        // The user taps Connect on the parked C (B shares its IP): ACTION_START records C as started.
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", decodedC, "9.9.9.9")
         assertEquals(SelectedCountryStore.currentServerKey(ctx), SelectedCountryStore.currentAttemptedServerKey(ctx))
 
         failAndSwitch()

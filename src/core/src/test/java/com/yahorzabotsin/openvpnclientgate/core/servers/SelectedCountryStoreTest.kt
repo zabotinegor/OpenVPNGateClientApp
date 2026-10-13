@@ -58,13 +58,14 @@ class SelectedCountryStoreTest {
         }
         val first = listOf(StoredServer("city", "config-A", ip = "1.1.1.1"))
         val second = listOf(StoredServer("city", "config-B", ip = "1.1.1.1"))
-        val initial = cache.get("raw-A", first)
-        assertSame(initial, cache.get("raw-A", first))
+        val initial = cache.get("raw-A") { first }
+        assertSame(initial, cache.get("raw-A") { error("a hit must not parse") })
         assertEquals(1, derivations)
-        assertNotEquals(initial, cache.get("raw-B", second))
+        assertNotEquals(initial, cache.get("raw-B") { second })
         assertEquals(2, derivations)
-        assertSame(cache.get("raw-B", second), cache.get("raw-B", second))
+        assertSame(cache.get("raw-B") { second }, cache.get("raw-B") { error("a hit must not parse") })
         assertEquals(2, derivations)
+        assertEquals(2, cache.derivations)
     }
 
     @Test

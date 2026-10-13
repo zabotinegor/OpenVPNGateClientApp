@@ -75,6 +75,18 @@ internal object ServerIdentity {
         return "$proto:$port@${remotes.joinToString(",")}"
     }
 
+    /** Whether [started] is [stored] itself or its Base64-decoded text (what ACTION_START carries). */
+    fun sameConfig(stored: String, started: String): Boolean {
+        if (stored == started) return true
+        if (stored.isBlank()) return false
+        val decoded = try {
+            String(Base64.decode(stored, Base64.DEFAULT), Charsets.UTF_8)
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        return decoded == started
+    }
+
     private fun configText(config: String): String? {
         if (config.isBlank()) return null
         if (REMOTE_LINE.containsMatchIn(config)) return config
