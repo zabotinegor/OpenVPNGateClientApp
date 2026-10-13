@@ -527,6 +527,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!userInitiatedStop) return
         stopAwaitingConfirmation = false
         stopBindPending = false
+        stopForceAttempted = false
         statusHandler.removeCallbacks(stopRetryRunnable)
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
