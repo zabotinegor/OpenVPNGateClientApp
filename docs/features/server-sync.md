@@ -68,7 +68,9 @@ The coordinator owns this flow:
 - On a plain Connect with auto-switch enabled, `MainConnectionInteractor.prepareStart()` calls `restoreLastSuccessfulServerIndex()` first, which points the index at that key via `setCurrentIndexByKey`. `ensureIndexForConfig(...)` is only the fallback, used when no key is stored or the server was removed by a refresh.
 - `ensureIndexForConfig(...)` matches config+IP, then config, then IP. When the current entry already has the started IP, it keeps the current entry instead of collapsing onto the first same-IP entry.
 - Reconnect `ACTION_START` and the success persist both pass `alignIndex=false`, so neither moves the index.
-- Known limitation (follow-up): re-picking a same-IP server while connected can save a wrong last-success key.
+- The store caches identity keys by the exact persisted `selected_country_servers` JSON string. Repeated 2-second connected-state snapshots reuse the derived keys, including for CSV servers without positive IDs; replacing or reordering the server list rebuilds them.
+- `saveLastStartedConfig` records `last_started_server_key` at ACTION_START. A matching successful connection copies that captured identity instead of reading a changed live selection. Legacy/direct success calls without a matching start retain the previous fallback. A parked cursor is cleared only if the started server can be matched by config or same-IP endpoint, not by IP alone.
+- Last-success config, country, IP and identity key are written in one SharedPreferences edit to avoid partially updated connection metadata.
 
 ## V2 Server Source (DEFAULT_V2)
 
@@ -94,6 +96,7 @@ When a shared sync entrypoint runs under `DEFAULT_V2`, the app tries the primary
 - Country matching is code-first against the refreshed localized country list to avoid stale-name mismatches after locale switch.
 - Server list rewrite uses `SelectedCountryStore.saveSelectionPreservingIndex(...)` so current server identity/index is retained when available.
 - Display label rewrite uses `SelectedCountryStore.updateSelectedCountryName(...)`, which bumps `SelectedCountryVersionSignal` so main UI reloads selection state in-session.
+- The index and parked flag are committed in a single SharedPreferences edit when restoring a surviving selection or parking at a surviving successor.
 - The index is restored by server identity (`restoreIndexByIdentity`, matching `ServerIdentity` keys), not by config or IP. If the previously current server is gone, the index is parked on the predecessor (in the old order) of the first surviving successor, so a circular scan resumes at that successor without skipping or revisiting survivors. If no old entry survives (the pool was replaced), the index stays on the first new entry and is parked too. The parked index is flagged as a cursor only (`selected_country_index_parked`, cleared by any other index write or a manual start; a reconnect `ACTION_START` keeps it, because a flag still set at that point means a refresh removed the candidate the auto-switch had selected); while it is set, `currentAttemptedServerKey()` returns `null`, so neither the auto-switch cycle seed nor `last_success_server_key` treats the never-started parked entry as attempted, and `getCurrentServerIdIfMatchingLastStarted()` returns 0 (no hardprobe for the parked entry).
 - Non-v2 sources do not execute this relocalization path and keep existing CSV-backed behavior.
 

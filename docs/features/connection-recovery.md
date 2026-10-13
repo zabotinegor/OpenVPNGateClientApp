@@ -134,6 +134,8 @@ not in the set, so it returns `null` only when every key currently in the list h
 Wrap detection is by identity, not position: a background refresh that adds, removes or reorders
 entries mid-cycle neither re-offers an attempted server nor ends the cycle early.
 
+Derived identity keys are cached by the raw stored server-list JSON, so the periodic connected-state persistence path does not repeat Base64 decoding, config parsing and SHA-256 hashing on an unchanged list. The key is captured at ACTION_START and reused at success to avoid re-picking a different same-IP entry while connected. A parked index stays unattempted until its entry can be verified against the started config/endpoint.
+
 Identity keys are `id:<id>` when the backend server id is greater than 0. Otherwise the key is
 `ep:<endpoint>|<ip>`, built from the config's `proto` and `remote` lines, so a refresh that re-issues
 an unchanged server's config keeps its key. A config with no readable `remote` uses
