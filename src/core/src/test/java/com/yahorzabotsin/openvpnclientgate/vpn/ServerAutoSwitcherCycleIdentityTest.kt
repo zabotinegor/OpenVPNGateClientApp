@@ -279,6 +279,119 @@ class ServerAutoSwitcherCycleIdentityTest {
     }
 
     @Test
+    fun refreshRemovingTheConnectedHeadServerBeforeFirstFailure_triesEverySurvivor() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+
+        // A is in use; a refresh removes it before any failure. The index parks on C (B's predecessor).
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+        assertEquals("C", currentConfig())
+        assertNull("a parked cursor is not an attempted server", SelectedCountryStore.currentAttemptedServerKey(ctx))
+
+        failAndSwitch()
+        assertEquals(listOf("B"), started)
+        assertEquals("counter follows the started server", 1 to 2, SelectedCountryStore.getCurrentPosition(ctx))
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals("the parked C must be tried, not counted as visited", listOf("B", "C"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun refreshRemovingTheConnectedTailServerBeforeFirstFailure_triesEverySurvivor() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 2)
+
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(1, "A"), srv(2, "B")))
+        assertEquals("parked on the predecessor of C's successor A", "B", currentConfig())
+
+        failAndSwitch()
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals(listOf("A", "B"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun refreshRemovingTheConnectedMiddleServerBeforeFirstFailure_triesEverySurvivor() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 1)
+
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(1, "A"), srv(3, "C")))
+
+        failAndSwitch()
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals(listOf("C", "A"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun parkedCursorSurvivingASecondRefresh_staysUnattempted() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+        // Another refresh keeps the parked C and adds D: C is still only a cursor.
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C"), srv(4, "D")))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+
+        failAndSwitch()
+        failAndSwitch()
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals(listOf("D", "B", "C"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun manualStartOnAParkedEntry_makesItTheAttemptedServer() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+
+        // The user taps Connect on the parked C: ACTION_START records it as started.
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", "decoded", "9.9.9.9")
+        assertEquals(SelectedCountryStore.currentServerKey(ctx), SelectedCountryStore.currentAttemptedServerKey(ctx))
+
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals("C was attempted by the manual start, so only B remains", listOf("B"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun removalThenSuccess_endsTheCycleOnTheStartedServer() {
+        select(srv(1, "A", ip = "1.1.1.1"), srv(2, "B", ip = "2.2.2.2"), srv(3, "C", ip = "3.3.3.3"), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx, "RU", listOf(srv(2, "B", ip = "2.2.2.2"), srv(3, "C", ip = "3.3.3.3"))
+        )
+
+        failAndSwitch()
+        ServerAutoSwitcher.onEngineLevel(ctx, ConnectionStatus.LEVEL_CONNECTED, source)
+        idle(100)
+
+        assertEquals(listOf("B"), started)
+        assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+        assertEquals("B", currentConfig())
+        assertEquals(1 to 2, SelectedCountryStore.getCurrentPosition(ctx))
+    }
+
+    @Test
+    fun successRecordedWhileIndexIsParked_doesNotRememberTheParkedEntry() {
+        select(srv(1, "A", ip = "1.1.1.1"), srv(2, "B", ip = "2.2.2.2"), srv(3, "C", ip = "3.3.3.3"), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx, "RU", listOf(srv(2, "B", ip = "2.2.2.2"), srv(3, "C", ip = "3.3.3.3"))
+        )
+
+        // The tunnel to the removed A reports success; the parked C must not be recorded as it.
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "RU", "decoded", "1.1.1.1")
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        assertEquals(false, SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+        assertEquals("B", currentConfig())
+    }
+
+    @Test
     fun nonReconnectBehaviour_singleServerStillCompletesCycleImmediately() {
         select(srv(1, "A"), index = 0)
 

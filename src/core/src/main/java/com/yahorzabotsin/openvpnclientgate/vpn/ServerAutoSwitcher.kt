@@ -454,7 +454,8 @@ object ServerAutoSwitcher {
 
     /**
      * Returns the live cycle's visited set, starting a new cycle (seeded with the current server,
-     * which is by definition the one just attempted) when none is active.
+     * which is by definition the one just attempted -- unless the index is merely parked after a
+     * refresh removed that server) when none is active.
      *
      * A cycle whose visited servers are ALL absent from the persisted list belongs to a superseded
      * pool (the user selected another country/server list): it is dropped and restarted rather than
@@ -476,7 +477,9 @@ object ServerAutoSwitcher {
             return existing
         }
         val fresh = LinkedHashSet<String>()
-        if (seedCurrent) SelectedCountryStore.currentServerKey(appContext)?.let { fresh.add(it) }
+        // currentAttemptedServerKey is null while the index is only a cursor parked by a refresh that
+        // removed the in-flight server: the parked entry was never attempted, so it stays unvisited.
+        if (seedCurrent) SelectedCountryStore.currentAttemptedServerKey(appContext)?.let { fresh.add(it) }
         cycleVisited = fresh
         cycleCountry = country
         return fresh

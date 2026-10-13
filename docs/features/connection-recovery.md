@@ -125,7 +125,10 @@ country rather than failing outright.
 **It stops after one full cycle — it does not loop.** The cycle is `ServerAutoSwitcher.cycleVisited`,
 an in-memory ordered set of server identity keys (see `core/servers/ServerIdentity.kt`). Its first
 element is the cycle's start server. `ensureCycle()` seeds it with the current server before the first
-advance, and each candidate the switcher starts is added to it. `nextUnvisitedServer(ctx, visited)`
+advance, and each candidate the switcher starts is added to it. The seed is skipped while the index is
+only a parked scan cursor (a refresh removed the in-use server, see [server-sync.md](server-sync.md)):
+`SelectedCountryStore.currentAttemptedServerKey()` returns `null` then, so the never-started parked
+entry stays unvisited and is still tried. `nextUnvisitedServer(ctx, visited)`
 walks the persisted list circularly from the current index and returns the first entry whose key is
 not in the set, so it returns `null` only when every key currently in the list has been visited.
 Wrap detection is by identity, not position: a background refresh that adds, removes or reorders
