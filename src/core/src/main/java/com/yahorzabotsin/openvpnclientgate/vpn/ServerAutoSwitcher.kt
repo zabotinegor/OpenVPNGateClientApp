@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -486,22 +487,29 @@ object ServerAutoSwitcher {
     }
 
     /**
-     * Starts a cycle (if none is active) seeded with the CURRENT server as the failing one. For a
-     * caller that advances the persisted index itself before [beginChainedSwitch].
+     * Next candidate of the identity-tracked cycle, for a caller that dispatches the switch itself
+     * via [beginChainedSwitch] (the OpenVpnService VPN_STATUS fallback). Uses the same selection as
+     * [requestSwitchNow]: a cycle is started (seeded with the failing current server) when none is
+     * active, the list is scanned circularly from the current index for the first server not yet
+     * attempted, its index is persisted (so the UI counter follows the target) and it is marked
+     * attempted. Returns null only when every server has been attempted; the cycle is then ended and
+     * the index restored to the cycle's start server, like [requestSwitchNow]'s exhaustion path.
      */
-    fun seedCycleFromCurrentServer(appContext: Context) {
-        ensureCycle(appContext)
+    fun nextCycleCandidate(appContext: Context): StoredServer? {
+        val visited = ensureCycle(appContext)
+        val next = SelectedCountryStore.nextUnvisitedServer(appContext, visited)
+        if (next != null) {
+            visited.add(next.key)
+            return next.server
+        }
+        visited.firstOrNull()?.let { SelectedCountryStore.setCurrentIndexByKey(appContext, it) }
+        cycleVisited = null
+        return null
     }
 
     /** Drops the cycle without touching timers, for callers that seeded one but then found no candidate. */
     fun resetCycle() {
         cycleVisited = null
-    }
-
-    /** Marks the persisted current server (the chained candidate about to start) as attempted. */
-    fun markCurrentServerAttempted(appContext: Context) {
-        val key = SelectedCountryStore.currentServerKey(appContext) ?: return
-        ensureCycle(appContext).add(key)
     }
 
     /**

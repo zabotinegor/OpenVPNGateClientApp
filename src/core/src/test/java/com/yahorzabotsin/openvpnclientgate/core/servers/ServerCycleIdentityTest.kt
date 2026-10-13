@@ -13,7 +13,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * Cycle identity (ClickUp 12487v2bg7u): the auto-switch cycle and the refresh-time index restore
+ * Cycle identity: the auto-switch cycle and the refresh-time index restore
  * must follow server IDENTITY, never numeric position or IP, so a mid-cycle refresh cannot roll the
  * counter back, retry an attempted server or collapse same-IP entries.
  */
@@ -79,6 +79,61 @@ class ServerCycleIdentityTest {
         // Appending another duplicate must not rename the existing ones.
         val grown = ServerIdentity.keys(listOf(stored(0, "a"), stored(0, "a"), stored(0, "a"), stored(0, "a")))
         assertEquals(dupNoIds, grown.take(3))
+    }
+
+    /** A stored (base64) OpenVPN config for [port]; [revision] stands for re-issued key material. */
+    private fun vpnConfig(port: Int, revision: String = "r1", proto: String = "udp") =
+        android.util.Base64.encodeToString(
+            "client\ndev tun\nproto $proto\nremote 9.9.9.9 $port\n<ca>\n$revision\n</ca>\n".toByteArray(),
+            android.util.Base64.NO_WRAP
+        )
+
+    @Test
+    fun keys_idlessEntriesFollowTheirEndpointNotTheConfigText() {
+        val before = ServerIdentity.keys(listOf(stored(0, vpnConfig(1194)), stored(0, vpnConfig(443, proto = "tcp"))))
+        val after = ServerIdentity.keys(listOf(stored(0, vpnConfig(1194, "r2")), stored(0, vpnConfig(443, "r2", "tcp"))))
+        assertEquals(before, after)
+        assertEquals(2, before.toSet().size)
+    }
+
+    @Test
+    fun keys_idlessFallbackIsCollisionResistant_stableAcrossReorder() {
+        // "AaAa" and "BBBB" share String.hashCode() and length; neither declares an endpoint.
+        assertEquals("AaAa".hashCode(), "BBBB".hashCode())
+        val a = ServerIdentity.keys(listOf(stored(0, "AaAa"), stored(0, "BBBB")))
+        val b = ServerIdentity.keys(listOf(stored(0, "BBBB"), stored(0, "AaAa")))
+        assertEquals(2, a.toSet().size)
+        assertEquals("each config keeps its own key after a reorder", a[0], b[1])
+        assertEquals(a[1], b[0])
+    }
+
+    @Test
+    fun refreshReissuingEveryIdlessConfig_keepsTheSecondServerSelected() {
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(srv(0, vpnConfig(1194)), srv(0, vpnConfig(1195))))
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx, "CountryA", listOf(srv(0, vpnConfig(1194, "r2")), srv(0, vpnConfig(1195, "r2")))
+        )
+
+        assertEquals(2 to 2, SelectedCountryStore.getCurrentPosition(ctx))
+        assertEquals(vpnConfig(1195, "r2"), currentConfig())
+    }
+
+    @Test
+    fun refreshReissuingEveryIdlessConfigMidCycle_neverRetriesAnAttemptedServer() {
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(srv(0, vpnConfig(1)), srv(0, vpnConfig(2)), srv(0, vpnConfig(3)))
+        )
+        val visited = startCycle() // port 1
+        assertEquals(vpnConfig(2), advance(visited))
+
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx, "CountryA", listOf(srv(0, vpnConfig(3, "r2")), srv(0, vpnConfig(2, "r2")), srv(0, vpnConfig(1, "r2")))
+        )
+
+        assertEquals(vpnConfig(2, "r2"), currentConfig())
+        assertEquals(listOf(vpnConfig(3, "r2")), drain(visited))
     }
 
     @Test

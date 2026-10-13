@@ -1911,12 +1911,12 @@ The auto-switch cycle and the persisted current index were tracked by numeric li
 
 ### Fix
 
-- Entries are tracked by identity: `ServerIdentity` keys are `id:<id>` when the server id is greater than 0, otherwise `cfg:<len>:<hash>|<ip>`, with a `#n` suffix for repeats. The IP alone is never an identity.
+- Entries are tracked by identity: `ServerIdentity` keys are `id:<id>` when the server id is greater than 0, otherwise `ep:<proto/remote endpoint>|<ip>` (`cfg:<SHA-256>|<ip>` when the config declares no `remote`), with a `#n` suffix for repeats. The IP alone is never an identity.
 - `ServerAutoSwitcher.cycleVisited` (in-memory) replaces `cycleStartIndex`. `SelectedCountryStore.nextUnvisitedServer(ctx, visited)` replaces `nextServerCircular`. The cycle ends when every key currently in the list is visited, and the start server is restored by identity (`setCurrentIndexByKey`).
 - `saveSelectionPreservingIndex` restores the index by identity. If the current server was removed, the index is parked on the predecessor of the first surviving successor.
 - `last_success_server_key` is persisted and restored on Connect before config/IP alignment is used.
 - Reconnect `ACTION_START` and the success persist skip index alignment (`alignIndex=false`). `ensureIndexForConfig` keeps the current entry when its IP equals the started IP.
-- `OpenVpnService`'s `VPN_STATUS` fallback uses `seedCycleFromCurrentServer`, `markCurrentServerAttempted` and `resetCycle`.
+- `OpenVpnService`'s `VPN_STATUS` fallback uses `ServerAutoSwitcher.nextCycleCandidate`, so it wraps circularly like the timer path. A parked index yields no hardprobe target.
 - See [connection-recovery.md](../features/connection-recovery.md#auto-switch-within-country) and [server-sync.md](../features/server-sync.md#last-successful-server-restore-shared-ip-entries).
 
 ### Diagnose

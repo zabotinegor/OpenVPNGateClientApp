@@ -179,6 +179,33 @@ class OpenVpnServiceSessionLoggingTest {
     }
 
     @Test
+    fun fallbackFailureOnLastServer_wrapsToFirstServerWithMatchingCounter() {
+        saveServers(3)
+        SelectedCountryStore.setCurrentIndex(appContext, 2)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val start = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        try {
+            service.onStartCommand(start, 0, 1)
+
+            service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("Auto-switching to next server in country list: RU -> c1 (server=1/3") })
+            assertTrue(logs.none { it.contains("Exhausted server list without success") })
+            assertEquals(1 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
     fun logsConnectedAfterNthAttempt() {
         saveServers(2)
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
@@ -234,8 +261,9 @@ class OpenVpnServiceSessionLoggingTest {
             service.onStartCommand(reconnect, 0, idx + 2)
         }
 
-        // Move index to the last server so that nextServer() returns null
-        repeat(9) { SelectedCountryStore.nextServer(appContext) }
+        // Every server has been attempted in this cycle, so the next lookup finds no candidate.
+        ServerAutoSwitcher.resetForTest()
+        repeat(9) { ServerAutoSwitcher.nextCycleCandidate(appContext) }
         ConnectionStateManager.setReconnectingHint(false)
 
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)

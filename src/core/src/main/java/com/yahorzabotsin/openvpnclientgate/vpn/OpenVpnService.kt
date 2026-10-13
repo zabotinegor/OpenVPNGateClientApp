@@ -1761,10 +1761,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val vpnStatusFailingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
                     SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)
                 } else 0
-                // Seed the cycle with the failing (current) server BEFORE advancing, so it counts as
-                // attempted and the exhaustion restore targets it.
-                try { ServerAutoSwitcher.seedCycleFromCurrentServer(applicationContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to seed switch cycle before engine auto-switch", e) }
-                val next = SelectedCountryStore.nextServer(applicationContext)
+                // Same circular, identity-tracked selection as ServerAutoSwitcher.requestSwitchNow():
+                // the failing (current) server seeds the cycle, the next UNATTEMPTED server is chosen
+                // (wrapping past the end of the list), and null means every server was attempted.
+                val next = try { ServerAutoSwitcher.nextCycleCandidate(applicationContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to resolve next server in switch cycle", e); null }
                 if (vpnStatusFailingServerId != 0) {
                     try { probeQueue?.enqueue(vpnStatusFailingServerId) } catch (e: Exception) { AppLog.w(TAG, "VPN_STATUS fallback: failed to enqueue hardprobe for serverId=$vpnStatusFailingServerId", e) }
                 }
@@ -1774,12 +1774,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
                 AppLog.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
                 try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                try { ServerAutoSwitcher.markCurrentServerAttempted(applicationContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to mark chained candidate as attempted", e) }
                 try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
                 return
               } else {
                   userInitiatedStart = false
-                  // The cycle seeded above found no candidate; do not leave it behind.
+                  // No candidate left (or the lookup failed); do not leave a cycle behind.
                   try { ServerAutoSwitcher.resetCycle() } catch (e: Exception) { AppLog.w(TAG, "Failed to reset switch cycle after exhausting server list", e) }
                   try { ConnectionStateManager.setReconnectingHint(false); AppLog.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
                 AppLog.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")

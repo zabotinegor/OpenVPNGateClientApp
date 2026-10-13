@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 import java.time.Duration
 
 /**
- * ClickUp 12487v2bg7u: the reconnect cycle must follow server identity across mid-cycle refreshes,
+ * The reconnect cycle must follow server identity across mid-cycle refreshes,
  * keep same-IP entries distinct, and keep the persisted index (UI counter) on the candidate that is
  * actually started.
  */
@@ -222,15 +222,50 @@ class ServerAutoSwitcherCycleIdentityTest {
     }
 
     @Test
-    fun fallbackSeeding_marksFailingServerAndChainedCandidateAsVisited() {
+    fun fallbackCandidate_marksFailingServerAndChainedCandidateAsVisited() {
         select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
         val keys = SelectedCountryStore.currentServerKeys(ctx)
 
-        ServerAutoSwitcher.seedCycleFromCurrentServer(ctx)
-        SelectedCountryStore.nextServer(ctx) // VPN_STATUS fallback advances the index itself
-        ServerAutoSwitcher.markCurrentServerAttempted(ctx)
+        assertEquals("B", ServerAutoSwitcher.nextCycleCandidate(ctx)?.config)
 
         assertEquals(listOf(keys[0], keys[1]), ServerAutoSwitcher.cycleVisitedForTest())
+        assertEquals(2 to 3, SelectedCountryStore.getCurrentPosition(ctx))
+    }
+
+    @Test
+    fun fallbackCandidate_wrapsPastTheLastServerAndEndsOnlyWhenAllWereAttempted() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 2)
+
+        assertEquals("C failed: wrap to A instead of declaring the country exhausted", "A", ServerAutoSwitcher.nextCycleCandidate(ctx)?.config)
+        assertEquals(1 to 3, SelectedCountryStore.getCurrentPosition(ctx))
+        assertEquals("B", ServerAutoSwitcher.nextCycleCandidate(ctx)?.config)
+        assertEquals(2 to 3, SelectedCountryStore.getCurrentPosition(ctx))
+
+        assertNull(ServerAutoSwitcher.nextCycleCandidate(ctx))
+        assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+        assertEquals("exhaustion restores the cycle's start server", "C", currentConfig())
+    }
+
+    @Test
+    fun refreshRemovingTheInFlightSameIpServer_doesNotProbeTheParkedServer() {
+        val probed = mutableListOf<Int>()
+        ServerAutoSwitcher.setProbeRequestQueueForTest(object : com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue {
+            override fun enqueue(serverId: Int) { probed.add(serverId) }
+        })
+        try {
+            select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+            SelectedCountryStore.saveLastStartedConfig(ctx, "RU", "decoded-A", "9.9.9.9", alignIndex = false)
+            // A is removed before it fails; the index parks on C, which shares A's IP but never started.
+            SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+            assertEquals("C", currentConfig())
+
+            assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+            stallCurrentAttempt()
+
+            assertEquals("A's failure must not be attributed to the parked C", emptyList<Int>(), probed)
+        } finally {
+            ServerAutoSwitcher.setProbeRequestQueueForTest(null)
+        }
     }
 
     @Test

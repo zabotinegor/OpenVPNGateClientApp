@@ -134,8 +134,10 @@ not in the set, so it returns `null` only when every key currently in the list h
 Wrap detection is by identity, not position: a background refresh that adds, removes or reorders
 entries mid-cycle neither re-offers an attempted server nor ends the cycle early.
 
-Identity keys are `id:<id>` when the backend server id is greater than 0, otherwise
-`cfg:<config length>:<config hash>|<ip>`. A repeated key gets a `#n` ordinal suffix. The IP alone is
+Identity keys are `id:<id>` when the backend server id is greater than 0. Otherwise the key is
+`ep:<endpoint>|<ip>`, built from the config's `proto` and `remote` lines, so a refresh that re-issues
+an unchanged server's config keeps its key. A config with no readable `remote` uses
+`cfg:<SHA-256 of the config>|<ip>`. A repeated key gets a `#n` ordinal suffix. The IP alone is
 never an identity, because several servers can share one IP. The cycle is dropped on user stop, on
 success, on non-reconnect levels, on exhaustion, on an aborted dispatch, and when the selected
 country or pool changes. It is not persisted across process death.
@@ -145,8 +147,10 @@ On `null` the switcher logs "completed full server cycle", restores the start se
 reconnect hint, sets `ConnectionState.DISCONNECTED` and stops the engine.
 
 Two other entry points drive the same cycle. The `OpenVpnService` `VPN_STATUS` fallback calls
-`seedCycleFromCurrentServer()` before advancing, `markCurrentServerAttempted()` for the chained
-candidate, and `resetCycle()` when no candidate is left. A reconnect `ACTION_START` saves its started
+`ServerAutoSwitcher.nextCycleCandidate()`, the same circular, identity-tracked selection: it wraps
+past the last server, returns `null` only when every server was attempted, and then restores the start
+server. Its hardprobe target (`getCurrentServerIdIfMatchingLastStarted()`) is 0 while the index is
+parked, so a removed server's failure is never attributed to the parked entry. A reconnect `ACTION_START` saves its started
 config with `alignIndex=false`, so it does not move the index the cycle is walking.
 
 So a country whose servers are all unreachable produces exactly one pass over the list and then a

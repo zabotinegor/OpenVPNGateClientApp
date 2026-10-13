@@ -668,15 +668,23 @@ object SelectedCountryStore {
         }
     }
 
+    /**
+     * Backend id of the current server when it is the one last started (matched by IP), else 0.
+     * Also 0 while the index is only a parked scan cursor: the entry it points at was never started,
+     * so a failure of the removed in-flight server (possibly on the same IP) must not be attributed
+     * to it. The parked flag, list and index are read under the selection monitor as one snapshot.
+     */
     fun getCurrentServerIdIfMatchingLastStarted(context: Context): Int {
         return runCatching {
-            val lastStarted = getLastStartedConfig(context)
-            val currentServer = currentServer(context)
-            if (currentServer != null && lastStarted != null &&
-                !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
-                currentServer.id
-            } else {
-                0
+            synchronized(selectionRenameLock) {
+                val lastStarted = getLastStartedConfig(context)
+                val currentServer = if (isIndexParked(context)) null else currentServer(context)
+                if (currentServer != null && lastStarted != null &&
+                    !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
+                    currentServer.id
+                } else {
+                    0
+                }
             }
         }.getOrElse { 0 }
     }

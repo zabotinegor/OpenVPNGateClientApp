@@ -76,7 +76,7 @@ class MainConnectionInteractorTest {
 
     // endregion
 
-    // region last-successful start with same-IP entries (ClickUp 12487v2bg7u)
+    // region last-successful start with same-IP entries
 
     private val sharedIp = "5.228.228.136"
 
