@@ -1,5 +1,7 @@
 package com.yahorzabotsin.openvpnclientgate.vpn
 
+import android.app.Notification
+import android.app.PendingIntent
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -142,6 +144,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var stopAwaitingConfirmation: Boolean = false
     private var stopBindPending: Boolean = false
     private var stopLastFailureReason: String? = null
+    // True once the management-independent engine teardown was requested for the current stop
+    // request. Escalation happens at most once per stop request, and after it the dead
+    // management path is never retried -- only the engine's own state can confirm the stop.
+    private var stopForceAttempted: Boolean = false
     private val stopPrefs: SharedPreferences by lazy {
         getSharedPreferences(STOP_PREFS_NAME, MODE_PRIVATE)
     }
@@ -275,7 +281,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var lastVpnStatusLevel: ConnectionStatus? = null
     private var lastVpnStatusState: String? = null
     private var lastVpnStatusStateUpdateMs: Long = 0L
-    private var lastEngineLevel: ConnectionStatus? = null
+    @Volatile private var lastEngineLevel: ConnectionStatus? = null
+    // Latest level the engine reported through ANY path (AIDL callback or VpnStatus listener).
+    // lastEngineLevel above is a log-throttle helper only written by the AIDL sync path.
+    @Volatile private var lastReportedEngineLevel: ConnectionStatus? = null
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
@@ -384,6 +393,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private val stopConfirmationTimeoutRunnable = Runnable {
         if (!userInitiatedStop || !stopAwaitingConfirmation) return@Runnable
         stopAwaitingConfirmation = false
+        if (stopForceAttempted) {
+            // The engine was told to kill its process and still did not report a terminal level.
+            // Retrying the management stop cannot help; keep the notification and surface STOP_FAILED.
+            AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} force_stop confirm=false reason=force_stop_unconfirmed")
+            markStopFailure("force_stop_unconfirmed")
+            return@Runnable
+        }
         stopLastFailureReason = "confirmation_timeout"
         AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=sent confirm=false reason=confirmation_timeout")
         scheduleStopRetryOrFail("confirmation_timeout")
@@ -429,6 +445,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             stopAwaitingConfirmation = false
             stopBindPending = false
             stopLastFailureReason = null
+            stopForceAttempted = false
             persistPendingStopIntent(true)
             ConnectionStateManager.clearStopFailure()
             AppLog.i(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} session=${sessionAttempt} source=$reason started=true")
@@ -479,7 +496,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun scheduleStopRetryOrFail(reason: String) {
         if (!userInitiatedStop) return
         if (stopAttempt >= STOP_DISPATCH_MAX_ATTEMPTS) {
-            markStopFailure(reason)
+            escalateToForceStopOrFail(reason)
             return
         }
         statusHandler.removeCallbacks(stopRetryRunnable)
@@ -489,7 +506,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun markStopFailure(reason: String) {
         // A failed dispatch must not leave a potentially live tunnel invisible.
         if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
-            enterControllerForeground()
+            enterControllerForeground(ControllerNotificationMode.CONNECTED)
         }
         stopAwaitingConfirmation = false
         stopBindPending = false
@@ -536,6 +553,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         stopStartedAtMs = 0L
         stopAttempt = 0
         stopLastFailureReason = null
+        stopForceAttempted = false
         if (boundToEngine) {
             try {
                 unbindService(engineConnection)
@@ -785,6 +803,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 stopAwaitingConfirmation = false
                 stopBindPending = false
                 stopLastFailureReason = null
+                stopForceAttempted = false
                 stopRequestId = null
                 userInitiatedStop = false
                 ignoreConnectedUntilNotConnected = false
@@ -1021,7 +1040,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // Do not remove the last VPN notification before teardown is confirmed.
                 // The engine notification may have vanished while its native tunnel is still live.
                 if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
-                    enterControllerForeground()
+                    enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
                 }
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
@@ -1050,6 +1069,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
                     statusHandler.removeCallbacks(stopBindTimeoutRunnable)
                     requestStopIcsOpenVpn()
+                } else if (userInitiatedStop && stopForceAttempted && stopAwaitingConfirmation) {
+                    // A management-independent teardown is already in flight for this stop
+                    // request; restarting it would re-dispatch the same dead command and reset
+                    // the confirmation window. The engine's terminal level resolves this request.
+                    AppLog.i(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} repeated_stop coalesced=true awaiting=force_stop_confirmation")
                 } else {
                     startUserStopTeardown("user_action", forceReset = true)
                 }
@@ -1372,7 +1396,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
 
         if (stopAttempt >= STOP_DISPATCH_MAX_ATTEMPTS) {
-            markStopFailure("dispatch_attempt_limit")
+            escalateToForceStopOrFail("dispatch_attempt_limit")
+            return
+        }
+        if (stopForceAttempted) {
+            // Defensive: a late bind callback or retry must not re-run the dead management path.
+            AppLog.d(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} management_stop skipped: force_stop already requested")
             return
         }
 
@@ -1390,14 +1419,62 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 statusHandler.postDelayed(stopConfirmationTimeoutRunnable, STOP_CONFIRMATION_TIMEOUT_MS)
             } else {
                 stopLastFailureReason = "dispatch_false"
-                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=failed reason=dispatch_false")
-                scheduleStopRetryOrFail("dispatch_false")
+                AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} attempt=$stopAttempt dispatch=failed reason=dispatch_false engine_level=${lastReportedEngineLevel ?: "unknown"}")
+                if (isEngineTunnelConfirmedActive()) {
+                    // The engine still reports a live tunnel while its management channel cannot
+                    // be written: an orphaned control plane. Retrying the same call is
+                    // deterministic failure, so escalate straight away.
+                    escalateToForceStopOrFail("dispatch_false_engine_active")
+                } else {
+                    scheduleStopRetryOrFail("dispatch_false")
+                }
             }
         } catch (e: RemoteException) {
             AppLog.e(TAG, "Binder stop error", e)
             stopLastFailureReason = "binder_exception"
             scheduleStopRetryOrFail("binder_exception")
         }
+    }
+
+    private fun isEngineTunnelConfirmedActive(): Boolean {
+        val level = lastReportedEngineLevel
+        return level == ConnectionStatus.LEVEL_CONNECTED || level == ConnectionStatus.LEVEL_VPNPAUSED
+    }
+
+    /**
+     * One-shot, management-independent teardown. Asks the engine to destroy its native process
+     * itself ([IOpenVPNServiceInternal.forceStopVPN]); dispatch success is NOT treated as
+     * teardown -- the stop only completes when the engine then reports a terminal level (see
+     * [handleEngineLevelForStop]). Anything that cannot be dispatched, or stays unconfirmed, ends
+     * in [markStopFailure], which keeps the notification and a retryable STOP_FAILED state.
+     */
+    private fun escalateToForceStopOrFail(reason: String) {
+        if (!userInitiatedStop) return
+        val binder = engineBinder
+        if (stopForceAttempted || binder == null) {
+            AppLog.w(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} force_stop dispatched=false reason=$reason already_attempted=$stopForceAttempted binder_available=${binder != null}")
+            markStopFailure(reason)
+            return
+        }
+        stopForceAttempted = true
+        statusHandler.removeCallbacks(stopRetryRunnable)
+        val result = try {
+            binder.forceStopVPN()
+        } catch (e: RemoteException) {
+            AppLog.e(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} force_stop binder error", e)
+            markStopFailure("force_stop_binder_exception")
+            return
+        }
+        AppLog.w(
+            TAG,
+            "stop_flow requestId=${stopRequestId ?: "<none>"} force_stop dispatched=true trigger=$reason result=$result"
+        )
+        // NO_SESSION / REQUESTED / UNSUPPORTED all end in an engine-reported terminal level (or
+        // the interrupt best effort of the in-process core); wait for that, never assume it.
+        stopAwaitingConfirmation = true
+        stopLastFailureReason = null
+        statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
+        statusHandler.postDelayed(stopConfirmationTimeoutRunnable, STOP_CONFIRMATION_TIMEOUT_MS)
     }
 
     private fun handleEngineLevelForStop(level: ConnectionStatus, source: String) {
@@ -1464,14 +1541,35 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
-    private fun enterControllerForeground(): Boolean {
+    private enum class ControllerNotificationMode { CONNECTING, CONNECTED, DISCONNECTING }
+
+    private fun enterControllerForeground(
+        mode: ControllerNotificationMode = ControllerNotificationMode.CONNECTING
+    ): Boolean {
         // Always (re)issue Service.startForeground() below, even if controllerForegroundActive is
         // already true: a genuine ACTION_START must get a fresh call to satisfy Android's
         // foreground-service-start timing requirement. Repeated calls are idempotent.
         try {
             val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.stat_sys_warning
-            val title = runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
-            val text = runCatching { getString(R.string.vpn_notification_text_connecting) }.getOrElse { "Establishing secure connection..." }
+            // The safety-net variants (CONNECTED / DISCONNECTING) must not claim the tunnel is
+            // still being established: they stand in for an engine notification that is missing
+            // while the tunnel may be live.
+            val title = when (mode) {
+                ControllerNotificationMode.CONNECTING ->
+                    runCatching { getString(R.string.vpn_notification_title_connecting) }.getOrElse { "VPN connecting" }
+                ControllerNotificationMode.CONNECTED ->
+                    runCatching { getString(R.string.vpn_notification_title_connected) }.getOrElse { "VPN connected" }
+                ControllerNotificationMode.DISCONNECTING ->
+                    runCatching { getString(R.string.vpn_notification_title_disconnecting) }.getOrElse { "VPN disconnecting" }
+            }
+            val text = when (mode) {
+                ControllerNotificationMode.CONNECTING ->
+                    runCatching { getString(R.string.vpn_notification_text_connecting) }.getOrElse { "Establishing secure connection..." }
+                ControllerNotificationMode.CONNECTED ->
+                    runCatching { getString(R.string.vpn_notification_text_connected) }.getOrElse { "Your VPN is active" }
+                ControllerNotificationMode.DISCONNECTING ->
+                    runCatching { getString(R.string.vpn_notification_text_disconnecting) }.getOrElse { "Tearing down connection..." }
+            }
             val notification = NotificationCompat.Builder(
                 this,
                 de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID
@@ -1482,6 +1580,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .apply { controllerContentIntent()?.let { setContentIntent(it) } }
+                .apply {
+                    // A live tunnel's safety notification must stay actionable, like the engine's.
+                    if (mode == ControllerNotificationMode.CONNECTED) controllerDisconnectAction()?.let { addAction(it) }
+                }
                 .build()
             startForeground(CONTROLLER_NOTIFICATION_ID, notification)
             controllerForegroundActive = true
@@ -1498,17 +1601,41 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    /** Disconnect action routed through [DisconnectReceiver] into the normal bounded stop flow. */
+    private fun controllerDisconnectAction(): NotificationCompat.Action? = runCatching {
+        val intent = Intent(this, DisconnectReceiver::class.java)
+        val pending = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val label = runCatching { getString(de.blinkt.openvpn.R.string.cancel_connection) }.getOrElse { "Disconnect" }
+        NotificationCompat.Action.Builder(0, label, pending).build()
+    }.getOrNull()
+
+    /** Opens the app's launcher activity so the user can reach the Disconnect control. */
+    private fun controllerContentIntent(): PendingIntent? = runCatching {
+        val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return null
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }.getOrNull()
+
+    /**
+     * True when the engine process currently has its own ongoing (foreground) status notification.
+     * The engine posts it under `channelId.hashCode()`; both processes belong to this app, so it is
+     * visible here. The user-request channel is deliberately excluded: that notification is
+     * dismissable and never keeps the engine in the foreground.
+     */
     private fun hasEngineOngoingNotification(): Boolean {
-        // Notification IDs belong to the engine process, but are visible to this
-        // process because both services run in the same Android application.
+        // getActiveNotifications() is API 23+. Below that (never in production, minSdk is 24) the
+        // engine notification cannot be verified, which means: keep the safety notification.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         val engineIds = setOf(
             de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_BG_ID.hashCode(),
-            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode(),
-            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_USERREQ_ID.hashCode()
+            de.blinkt.openvpn.core.OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
         )
         return try {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.activeNotifications.any { it.id in engineIds }
+            manager.activeNotifications.any {
+                it.id in engineIds &&
+                    (it.notification.flags and (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE)) != 0
+            }
         } catch (e: Exception) {
             // When visibility cannot be verified, keep the controller's safety notification.
             AppLog.w(TAG, "Cannot verify engine notification ownership", e)
@@ -1537,6 +1664,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         level: ConnectionStatus,
         intent: Intent?
     ) {
+        lastReportedEngineLevel = level
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
             logEngineStateChange("VPN_STATUS", level, state)
@@ -1648,6 +1776,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             intent: Intent?
         ) {
             if (level == null) return
+            lastReportedEngineLevel = level
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
@@ -2331,13 +2460,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         val engineNotificationActive = hasEngineOngoingNotification()
-        if ((level == ConnectionStatus.LEVEL_CONNECTED || userInitiatedStop)
-            && !controllerForegroundActive && !engineNotificationActive) {
+        val engineTunnelLive = level == ConnectionStatus.LEVEL_CONNECTED || level == ConnectionStatus.LEVEL_VPNPAUSED
+        if (engineTunnelLive && !controllerForegroundActive && !engineNotificationActive) {
+            // Not gated on ConnectionState: after controller recreation the app state is still
+            // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
             val restoreNotification = {
-                if (!serviceDestroyed && !controllerForegroundActive
-                    && (userInitiatedStop || ConnectionStateManager.state.value == ConnectionState.CONNECTED)
-                    && !hasEngineOngoingNotification()) {
-                    enterControllerForeground()
+                if (!serviceDestroyed && !controllerForegroundActive && !hasEngineOngoingNotification()) {
+                    enterControllerForeground(ControllerNotificationMode.CONNECTED)
                 }
             }
             if (Looper.myLooper() == Looper.getMainLooper()) {

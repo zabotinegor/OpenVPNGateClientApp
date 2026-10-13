@@ -205,50 +205,8 @@ class OpenVpnServiceNotificationTest {
         )
     }
 
-    @Test
-    fun actionStop_managementUnavailable_keepsNotificationAfterStopFailure() {
-        val app: Application = RuntimeEnvironment.getApplication()
-        val notifications = shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
-        simulateEnteredControllerForeground(service)
-
-        val stopIntent = Intent().apply {
-            putExtra(VpnManager.actionKey(service), VpnManager.ACTION_STOP)
-        }
-        service.onStartCommand(stopIntent, 0, 1)
-        assertFalse("Stop dispatch must not remove the last ongoing notification",
-            notifications.allNotifications.isEmpty())
-
-        // Simulate exhausting the failed management dispatch without claiming that
-        // Robolectric terminates an actual native VPN process.
-        val markFailure = OpenVpnService::class.java.getDeclaredMethod(
-            "markStopFailure", String::class.java
-        )
-        markFailure.isAccessible = true
-        markFailure.invoke(service, "dispatch_false")
-        assertFalse("STOP_FAILED must retain an ongoing notification",
-            notifications.allNotifications.isEmpty())
-    }
-
-    @Test
-    fun recreatedController_connectedEngineWithoutNotification_keepsSafetyNotification() {
-        val app: Application = RuntimeEnvironment.getApplication()
-        val notifications = shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
-        simulateEnteredControllerForeground(service)
-
-        // Simulate the AIDL status report from an old engine process. No engine
-        // notification exists, so the controller must not relinquish foreground.
-        val sync = OpenVpnService::class.java.getDeclaredMethod(
-            "syncEngineState", ConnectionStatus::class.java,
-            String::class.java, Boolean::class.javaPrimitiveType
-        )
-        sync.isAccessible = true
-        sync.invoke(service, ConnectionStatus.LEVEL_CONNECTED, "CONNECTED", false)
-
-        assertFalse("Live engine with missing engine notification needs controller fallback",
-            notifications.allNotifications.isEmpty())
-    }
+    // The end-to-end orphaned-engine regression coverage (broken management channel, force-stop
+    // escalation, controller recreation) lives in OpenVpnServiceOrphanedEngineStopTest.
 
     // ServerAutoSwitcher.dispatchStopAfterStopRetryTimeout() must NOT publish DISCONNECTED itself
     // just because stopper() returned true. That Boolean comes from Context.startService(), which
