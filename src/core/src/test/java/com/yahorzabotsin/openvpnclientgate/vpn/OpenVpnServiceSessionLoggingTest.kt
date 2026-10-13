@@ -119,6 +119,29 @@ class OpenVpnServiceSessionLoggingTest {
     }
 
     @Test
+    fun manualStartKeepsSecondServerWhenConfigsDifferAndIpIsShared() {
+        saveServers(2, sameIp = true)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val intent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), false)
+            // VpnManager.startVpn decodes the config; the store keeps the encoded representation.
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+
+        service.onStartCommand(intent, 0, 1)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(appContext))
+        assertTrue(
+            ShadowLog.getLogs().any {
+                it.tag == logTag && it.msg.contains("server=2/2, ip=0.0.0.1")
+            }
+        )
+    }
+
+    @Test
     fun logsExhaustedListWhenNoAlternative() {
         saveServers(1)
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()

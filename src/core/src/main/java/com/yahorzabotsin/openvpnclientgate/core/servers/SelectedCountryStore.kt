@@ -275,16 +275,15 @@ object SelectedCountryStore {
     // read-modify-write that spans both therefore runs under selectionRenameLock -- the same
     // monitor the guarded selection writes take.
     //
-    // Without that, ServerAutoSwitcher's nextServerCircular() could interleave with the silent
+    // Without that, ServerAutoSwitcher's nextUnvisitedServer() could interleave with the silent
     // backfill's saveSelectionPreservingIndex(), which briefly resets the index to 0 (inside
-    // saveSelection) before ensureIndexForConfig restores the previous position. The auto-switch
+    // saveSelection) before restoreIndexByIdentity restores the previous position. The auto-switch
     // would then advance off that transient 0 -- and dispatch the server it computed -- only for
-    // ensureIndexForConfig to overwrite the index right afterwards, leaving the persisted current
+    // the restore to overwrite the index right afterwards, leaving the persisted current
     // server different from the one actually connected to and corrupting every subsequent
-    // cycle/wrap decision (nextServerCircular can even conclude "wrapped, give up" against a
-    // start index that was measured against the pre-swap list). The monitor is reentrant, so the
-    // nested calls below (setCurrentIndex → setIndex, ensureIndexForConfig → setIndex,
-    // saveSelectionPreservingIndex → ensureIndexForConfig) are safe.
+    // cycle/wrap decision. The monitor is reentrant, so the nested calls below
+    // (setCurrentIndex → setIndex, ensureIndexForConfig → setIndex,
+    // saveSelectionPreservingIndex → restoreIndexByIdentity → setIndex) are safe.
     //
     // The read-only accessors take it too: they read the list and the index as a pair, and a
     // torn pair (new list, old index) is exactly the mismatch this lock exists to prevent.
@@ -524,6 +523,11 @@ object SelectedCountryStore {
                 return
             }
             if (!ip.isNullOrBlank()) {
+                // ACTION_START carries the DECODED config while the store keeps the encoded one, so
+                // a started server often cannot be matched by config. An IP alone cannot tell
+                // same-IP entries apart: when the current entry already has this IP, keep the
+                // explicit selection instead of collapsing onto the first same-IP entry.
+                if (current in list.indices && list[current].ip == ip) return
                 val foundByIp = list.indexOfFirst { it.ip == ip }
                 if (foundByIp >= 0) {
                     setIndex(ctx, foundByIp)

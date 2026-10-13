@@ -209,6 +209,47 @@ class ServerAutoSwitcherCycleIdentityTest {
     }
 
     @Test
+    fun manualStartOnSecondSameIpEntry_seedsCycleWithThatEntry() {
+        select(srv(0, "c1"), srv(0, "c2"), index = 1)
+        // What a manual ACTION_START does with the decoded config and the shared IP.
+        SelectedCountryStore.ensureIndexForConfig(ctx, "decoded", "9.9.9.9")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", "decoded", "9.9.9.9")
+
+        failAndSwitch()
+
+        assertEquals("the second entry failed, so the first is next -- not the second again", listOf("c1"), started)
+        assertEquals(1 to 2, SelectedCountryStore.getCurrentPosition(ctx))
+    }
+
+    @Test
+    fun fallbackSeeding_marksFailingServerAndChainedCandidateAsVisited() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+        val keys = SelectedCountryStore.currentServerKeys(ctx)
+
+        ServerAutoSwitcher.seedCycleFromCurrentServer(ctx)
+        SelectedCountryStore.nextServer(ctx) // VPN_STATUS fallback advances the index itself
+        ServerAutoSwitcher.markCurrentServerAttempted(ctx)
+
+        assertEquals(listOf(keys[0], keys[1]), ServerAutoSwitcher.cycleVisitedForTest())
+    }
+
+    @Test
+    fun refreshReplacingEveryVisitedServer_doesNotSkipTheParkedUnattemptedServer() {
+        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
+        failAndSwitch() // A -> B in flight, visited {A, B}
+
+        // Pool replaced: neither A nor B exists any more; the persisted index (0) was never attempted.
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(4, "C"), srv(5, "D")))
+
+        failAndSwitch()
+        failAndSwitch()
+        stallCurrentAttempt()
+
+        assertEquals("every server of the new pool is attempted exactly once", listOf("B", "D", "C"), started)
+        assertEquals(1, stopCalls)
+    }
+
+    @Test
     fun newSelectionDuringCycle_discardsTheStaleCycleAndKeepsTheUsersSelection() {
         select(srv(1, "A"), srv(2, "B"), index = 0)
         failAndSwitch() // A -> B, cycle visited {A, B}

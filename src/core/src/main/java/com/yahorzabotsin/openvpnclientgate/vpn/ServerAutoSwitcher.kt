@@ -98,6 +98,7 @@ object ServerAutoSwitcher {
     // process death drops the cycle, exactly as the former start index was dropped. Reset on user
     // stop, success / non-reconnect levels, cycle exhaustion and aborted dispatch (cancel(true)).
     private var cycleVisited: LinkedHashSet<String>? = null
+    private var cycleCountry: String? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
     // Pending re-dispatch of the stop-retry-timeout ACTION_STOP (see
     // dispatchStopAfterStopRetryTimeout). Held in a field, like every other posted Runnable in this
@@ -461,17 +462,38 @@ object ServerAutoSwitcher {
      */
     private fun ensureCycle(appContext: Context): LinkedHashSet<String> {
         val existing = cycleVisited
+        val country = SelectedCountryStore.getSelectedCountry(appContext)
+        var seedCurrent = true
         if (existing != null && existing.isNotEmpty()) {
             val keys = SelectedCountryStore.currentServerKeys(appContext)
             if (keys.any { it in existing }) return existing
             AppLog.i(TAG, "Selection changed under the switch cycle; discarding stale cycle")
+            // Same country, every visited server gone: a refresh replaced the pool, so the persisted
+            // current server is only a parked index that was never attempted -- do not mark it
+            // visited. A different country means the user's selection is itself the attempt.
+            seedCurrent = country != cycleCountry
         } else if (existing != null) {
             return existing
         }
         val fresh = LinkedHashSet<String>()
-        SelectedCountryStore.currentServerKey(appContext)?.let { fresh.add(it) }
+        if (seedCurrent) SelectedCountryStore.currentServerKey(appContext)?.let { fresh.add(it) }
         cycleVisited = fresh
+        cycleCountry = country
         return fresh
+    }
+
+    /**
+     * Starts a cycle (if none is active) seeded with the CURRENT server as the failing one. For a
+     * caller that advances the persisted index itself before [beginChainedSwitch].
+     */
+    fun seedCycleFromCurrentServer(appContext: Context) {
+        ensureCycle(appContext)
+    }
+
+    /** Marks the persisted current server (the chained candidate about to start) as attempted. */
+    fun markCurrentServerAttempted(appContext: Context) {
+        val key = SelectedCountryStore.currentServerKey(appContext) ?: return
+        ensureCycle(appContext).add(key)
     }
 
     /**

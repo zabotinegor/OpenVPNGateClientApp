@@ -149,6 +149,42 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun ensure_index_for_decoded_config_with_shared_ip_keeps_selected_entry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2)
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        // Manual ACTION_START: decoded config cannot match the stored one, only the shared IP does.
+        SelectedCountryStore.ensureIndexForConfig(ctx, "decoded-config", "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "decoded-config", "1.1.1.1")
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun ensure_index_for_ip_still_aligns_when_current_entry_has_another_ip() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1, ip = "1.1.1.1"),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2, ip = "2.2.2.2")
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        SelectedCountryStore.ensureIndexForConfig(ctx, "decoded-config", "2.2.2.2")
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
     fun next_server_circular_stops_after_full_cycle() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()

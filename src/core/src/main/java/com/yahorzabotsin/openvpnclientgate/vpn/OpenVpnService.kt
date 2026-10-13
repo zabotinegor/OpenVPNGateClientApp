@@ -922,14 +922,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
-                // A reconnect starts the candidate ServerAutoSwitcher just persisted as current, so
-                // its own entry is authoritative; a config lookup could resolve a duplicate entry.
-                val reconnectCurrentIp = if (isReconnect) {
-                    runCatching { SelectedCountryStore.currentServer(applicationContext) }.getOrNull()
-                        ?.takeIf { it.config == config }?.ip
-                } else null
-                val targetIp = reconnectCurrentIp
-                    ?: runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
+                val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
                     ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
                 // Auto-switch already selected the intended candidate before ACTION_START.
                 // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
@@ -1560,6 +1553,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val vpnStatusFailingServerId = if (level != ConnectionStatus.LEVEL_NONETWORK) {
                     SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(applicationContext)
                 } else 0
+                // Seed the cycle with the failing (current) server BEFORE advancing, so it counts as
+                // attempted and the exhaustion restore targets it.
+                try { ServerAutoSwitcher.seedCycleFromCurrentServer(applicationContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to seed switch cycle before engine auto-switch", e) }
                 val next = SelectedCountryStore.nextServer(applicationContext)
                 if (vpnStatusFailingServerId != 0) {
                     try { probeQueue?.enqueue(vpnStatusFailingServerId) } catch (e: Exception) { AppLog.w(TAG, "VPN_STATUS fallback: failed to enqueue hardprobe for serverId=$vpnStatusFailingServerId", e) }
@@ -1570,6 +1566,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
                 AppLog.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
                 try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
+                try { ServerAutoSwitcher.markCurrentServerAttempted(applicationContext) } catch (e: Exception) { AppLog.w(TAG, "Failed to mark chained candidate as attempted", e) }
                 try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
                 return
               } else {
