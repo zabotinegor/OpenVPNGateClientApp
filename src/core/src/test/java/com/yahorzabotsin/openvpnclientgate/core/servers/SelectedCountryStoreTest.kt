@@ -127,6 +127,64 @@ class SelectedCountryStoreTest {
     }
 
     @Test
+    fun last_started_config_reconnect_keeps_selected_index_with_duplicate_ip() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2)
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        // ACTION_START has a decoded config while the stored configs are still encoded.
+        SelectedCountryStore.saveLastStartedConfig(
+            ctx, "CountryA", "decoded-config", ip = "1.1.1.1", alignIndex = false
+        )
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("encoded2", SelectedCountryStore.currentServer(ctx)?.config)
+        assertEquals("decoded-config", SelectedCountryStore.getLastStartedConfig(ctx)?.config)
+    }
+
+    @Test
+    fun ensure_index_for_decoded_config_with_shared_ip_keeps_selected_entry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2)
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        // Manual ACTION_START: decoded config cannot match the stored one, only the shared IP does.
+        SelectedCountryStore.ensureIndexForConfig(ctx, "decoded-config", "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "decoded-config", "1.1.1.1")
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun ensure_index_for_ip_still_aligns_when_current_entry_has_another_ip() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(
+            ctx, "CountryA", listOf(
+                server(name = "first", city = "City1", config = "encoded1", lineIndex = 1, ip = "1.1.1.1"),
+                server(name = "second", city = "City2", config = "encoded2", lineIndex = 2, ip = "2.2.2.2")
+            )
+        )
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        SelectedCountryStore.ensureIndexForConfig(ctx, "decoded-config", "2.2.2.2")
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
     fun next_server_circular_stops_after_full_cycle() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
@@ -140,11 +198,14 @@ class SelectedCountryStoreTest {
         SelectedCountryStore.saveSelection(ctx, "CountryA", servers)
         SelectedCountryStore.setCurrentIndex(ctx, 1)
 
-        val first = SelectedCountryStore.nextServerCircular(ctx, 1)
-        assertEquals("City3", first?.city)
-        val second = SelectedCountryStore.nextServerCircular(ctx, 1)
-        assertEquals("City1", second?.city)
-        val third = SelectedCountryStore.nextServerCircular(ctx, 1)
+        val visited = linkedSetOf(SelectedCountryStore.currentServerKey(ctx)!!)
+        val first = SelectedCountryStore.nextUnvisitedServer(ctx, visited)
+        assertEquals("City3", first?.server?.city)
+        visited.add(first!!.key)
+        val second = SelectedCountryStore.nextUnvisitedServer(ctx, visited)
+        assertEquals("City1", second?.server?.city)
+        visited.add(second!!.key)
+        val third = SelectedCountryStore.nextUnvisitedServer(ctx, visited)
         assertNull(third)
     }
 
@@ -609,14 +670,14 @@ class SelectedCountryStoreTest {
     }
 
     // saveSelectionPreservingIndex made its own check/write/restore sequence
-    // atomic, but the auto-switch index mutations (nextServerCircular -> setIndex) did not take
+    // atomic, but the auto-switch index mutations (nextUnvisitedServer -> setIndex) did not take
     // the same monitor. saveSelection writes index=0 before ensureIndexForConfig restores the
     // previous position, so ServerAutoSwitcher could advance off that transient 0, dispatch the
     // server it computed, and then have its advance overwritten by ensureIndexForConfig --
     // leaving the persisted current server different from the one actually connected to.
     //
     // The backfill thread is parked at its SECOND prefs write, i.e. exactly in the window where
-    // index=0 has been committed and the restore has not run yet. A concurrent nextServerCircular
+    // index=0 has been committed and the restore has not run yet. A concurrent nextUnvisitedServer
     // must not be able to observe or mutate the index there.
     @Test(timeout = 30_000)
     fun autoSwitchAdvance_cannotInterleaveWithBackfillIndexRestore() {
@@ -631,8 +692,7 @@ class SelectedCountryStoreTest {
         SelectedCountryStore.saveSelection(base, "CountryA", servers)
         // The user is on the last server; the auto-switch cycle started from there.
         SelectedCountryStore.setCurrentIndex(base, 2)
-        val cycleStartIndex = SelectedCountryStore.getCurrentIndex(base)
-        assertEquals(2, cycleStartIndex)
+        val visited = linkedSetOf(SelectedCountryStore.currentServerKey(base)!!)
 
         val backfillReachedRestoreWindow = CountDownLatch(1)
         val releaseBackfill = CountDownLatch(1)
@@ -670,7 +730,7 @@ class SelectedCountryStoreTest {
         val advanceCompleted = CountDownLatch(1)
         val dispatched = java.util.concurrent.atomic.AtomicReference<StoredServer?>(null)
         val autoSwitch = Thread {
-            dispatched.set(SelectedCountryStore.nextServerCircular(base, cycleStartIndex))
+            dispatched.set(SelectedCountryStore.nextUnvisitedServer(base, visited)?.server)
             advanceCompleted.countDown()
         }
         autoSwitch.start()

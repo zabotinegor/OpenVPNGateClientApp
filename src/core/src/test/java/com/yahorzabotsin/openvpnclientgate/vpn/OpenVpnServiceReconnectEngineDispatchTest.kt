@@ -502,7 +502,7 @@ class OpenVpnServiceReconnectEngineDispatchTest {
     // dispatchAutoSwitcherOnEngineLevel() is invoked here while Looper.myLooper() ==
     // Looper.getMainLooper() (Robolectric's paused main looper thread IS the test thread), it runs
     // its guard check and, if unsuppressed, the entire ServerAutoSwitcher.requestSwitchNow() chain
-    // synchronously and in-line -- including SelectedCountryStore.nextServerCircular(), which
+    // synchronously and in-line -- including SelectedCountryStore.nextUnvisitedServer(), which
     // mutates the stored index immediately, with no dependency on forwarding queued started-service
     // intents. Checking the stored position after the hook fires is therefore a direct, exact probe
     // of what reconnectDispatchPendingGeneration held at the moment startIcsOpenVpn() dispatched:

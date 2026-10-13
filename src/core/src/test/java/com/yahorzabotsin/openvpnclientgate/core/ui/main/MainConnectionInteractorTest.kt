@@ -76,6 +76,86 @@ class MainConnectionInteractorTest {
 
     // endregion
 
+    // region last-successful start with same-IP entries
+
+    private val sharedIp = "5.228.228.136"
+
+    private fun saveSharedIpPoolWithLastSuccessfulOnSecond(): MainSelectedServer {
+        val ctx = RuntimeEnvironment.getApplication()
+        SelectedCountryStore.saveSelection(ctx, "Belarus", listOf(
+            makeServer("encoded-A", sharedIp), makeServer("encoded-B", sharedIp), makeServer("encoded-C", "6.6.6.6")
+        ))
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        // ACTION_START stores the DECODED config; the connection succeeded on entry B.
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", "decoded-B", sharedIp, alignIndex = false)
+        return makeSelectedServer(config = "encoded-B", ip = sharedIp)
+    }
+
+    private fun simulateActionStartAlignment(config: String, ip: String) {
+        val ctx = RuntimeEnvironment.getApplication()
+        SelectedCountryStore.ensureIndexForConfig(ctx, config, ip)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Belarus", config, ip)
+    }
+
+    @Test
+    fun prepareStart_lastSuccessfulOnSecondSharedIpEntry_keepsThatEntryThroughActionStart() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val selected = saveSharedIpPoolWithLastSuccessfulOnSecond()
+        // Selection moved to the first entry meanwhile (e.g. after an app relaunch).
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        val prepared = interactor.prepareStart(selected, preferUserSelection = false)
+        simulateActionStartAlignment(prepared!!.config, sharedIp)
+
+        assertEquals("decoded-B", prepared.config)
+        assertEquals("counter must stay on entry B, the real target", 1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun prepareStart_lastSuccessfulOnSecondSharedIpEntry_seedsCycleWithThatEntryNotTheFirst() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val selected = saveSharedIpPoolWithLastSuccessfulOnSecond()
+
+        val prepared = interactor.prepareStart(selected, preferUserSelection = false)
+        simulateActionStartAlignment(prepared!!.config, sharedIp)
+
+        val visited = linkedSetOf(SelectedCountryStore.currentServerKey(ctx)!!)
+        val next = SelectedCountryStore.nextUnvisitedServer(ctx, visited)
+        assertEquals("encoded-C", next?.server?.config)
+    }
+
+    @Test
+    fun prepareStart_lastSuccessfulServerRemovedByRefresh_fallsBackToIpAlignment() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val selected = saveSharedIpPoolWithLastSuccessfulOnSecond()
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "Belarus", listOf(
+            makeServer("encoded-A", sharedIp), makeServer("encoded-C", "6.6.6.6")
+        ))
+
+        val prepared = interactor.prepareStart(selected, preferUserSelection = false)
+
+        assertNotNull(prepared)
+        assertEquals("falls back to the existing IP alignment", 0, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun prepareStart_lastSuccessfulWithoutRecordedKey_usesLegacyIpAlignment() {
+        val ctx = RuntimeEnvironment.getApplication()
+        SelectedCountryStore.saveSelection(ctx, "Belarus", listOf(
+            makeServer("encoded-A", "1.1.1.1"), makeServer("encoded-B", "2.2.2.2")
+        ))
+        // Older persisted data: only config/ip, no server key.
+        ctx.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE).edit()
+            .putString("last_success_config", "decoded-B").putString("last_success_country", "Belarus")
+            .putString("last_success_ip", "2.2.2.2").remove("last_success_server_key").commit()
+
+        interactor.prepareStart(makeSelectedServer(config = "encoded-B", ip = "2.2.2.2"), preferUserSelection = false)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    // endregion
+
     private fun makeServer(config: String, ip: String) = Server(
         lineIndex = 0,
         name = ip,

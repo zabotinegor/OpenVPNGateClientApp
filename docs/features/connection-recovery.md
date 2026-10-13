@@ -96,7 +96,7 @@ Two things worth knowing before changing any of this:
 
 - **The counter is not sticky in general.** A transition that the watchdog did not cause still resets
   it. `transitionOutsideRecovery_stillResetsAttempts` guards that distinction.
-- **`ServerAutoSwitcher` still clears its own `cycleStartIndex` on `LEVEL_CONNECTED`**, so the switcher's one-full-pass bound is per connect, not per
+- **`ServerAutoSwitcher` still clears its own cycle (`cycleVisited`) on `LEVEL_CONNECTED`**, so the switcher's one-full-pass bound is per connect, not per
   session. That hole is now closed *behind* the watchdog rather than in the switcher: the fail-safe
   disconnect ends the chain before the switcher's reset matters. If the watchdog cap is ever removed,
   this reopens.
@@ -118,16 +118,42 @@ country rather than failing outright.
   must turn it off, not on.
 - Stall threshold comes from `status_stall_timeout_seconds` (default 5, minimum 1) — see
   [../reference/settings-keys.md](../reference/settings-keys.md).
-- `requestSwitchNow()` triggers a switch; `nextServerCircular()` picks the next candidate.
+- `requestSwitchNow()` triggers a switch; `SelectedCountryStore.nextUnvisitedServer(ctx, visited)` picks the next candidate whose identity key is not yet in the cycle's visited set.
 - It holds a `probeRequestQueue` from the same Koin instance the service uses, set in
   `OpenVpnService.onCreate()` and cleared in `onDestroy()`.
 
-**It stops after one full cycle — it does not loop.** `ServerAutoSwitcher` records
-`cycleStartIndex` on the first switch of a run, and `nextServerCircular(ctx, startIndex)` returns
-`null` as soon as the next index would equal that start. On `null` the switcher logs
-"completed full server cycle", restores the starting index via
-`SelectedCountryStore.setCurrentIndex`, cancels with `resetCycle = true`, clears the reconnect hint,
-sets `ConnectionState.DISCONNECTED` and stops the engine.
+**It stops after one full cycle — it does not loop.** The cycle is `ServerAutoSwitcher.cycleVisited`,
+an in-memory ordered set of server identity keys (see `core/servers/ServerIdentity.kt`). Its first
+element is the cycle's start server. `ensureCycle()` seeds it with the current server before the first
+advance, and each candidate the switcher starts is added to it. The seed is skipped while the index is
+only a parked scan cursor (a refresh removed the in-use server, see [server-sync.md](server-sync.md)):
+`SelectedCountryStore.currentAttemptedServerKey()` returns `null` then, so the never-started parked
+entry stays unvisited and is still tried. `nextUnvisitedServer(ctx, visited)`
+walks the persisted list circularly from the current index and returns the first entry whose key is
+not in the set, so it returns `null` only when every key currently in the list has been visited.
+Wrap detection is by identity, not position: a background refresh that adds, removes or reorders
+entries mid-cycle neither re-offers an attempted server nor ends the cycle early.
+
+Identity keys are `id:<id>` when the backend server id is greater than 0. Otherwise the key is
+`ep:<endpoint>|<ip>`, built from the config's `proto` and `remote` lines, so a refresh that re-issues
+an unchanged server's config keeps its key. A config with no readable `remote` uses
+`cfg:<SHA-256 of the config>|<ip>`. A repeated key gets a `#n` ordinal suffix in list order. Repeated `ep:` keys target the same socket, so a reorder that swaps their ordinals only moves a visited mark between profiles of one server. The IP alone is
+never an identity, because several servers can share one IP. The cycle is dropped on user stop, on
+success, on non-reconnect levels, on exhaustion, on an aborted dispatch, and when the selected
+country or pool changes. It is not persisted across process death.
+
+On `null` the switcher logs "completed full server cycle", restores the start server by identity via
+`SelectedCountryStore.setCurrentIndexByKey(...)`, cancels with `resetCycle = true`, clears the
+reconnect hint, sets `ConnectionState.DISCONNECTED` and stops the engine.
+
+Two other entry points drive the same cycle. The `OpenVpnService` `VPN_STATUS` fallback calls
+`ServerAutoSwitcher.nextCycleCandidate()`, the same circular, identity-tracked selection: it wraps
+past the last server, returns `null` only when every server was attempted, and then restores the start
+server. Its hardprobe target (`getCurrentServerIdIfMatchingLastStarted()`) is 0 while the index is
+parked, so a removed server's failure is never attributed to the parked entry. A reconnect `ACTION_START` saves its started
+config with `alignIndex=false`, so it does not move the index the cycle is walking. It also leaves a parked flag set: the candidate selection already cleared it, so a flag set again means a
+refresh removed that candidate before the start, and the parked entry must not be recorded as the started or
+successful server.
 
 So a country whose servers are all unreachable produces exactly one pass over the list and then a
 clean disconnect at the original selection. That is the termination invariant to test against; the

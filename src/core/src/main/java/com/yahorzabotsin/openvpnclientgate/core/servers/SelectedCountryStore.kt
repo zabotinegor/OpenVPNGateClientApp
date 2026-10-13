@@ -29,6 +29,10 @@ object SelectedCountryStore {
     private const val KEY_COUNTRY = "selected_country"
     private const val KEY_SERVERS = "selected_country_servers"
     private const val KEY_INDEX = "selected_country_index"
+    // True while KEY_INDEX is only a scan cursor parked by restoreIndexByIdentity (the server it
+    // tracked was removed by a refresh), i.e. the entry it points at was never started. Cleared by
+    // every other index write and by any start.
+    private const val KEY_INDEX_PARKED = "selected_country_index_parked"
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
@@ -38,6 +42,7 @@ object SelectedCountryStore {
     private val selectionRenameLock = SelectionWriteLock.monitor
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
+    private const val KEY_LAST_SUCCESS_SERVER_KEY = "last_success_server_key"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
     private val TAG = LogTags.APP + ":SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
@@ -97,6 +102,7 @@ object SelectedCountryStore {
                 .putString(KEY_COUNTRY, country)
                 .putString(KEY_SERVERS, serialized)
                 .putInt(KEY_INDEX, 0)
+                .remove(KEY_INDEX_PARKED)
             if (expectedCountry != null) {
                 // Guarded writes come from background jobs (the silent backfill / sync), where a
                 // synchronous commit is affordable and makes the write durable before the lock
@@ -184,7 +190,7 @@ object SelectedCountryStore {
         // The whole check → write → restore-index sequence runs under the same monitor as
         // saveSelection (reentrant), so a concurrent selection can neither slip between the
         // country check and the write nor observe the intermediate index=0 state that
-        // saveSelection writes before ensureIndexForConfig restores the previous position.
+        // saveSelection writes before restoreIndexByIdentity restores the previous position.
         synchronized(selectionRenameLock) {
             if (!isStillCurrent()) {
                 AppLog.w(
@@ -196,20 +202,21 @@ object SelectedCountryStore {
             val selectedCountry = getSelectedCountry(ctx)
             if (selectedCountry != country) return
 
-            val previousCurrent = currentServer(ctx)
-            val previousCount = getServers(ctx).size
+            val previousList = getServers(ctx)
+            val previousCount = previousList.size
+            val previousIndex = getIndex(ctx)
+            val previousCurrent = previousList.getOrNull(previousIndex)
+            val previousParked = isIndexParked(ctx)
 
-            saveSelection(ctx, country, servers, expectedCountry = country)
+            if (!saveSelection(ctx, country, servers, expectedCountry = country)) return
 
-            if (previousCurrent != null) {
-                ensureIndexForConfig(ctx, previousCurrent.config, previousCurrent.ip)
-            }
+            // Re-point the persisted index by server IDENTITY, not by config/ip: the same IP may
+            // appear on several entries and a refresh can add/remove/reorder entries, so a
+            // position (or an indexOfFirst on ip) would silently land on a different server.
+            val currentRestored = previousCurrent != null &&
+                restoreIndexByIdentity(ctx, previousList, previousIndex, previousParked)
 
             val newCount = getServers(ctx).size
-            val restoredCurrent = currentServer(ctx)
-            val currentRestored = previousCurrent != null && restoredCurrent != null &&
-                restoredCurrent.config == previousCurrent.config &&
-                restoredCurrent.ip == previousCurrent.ip
             AppLog.i(
                 TAG,
                 "saveSelectionPreservingIndex: country=$country, count=$previousCount->$newCount, current_restored=$currentRestored"
@@ -217,6 +224,55 @@ object SelectedCountryStore {
             SelectedCountryVersionSignal.bump()
         }
     }
+
+    /**
+     * Points the freshly written list's index at the server that was current in [previousList] at
+     * [previousIndex], matching by [ServerIdentity]. When that server no longer exists, the index is
+     * parked on the PREDECESSOR (in the old order) of the first surviving successor, so a circular
+     * scan that starts after the index resumes exactly at that successor: no survivor is skipped and
+     * none is revisited. When no old entry survives at all, the index stays on the new list's first
+     * entry. Returns whether the very same server was found.
+     *
+     * A parked index is marked as such ([isIndexParked]): the entry it points at was never started,
+     * so the auto-switch cycle must not seed it as the failing server. This holds for the
+     * no-survivor case too. A previously parked index
+     * that survives this refresh stays parked.
+     */
+    private fun restoreIndexByIdentity(
+        ctx: Context,
+        previousList: List<StoredServer>,
+        previousIndex: Int,
+        previousParked: Boolean
+    ): Boolean {
+        val newKeys = ServerIdentity.keys(getServers(ctx))
+        if (newKeys.isEmpty() || previousIndex !in previousList.indices) return false
+        val previousKeys = ServerIdentity.keys(previousList)
+        val sameServer = newKeys.indexOf(previousKeys[previousIndex])
+        if (sameServer >= 0) {
+            setIndex(ctx, sameServer)
+            if (previousParked) markIndexParked(ctx)
+            return true
+        }
+        for (step in 1 until previousList.size) {
+            val survivor = newKeys.indexOf(previousKeys[(previousIndex + step) % previousList.size])
+            if (survivor >= 0) {
+                setIndex(ctx, (survivor - 1 + newKeys.size) % newKeys.size)
+                markIndexParked(ctx)
+                return false
+            }
+        }
+        // No old entry survived: the pool was replaced outright. saveSelection left the index on 0,
+        // an entry that was never started; park it so the cycle does not seed it as the failing
+        // server (a one-entry replacement would otherwise look exhausted at once).
+        markIndexParked(ctx)
+        return false
+    }
+
+    private fun markIndexParked(ctx: Context) {
+        prefs(ctx).edit().putBoolean(KEY_INDEX_PARKED, true).apply()
+    }
+
+    private fun isIndexParked(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_INDEX_PARKED, false)
 
     fun getSelectedCountry(ctx: Context): String? = prefs(ctx).getString(KEY_COUNTRY, null)
 
@@ -249,33 +305,34 @@ object SelectedCountryStore {
     // read-modify-write that spans both therefore runs under selectionRenameLock -- the same
     // monitor the guarded selection writes take.
     //
-    // Without that, ServerAutoSwitcher's nextServerCircular() could interleave with the silent
+    // Without that, ServerAutoSwitcher's nextUnvisitedServer() could interleave with the silent
     // backfill's saveSelectionPreservingIndex(), which briefly resets the index to 0 (inside
-    // saveSelection) before ensureIndexForConfig restores the previous position. The auto-switch
+    // saveSelection) before restoreIndexByIdentity restores the previous position. The auto-switch
     // would then advance off that transient 0 -- and dispatch the server it computed -- only for
-    // ensureIndexForConfig to overwrite the index right afterwards, leaving the persisted current
+    // the restore to overwrite the index right afterwards, leaving the persisted current
     // server different from the one actually connected to and corrupting every subsequent
-    // cycle/wrap decision (nextServerCircular can even conclude "wrapped, give up" against a
-    // start index that was measured against the pre-swap list). The monitor is reentrant, so the
-    // nested calls below (setCurrentIndex → setIndex, ensureIndexForConfig → setIndex,
-    // saveSelectionPreservingIndex → ensureIndexForConfig) are safe.
+    // cycle/wrap decision. The monitor is reentrant, so the nested calls below
+    // (setCurrentIndex → setIndex, ensureIndexForConfig → setIndex,
+    // saveSelectionPreservingIndex → restoreIndexByIdentity → setIndex) are safe.
     //
     // The read-only accessors take it too: they read the list and the index as a pair, and a
     // torn pair (new list, old index) is exactly the mismatch this lock exists to prevent.
     // ---------------------------------------------------------------------------------------
 
     fun resetIndex(ctx: Context) {
-        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, 0).apply() }
+        setIndex(ctx, 0)
     }
 
     fun prepareAutoSwitchFromStart(ctx: Context) {
-        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, -1).apply() }
+        setIndex(ctx, -1)
     }
 
     private fun getIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_INDEX, 0)
 
     private fun setIndex(ctx: Context, index: Int) {
-        synchronized(selectionRenameLock) { prefs(ctx).edit().putInt(KEY_INDEX, index).apply() }
+        synchronized(selectionRenameLock) {
+            prefs(ctx).edit().putInt(KEY_INDEX, index).remove(KEY_INDEX_PARKED).apply()
+        }
     }
 
     fun setCurrentIndex(ctx: Context, index: Int) {
@@ -341,17 +398,60 @@ object SelectedCountryStore {
         } else null
     }
 
-    fun nextServerCircular(ctx: Context, startIndex: Int?): StoredServer? =
+    /** Identity keys ([ServerIdentity]) of the persisted list, in list order. */
+    fun currentServerKeys(ctx: Context): List<String> = synchronized(selectionRenameLock) {
+        ServerIdentity.keys(getServers(ctx))
+    }
+
+    /** Identity key of the persisted current server, or null when the index is out of range. */
+    fun currentServerKey(ctx: Context): String? = synchronized(selectionRenameLock) {
+        val list = getServers(ctx)
+        val idx = getIndex(ctx)
+        if (idx in list.indices) ServerIdentity.keys(list)[idx] else null
+    }
+
+    /**
+     * Like [currentServerKey], but null while the index is only a parked scan cursor (the server it
+     * tracked was removed by a refresh): that entry was never started, so it must not be recorded as
+     * the failing/connected server.
+     */
+    fun currentAttemptedServerKey(ctx: Context): String? = synchronized(selectionRenameLock) {
+        if (isIndexParked(ctx)) null else currentServerKey(ctx)
+    }
+
+    /**
+     * Next auto-switch candidate: scanning circularly from the persisted current index, the first
+     * server whose identity key is not in [visited]. Persists the index of the returned candidate
+     * (so the UI counter follows the connection target) and returns null when every server in the
+     * list has already been attempted -- i.e. the cycle is exhausted.
+     *
+     * Tracking attempts by identity rather than by position means a refresh that adds, removes or
+     * reorders servers mid-cycle can neither get an already-attempted server retried nor make the
+     * wrap look complete too early.
+     */
+    fun nextUnvisitedServer(ctx: Context, visited: Set<String>): CycleCandidate? =
         synchronized(selectionRenameLock) {
             val list = getServers(ctx)
             if (list.isEmpty()) return null
-            val current = getIndex(ctx).let { if (it in list.indices) it else 0 }
-            val start = startIndex?.takeIf { it in list.indices } ?: current
-            val next = (current + 1) % list.size
-            if (next == start) return null
-            setIndex(ctx, next)
-            return list[next]
+            val keys = ServerIdentity.keys(list)
+            val idx = getIndex(ctx)
+            // An out-of-range index (e.g. -1 from prepareAutoSwitchFromStart) scans from position 0.
+            val origin = if (idx in list.indices) idx else -1
+            for (step in 1..list.size) {
+                val i = Math.floorMod(origin + step, list.size)
+                if (keys[i] !in visited) {
+                    setIndex(ctx, i)
+                    return CycleCandidate(list[i], keys[i], i)
+                }
+            }
+            null
         }
+
+    /** Points the persisted index at the server with identity [key]; false when it is gone. */
+    fun setCurrentIndexByKey(ctx: Context, key: String): Boolean = synchronized(selectionRenameLock) {
+        val i = ServerIdentity.keys(getServers(ctx)).indexOf(key)
+        if (i < 0) false else { setIndex(ctx, i); true }
+    }
 
     private fun resolveIpForConfig(ctx: Context, config: String?): String? {
         if (config.isNullOrBlank()) return null
@@ -380,7 +480,23 @@ object SelectedCountryStore {
             if (alignIndex) {
                 ensureIndexForConfig(ctx, config, ipToStore)
             }
+            // The persisted config is the DECODED one from ACTION_START and can never be matched
+            // against the stored (encoded) list, and several entries may share one IP. The identity
+            // of the server the index points at lets the next start restore exactly this entry. A
+            // parked index (the connected server was removed by a refresh) records no key, so the
+            // next start falls back to config/ip alignment instead of restoring an unrelated entry.
+            prefs(ctx).edit().putString(KEY_LAST_SUCCESS_SERVER_KEY, currentAttemptedServerKey(ctx)).apply()
         }
+    }
+
+    /**
+     * Points the index at the server recorded by the last successful connection (by identity).
+     * Returns false when nothing was recorded (older persisted data) or that server is gone, so the
+     * caller can fall back to config/ip alignment.
+     */
+    fun restoreLastSuccessfulServerIndex(ctx: Context): Boolean = synchronized(selectionRenameLock) {
+        val key = prefs(ctx).getString(KEY_LAST_SUCCESS_SERVER_KEY, null)
+        !key.isNullOrBlank() && setCurrentIndexByKey(ctx, key)
     }
 
     fun getLastSuccessfulConfigForSelected(ctx: Context): String? {
@@ -402,16 +518,26 @@ object SelectedCountryStore {
         return if (selected == country) ip else null
     }
 
-    fun saveLastStartedConfig(ctx: Context, country: String?, config: String, ip: String? = null) {
+    fun saveLastStartedConfig(
+        ctx: Context, country: String?, config: String, ip: String? = null, alignIndex: Boolean = true
+    ) {
         if (config.isBlank()) return
         synchronized(selectionRenameLock) {
             val ipToStore = ip ?: resolveIpForConfig(ctx, config)
-            prefs(ctx).edit()
+            val editor = prefs(ctx).edit()
                 .putString(KEY_LAST_STARTED_CONFIG, config)
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
-                .apply()
-            ensureIndexForConfig(ctx, config, ipToStore)
+            // A manual start (alignIndex) starts the current entry, so it becomes a real attempt.
+            // A reconnect start (no alignment) starts the candidate the auto-switch already
+            // selected, and that selection wrote the index and cleared the flag. A flag set again
+            // since then means a refresh removed that candidate before ACTION_START: the index is
+            // only a cursor and must not be taken for the server being started.
+            if (alignIndex) editor.remove(KEY_INDEX_PARKED)
+            editor.apply()
+            if (alignIndex) {
+                ensureIndexForConfig(ctx, config, ipToStore)
+            }
         }
     }
 
@@ -460,6 +586,11 @@ object SelectedCountryStore {
                 return
             }
             if (!ip.isNullOrBlank()) {
+                // ACTION_START carries the DECODED config while the store keeps the encoded one, so
+                // a started server often cannot be matched by config. An IP alone cannot tell
+                // same-IP entries apart: when the current entry already has this IP, keep the
+                // explicit selection instead of collapsing onto the first same-IP entry.
+                if (current in list.indices && list[current].ip == ip) return
                 val foundByIp = list.indexOfFirst { it.ip == ip }
                 if (foundByIp >= 0) {
                     setIndex(ctx, foundByIp)
@@ -547,15 +678,23 @@ object SelectedCountryStore {
         }
     }
 
+    /**
+     * Backend id of the current server when it is the one last started (matched by IP), else 0.
+     * Also 0 while the index is only a parked scan cursor: the entry it points at was never started,
+     * so a failure of the removed in-flight server (possibly on the same IP) must not be attributed
+     * to it. The parked flag, list and index are read under the selection monitor as one snapshot.
+     */
     fun getCurrentServerIdIfMatchingLastStarted(context: Context): Int {
         return runCatching {
-            val lastStarted = getLastStartedConfig(context)
-            val currentServer = currentServer(context)
-            if (currentServer != null && lastStarted != null &&
-                !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
-                currentServer.id
-            } else {
-                0
+            synchronized(selectionRenameLock) {
+                val lastStarted = getLastStartedConfig(context)
+                val currentServer = if (isIndexParked(context)) null else currentServer(context)
+                if (currentServer != null && lastStarted != null &&
+                    !currentServer.ip.isNullOrBlank() && currentServer.ip == lastStarted.ip) {
+                    currentServer.id
+                } else {
+                    0
+                }
             }
         }.getOrElse { 0 }
     }

@@ -149,7 +149,7 @@ class ServerAutoSwitcherTest {
     // requestSwitchNow()'s pendingConfig assignment -- but shipped with zero test coverage; gate-10
     // verified by mutation that all three edits survive reversion with a green suite. Proves at
     // least one of those guards actually rejects a blank config end to end: server 2 (the "next"
-    // server nextServerCircular() will select) has a blank config, so starting the engine with an
+    // server nextUnvisitedServer() will select) has a blank config, so starting the engine with an
     // empty profile must never happen.
     @Test
     fun retryCommit_doesNotStartNextServerWithBlankConfig() {
@@ -1423,9 +1423,9 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         assertTrue(
-            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+            "precondition: the timed switch that led here must have set the switch cycle (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1444,13 +1444,13 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
-        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // reset the switch cycle so a stale switch cycle cannot make the next auto-switch
         // cycle's wrap detection give up early.
         assertEquals(
-            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
-                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            "rollBackFailedRetryDispatch() must reset the switch cycle so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection cycle from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 
@@ -1474,9 +1474,9 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         assertTrue(
-            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+            "precondition: the timed switch that led here must have set the switch cycle (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1495,13 +1495,13 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
-        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // reset the switch cycle so a stale switch cycle cannot make the next auto-switch
         // cycle's wrap detection give up early.
         assertEquals(
-            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
-                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            "rollBackFailedRetryDispatch() must reset the switch cycle so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection cycle from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 
