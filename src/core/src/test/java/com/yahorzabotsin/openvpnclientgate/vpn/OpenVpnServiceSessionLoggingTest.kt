@@ -162,6 +162,23 @@ class OpenVpnServiceSessionLoggingTest {
     }
 
     @Test
+    fun fallbackExhaustion_doesNotLeaveSeededCycleBehind() {
+        saveServers(1)
+        ServerAutoSwitcher.resetForTest()
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val start = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(start, 0, 1)
+
+        service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+    }
+
+    @Test
     fun logsConnectedAfterNthAttempt() {
         saveServers(2)
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()

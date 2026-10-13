@@ -1571,6 +1571,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 return
               } else {
                   userInitiatedStart = false
+                  // The cycle seeded above found no candidate; do not leave it behind.
+                  try { ServerAutoSwitcher.resetCycle() } catch (e: Exception) { AppLog.w(TAG, "Failed to reset switch cycle after exhausting server list", e) }
                   try { ConnectionStateManager.setReconnectingHint(false); AppLog.d(TAG, "reconnectHint=false (no more servers)") } catch (e: Exception) { AppLog.w(TAG, "Failed to clear reconnecting hint when no more servers", e) }
                 AppLog.i(TAG, "Exhausted server list without success after ${sessionAttempt} attempts (serversInCountry=${totalServersStr()})")
               }

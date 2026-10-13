@@ -38,6 +38,7 @@ object SelectedCountryStore {
     private val selectionRenameLock = SelectionWriteLock.monitor
     private const val KEY_LAST_STARTED_CONFIG = "last_started_config"
     private const val KEY_LAST_SUCCESS_IP = "last_success_ip"
+    private const val KEY_LAST_SUCCESS_SERVER_KEY = "last_success_server_key"
     private const val KEY_LAST_STARTED_IP = "last_started_ip"
     private val TAG = LogTags.APP + ":SelectedCountryStore"
     private const val KEY_JSON_CITY = "city"
@@ -184,7 +185,7 @@ object SelectedCountryStore {
         // The whole check → write → restore-index sequence runs under the same monitor as
         // saveSelection (reentrant), so a concurrent selection can neither slip between the
         // country check and the write nor observe the intermediate index=0 state that
-        // saveSelection writes before ensureIndexForConfig restores the previous position.
+        // saveSelection writes before restoreIndexByIdentity restores the previous position.
         synchronized(selectionRenameLock) {
             if (!isStillCurrent()) {
                 AppLog.w(
@@ -439,7 +440,21 @@ object SelectedCountryStore {
             if (alignIndex) {
                 ensureIndexForConfig(ctx, config, ipToStore)
             }
+            // The persisted config is the DECODED one from ACTION_START and can never be matched
+            // against the stored (encoded) list, and several entries may share one IP. The identity
+            // of the server the index points at lets the next start restore exactly this entry.
+            prefs(ctx).edit().putString(KEY_LAST_SUCCESS_SERVER_KEY, currentServerKey(ctx)).apply()
         }
+    }
+
+    /**
+     * Points the index at the server recorded by the last successful connection (by identity).
+     * Returns false when nothing was recorded (older persisted data) or that server is gone, so the
+     * caller can fall back to config/ip alignment.
+     */
+    fun restoreLastSuccessfulServerIndex(ctx: Context): Boolean = synchronized(selectionRenameLock) {
+        val key = prefs(ctx).getString(KEY_LAST_SUCCESS_SERVER_KEY, null)
+        !key.isNullOrBlank() && setCurrentIndexByKey(ctx, key)
     }
 
     fun getLastSuccessfulConfigForSelected(ctx: Context): String? {

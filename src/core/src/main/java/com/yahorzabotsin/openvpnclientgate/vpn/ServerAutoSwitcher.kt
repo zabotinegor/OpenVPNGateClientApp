@@ -490,6 +490,11 @@ object ServerAutoSwitcher {
         ensureCycle(appContext)
     }
 
+    /** Drops the cycle without touching timers, for callers that seeded one but then found no candidate. */
+    fun resetCycle() {
+        cycleVisited = null
+    }
+
     /** Marks the persisted current server (the chained candidate about to start) as attempted. */
     fun markCurrentServerAttempted(appContext: Context) {
         val key = SelectedCountryStore.currentServerKey(appContext) ?: return
