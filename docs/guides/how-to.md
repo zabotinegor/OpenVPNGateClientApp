@@ -21,6 +21,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
 - [Verify a flaky-test fix does not destroy regression coverage with injection mutation testing](#verify-a-flaky-test-fix-does-not-destroy-regression-coverage-with-injection-mutation-testing)
 - [README language variants and the canonical technical entry point](#readme-language-variants-and-the-canonical-technical-entry-point)
+- [Robolectric looper idling fires delayed timeouts and masks cleared-flag assertions](#robolectric-looper-idling-fires-delayed-timeouts-and-masks-cleared-flag-assertions)
 
 ---
 
@@ -1052,3 +1053,15 @@ GitHub cannot auto-detect visitor language on static Markdown, so the public REA
 **First documented**
 
 US-25 (`feature/us-25-friendly-readme-and-dev-docs`) — split the single README into friendly public variants + technical development guide.
+
+---
+
+## Robolectric looper idling fires delayed timeouts and masks cleared-flag assertions
+
+**When to use**
+
+Writing a Robolectric test that drives a delayed `Handler` task (a watchdog or timeout) and then asserts that some state was cleared immediately by an earlier event.
+
+**Why this matters**
+
+`Shadows.shadowOf(Looper.getMainLooper()).idleFor(...)` and `ShadowLooper.runUiThreadTasksIncludingDelayedTasks()` run delayed tasks, including the timeout. A timeout that clears the same flag will clear it on its own, so an assertion made after the pump passes even if the real event never cleared it. Assert the flag before any looper pump, then pump to check the follow-on behavior (for example, that a retry is not sent). The pause tests in `OpenVpnServicePauseTimeoutTest` show this order.

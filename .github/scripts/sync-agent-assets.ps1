@@ -2,7 +2,7 @@ param(
     [string]$SourceRepo = 'https://github.com/zabotinegor/CopilotTools.git',
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
-    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', 'opencode.jsonc', '.github/runtime-parity.json', '.mcp.json', '.copilottools'),
+    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', '.opencode/plugins', 'opencode.jsonc', '.kilo/agents', '.kilo/commands', '.kilo/plugins', 'kilo.jsonc', '.github/runtime-parity.json', '.mcp.json', '.copilottools'),
     [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets'),
     [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
     [string[]]$MergeJsonPaths = @('.claude/settings.json', '.mcp.json'),
@@ -254,7 +254,7 @@ function Set-ExactGitignoreEntries {
     $gitignorePath = Join-Path $Root '.gitignore'
     $beginMarker = '# BEGIN synced-agent-assets'
     $endMarker = '# END synced-agent-assets'
-    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**')
+    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**', '/.opencode/plugins/**', '/.kilo/agents/**', '/.kilo/commands/**', '/.kilo/plugins/**')
     $beginMarkers = @('# BEGIN synced-agent-assets', '# BEGIN synced-copilot-assets')
     $endMarkers = @('# END synced-agent-assets', '# END synced-copilot-assets')
     $existing = @()
@@ -1098,6 +1098,20 @@ try {
         }
     }
 
+    # Clean up stale .kilo/command (singular) directory from older sync versions
+    $staleKiloCommand = Join-Path $targetRootResolved '.kilo/command'
+    if (Test-Path -LiteralPath $staleKiloCommand) {
+        $staleFiles = @(Get-ChildItem -LiteralPath $staleKiloCommand -File -Recurse -ErrorAction SilentlyContinue)
+        if ($staleFiles.Count -eq 0) {
+            if (-not $DryRun) {
+                Remove-Item -LiteralPath $staleKiloCommand -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $changed.Add('.kilo/command (stale directory removed)')
+        } else {
+            Write-Warning "Stale .kilo/command directory still contains $($staleFiles.Count) files. Manually migrate to .kilo/commands/."
+        }
+    }
+
     # Inject universal governance section into target AGENTS.md (marker-based; never overwrites)
     $targetAgentsMd = Join-Path $targetRootResolved 'AGENTS.md'
     $sourceAgentsCoreRules = Join-Path $tempRoot '.github/skills/shared/agents-core-rules.md'
@@ -1306,12 +1320,14 @@ try {
         githubCopilot = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         claude = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         openCode = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+        kilo = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         shared = [ordered]@{ added = 0; changed = 0; deleted = 0 }
         branchGuards = [ordered]@{ added = 0; changed = 0; deleted = 0 }
     }
     foreach ($kind in @(@('added', $added), @('changed', $changed), @('deleted', $deleted))) {
         foreach ($path in $kind[1]) {
             if ($path -like '.opencode/*' -or $path -eq 'opencode.jsonc') { $category = 'openCode' }
+            elseif ($path -like '.kilo/*' -or $path -eq 'kilo.jsonc') { $category = 'kilo' }
             elseif ($path -like '.claude/*') { $category = 'claude' }
             elseif ($path -like '.github/hooks/*' -or $path -like '.githooks/*') { $category = 'branchGuards' }
             elseif ($path -like '.github/agents/*') { $category = 'githubCopilot' }
