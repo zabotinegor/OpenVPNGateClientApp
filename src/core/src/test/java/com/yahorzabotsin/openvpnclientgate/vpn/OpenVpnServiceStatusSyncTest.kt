@@ -2206,6 +2206,11 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
         drainStartedServices(service)
 
+        // ACTION_PAUSE only arms/dispatches when state is CONNECTED/PAUSING -- matching
+        // VpnManager.pauseVpn()'s own precondition for ever sending this action.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+
         val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
             putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
         }
