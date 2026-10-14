@@ -56,6 +56,25 @@ class VpnManagerTest {
     }
 
     @Test
+    fun startVpn_carriesTheResolvedIpOnlyWhenGiven() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val ipKey = VpnManager.extraIpKey(app)
+
+        VpnManager.startVpn(app, "remote example.com 1194", displayName = "T", ip = "1.1.1.1")
+        assertEquals("1.1.1.1", Shadows.shadowOf(app).nextStartedService.getStringExtra(ipKey))
+
+        VpnManager.startVpn(app, "remote example.com 1194", displayName = "T")
+        assertEquals(null, Shadows.shadowOf(app).nextStartedService.getStringExtra(ipKey))
+    }
+
+    @Test
+    fun resolveStartIp_prefersTheIntentIpOverTheParkedCursorsIp() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        assertEquals("1.1.1.1", OpenVpnService.resolveStartIp(app, "decoded", "1.1.1.1"))
+        assertEquals(null, OpenVpnService.resolveStartIp(app, "decoded", " "))
+    }
+
+    @Test
     fun startVpn_acceptsPlainConfigIfNotBase64() {
         val app: Application = RuntimeEnvironment.getApplication()
         val plain = "not_base64!@#"

@@ -5,6 +5,8 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import com.yahorzabotsin.openvpnclientgate.vpn.ConnectionState
+import com.yahorzabotsin.openvpnclientgate.vpn.OpenVpnService
+import com.yahorzabotsin.openvpnclientgate.vpn.VpnManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 
 @RunWith(RobolectricTestRunner::class)
 class MainConnectionInteractorTest {
@@ -162,11 +165,19 @@ class MainConnectionInteractorTest {
     private fun rawSelectionPrefs() = RuntimeEnvironment.getApplication()
         .getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
 
-    private fun connectLikeTheServiceDoes(selected: MainSelectedServer, ip: String) {
+    // Drives the production hand-off: the prepared start goes through VpnManager.startVpn into an
+    // ACTION_START intent, the service resolves the recorded IP from that intent (resolveStartIp)
+    // and aligns/records the start, and the success is persisted from the recorded start.
+    private fun connectLikeTheServiceDoes(selected: MainSelectedServer) {
         val ctx = RuntimeEnvironment.getApplication()
-        val prepared = interactor.prepareStart(selected, preferUserSelection = false)
-        simulateActionStartAlignment(prepared!!.config, ip)
-        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", prepared.config, ip, alignIndex = false)
+        val prepared = interactor.prepareStart(selected, preferUserSelection = false)!!
+        VpnManager.startVpn(ctx, prepared.config, prepared.country, ip = prepared.ip)
+        val intent = Shadows.shadowOf(ctx).nextStartedService
+        val config = intent.getStringExtra(VpnManager.extraConfigKey(ctx))!!
+        val targetIp = OpenVpnService.resolveStartIp(ctx, config, intent.getStringExtra(VpnManager.extraIpKey(ctx)))
+        SelectedCountryStore.saveLastStartedConfig(ctx, prepared.country, config, targetIp)
+        val last = SelectedCountryStore.getLastStartedConfig(ctx)!!
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, last.country, last.config!!, last.ip, alignIndex = false)
     }
 
     // A refresh removed the last successful server X; a surviving same-IP entry Y has another endpoint
@@ -184,7 +195,12 @@ class MainConnectionInteractorTest {
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", xText, "1.1.1.1", alignIndex = false)
         SelectedCountryStore.saveSelectionPreservingIndex(ctx, "Belarus", listOf(y, p))
 
-        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(xText), ip = "1.1.1.1"), "1.1.1.1")
+        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(xText), ip = "1.1.1.1"))
+    }
+
+    private fun assertStartedAndSuccessIpAreTheRemovedServers() {
+        assertEquals("1.1.1.1", rawSelectionPrefs().getString("last_started_ip", null))
+        assertEquals("1.1.1.1", rawSelectionPrefs().getString("last_success_ip", null))
     }
 
     private fun assertNoIdentityWasCaptured() {
@@ -197,12 +213,14 @@ class MainConnectionInteractorTest {
     fun prepareStart_removedLastSuccessfulServerWithSameIpSurvivor_capturesNoIdentity_autoSwitchOn() {
         connectAfterLastSuccessfulServerRemoved(autoSwitch = true)
         assertNoIdentityWasCaptured()
+        assertStartedAndSuccessIpAreTheRemovedServers()
     }
 
     @Test
     fun prepareStart_removedLastSuccessfulServerWithSameIpSurvivor_capturesNoIdentity_autoSwitchOff() {
         connectAfterLastSuccessfulServerRemoved(autoSwitch = false)
         assertNoIdentityWasCaptured()
+        assertStartedAndSuccessIpAreTheRemovedServers()
     }
 
     @Test
@@ -217,7 +235,7 @@ class MainConnectionInteractorTest {
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", yText, "1.1.1.1", alignIndex = false)
         SelectedCountryStore.setCurrentIndex(ctx, 0)
 
-        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(yText), ip = "1.1.1.1"), "1.1.1.1")
+        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(yText), ip = "1.1.1.1"))
 
         val yKey = SelectedCountryStore.currentServerKeys(ctx)[1]
         assertEquals(yKey, rawSelectionPrefs().getString("last_started_server_key", null))

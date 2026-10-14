@@ -72,6 +72,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
+
+        /**
+         * The IP recorded for a started config. The caller's resolved IP wins: the decoded config
+         * often cannot be matched to the stored (encoded) one, and the cursor may be parked on a
+         * different server, so the cursor's own IP is only the last resort.
+         */
+        fun resolveStartIp(ctx: android.content.Context, config: String, intentIp: String?): String? =
+            intentIp?.takeIf { it.isNotBlank() }
+                ?: runCatching { SelectedCountryStore.getIpForConfig(ctx, config) }.getOrNull()
+                ?: runCatching { SelectedCountryStore.currentServer(ctx)?.ip }.getOrNull()
         const val KEY_OVPN3 = "ovpn3"
         const val KEY_DISABLE_CONFIRMATION = "disableconfirmation"
         private val AUTO_SWITCH_LEVELS = setOf(
@@ -961,8 +971,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
-                val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
-                    ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
+                val targetIp = resolveStartIp(applicationContext, config, intent.getStringExtra(VpnManager.extraIpKey(this)))
                 // Auto-switch already selected the intended candidate before ACTION_START.
                 // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
                 if (!isReconnect) {

@@ -89,7 +89,7 @@ sealed interface MainEffect {
     data object RequestPrimaryFocus : MainEffect
     data object RequestVpnPermission : MainEffect
     data object RequestNotificationPermission : MainEffect
-    data class StartVpn(val config: String, val country: String?) : MainEffect
+    data class StartVpn(val config: String, val country: String?, val ip: String? = null) : MainEffect
     data object StopVpn : MainEffect
     data object PauseVpn : MainEffect
     data object ResumeVpn : MainEffect
