@@ -17,11 +17,23 @@ fi
 archive_guard_state=$(git rev-parse --git-path copilottools-dev-archive-guard 2>/dev/null || true)
 
 write_archive_guard_state() {
-  [ -n "$archive_guard_state" ] || return 0
-  state_tmp=$(mktemp "${archive_guard_state}.XXXXXX" 2>/dev/null) || return 0
-  main_sha_for_state=$(git rev-parse "$remote_name/main" 2>/dev/null || echo "")
-  printf '%s\n%s\n%s\n' "$remote_name" "$remote_sha" "$main_sha_for_state" > "$state_tmp" 2>/dev/null || return 0
-  mv -f "$state_tmp" "$archive_guard_state" 2>/dev/null || rm -f "$state_tmp"
+  # An unpersisted or incomplete proof must never permit deleting remote dev:
+  # recreation requires this exact three-line record.
+  [ -n "$archive_guard_state" ] && [ -n "$remote_name" ] && [ -n "$remote_sha" ] || return 1
+  [ ! -d "$archive_guard_state" ] || return 1
+  main_sha_for_state=$(git rev-parse --verify "$remote_name/main^{commit}" 2>/dev/null) || return 1
+  [ -n "$main_sha_for_state" ] || return 1
+  state_tmp=$(mktemp "${archive_guard_state}.XXXXXX" 2>/dev/null) || return 1
+  if ! printf '%s\n%s\n%s\n' "$remote_name" "$remote_sha" "$main_sha_for_state" > "$state_tmp" 2>/dev/null ||
+     [ ! -s "$state_tmp" ] || [ "$(wc -l < "$state_tmp" 2>/dev/null | tr -d ' ')" != "3" ]; then
+    rm -f "$state_tmp"
+    return 1
+  fi
+  if ! mv -f "$state_tmp" "$archive_guard_state" 2>/dev/null || [ ! -f "$archive_guard_state" ]; then
+    rm -f "$state_tmp"
+    return 1
+  fi
+  return 0
 }
 
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -75,7 +87,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         # archived dev tip and the main tip that will be used for recreation.
         # A squash merge makes the archive tip unrelated to new main, so the
         # proof records the operation rather than requiring commit ancestry.
-        write_archive_guard_state
+        if ! write_archive_guard_state; then
+          echo "BLOCKED: cannot persist complete dev archive proof; refusing to delete refs/heads/dev." >&2
+          exit 1
+        fi
       fi
       if [ "$local_sha" != "$zero" ]; then
         # Recreating dev: the local push must match the current remote main

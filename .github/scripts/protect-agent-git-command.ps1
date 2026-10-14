@@ -682,6 +682,7 @@ function Get-ChangedWorkingDirectory {
     if ($verb -notin $locationVerbs) { return $null }
 
     $result = [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+    $literalLocationPath = $false
     # A directory stack requires tracking nested pushes and pops across segments.
     # Reject unmodeled stack operations fail-closed in both shell modes.
     if ($verb -in @('pushd', 'push-location', 'popd', 'pop-location')) { return $result }
@@ -695,6 +696,7 @@ function Get-ChangedWorkingDirectory {
         while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
         $parameter = $trimmed.Substring($parameterStart, $i - $parameterStart)
         if ($parameter -notin @('-Path', '-LiteralPath')) { return $result }
+        $literalLocationPath = ($parameter -eq '-LiteralPath')
         while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
         if ($i -ge $length) { return $result }
     }
@@ -776,6 +778,14 @@ function Get-ChangedWorkingDirectory {
     }
     $candidate = Resolve-TargetToken -Value $rawToken -BaseDir $FallbackPath
     if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $result
+    }
+    # Set-Location -Path, cd and sl expand wildcard paths before changing cwd.
+    # Literal Test-Path would miss the expanded checkout and incorrectly judge
+    # later git commands against the previous feature branch. Conservatively
+    # reject unmodeled wildcard expansion, including Bash globs. -LiteralPath
+    # has no wildcard expansion, so valid literal bracket paths still work.
+    if (-not $literalLocationPath -and $candidate.IndexOfAny([char[]]@('*', '?', '[', ']')) -ge 0) {
         return $result
     }
 
