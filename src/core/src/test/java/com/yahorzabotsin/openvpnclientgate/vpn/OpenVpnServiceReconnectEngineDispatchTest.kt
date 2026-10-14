@@ -792,7 +792,7 @@ class OpenVpnServiceReconnectEngineDispatchTest {
         val originalStarter = ServerAutoSwitcher.starter
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
-        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> startCalls.add(config) }
         ServerAutoSwitcher.stopper = { _ -> true }
 
         // Invoke dispatchAutoSwitcherOnEngineLevel() directly, reflectively, rather than going

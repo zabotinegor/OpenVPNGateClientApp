@@ -6,10 +6,12 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -33,8 +35,9 @@ class ServerAutoSwitcherCycleIdentityTest {
     private val source = "VPN_STATUS"
     private val started = mutableListOf<String>()
     private var stopCalls = 0
-    private var originalStarter: ((Context, String, String?, Boolean) -> Boolean)? = null
+    private var originalStarter: ((Context, String, String?, Boolean, String?) -> Boolean)? = null
     private var originalStopper: ((Context) -> Boolean)? = null
+    private var originalProbeQueue: ProbeRequestQueue? = null
 
     @Before
     fun setUp() {
@@ -44,8 +47,9 @@ class ServerAutoSwitcherCycleIdentityTest {
         ServerAutoSwitcher.setNoReplyThresholdForTest(1)
         ServerAutoSwitcher.setRepliedThresholdForTest(1)
         originalStarter = ServerAutoSwitcher.starter
+        originalProbeQueue = ServerAutoSwitcher.probeRequestQueue
         originalStopper = ServerAutoSwitcher.stopper
-        ServerAutoSwitcher.starter = { _, config, _, _ -> started.add(config); true }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> started.add(config); true }
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; true }
         started.clear()
         stopCalls = 0
@@ -59,6 +63,7 @@ class ServerAutoSwitcherCycleIdentityTest {
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         ConnectionStateManager.clearStopFailure()
         originalStarter?.let { ServerAutoSwitcher.starter = it }
+        ServerAutoSwitcher.probeRequestQueue = originalProbeQueue
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
         ServerAutoSwitcher.resetNoReplyThreshold()
         ServerAutoSwitcher.resetRepliedThreshold()
@@ -427,6 +432,33 @@ class ServerAutoSwitcherCycleIdentityTest {
 
         assertEquals("C was attempted by the manual start, so only B remains", listOf("B"), started)
         assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun missingStartConfigWithDifferentEndpointCursor_doesNotSeedOrAttributeCursor() {
+        val cursorConfig = "client\nproto udp\nremote 9.9.9.9 443\n"
+        val startedConfig = "client\nproto udp\nremote 9.9.9.9 1194\n"
+        val candidateConfig = "client\nproto udp\nremote 8.8.8.8 443\n"
+        select(srv(42, cursorConfig), srv(43, candidateConfig, ip = "8.8.8.8"))
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", startedConfig, "9.9.9.9", alignIndex = true)
+
+        val probedIds = mutableListOf<Int>()
+        ServerAutoSwitcher.probeRequestQueue = object : ProbeRequestQueue {
+            override fun enqueue(serverId: Int) { probedIds += serverId }
+        }
+
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+        failAndSwitch()
+        assertEquals("the distinct-IP candidate goes first; the disproven cursor remains eligible", listOf(candidateConfig), started)
+        failAndSwitch()
+
+        assertEquals(
+            "after the other candidate, the same-IP cursor is still offered once",
+            listOf(candidateConfig, cursorConfig),
+            started
+        )
+        assertFalse("the cursor's id must not be queued for the failed missing config", 42 in probedIds)
     }
 
     @Test

@@ -329,13 +329,15 @@ class SelectedCountryStoreIdentityPersistenceTest {
     @Test
     fun unparkedSameIpCursor_startedConfigNotInTheList_recordsNoIdentityAndKeepsTheCursor() {
         val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
-        val w = srv(encode(vpnText(80, "1.1.1.1")), ip = "1.1.1.1")
+        val w = srv(encode(vpnText(80, "1.1.1.1")), ip = "1.1.1.1", id = 42)
         select(y, w, index = 1)
 
         SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = true)
 
         assertEquals("", startedKey())
         assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertNull("a same-IP cursor with a different endpoint is not an attempted server", SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals("the failure must not be attributed to the cursor's backend id", 0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = false)
         assertNull(lastSuccessKey())
     }

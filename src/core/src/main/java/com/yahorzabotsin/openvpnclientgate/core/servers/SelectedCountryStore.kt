@@ -607,8 +607,31 @@ object SelectedCountryStore {
                 currentAttemptedServerKey(ctx)
             }
             // "" (not null, which would remove the entry) marks a start that has no identity.
+            if (alignIndex && currentCursorIsPositivelyDisproven(ctx, config, ipToStore)) {
+                editor.putBoolean(KEY_INDEX_PARKED, true)
+            }
             editor.putString(KEY_LAST_STARTED_SERVER_KEY, startedKey.orEmpty()).apply()
         }
+    }
+
+    /**
+     * A same-IP cursor is not proof of a start. If its declared endpoint is explicitly different
+     * from the started config, or both sides provide different non-blank IPs, keep the numeric
+     * display position but park the cursor so cycle seeding and failure attribution ignore it.
+     * Opaque same-IP config drift remains compatible with the historical IP attribution fallback.
+     */
+    private fun currentCursorIsPositivelyDisproven(ctx: Context, config: String, ip: String?): Boolean {
+        val list = getServers(ctx)
+        val index = getIndex(ctx)
+        if (index !in list.indices || provenStartIndex(ctx, list, index, config, ip) == index) return false
+        val cursor = list[index]
+        val cursorIp = cursor.ip?.takeIf { it.isNotBlank() }
+        val startedIp = ip?.takeIf { it.isNotBlank() }
+        if (cursorIp != null && startedIp != null && cursorIp != startedIp) return true
+        if (cursorIp == null || startedIp == null || cursorIp != startedIp) return false
+        val cursorEndpoint = ServerIdentity.endpoint(cursor.config) ?: return false
+        val startedEndpoint = ServerIdentity.endpoint(config) ?: return false
+        return cursorEndpoint != startedEndpoint
     }
 
     private fun currentEntryMatchesStart(ctx: Context, config: String, ip: String?): Boolean {

@@ -41,7 +41,7 @@ import java.time.Duration
 class VpnInactivityHardprobeTriggerTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean, String?) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Boolean)? = null
 
     private class FakeProbeRequestQueue : ProbeRequestQueue {
@@ -65,7 +65,7 @@ class VpnInactivityHardprobeTriggerTest {
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
 
         originalStarter = ServerAutoSwitcher.starter
-        ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> true }
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> true }
 
@@ -173,7 +173,7 @@ class VpnInactivityHardprobeTriggerTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
 
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
@@ -210,7 +210,7 @@ class VpnInactivityHardprobeTriggerTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
 
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")

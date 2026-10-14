@@ -323,7 +323,7 @@ class OpenVpnServiceNotificationTest {
 
             val dispatchContext = RejectingStartServiceContext(app)
             ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
-            ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+            ServerAutoSwitcher.starter = { _, _, _, _, _ -> true }
 
             ServerAutoSwitcher.onEngineLevel(
                 dispatchContext,
@@ -417,7 +417,7 @@ class OpenVpnServiceNotificationTest {
 
             val dispatchContext = RejectingStartServiceContext(app)
             ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
-            ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+            ServerAutoSwitcher.starter = { _, _, _, _, _ -> true }
 
             ServerAutoSwitcher.onEngineLevel(
                 dispatchContext,
@@ -532,7 +532,7 @@ class OpenVpnServiceNotificationTest {
 
         val dispatchContext = RejectingStartServiceContext(app)
         ServerAutoSwitcher.stopper = { ctx -> VpnManager.stopVpn(ctx) }
-        ServerAutoSwitcher.starter = { _, _, _, _ -> true }
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> true }
 
         ServerAutoSwitcher.onEngineLevel(
             dispatchContext,

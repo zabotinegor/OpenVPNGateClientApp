@@ -261,7 +261,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     )
     private data class WatchdogRecoveryTarget(
         val config: String,
-        val title: String?
+        val title: String?,
+        val ip: String?
     )
     private var watchdogState = HealthWatchdogState()
 
@@ -291,8 +292,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
      * [ServerAutoSwitcher.beginChainedSwitch] reports false for every such case: auto-switch off,
      * a rejected stop command, or an exception while requesting the stop.
      */
-    internal var watchdogRecoveryStarter: (Context, String, String?) -> Boolean = { ctx, config, title ->
-        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+    internal var watchdogRecoveryStarter: (Context, String, String?, String?) -> Boolean = { ctx, config, title, ip ->
+        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title, ip)
     }
     private var watchdogProbeJob: Job? = null
     
@@ -1783,7 +1784,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
                 AppLog.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
                 try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
+                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title, next.ip) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
                 return
               } else {
                   userInitiatedStart = false
@@ -2181,7 +2182,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // Set before dispatch: beginChainedSwitch can drive the state change synchronously.
             watchdogRecoveryInFlight = true
             val dispatched =
-                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title, recoveryTarget.ip)
             if (!dispatched) {
                 // Nothing was dispatched -- auto-switch is off, or the stop command was rejected.
                 // Do not burn the budget on attempts that never happen: that ends in a fail-safe
@@ -2301,7 +2302,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!lastStarted?.config.isNullOrBlank()) {
             return WatchdogRecoveryTarget(
                 config = lastStarted!!.config!!,
-                title = lastStarted.country ?: selectedCountry
+                title = lastStarted.country ?: selectedCountry,
+                ip = lastStarted.ip
             )
         }
 
@@ -2309,7 +2311,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             SelectedCountryStore.getLastSuccessfulConfigForSelected(applicationContext)
         }.getOrNull()
         return if (!lastSuccessfulConfig.isNullOrBlank()) {
-            WatchdogRecoveryTarget(lastSuccessfulConfig, selectedCountry)
+            WatchdogRecoveryTarget(
+                lastSuccessfulConfig,
+                selectedCountry,
+                runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(applicationContext) }.getOrNull()
+            )
         } else {
             null
         }

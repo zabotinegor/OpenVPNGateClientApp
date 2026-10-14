@@ -134,6 +134,8 @@ not in the set, so it returns `null` only when every key currently in the list h
 Wrap detection is by identity, not position: a background refresh that adds, removes or reorders
 entries mid-cycle neither re-offers an attempted server nor ends the cycle early.
 
+When a retry candidate is selected, its IP is captured with its config and title before the stop is dispatched. The IP travels through both the NOTCONNECTED and stop-timeout retry paths, so a refresh that removes the candidate cannot substitute the parked cursor's IP at ACTION_START. VPN_STATUS and server-list hydration pass their selected candidate IP, while watchdog recovery passes the stored recovery target IP. A removed candidate can therefore retain its attempted network target without inheriting a listed server identity.
+
 Derived identity keys are cached (one entry) by the raw stored server-list JSON, so the connected-state persistence path (AIDL callbacks and connected status snapshots) does not derive identity keys (no Base64 decoding, config parsing or SHA-256 hashing) on an unchanged list, and JSON-parses the list only when no IP was recorded at start; the connected path reads the identity captured at ACTION_START (`last_started_server_key`) instead of deriving it, which also keeps a same-IP re-selection while connected from being recorded as the connected server. A parked index stays unattempted until a manual start proves it is the started server (same config, or for an id-less entry the same endpoint+IP, or, only when no entry has the started config, the entry holding the recorded last-successful identity when the start is that recorded config and it still declares the started endpoint; never the IP alone and never the endpoint alone for an id-backed entry, including when the index alignment moved the cursor by IP only); such a start records no identity, and the following success records none either, as does a reconnect start on a parked cursor. See [server-sync.md](server-sync.md) for the persistence details.
 
 Identity keys are `id:<id>` when the backend server id is greater than 0. Otherwise the key is
@@ -200,4 +202,4 @@ See [vpn-connection.md](vpn-connection.md).
   reconnects, then a fail-safe disconnect. The watchdog's is the bound that covers servers which
   connect cleanly and carry nothing — the case the other two miss.
 
-*Last verified against: `vpn/OpenVpnService.kt` watchdog and stop constants, `vpn/ServerAutoSwitcher.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt` (2026-08-01).*
+*Last verified against: `vpn/OpenVpnService.kt`, `vpn/ServerAutoSwitcher.kt`, `core/servers/SelectedCountryStore.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt`, `vpn/ServerAutoSwitcherCycleIdentityTest.kt` (2026-10-14).*

@@ -36,7 +36,7 @@ object ServerAutoSwitcher {
     private var seconds: Int = 0
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
-    internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
+    internal var starter: (Context, String, String?, Boolean, String?) -> Boolean = { ctx, config, title, isReconnect, ip -> VpnManager.startVpn(ctx, config, title, isReconnect, ip) }
     // Returns Boolean, NOT Unit. VpnManager.stopVpn() -> startControllerService() returns false when
     // Context.startService() is rejected (IllegalStateException from the background-start
     // restriction, SecurityException, ...), and on that path NOTHING reaches OpenVpnService:
@@ -92,6 +92,7 @@ object ServerAutoSwitcher {
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
+    @Volatile private var pendingIp: String? = null
     // Auto-switch cycle state, tracked by server IDENTITY (see ServerIdentity), never by list
     // position. [cycleVisited] holds every candidate already attempted in this cycle, in order; its
     // first element is the cycle's start server. A background refresh may add/remove/reorder the
@@ -158,8 +159,10 @@ object ServerAutoSwitcher {
             if (level == ConnectionStatus.LEVEL_NOTCONNECTED) {
                 val cfg = pendingConfig
                 val title = pendingTitle
+                val ip = pendingIp
                 pendingConfig = null
                 pendingTitle = null
+                pendingIp = null
                 waitingStopForRetry = false
                 stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
                 stopRetryTimeoutRunnable = null
@@ -175,7 +178,7 @@ object ServerAutoSwitcher {
                     val r = Runnable {
                         retryStartRunnable = null
                         retryCommitInFlight = false
-                        if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                        if (!starter(appContext, cfg, title, true, ip)) rollBackFailedRetryDispatch()
                     }
                     retryStartRunnable = r
                     retryCommitInFlight = true
@@ -316,7 +319,7 @@ object ServerAutoSwitcher {
      *   auto-switch is off, or the stop command was rejected -- and the caller must not treat it as
      *   a recovery in progress. Callers that merely want best-effort behaviour may ignore it.
      */
-    fun beginChainedSwitch(appContext: Context, config: String, title: String?): Boolean {
+    fun beginChainedSwitch(appContext: Context, config: String, title: String?, ip: String? = null): Boolean {
         if (!isEnabled(appContext)) {
             AppLog.d(TAG, "Auto-switch disabled; skipping chained switch")
             return false
@@ -345,6 +348,7 @@ object ServerAutoSwitcher {
         cancelIdleTolerance()
         pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
+        pendingIp = ip ?: SelectedCountryStore.getIpForConfig(appContext, config)
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)
         return try {
@@ -438,6 +442,7 @@ object ServerAutoSwitcher {
         waitingStopForRetry = false
         pendingConfig = null
         pendingTitle = null
+        pendingIp = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
         timeoutStopDispatchRunnable?.let { handler.removeCallbacks(it) }
@@ -694,7 +699,7 @@ object ServerAutoSwitcher {
                                 val firstServer = try { SelectedCountryStore.currentServer(appContext) } catch (_: Exception) { null }
                                 val hydrationTitle = SelectedCountryStore.getSelectedCountry(appContext)
                                 if (firstServer != null && !firstServer.config.isNullOrBlank()) {
-                                    beginChainedSwitch(appContext, firstServer.config!!, hydrationTitle)
+                                    beginChainedSwitch(appContext, firstServer.config!!, hydrationTitle, firstServer.ip)
                                 } else {
                                     AppLog.w(TAG, "DEFAULT_V2: hydration complete but server config is blank after reset, stopping engine")
                                     cancel(resetCycle = true)
@@ -745,6 +750,7 @@ object ServerAutoSwitcher {
                 AppLog.d(TAG, "Requesting explicit engine stop before retry")
                 pendingConfig = next.config.takeIf { it.isNotBlank() }
                 pendingTitle = title
+                pendingIp = next.ip
                 waitingStopForRetry = true
                 scheduleStopRetryTimeout(appContext)
                 val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
@@ -847,8 +853,10 @@ object ServerAutoSwitcher {
             if (!waitingStopForRetry) return@Runnable
             val cfg = pendingConfig
             val title = pendingTitle
+            val ip = pendingIp
             pendingConfig = null
             pendingTitle = null
+            pendingIp = null
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
             if (!cfg.isNullOrBlank()) {
@@ -862,7 +870,7 @@ object ServerAutoSwitcher {
                 val startR = Runnable {
                     retryStartRunnable = null
                     retryCommitInFlight = false
-                    if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                    if (!starter(appContext, cfg, title, true, ip)) rollBackFailedRetryDispatch()
                 }
                 retryStartRunnable = startR
                 retryCommitInFlight = true
