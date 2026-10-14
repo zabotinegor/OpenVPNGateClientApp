@@ -386,6 +386,7 @@ function Split-CommandSegments {
     $segments = New-Object System.Collections.Generic.List[object]
     $separators = @(';', '&', '|')
     $start = 0
+    $leadingOperator = ''
     $quote = $null
     # See ConvertTo-NormalizedCommand's matching $ansiQuote comment: an ANSI-C
     # ($'...') string's internal backslash-escapes (including \' for a literal
@@ -421,14 +422,18 @@ function Split-CommandSegments {
         }
 
         if ($separators -contains $ch) {
-            $segments.Add([pscustomobject]@{ Text = $Command.Substring($start, $i - $start); Index = $start })
-            # Consume the whole separator run ('&&', '||', ';;') in one cut.
+            $segments.Add([pscustomobject]@{ Text = $Command.Substring($start, $i - $start); Index = $start; LeadingOperator = $leadingOperator })
+            # Preserve the actual operator: a single PowerShell '&' invokes a
+            # command, while '&&' chains commands. Discarding this distinction
+            # let opaque call-operator expressions bypass cwd tracking.
+            $operatorStart = $i
             while (($i + 1) -lt $Command.Length -and ($separators -contains $Command[$i + 1])) { $i++ }
+            $leadingOperator = $Command.Substring($operatorStart, $i - $operatorStart + 1)
             $start = $i + 1
         }
     }
 
-    $segments.Add([pscustomobject]@{ Text = $Command.Substring($start); Index = $start })
+    $segments.Add([pscustomobject]@{ Text = $Command.Substring($start); Index = $start; LeadingOperator = $leadingOperator })
 
     # Comma-wrap: a List returned bare is unwrapped by the pipeline, and a
     # single-segment command would then arrive at the caller as a scalar.
@@ -650,7 +655,7 @@ function Get-GitTargetPath {
 }
 
 function Get-ChangedWorkingDirectory {
-    param([string]$Segment, [string]$FallbackPath)
+    param([string]$Segment, [string]$FallbackPath, [bool]$CallOperator = $false)
 
     # Track every supported literal PowerShell location command, not just
     # cd/chdir: Set-Location and sl are equivalent ways to change the directory.
@@ -670,17 +675,28 @@ function Get-ChangedWorkingDirectory {
     $length = $trimmed.Length
     $i = 0
     while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
-    $verbStart = $i
-    while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
-    $verb = $trimmed.Substring($verbStart, $i - $verbStart)
-    # PowerShell's call operator can invoke a literal quoted command name:
-    # & 'Set-Location' <dir>; git commit ...
-    # The segmenter consumes '&', so the verb here includes the quotes.
-    # Normalize only a fully quoted token, without evaluating expressions.
-    if (-not $script:bashSyntax -and $verb.Length -ge 2 -and
-            (($verb[0] -eq "'" -and $verb[$verb.Length - 1] -eq "'") -or
-             ($verb[0] -eq '"' -and $verb[$verb.Length - 1] -eq '"'))) {
-        $verb = $verb.Substring(1, $verb.Length - 2)
+    # The command's spelling is not its identity in PowerShell. A single '&'
+    # invokes static quoted names and parenthesized literal strings; a module
+    # qualification can also select the built-in location cmdlet. Parse the
+    # bounded, purely literal subset without evaluating PowerShell expressions.
+    # Everything else after '&' is opaque and must fail closed: it could invoke
+    # Set-Location, a script that changes location, or Git itself.
+    $verb = $null
+    if ($CallOperator -and -not $script:bashSyntax) {
+        $remainder = $trimmed.Substring($i)
+        $literal = [regex]::Match($remainder, '^\(\s*(["''])([A-Za-z][A-Za-z0-9_.\\-]*)\1\s*\)(?=\s|$)')
+        if (-not $literal.Success) {
+            $literal = [regex]::Match($remainder, '^(["''])([A-Za-z][A-Za-z0-9_.\\-]*)\1(?=\s|$)')
+        }
+        if ($literal.Success) {
+            $verb = $literal.Groups[2].Value
+            $i += $literal.Length
+        }
+    }
+    if ($null -eq $verb) {
+        $verbStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $verb = $trimmed.Substring($verbStart, $i - $verbStart)
     }
     $verb = $verb.ToLowerInvariant()
     $locationVerbs = if ($script:bashSyntax) {
@@ -688,7 +704,21 @@ function Get-ChangedWorkingDirectory {
     } else {
         @('cd', 'chdir', 'sl', 'set-location', 'pushd', 'push-location', 'popd', 'pop-location')
     }
-    if ($verb -notin $locationVerbs) { return $null }
+    # Unqualified aliases and the actual built-in Management module have
+    # deterministic location behavior. An unfamiliar module defining a command
+    # with the same basename is opaque, so block rather than guess.
+    if (-not $script:bashSyntax -and $verb -match '^(?<module>[a-z][a-z0-9_.-]*)\\(?<name>set-location|push-location|pop-location)$') {
+        if ($Matches['module'] -ne 'microsoft.powershell.management') {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+        $verb = $Matches['name']
+    }
+    if ($verb -notin $locationVerbs) {
+        if ($CallOperator) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+        return $null
+    }
 
     $result = [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
     $literalLocationPath = $false
@@ -889,7 +919,7 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if ($reason) { break }
 
     $text = $segment.Text.Trim()
-    $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory
+    $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
             $reason = 'Unresolvable leading cd/chdir target or extra argument is forbidden.'
