@@ -531,11 +531,16 @@ object SelectedCountryStore {
             // A connected UI selection can change while the old VPN session is still running.
             // Prefer the identity captured at ACTION_START. An empty value records that the start
             // had no identity (parked cursor); an absent value (legacy prefs) and direct callers
-            // without a matching start keep the current-index fallback.
-            val key = if (matchingStart && stored.contains(KEY_LAST_STARTED_SERVER_KEY)) {
-                stored.getString(KEY_LAST_STARTED_SERVER_KEY, null)?.takeIf { it.isNotEmpty() }
-            } else {
-                currentAttemptedServerKey(ctx)
+            // without any start record keep the current-index fallback.
+            val key = when {
+                // The recorded start describes exactly this success.
+                matchingStart && stored.contains(KEY_LAST_STARTED_SERVER_KEY) ->
+                    stored.getString(KEY_LAST_STARTED_SERVER_KEY, null)?.takeIf { it.isNotEmpty() }
+                // A start record exists but describes another attempt: never pair this config with
+                // an identity captured for a different one.
+                stored.contains(KEY_LAST_STARTED_SERVER_KEY) -> null
+                // Legacy prefs / direct callers without a start record.
+                else -> currentAttemptedServerKey(ctx)
             }
             stored.edit()
                 .putString(KEY_LAST_SUCCESS_CONFIG, config)
@@ -586,8 +591,10 @@ object SelectedCountryStore {
                 .putString(KEY_LAST_STARTED_CONFIG, config)
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
-            // A refresh may leave the index parked on a different same-IP server. The IP-only
-            // early return in ensureIndexForConfig cannot prove that the parked server started.
+            // The cursor's own identity is recorded unless it is parked: a parked cursor (a refresh
+            // removed the server it tracked, or the IP-only alignment fallback moved it) is not
+            // proven to be the started server. Only a proven match (same decoded config, or same
+            // endpoint on the same IP) unparks it and records its key.
             var startedKey = currentAttemptedServerKey(ctx)
             if (alignIndex && isIndexParked(ctx) && currentEntryMatchesStart(ctx, config, ipToStore)) {
                 startedKey = currentServerKey(ctx)
@@ -658,9 +665,14 @@ object SelectedCountryStore {
                 // same-IP entries apart: when the current entry already has this IP, keep the
                 // explicit selection instead of collapsing onto the first same-IP entry.
                 if (current in list.indices && list[current].ip == ip) return
+                // A parked cursor stays where the refresh left it: an IP cannot prove which
+                // same-IP entry was started.
+                if (isIndexParked(ctx)) return
                 val foundByIp = list.indexOfFirst { it.ip == ip }
                 if (foundByIp >= 0) {
-                    setIndex(ctx, foundByIp)
+                    // Position only: the entry is not proven to be the started one, so the cursor
+                    // is parked and only a proven match (saveLastStartedConfig) unparks it.
+                    writeIndex(ctx, foundByIp, parked = true)
                     AppLog.d(TAG, "ensureIndexForConfig: matched by ip index=${foundByIp + 1}/${list.size} ip=$ip")
                 }
             }

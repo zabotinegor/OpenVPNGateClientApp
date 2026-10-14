@@ -154,6 +154,76 @@ class MainConnectionInteractorTest {
         assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
     }
 
+    private fun joinText(port: Int, host: String) = "client\nproto udp\nremote $host $port\n"
+
+    private fun joinEncoded(text: String) =
+        android.util.Base64.encodeToString(text.toByteArray(), android.util.Base64.NO_WRAP)
+
+    private fun rawSelectionPrefs() = RuntimeEnvironment.getApplication()
+        .getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+
+    private fun connectLikeTheServiceDoes(selected: MainSelectedServer, ip: String) {
+        val ctx = RuntimeEnvironment.getApplication()
+        val prepared = interactor.prepareStart(selected, preferUserSelection = false)
+        simulateActionStartAlignment(prepared!!.config, ip)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", prepared.config, ip, alignIndex = false)
+    }
+
+    // A refresh removed the last successful server X; a surviving same-IP entry Y has another endpoint
+    // and the cursor is parked on P (different IP). Connect must not adopt Y as the started server.
+    private fun connectAfterLastSuccessfulServerRemoved(autoSwitch: Boolean) {
+        val ctx = RuntimeEnvironment.getApplication()
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .saveAutoSwitchWithinCountry(ctx, autoSwitch)
+        val xText = joinText(1194, "1.1.1.1")
+        val y = makeServer(joinEncoded(joinText(443, "1.1.1.1")), "1.1.1.1")
+        val p = makeServer(joinEncoded(joinText(1194, "2.2.2.2")), "2.2.2.2")
+        SelectedCountryStore.saveSelection(ctx, "Belarus", listOf(makeServer(joinEncoded(xText), "1.1.1.1"), y, p))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Belarus", xText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", xText, "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "Belarus", listOf(y, p))
+
+        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(xText), ip = "1.1.1.1"), "1.1.1.1")
+    }
+
+    private fun assertNoIdentityWasCaptured() {
+        assertEquals("", rawSelectionPrefs().getString("last_started_server_key", null))
+        assertNull(rawSelectionPrefs().getString("last_success_server_key", null))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(RuntimeEnvironment.getApplication()))
+    }
+
+    @Test
+    fun prepareStart_removedLastSuccessfulServerWithSameIpSurvivor_capturesNoIdentity_autoSwitchOn() {
+        connectAfterLastSuccessfulServerRemoved(autoSwitch = true)
+        assertNoIdentityWasCaptured()
+    }
+
+    @Test
+    fun prepareStart_removedLastSuccessfulServerWithSameIpSurvivor_capturesNoIdentity_autoSwitchOff() {
+        connectAfterLastSuccessfulServerRemoved(autoSwitch = false)
+        assertNoIdentityWasCaptured()
+    }
+
+    @Test
+    fun prepareStart_lastSuccessfulServerStillPresent_capturesItsIdentity() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val yText = joinText(443, "1.1.1.1")
+        val x = makeServer(joinEncoded(joinText(1194, "1.1.1.1")), "1.1.1.1")
+        val y = makeServer(joinEncoded(yText), "1.1.1.1")
+        SelectedCountryStore.saveSelection(ctx, "Belarus", listOf(x, y))
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Belarus", yText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", yText, "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        connectLikeTheServiceDoes(makeSelectedServer(config = joinEncoded(yText), ip = "1.1.1.1"), "1.1.1.1")
+
+        val yKey = SelectedCountryStore.currentServerKeys(ctx)[1]
+        assertEquals(yKey, rawSelectionPrefs().getString("last_started_server_key", null))
+        assertEquals(yKey, rawSelectionPrefs().getString("last_success_server_key", null))
+    }
+
     // endregion
 
     private fun makeServer(config: String, ip: String) = Server(

@@ -54,7 +54,7 @@ class SelectedCountryStoreIdentityPersistenceTest {
 
     private fun lastSuccessKey() = rawPrefs().getString("last_success_server_key", null)
 
-    // ---- AC2: the connected polling path does no whole-list derivation -------------------------
+    // ---- the connected polling path does no whole-list derivation -------------------------
 
     @Test
     fun connectedPolling_reusesCachedKeysAndNeverDerivesAgain() {
@@ -177,19 +177,28 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
-    fun successWithoutMatchingStart_usesTheCurrentAttemptedServer() {
-        select(srv(encode(vpnText(1001))), srv(encode(vpnText(1002))), index = 0)
-        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1001), "5.5.5.5")
-        SelectedCountryStore.setCurrentIndex(ctx, 1)
+    fun successWithoutAnyStartRecord_usesTheCurrentAttemptedServer() {
+        select(srv(encode(vpnText(1001))), srv(encode(vpnText(1002))), index = 1)
 
-        // A direct caller reporting another config than the last start is not the captured session.
+        // A direct caller with no start record at all keeps the live-selection fallback.
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1002), "5.5.5.5", alignIndex = false)
 
         assertEquals(SelectedCountryStore.currentServerKey(ctx), lastSuccessKey())
     }
 
     @Test
-    fun newerStartOverwritesCapturedIdentity_staleSuccessSnapshotNeverMixesThem() {
+    fun successNotMatchingTheRecordedStart_recordsNoIdentity() {
+        select(srv(encode(vpnText(1001))), srv(encode(vpnText(1002))), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1001), "5.5.5.5")
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1002), "5.5.5.5", alignIndex = false)
+
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun newerStartOverwritesCapturedIdentity_staleSuccessSnapshotNeverPairsConfigWithAnotherAttemptsKey() {
         select(srv(encode(vpnText(1001))), srv(encode(vpnText(1002))), index = 0)
         val firstKey = SelectedCountryStore.currentServerKey(ctx)
         SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1001), "5.5.5.5")
@@ -200,13 +209,70 @@ class SelectedCountryStoreIdentityPersistenceTest {
 
         // A snapshot of the first session arrives after the second start was recorded.
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1001), "5.5.5.5", alignIndex = false)
-        assertEquals("a snapshot that is not the recorded start uses the live attempted server", secondKey, lastSuccessKey())
+        assertNull("a snapshot that is not the recorded start must not adopt any identity", lastSuccessKey())
+        assertEquals(vpnText(1001), rawPrefs().getString("last_success_config", null))
 
         // The second session's own snapshot adopts its captured identity.
         SelectedCountryStore.setCurrentIndex(ctx, 0)
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1002), "5.5.5.5", alignIndex = false)
         assertEquals(secondKey, lastSuccessKey())
         assertNotEquals(firstKey, lastSuccessKey())
+    }
+
+    // ---- IP-only alignment never creates an identity ---------------------------------------------
+
+    private fun startedKey() = rawPrefs().getString("last_started_server_key", null)
+
+    /** [X, Y] share an IP with different endpoints; P has another IP. X is removed and the cursor parks on P. */
+    private fun parkedOnOtherIpWithSameIpSurvivor(): String {
+        val xText = vpnText(1194, "1.1.1.1")
+        val x = srv(encode(xText), ip = "1.1.1.1")
+        val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        val p = srv(encode(vpnText(1194, "2.2.2.2")), ip = "2.2.2.2")
+        select(x, y, p, index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, country, listOf(y, p))
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        return xText
+    }
+
+    @Test
+    fun parkedStartOfRemovedServer_ipOnlyMatchRecordsNoIdentityAndKeepsTheCursorParked() {
+        val xText = parkedOnOtherIpWithSameIpSurvivor()
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+        assertEquals("", startedKey())
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun notParkedStart_ipOnlyAlignmentMovesTheCursorParkedAndRecordsNoIdentity() {
+        val a = srv(encode(vpnText(1001, "3.3.3.3")), ip = "3.3.3.3")
+        val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        select(a, y, index = 0)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = true)
+
+        assertEquals("the legacy alignment still positions the counter", 1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertNull("but the entry is not proven to be the started one", SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals("", startedKey())
+    }
+
+    @Test
+    fun parkedStart_matchingTheSameIpSurvivorByEndpoint_capturesItsKeyAndUnparks() {
+        parkedOnOtherIpWithSameIpSurvivor()
+        // The cursor sits on P; starting P's own endpoint proves the parked entry was started.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1194, "2.2.2.2"), "2.2.2.2", alignIndex = true)
+
+        val pKey = SelectedCountryStore.currentServerKeys(ctx)[1]
+        assertEquals(pKey, startedKey())
+        assertEquals(pKey, SelectedCountryStore.currentAttemptedServerKey(ctx))
     }
 
     // ---- id-less duplicates, shared IP, restoration -----------------------------------------
