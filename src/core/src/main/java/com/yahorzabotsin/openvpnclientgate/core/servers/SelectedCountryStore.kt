@@ -593,9 +593,7 @@ object SelectedCountryStore {
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
             // An aligned start records the cursor's identity only when the entry under it is PROVEN
-            // to be the started target (same decoded config, the entry that holds the recorded
-            // last-successful identity for that same config, or same endpoint on the same IP for an
-            // id-less entry). An IP never proves it, parked or not; ensureIndexForConfig has already
+            // to be the started target (see provenStartIndex). An IP never proves it, parked or not; ensureIndexForConfig has already
             // moved the cursor onto a proven entry when one exists. A reconnect (alignIndex=false)
             // keeps the cursor its cycle placed on the candidate.
             val startedKey = if (alignIndex) {
@@ -616,27 +614,14 @@ object SelectedCountryStore {
     private fun currentEntryMatchesStart(ctx: Context, config: String, ip: String?): Boolean {
         val list = getServers(ctx)
         val idx = getIndex(ctx)
-        return idx in list.indices && startProvenAt(ctx, list, idx, config, ip)
+        return idx in list.indices && provenStartIndex(ctx, list, idx, config, ip) == idx
     }
-
-    private fun startProvenAt(ctx: Context, list: List<StoredServer>, index: Int, config: String, ip: String?): Boolean =
-        entryMatchesStart(list[index], config, ip) || holdsLastSuccessIdentity(ctx, list, index, config, ip)
 
     /**
-     * The start is the recorded last-successful config and [index] is the entry that holds the
-     * recorded last-successful identity. That identity was itself captured only from a proven start,
-     * so it proves the entry even when the backend re-issued the server's config under the same id.
-     * The country must be the selected one, and the IP must agree with both the record and the entry.
+     * The recorded last-successful identity key for the started [config], or null when the record
+     * does not describe this start: no key (absent or empty marker), another config, a country that
+     * is not the selected one, or an IP that disagrees (compared only when both are non-blank).
      */
-    private fun holdsLastSuccessIdentity(
-        ctx: Context, list: List<StoredServer>, index: Int, config: String, ip: String?
-    ): Boolean {
-        val key = lastSuccessIdentityKeyFor(ctx, config, ip) ?: return false
-        if (!ipCompatible(list[index], ip)) return false
-        val keys = identityKeys(ctx)
-        return index in keys.indices && keys[index] == key
-    }
-
     private fun lastSuccessIdentityKeyFor(ctx: Context, config: String, ip: String?): String? {
         val stored = prefs(ctx)
         val key = stored.getString(KEY_LAST_SUCCESS_SERVER_KEY, null)?.takeIf { it.isNotBlank() } ?: return null
@@ -648,9 +633,8 @@ object SelectedCountryStore {
         return key
     }
 
-    private fun entryMatchesStart(entry: StoredServer, config: String, ip: String?): Boolean =
-        ipCompatible(entry, ip) && ServerIdentity.sameConfig(entry.config, config) ||
-            matchesByEndpoint(entry, config, ip)
+    private fun entryMatchesByConfig(entry: StoredServer, config: String, ip: String?): Boolean =
+        ipCompatible(entry, ip) && ServerIdentity.sameConfig(entry.config, config)
 
     private fun ipCompatible(entry: StoredServer, ip: String?): Boolean = ip.isNullOrBlank() || entry.ip == ip
 
@@ -664,19 +648,41 @@ object SelectedCountryStore {
     }
 
     /**
-     * Index of the entry proven to be the started target: the cursor entry when it is proven,
-     * otherwise the first entry with the same decoded config, then the entry holding the recorded
-     * last-successful identity (when the start is that recorded config), then the first id-less
-     * same-IP entry with the same endpoint. -1 when no entry is proven.
+     * The only place that decides which listed entry is PROVEN to be the started server. An IP never
+     * proves an entry. The rows are evaluated in order and the first hit wins; "ip ok" means the
+     * started IP is blank or equals the entry's IP.
+     *
+     * | # | Condition                                                                              | Result   |
+     * |---|----------------------------------------------------------------------------------------|----------|
+     * | 1 | cursor entry: ip ok and its config is the started config (raw or Base64-decoded)       | cursor   |
+     * | 2 | cursor entry: id-less, same IP, same endpoint as the started config                    | cursor   |
+     * | 3 | first entry: ip ok and its config is the started config                                | that one |
+     * | 4 | no entry has the started config (rows 1 and 3 found nothing), the stored last-success   | holder   |
+     * |   | record names this exact config, the selected country and a non-empty key (IPs agree     |          |
+     * |   | when both are non-blank), and the entry holding that key has ip ok and the same         |          |
+     * |   | endpoint as the started config                                                          |          |
+     * | 5 | first id-less entry on the same IP with the same endpoint                              | that one |
+     * | 6 | otherwise                                                                              | -1       |
+     *
+     * Row 4 is a fallback for a config the backend re-issued under the same id: the stored key may
+     * have been written by an older build without any proof, so it never outranks an entry whose own
+     * config is the started config, and the holder must also still declare the started endpoint.
+     * Callers: a start is recorded with an identity only when the cursor equals this result.
      */
     private fun provenStartIndex(ctx: Context, list: List<StoredServer>, current: Int, config: String, ip: String?): Int {
-        if (current in list.indices && startProvenAt(ctx, list, current, config, ip)) return current
-        val byConfig = list.indexOfFirst { ipCompatible(it, ip) && ServerIdentity.sameConfig(it.config, config) }
+        if (current in list.indices) {
+            val entry = list[current]
+            if (entryMatchesByConfig(entry, config, ip) || matchesByEndpoint(entry, config, ip)) return current
+        }
+        val byConfig = list.indexOfFirst { entryMatchesByConfig(it, config, ip) }
         if (byConfig >= 0) return byConfig
         val successKey = lastSuccessIdentityKeyFor(ctx, config, ip)
         if (successKey != null) {
-            val byIdentity = identityKeys(ctx).indexOf(successKey)
-            if (byIdentity in list.indices && ipCompatible(list[byIdentity], ip)) return byIdentity
+            val holder = identityKeys(ctx).indexOf(successKey)
+            if (holder in list.indices && ipCompatible(list[holder], ip)) {
+                val startedEndpoint = ServerIdentity.endpoint(config)
+                if (startedEndpoint != null && startedEndpoint == ServerIdentity.endpoint(list[holder].config)) return holder
+            }
         }
         return list.indexOfFirst { matchesByEndpoint(it, config, ip) }
     }

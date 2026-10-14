@@ -444,7 +444,17 @@ class SelectedCountryStoreIdentityPersistenceTest {
         val next = SelectedCountryStore.nextUnvisitedServer(ctx, setOf("id:42"))
         assertEquals("id:43", next?.key)
         assertNull(SelectedCountryStore.nextUnvisitedServer(ctx, setOf("id:42", "id:43")))
-        SelectedCountryStore.setCurrentIndex(ctx, 0)
+    }
+
+    @Test
+    fun reissuedIdBackedLastSuccess_hardprobeAttributesTheBackendIdRightAfterTheStart() {
+        reissuedLastSuccess()
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        assertTrue(SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
         assertEquals(42, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
     }
 
@@ -473,6 +483,115 @@ class SelectedCountryStoreIdentityPersistenceTest {
 
         SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "9.9.9.9", alignIndex = true)
         assertEquals("another IP is not the recorded last success", "", startedKey())
+    }
+
+    // ---- start-proof decision table (rows of provenStartIndex), including legacy last-success keys ----
+
+    private val aText = vpnText(1001, "1.1.1.1")
+    private val bText = vpnText(1002, "1.1.1.1")
+
+    /** Prefs as an older build could leave them: a last success whose key was stored without any proof. */
+    private fun legacyLastSuccess(config: String, key: String?, lastCountry: String = country) {
+        rawPrefs().edit()
+            .putString("last_success_config", config)
+            .putString("last_success_country", lastCountry)
+            .putString("last_success_ip", "1.1.1.1")
+            .apply { if (key != null) putString("last_success_server_key", key) }
+            .commit()
+    }
+
+    private fun connectTwiceAfterRestore(startText: String, expectedIndex: Int, expectedKey: String) {
+        repeat(2) {
+            SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx)
+            SelectedCountryStore.saveLastStartedConfig(ctx, country, startText, "1.1.1.1", alignIndex = true)
+            assertEquals(expectedIndex, SelectedCountryStore.getCurrentIndex(ctx))
+            assertEquals(expectedKey, startedKey())
+            SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, startText, "1.1.1.1", alignIndex = false)
+            assertEquals(expectedKey, lastSuccessKey())
+        }
+    }
+
+    @Test
+    fun legacyWrongSameIpKey_idBacked_isHealedByTheConfigMatchAndStaysHealed() {
+        val a = srv(encode(aText), ip = "1.1.1.1", id = 10)
+        val b = srv(encode(bText), ip = "1.1.1.1", id = 11)
+        select(a, b, idBackedP(), index = 1)
+        legacyLastSuccess(aText, key = "id:11")
+
+        connectTwiceAfterRestore(aText, expectedIndex = 0, expectedKey = "id:10")
+    }
+
+    @Test
+    fun legacyWrongSameIpKey_idLess_isHealedByTheConfigMatchAndStaysHealed() {
+        select(srv(encode(aText), ip = "1.1.1.1"), srv(encode(bText), ip = "1.1.1.1"), idBackedP(), index = 1)
+        val keys = SelectedCountryStore.currentServerKeys(ctx)
+        legacyLastSuccess(aText, key = keys[1])
+
+        connectTwiceAfterRestore(aText, expectedIndex = 0, expectedKey = keys[0])
+    }
+
+    @Test
+    fun row4_holderWhoseEndpointChanged_isNotProven() {
+        // Same id 42, but the backend moved the server to another port: the stored key cannot prove it.
+        select(idBackedX(xText), idBackedP(), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.saveSelectionPreservingIndex(
+            ctx, country, listOf(idBackedX(vpnText(443, "1.1.1.1")), idBackedP())
+        )
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun row4_lastSuccessCountryDifferentFromTheSelectedOne_isNotProven() {
+        reissuedLastSuccess()
+        rawPrefs().edit().putString("last_success_country", "OtherCountry").commit()
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals("", startedKey())
+    }
+
+    @Test
+    fun row4_emptyOrAbsentLastSuccessKey_isNotProven() {
+        reissuedLastSuccess()
+        rawPrefs().edit().putString("last_success_server_key", "").commit()
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+        assertEquals("empty marker", "", startedKey())
+
+        rawPrefs().edit().remove("last_success_server_key").commit()
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+        assertEquals("absent key", "", startedKey())
+    }
+
+    @Test
+    fun row1_cursorOnTheConfigMatch_keepsItAmongSameIpSiblings() {
+        val a = srv(encode(aText), ip = "1.1.1.1", id = 10)
+        val b = srv(encode(bText), ip = "1.1.1.1", id = 11)
+        select(a, b, index = 1)
+        legacyLastSuccess(aText, key = "id:10")
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, bText, "1.1.1.1", alignIndex = true)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("id:11", startedKey())
+    }
+
+    @Test
+    fun row2_idLessCursorOnTheEndpointMatch_beatsALaterConfigMatch() {
+        val reissued = bText + "verb 4\n"
+        select(srv(encode(reissued), ip = "1.1.1.1"), srv(encode(bText), ip = "1.1.1.1"), index = 0)
+        val keys = SelectedCountryStore.currentServerKeys(ctx)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, bText, "1.1.1.1", alignIndex = true)
+
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals(keys[0], startedKey())
     }
 
     // ---- id-less duplicates, shared IP, restoration -----------------------------------------
