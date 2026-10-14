@@ -673,6 +673,15 @@ function Get-ChangedWorkingDirectory {
     $verbStart = $i
     while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
     $verb = $trimmed.Substring($verbStart, $i - $verbStart)
+    # PowerShell's call operator can invoke a literal quoted command name:
+    # & 'Set-Location' <dir>; git commit ...
+    # The segmenter consumes '&', so the verb here includes the quotes.
+    # Normalize only a fully quoted token, without evaluating expressions.
+    if (-not $script:bashSyntax -and $verb.Length -ge 2 -and
+            (($verb[0] -eq "'" -and $verb[$verb.Length - 1] -eq "'") -or
+             ($verb[0] -eq '"' -and $verb[$verb.Length - 1] -eq '"'))) {
+        $verb = $verb.Substring(1, $verb.Length - 2)
+    }
     $verb = $verb.ToLowerInvariant()
     $locationVerbs = if ($script:bashSyntax) {
         @('cd', 'chdir', 'pushd', 'popd')
