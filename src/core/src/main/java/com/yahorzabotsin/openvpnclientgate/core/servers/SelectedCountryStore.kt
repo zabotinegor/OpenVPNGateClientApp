@@ -615,10 +615,9 @@ object SelectedCountryStore {
     }
 
     /**
-     * A same-IP cursor is not proof of a start. If its declared endpoint is explicitly different
-     * from the started config, or both sides provide different non-blank IPs, keep the numeric
-     * display position but park the cursor so cycle seeding and failure attribution ignore it.
-     * Opaque same-IP config drift remains compatible with the historical IP attribution fallback.
+     * A same-IP cursor is not proof of a start. If a positive-ID cursor's parseable config differs,
+     * or its declared endpoint is explicitly different, park it so cycle seeding and failure
+     * attribution ignore it. Opaque same-IP config drift keeps the historical IP fallback.
      */
     private fun currentCursorIsPositivelyDisproven(ctx: Context, config: String, ip: String?): Boolean {
         val list = getServers(ctx)
@@ -631,6 +630,10 @@ object SelectedCountryStore {
         if (cursorIp == null || startedIp == null || cursorIp != startedIp) return false
         val cursorEndpoint = ServerIdentity.endpoint(cursor.config) ?: return false
         val startedEndpoint = ServerIdentity.endpoint(config) ?: return false
+        // A positive backend id is the server identity. If both configs parse and another
+        // positive-id entry cannot prove the start, endpoint equality must not turn this distinct
+        // profile into the failed server (or seed it as attempted).
+        if (cursor.id > 0 && !ServerIdentity.sameConfig(cursor.config, config)) return true
         return cursorEndpoint != startedEndpoint
     }
 

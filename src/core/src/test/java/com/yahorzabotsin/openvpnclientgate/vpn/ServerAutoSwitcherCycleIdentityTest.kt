@@ -462,6 +462,28 @@ class ServerAutoSwitcherCycleIdentityTest {
     }
 
     @Test
+    fun missingStartConfigSameEndpointDifferentPositiveIds_doesNotSeedAttributeOrSkipSurvivor() {
+        val cursorConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 3\n"
+        val survivorConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 2\n"
+        val startedConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 4\n"
+        select(srv(42, cursorConfig), srv(43, survivorConfig), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", startedConfig, "9.9.9.9", alignIndex = true)
+
+        val probedIds = mutableListOf<Int>()
+        ServerAutoSwitcher.probeRequestQueue = object : ProbeRequestQueue {
+            override fun enqueue(serverId: Int) { probedIds += serverId }
+        }
+
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+        failAndSwitch()
+        assertEquals("the other same-endpoint profile remains eligible", listOf(survivorConfig), started)
+        failAndSwitch()
+        assertEquals("the parked positive-id cursor remains eligible after its survivor", listOf(survivorConfig, cursorConfig), started)
+        assertFalse("the unproven cursor id must not be queued for hardprobe", 42 in probedIds)
+    }
+
+    @Test
     fun removalThenSuccess_endsTheCycleOnTheStartedServer() {
         select(srv(1, "A", ip = "1.1.1.1"), srv(2, "B", ip = "2.2.2.2"), srv(3, "C", ip = "3.3.3.3"), index = 0)
         SelectedCountryStore.saveSelectionPreservingIndex(

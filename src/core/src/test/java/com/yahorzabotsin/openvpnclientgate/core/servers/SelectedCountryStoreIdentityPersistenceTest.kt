@@ -343,6 +343,20 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
+    fun unprovenSameEndpointPositiveIdCursor_isParkedWhenStartedConfigDiffers() {
+        val cursorConfig = vpnText(1194) + "verb 3\n"
+        val startedConfig = vpnText(1194) + "verb 4\n"
+        val survivorConfig = vpnText(1194) + "verb 2\n"
+        select(srv(encode(cursorConfig), id = 42), srv(encode(survivorConfig), id = 43), index = 0)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, startedConfig, "5.5.5.5", alignIndex = true)
+
+        assertEquals("", startedKey())
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+    }
+
+    @Test
     fun lastSuccessBehindAnEarlierSameIpSibling_isFoundByDecodedConfigAndKeepsItsIdentity() {
         val xText = vpnText(1194, "1.1.1.1")
         val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
