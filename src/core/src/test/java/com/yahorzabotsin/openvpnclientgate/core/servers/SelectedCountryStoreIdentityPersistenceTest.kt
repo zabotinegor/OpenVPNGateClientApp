@@ -275,6 +275,31 @@ class SelectedCountryStoreIdentityPersistenceTest {
         assertEquals(pKey, SelectedCountryStore.currentAttemptedServerKey(ctx))
     }
 
+    @Test
+    fun parkedStart_idBackedSurvivorWithSameIpAndEndpointButOtherId_isNotProvenByEndpoint() {
+        val removedText = vpnText(1194)
+        val survivorText = removedText + "verb 4\n"
+        parkOn(srv(encode(removedText), id = 11), srv(encode(survivorText), id = 12))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, removedText, "5.5.5.5", alignIndex = true)
+
+        assertEquals("", startedKey())
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, removedText, "5.5.5.5", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun parkedStart_idBackedSurvivorWithSameDecodedConfig_capturesItsIdKeyAndUnparks() {
+        val text = vpnText(1194)
+        parkOn(srv(encode(vpnText(1195)), id = 11), srv(encode(text), id = 12))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, text, "5.5.5.5", alignIndex = true)
+
+        assertEquals("id:12", startedKey())
+        assertEquals("id:12", SelectedCountryStore.currentAttemptedServerKey(ctx))
+    }
+
     // ---- id-less duplicates, shared IP, restoration -----------------------------------------
 
     @Test

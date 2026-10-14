@@ -611,6 +611,10 @@ object SelectedCountryStore {
         // ACTION_START carries the decoded config while the store keeps the encoded one.
         if (ServerIdentity.sameConfig(current.config, config)) return true
         if (ip.isNullOrBlank()) return false
+        // An entry with a backend id is identified by that id, not by its endpoint: a same-IP,
+        // same-endpoint survivor with a different id is another server, so only an id-less entry
+        // may be proven by endpoint equivalence.
+        if (current.id > 0) return false
         val startedEndpoint = ServerIdentity.endpoint(config) ?: return false
         return startedEndpoint == ServerIdentity.endpoint(current.config)
     }
