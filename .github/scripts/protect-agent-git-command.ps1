@@ -492,6 +492,43 @@ function ConvertFrom-PowerShellPathToken {
     return $sb.ToString()
 }
 
+# Decode one Bash path token using shell quote rules, without executing shell
+# expansions. Unquoted backslash escapes any next character (including a space);
+# in double quotes it escapes only $, backtick, double quote and backslash.
+# Inside single quotes a backslash is literal. This must be quote-aware:
+# blanket removal would alter legitimate quoted paths and Windows separators.
+function ConvertFrom-BashPathToken {
+    param([string]$Value)
+
+    $sb = [System.Text.StringBuilder]::new()
+    $quote = $null
+    for ($i = 0; $i -lt $Value.Length; $i++) {
+        $ch = $Value[$i]
+        if ($quote -eq "'") {
+            if ($ch -eq "'") { $quote = $null }
+            else { [void]$sb.Append($ch) }
+            continue
+        }
+        if ($quote -eq '"') {
+            if ($ch -eq '"') { $quote = $null; continue }
+            if ($ch -eq '\' -and $i + 1 -lt $Value.Length) {
+                $next = $Value[$i + 1]
+                if ($next -eq '\' -or $next -eq '"' -or $next -eq '$' -or
+                    $next -eq '`') {
+                    [void]$sb.Append($next); $i++; continue
+                }
+            }
+            [void]$sb.Append($ch); continue
+        }
+        if ($ch -eq "'" -or $ch -eq '"') { $quote = $ch; continue }
+        if ($ch -eq '\' -and $i + 1 -lt $Value.Length) {
+            [void]$sb.Append($Value[$i + 1]); $i++; continue
+        }
+        [void]$sb.Append($ch)
+    }
+    return $sb.ToString()
+}
+
 # A -C/--git-dir value may be POSIX-absolute ('/d/Apps/CopilotTools', which a
 # Git-Bash-issued command produces naturally) or relative. This guard always
 # resolves the target through pwsh's own git.exe (see protect-agent-git-command.sh,
@@ -513,26 +550,14 @@ function Resolve-TargetToken {
     # collapsing that backtick truncated the path to a nonexistent one,
     # resolution failed, and the guard fell back to the SESSION repo - judging a
     # mutation on the target repo's protected branch against the session's own
-    # branch. Bash has no backtick escape, so there the token only needs its
-    # wrapping quotes stripped.
+    # branch. Bash instead needs quote-aware decoding of backslash escapes,
+    # including escaped whitespace in unquoted paths.
     if ($script:bashSyntax) {
-        $clean = ($Value -replace '["'']', '')
+        $clean = ConvertFrom-BashPathToken -Value $Value
     }
     else {
         $clean = ConvertFrom-PowerShellPathToken -Value $Value
     }
-    # A shell metacharacter reaches the path only escaped ('/srv/prod\&repo') or
-    # quoted; the backslash is the shell's, not part of the directory name. Strip
-    # it for exactly those characters so the escaped form resolves to the same
-    # repository the quoted form does - otherwise the path stays unresolvable,
-    # the caller falls back to the SESSION repo, and a commit into a target repo
-    # sitting on main is judged against the session's feature branch and allowed.
-    # Restricted to ';', '&' and '|' on purpose: a blanket unescape would maul
-    # ordinary Windows paths ('C:\repo' -> 'C:repo'). Restricted to bash command
-    # lines for the same reason the segmenter is: ';' and '&' are legal Windows
-    # filename characters, so under PowerShell 'C:\a\&b' names a real directory
-    # '&b' and un-escaping it would break a path that resolves perfectly well.
-    if ($script:bashSyntax) { $clean = ($clean -replace '\\([;&|])', '$1') }
     if ($clean -match '^/([A-Za-z])(/.*)?$') {
         $clean = "$($Matches[1]):$($Matches[2])"
     }
@@ -570,7 +595,13 @@ function Get-GitTargetPath {
     # after which the guard resolves the wrong repository and judges it against
     # the fallback branch. It also keeps a backtick-escaped space ('`  ') glued.
     # Resolve-TargetToken then collapses the escapes to the true path.
-    $tokens = @([regex]::Matches($Segment.Trim(), '(?:`.|"(?:`.|[^"])*"|''[^'']*''|[^\s"''`]+)+') | ForEach-Object { $_.Value })
+    $tokenPattern = if ($script:bashSyntax) {
+        # A backslash-escaped space remains inside one Bash argument.
+        '(?>(?:\\.|"(?:\\.|[^"\\])*"|''[^'']*''|[^\s"''\\]+)+)'
+    } else {
+        '(?>(?:`.|"(?:`.|[^"])*"|''[^'']*''|[^\s"''`]+)+)'
+    }
+    $tokens = @([regex]::Matches($Segment.Trim(), $tokenPattern) | ForEach-Object { $_.Value })
     if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { return $FallbackPath }
 
     $dir = $FallbackPath
@@ -621,8 +652,12 @@ function Get-GitTargetPath {
 function Get-ChangedWorkingDirectory {
     param([string]$Segment, [string]$FallbackPath)
 
-    # A leading literal cd/chdir changes the shell directory for later command
-    # segments. Parse only one static path token. This is deliberately a small
+    # Track every supported literal PowerShell location command, not just
+    # cd/chdir: Set-Location and sl are equivalent ways to change the directory.
+    # Push/Pop-Location (including pushd/popd) change location stack state that
+    # is not modeled here; explicitly reject them instead of checking later git
+    # mutations against the wrong checkout.
+    # Parse only one static path token. This is deliberately a small
     # character scanner rather than a backtracking regex: the guard must stay
     # bounded even when it receives hostile input. Path expansion is intentionally
     # not performed: ~ and environment-variable forms ($HOME, $env:USERPROFILE,
@@ -638,13 +673,31 @@ function Get-ChangedWorkingDirectory {
     $verbStart = $i
     while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
     $verb = $trimmed.Substring($verbStart, $i - $verbStart)
-    if (-not [string]::Equals($verb, 'cd', [System.StringComparison]::OrdinalIgnoreCase) -and
-            -not [string]::Equals($verb, 'chdir', [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $null
+    $verb = $verb.ToLowerInvariant()
+    $locationVerbs = if ($script:bashSyntax) {
+        @('cd', 'chdir', 'pushd', 'popd')
+    } else {
+        @('cd', 'chdir', 'sl', 'set-location', 'pushd', 'push-location', 'popd', 'pop-location')
     }
+    if ($verb -notin $locationVerbs) { return $null }
 
     $result = [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+    # A directory stack requires tracking nested pushes and pops across segments.
+    # Reject unmodeled stack operations fail-closed in both shell modes.
+    if ($verb -in @('pushd', 'push-location', 'popd', 'pop-location')) { return $result }
+
     while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    # Allow the two unambiguous named parameters for PowerShell location changes.
+    # Other switches (e.g. -StackName) could change location without a literal
+    # path and must be rejected rather than treated as a directory name.
+    if (-not $script:bashSyntax -and $i -lt $length -and $trimmed[$i] -eq '-') {
+        $parameterStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $parameter = $trimmed.Substring($parameterStart, $i - $parameterStart)
+        if ($parameter -notin @('-Path', '-LiteralPath')) { return $result }
+        while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        if ($i -ge $length) { return $result }
+    }
     if ($i -ge $length) {
         # A bare cd/chdir has one fixed meaning in bash and PowerShell 7: go to the user's home
         # directory. Resolve it from the account profile (never from a path the command could
