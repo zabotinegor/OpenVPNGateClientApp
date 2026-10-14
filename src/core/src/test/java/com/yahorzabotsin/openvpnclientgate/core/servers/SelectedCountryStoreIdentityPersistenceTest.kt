@@ -369,6 +369,112 @@ class SelectedCountryStoreIdentityPersistenceTest {
         assertNull(lastSuccessKey())
     }
 
+    // ---- an id-backed last success survives a config re-issue under the same id -------------------
+
+    private val xText = vpnText(1194, "1.1.1.1")
+    private val reissuedXText = xText + "verb 4\n"
+    private fun idBackedX(text: String, id: Int = 42) = srv(encode(text), ip = "1.1.1.1", id = id)
+    private fun idBackedP() = srv(encode(vpnText(1194, "2.2.2.2")), ip = "2.2.2.2", id = 43)
+
+    /** X (id 42) connected successfully, then the backend re-issued its config under the same id. */
+    private fun reissuedLastSuccess() {
+        select(idBackedX(xText), idBackedP(), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertEquals("id:42", lastSuccessKey())
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, country, listOf(idBackedX(reissuedXText), idBackedP()))
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun reissuedIdBackedLastSuccess_restoredByKey_keepsItsIdentityAcrossConnectsAndRelaunch() {
+        reissuedLastSuccess()
+
+        repeat(2) {
+            SelectedCountryStore.setCurrentIndex(ctx, 1)
+            assertTrue(SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+            SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+            assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+            assertEquals("id:42", startedKey())
+            assertEquals("the cursor must stay unparked", "id:42", SelectedCountryStore.currentAttemptedServerKey(ctx))
+            SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+            assertEquals("id:42", lastSuccessKey())
+        }
+
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        assertTrue("relaunch still restores the id-backed server", SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
+    fun reissuedIdBackedLastSuccess_cursorAlreadyOnIt_keepsIdentityWithoutAnyRestore() {
+        reissuedLastSuccess()
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals("id:42", startedKey())
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertEquals("id:42", lastSuccessKey())
+    }
+
+    @Test
+    fun reissuedIdBackedLastSuccess_cursorElsewhere_isRelocatedToTheIdentityHolder() {
+        reissuedLastSuccess()
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("id:42", startedKey())
+        assertEquals("id:42", SelectedCountryStore.currentAttemptedServerKey(ctx))
+    }
+
+    @Test
+    fun reissuedIdBackedLastSuccess_keepsHardprobeIdentityAndTheCycleSeed() {
+        reissuedLastSuccess()
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        assertTrue(SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        // The cycle seeds exactly this key as attempted, so the identity is not retried at its end.
+        assertEquals("id:42", SelectedCountryStore.currentAttemptedServerKey(ctx))
+        val next = SelectedCountryStore.nextUnvisitedServer(ctx, setOf("id:42"))
+        assertEquals("id:43", next?.key)
+        assertNull(SelectedCountryStore.nextUnvisitedServer(ctx, setOf("id:42", "id:43")))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        assertEquals(42, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+    }
+
+    @Test
+    fun lastSuccessIdentityRemoved_sameIpSurvivorWithAnotherId_isNotProven() {
+        select(idBackedX(xText), idBackedP(), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1")
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        // id 42 is gone; another id now serves the same IP with a re-issued config.
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, country, listOf(idBackedX(reissuedXText, id = 44), idBackedP()))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun lastSuccessIdentity_doesNotProveAnotherConfigOrAnotherIp() {
+        reissuedLastSuccess()
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(443, "1.1.1.1"), "1.1.1.1", alignIndex = true)
+        assertEquals("another config is not the recorded last success", "", startedKey())
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "9.9.9.9", alignIndex = true)
+        assertEquals("another IP is not the recorded last success", "", startedKey())
+    }
+
     // ---- id-less duplicates, shared IP, restoration -----------------------------------------
 
     @Test

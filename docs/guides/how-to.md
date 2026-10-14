@@ -1066,6 +1066,7 @@ Writing a Robolectric test that drives a delayed `Handler` task (a watchdog or t
 **Why this matters**
 
 `Shadows.shadowOf(Looper.getMainLooper()).idleFor(...)` and `ShadowLooper.runUiThreadTasksIncludingDelayedTasks()` run delayed tasks, including the timeout. A timeout that clears the same flag will clear it on its own, so an assertion made after the pump passes even if the real event never cleared it. Assert the flag before any looper pump, then pump to check the follow-on behavior (for example, that a retry is not sent). The pause tests in `OpenVpnServicePauseTimeoutTest` show this order.
+
 ---
 
 ## Build and test a git worktree (untracked local inputs are not carried over)
