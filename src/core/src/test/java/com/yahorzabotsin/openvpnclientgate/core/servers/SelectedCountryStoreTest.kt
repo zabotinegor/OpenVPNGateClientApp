@@ -123,16 +123,18 @@ class SelectedCountryStoreTest {
     @Test
     fun success_preserves_key_captured_at_start_when_same_ip_selection_changes() {
         val ctx = RuntimeEnvironment.getApplication()
+        fun encoded(text: String) = android.util.Base64.encodeToString(text.toByteArray(), android.util.Base64.NO_WRAP)
+        val firstText = "client\nproto udp\nremote 1.1.1.1 1194\n"
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
         SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(
-            server(name = "first", city = "City1", config = "first", ip = "1.1.1.1"),
-            server(name = "second", city = "City2", config = "second", ip = "1.1.1.1")
+            server(name = "first", city = "City1", config = encoded(firstText), ip = "1.1.1.1"),
+            server(name = "second", city = "City2", config = encoded("client\nproto udp\nremote 1.1.1.1 443\n"), ip = "1.1.1.1")
         ))
         SelectedCountryStore.setCurrentIndex(ctx, 0)
         val startedKey = SelectedCountryStore.currentServerKey(ctx)
-        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "decoded-config", "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", firstText, "1.1.1.1")
         SelectedCountryStore.setCurrentIndex(ctx, 1)
-        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "CountryA", "decoded-config", "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "CountryA", firstText, "1.1.1.1", alignIndex = false)
         SelectedCountryStore.setCurrentIndex(ctx, 1)
         assertTrue(SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
         assertEquals(startedKey, SelectedCountryStore.currentServerKey(ctx))

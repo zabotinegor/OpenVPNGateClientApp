@@ -122,17 +122,19 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
-    fun parked_sameIpDifferentEndpoint_staysParked_evenWhenAnotherEntryMatches() {
+    fun parked_startOfAnotherListedSameIpServer_movesToItAndRecordsItsKey() {
         val parkedText = vpnText(1001)
         val otherText = vpnText(1002)
         parkOn(srv("gone-config"), srv(encode(otherText)), srv(encode(parkedText)))
-        // Connect of the OTHER same-IP server must not clear the cursor sitting on the parked one.
+        // The started server is listed (matched by its decoded config), so it is proven and the
+        // cursor follows it; the parked entry it left was never started.
         SelectedCountryStore.saveLastStartedConfig(ctx, country, otherText, "5.5.5.5", alignIndex = true)
-        // ensureIndexForConfig keeps the explicit (parked) selection for an IP-only match, so the
-        // cursor is neither started nor cleared.
-        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        val otherKey = SelectedCountryStore.currentServerKeys(ctx)[0]
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals(otherKey, SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(otherKey, startedKey())
         SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, otherText, "5.5.5.5", alignIndex = false)
-        assertNull(lastSuccessKey())
+        assertEquals(otherKey, lastSuccessKey())
     }
 
     @Test
@@ -298,6 +300,73 @@ class SelectedCountryStoreIdentityPersistenceTest {
 
         assertEquals("id:12", startedKey())
         assertEquals("id:12", SelectedCountryStore.currentAttemptedServerKey(ctx))
+    }
+
+    // ---- an unparked cursor is held to the same proof as a parked one ----------------------------
+
+    @Test
+    fun unparkedSameIpCursorMovedAfterPrepare_isCorrectedToTheProvenStartedEntry() {
+        val xText = vpnText(1194, "1.1.1.1")
+        val x = srv(encode(xText), ip = "1.1.1.1")
+        val z = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        select(x, z, index = 0)
+        // prepareStart captures X; the selection then moves to the unparked same-IP Z before the
+        // service records the start.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1")
+        val xKey = SelectedCountryStore.currentServerKeys(ctx)[0]
+        assertEquals(xKey, startedKey())
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+
+        SelectedCountryStore.ensureIndexForConfig(ctx, xText, "1.1.1.1")
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals(xKey, startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertEquals(xKey, lastSuccessKey())
+    }
+
+    @Test
+    fun unparkedSameIpCursor_startedConfigNotInTheList_recordsNoIdentityAndKeepsTheCursor() {
+        val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        val w = srv(encode(vpnText(80, "1.1.1.1")), ip = "1.1.1.1")
+        select(y, w, index = 1)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = true)
+
+        assertEquals("", startedKey())
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun lastSuccessBehindAnEarlierSameIpSibling_isFoundByDecodedConfigAndKeepsItsIdentity() {
+        val xText = vpnText(1194, "1.1.1.1")
+        val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        val x = srv(encode(xText), ip = "1.1.1.1")
+        val p = srv(encode(vpnText(1194, "2.2.2.2")), ip = "2.2.2.2")
+        select(y, x, p, index = 2)
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, xText, "1.1.1.1", alignIndex = true)
+
+        val xKey = SelectedCountryStore.currentServerKeys(ctx)[1]
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals(xKey, startedKey())
+        assertEquals(xKey, SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, xText, "1.1.1.1", alignIndex = false)
+        assertEquals(xKey, lastSuccessKey())
+    }
+
+    @Test
+    fun successWithoutStartRecord_doesNotAdoptACursorThatIsNotTheSucceededServer() {
+        val y = srv(encode(vpnText(443, "1.1.1.1")), ip = "1.1.1.1")
+        val x = srv(encode(vpnText(1194, "1.1.1.1")), ip = "1.1.1.1")
+        select(y, x, index = 0)
+
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, vpnText(1194, "1.1.1.1"), "1.1.1.1", alignIndex = false)
+
+        assertNull(lastSuccessKey())
     }
 
     // ---- id-less duplicates, shared IP, restoration -----------------------------------------

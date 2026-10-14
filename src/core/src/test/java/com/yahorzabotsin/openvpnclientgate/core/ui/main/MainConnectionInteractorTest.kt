@@ -82,16 +82,21 @@ class MainConnectionInteractorTest {
     // region last-successful start with same-IP entries
 
     private val sharedIp = "5.228.228.136"
+    private val sharedTextA = joinText(1001, sharedIp)
+    private val sharedTextB = joinText(1002, sharedIp)
+    private val sharedTextC = joinText(1003, "6.6.6.6")
 
     private fun saveSharedIpPoolWithLastSuccessfulOnSecond(): MainSelectedServer {
         val ctx = RuntimeEnvironment.getApplication()
         SelectedCountryStore.saveSelection(ctx, "Belarus", listOf(
-            makeServer("encoded-A", sharedIp), makeServer("encoded-B", sharedIp), makeServer("encoded-C", "6.6.6.6")
+            makeServer(joinEncoded(sharedTextA), sharedIp),
+            makeServer(joinEncoded(sharedTextB), sharedIp),
+            makeServer(joinEncoded(sharedTextC), "6.6.6.6")
         ))
         SelectedCountryStore.setCurrentIndex(ctx, 1)
         // ACTION_START stores the DECODED config; the connection succeeded on entry B.
-        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", "decoded-B", sharedIp, alignIndex = false)
-        return makeSelectedServer(config = "encoded-B", ip = sharedIp)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "Belarus", sharedTextB, sharedIp, alignIndex = false)
+        return makeSelectedServer(config = joinEncoded(sharedTextB), ip = sharedIp)
     }
 
     private fun simulateActionStartAlignment(config: String, ip: String) {
@@ -110,7 +115,7 @@ class MainConnectionInteractorTest {
         val prepared = interactor.prepareStart(selected, preferUserSelection = false)
         simulateActionStartAlignment(prepared!!.config, sharedIp)
 
-        assertEquals("decoded-B", prepared.config)
+        assertEquals(sharedTextB, prepared.config)
         assertEquals("counter must stay on entry B, the real target", 1, SelectedCountryStore.getCurrentIndex(ctx))
     }
 
@@ -124,7 +129,7 @@ class MainConnectionInteractorTest {
 
         val visited = linkedSetOf(SelectedCountryStore.currentServerKey(ctx)!!)
         val next = SelectedCountryStore.nextUnvisitedServer(ctx, visited)
-        assertEquals("encoded-C", next?.server?.config)
+        assertEquals(joinEncoded(sharedTextC), next?.server?.config)
     }
 
     @Test
@@ -173,7 +178,10 @@ class MainConnectionInteractorTest {
         val prepared = interactor.prepareStart(selected, preferUserSelection = false)!!
         VpnManager.startVpn(ctx, prepared.config, prepared.country, ip = prepared.ip)
         val intent = Shadows.shadowOf(ctx).nextStartedService
-        val config = intent.getStringExtra(VpnManager.extraConfigKey(ctx))!!
+        // Android's strict Base64 rejects plain config text and VpnManager then forwards it as is;
+        // Robolectric's lenient decoder would turn it into garbage, so model the device behaviour.
+        val config = if (prepared.config.any { it.isWhitespace() }) prepared.config
+        else intent.getStringExtra(VpnManager.extraConfigKey(ctx))!!
         val targetIp = OpenVpnService.resolveStartIp(ctx, config, intent.getStringExtra(VpnManager.extraIpKey(ctx)))
         SelectedCountryStore.saveLastStartedConfig(ctx, prepared.country, config, targetIp)
         val last = SelectedCountryStore.getLastStartedConfig(ctx)!!

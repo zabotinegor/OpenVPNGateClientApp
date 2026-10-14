@@ -539,8 +539,9 @@ object SelectedCountryStore {
                 // A start record exists but describes another attempt: never pair this config with
                 // an identity captured for a different one.
                 stored.contains(KEY_LAST_STARTED_SERVER_KEY) -> null
-                // Legacy prefs / direct callers without a start record.
-                else -> currentAttemptedServerKey(ctx)
+                // Legacy prefs / direct callers without a start record: the live cursor is only
+                // trusted when it is the entry this success describes.
+                else -> currentAttemptedServerKey(ctx)?.takeIf { currentEntryMatchesStart(ctx, config, ipToStore) }
             }
             stored.edit()
                 .putString(KEY_LAST_SUCCESS_CONFIG, config)
@@ -591,14 +592,20 @@ object SelectedCountryStore {
                 .putString(KEY_LAST_STARTED_CONFIG, config)
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
-            // The cursor's own identity is recorded unless it is parked: a parked cursor (a refresh
-            // removed the server it tracked, or the IP-only alignment fallback moved it) is not
-            // proven to be the started server. Only a proven match (same decoded config, or same
-            // endpoint on the same IP) unparks it and records its key.
-            var startedKey = currentAttemptedServerKey(ctx)
-            if (alignIndex && isIndexParked(ctx) && currentEntryMatchesStart(ctx, config, ipToStore)) {
-                startedKey = currentServerKey(ctx)
-                editor.remove(KEY_INDEX_PARKED)
+            // An aligned start records the cursor's identity only when the entry under it is PROVEN
+            // to be the started target (same decoded config, or same endpoint on the same IP for an
+            // id-less entry). An IP never proves it, parked or not; ensureIndexForConfig has already
+            // moved the cursor onto a proven entry when one exists. A reconnect (alignIndex=false)
+            // keeps the cursor its cycle placed on the candidate.
+            val startedKey = if (alignIndex) {
+                if (currentEntryMatchesStart(ctx, config, ipToStore)) {
+                    if (isIndexParked(ctx)) editor.remove(KEY_INDEX_PARKED)
+                    currentServerKey(ctx)
+                } else {
+                    null
+                }
+            } else {
+                currentAttemptedServerKey(ctx)
             }
             // "" (not null, which would remove the entry) marks a start that has no identity.
             editor.putString(KEY_LAST_STARTED_SERVER_KEY, startedKey.orEmpty()).apply()
@@ -607,16 +614,34 @@ object SelectedCountryStore {
 
     private fun currentEntryMatchesStart(ctx: Context, config: String, ip: String?): Boolean {
         val current = currentServer(ctx) ?: return false
-        if (!ip.isNullOrBlank() && current.ip != ip) return false
-        // ACTION_START carries the decoded config while the store keeps the encoded one.
-        if (ServerIdentity.sameConfig(current.config, config)) return true
-        if (ip.isNullOrBlank()) return false
-        // An entry with a backend id is identified by that id, not by its endpoint: a same-IP,
-        // same-endpoint survivor with a different id is another server, so only an id-less entry
-        // may be proven by endpoint equivalence.
-        if (current.id > 0) return false
+        return entryMatchesStart(current, config, ip)
+    }
+
+    private fun entryMatchesStart(entry: StoredServer, config: String, ip: String?): Boolean =
+        ipCompatible(entry, ip) && ServerIdentity.sameConfig(entry.config, config) ||
+            matchesByEndpoint(entry, config, ip)
+
+    private fun ipCompatible(entry: StoredServer, ip: String?): Boolean = ip.isNullOrBlank() || entry.ip == ip
+
+    // An entry with a backend id is identified by that id, not by its endpoint: a same-IP,
+    // same-endpoint survivor with a different id is another server, so only an id-less entry on the
+    // same IP may be proven by endpoint equivalence.
+    private fun matchesByEndpoint(entry: StoredServer, config: String, ip: String?): Boolean {
+        if (ip.isNullOrBlank() || entry.ip != ip || entry.id > 0) return false
         val startedEndpoint = ServerIdentity.endpoint(config) ?: return false
-        return startedEndpoint == ServerIdentity.endpoint(current.config)
+        return startedEndpoint == ServerIdentity.endpoint(entry.config)
+    }
+
+    /**
+     * Index of the entry proven to be the started target: the cursor entry when it is proven,
+     * otherwise the first entry with the same decoded config, then the first id-less same-IP entry
+     * with the same endpoint. -1 when no entry is proven.
+     */
+    private fun provenStartIndex(list: List<StoredServer>, current: Int, config: String, ip: String?): Int {
+        if (current in list.indices && entryMatchesStart(list[current], config, ip)) return current
+        val byConfig = list.indexOfFirst { ipCompatible(it, ip) && ServerIdentity.sameConfig(it.config, config) }
+        if (byConfig >= 0) return byConfig
+        return list.indexOfFirst { matchesByEndpoint(it, config, ip) }
     }
 
     fun getLastStartedConfig(ctx: Context): LastConfig? {
@@ -662,6 +687,19 @@ object SelectedCountryStore {
                     "ensureIndexForConfig: matched by config index=${foundByConfig + 1}/${list.size} ip=${matchedIp ?: "<none>"}"
                 )
                 return
+            }
+            if (!config.isNullOrBlank()) {
+                // ACTION_START carries the DECODED config while the store keeps the encoded one, so
+                // the raw matches above miss it. An entry proven to be the started target beats any
+                // IP-only guess, wherever the cursor currently sits (parked or not).
+                val proven = provenStartIndex(list, current, config, ip)
+                if (proven >= 0) {
+                    if (proven != current) {
+                        setIndex(ctx, proven)
+                        AppLog.d(TAG, "ensureIndexForConfig: matched by decoded config/endpoint index=${proven + 1}/${list.size}")
+                    }
+                    return
+                }
             }
             if (!ip.isNullOrBlank()) {
                 // ACTION_START carries the DECODED config while the store keeps the encoded one, so
