@@ -195,8 +195,10 @@ function Protect-HeredocBodies {
             # expansion in real bash, irrelevant here - only the literal text
             # is needed to recognize the terminator line) or bare.
             $delim = $null
+            $quotedDelim = $false
             if ($j -lt $len -and ($Command[$j] -eq '"' -or $Command[$j] -eq "'")) {
                 $q = $Command[$j]
+                $quotedDelim = $true
                 $k = $j + 1
                 while ($k -lt $len -and $Command[$k] -ne $q) { $k++ }
                 if ($k -lt $len) {
@@ -257,6 +259,13 @@ function Protect-HeredocBodies {
                 while ($i -lt $len -and $Command[$i] -ne "`n") { $i++ }
                 $line = $Command.Substring($lineStart, $i - $lineStart).TrimEnd("`r")
                 $lineForCompare = if ($line -match '^\t*(.*)$') { $Matches[1] } else { $line }
+                # An unquoted Bash heredoc expands parameters and executes command
+                # substitutions before handing input to its command. Do not erase
+                # potentially executable '$' or backticks and then approve the
+                # outer command as harmless; reject unsupported expansion.
+                if (-not $quotedDelim -and ($line.Contains('$') -or $line.Contains([char]96))) {
+                    $script:opaqueExpandingHeredoc = $true
+                }
                 # Heredoc body text is stdin, not shell syntax. Neutralize the
                 # entire body line in the normalized copy so quotes, separators,
                 # and words such as "git" cannot affect later command parsing.
@@ -357,6 +366,7 @@ function ConvertTo-NormalizedCommand {
     return $sb.ToString().Trim()
 }
 
+$script:opaqueExpandingHeredoc = $false
 $command = Protect-HeredocBodies -Command $command -BashSyntax $bashSyntax
 $normalized = ConvertTo-NormalizedCommand -Command $command -BashSyntax $bashSyntax
 
@@ -377,11 +387,13 @@ function Test-HasUnmodeledBashGrouping {
         $ch = $Command[$i]
         if ($null -ne $quote) {
             if ($quote -eq '"' -and $ch -eq '$' -and $i + 1 -lt $Command.Length -and $Command[$i + 1] -eq '(') { return $true }
+            if ($quote -eq '"' -and $ch -eq [char]96) { return $true }
             if (($quote -eq '"' -or $ansiQuote) -and $ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
             if ($ch -eq $quote) { $quote = $null; $ansiQuote = $false }
             continue
         }
         if ($ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
+        if ($ch -eq [char]96) { return $true }
         if ($ch -eq '"' -or $ch -eq "'") {
             $ansiQuote = ($ch -eq "'" -and $i -gt 0 -and $Command[$i - 1] -eq '$')
             $quote = $ch
@@ -975,7 +987,10 @@ $branchByPath = @{}
 $segmentWorkingDirectory = $cwd
 
 $reason = $null
-if ($bashSyntax -and (Test-HasUnmodeledBashGrouping -Command $normalized)) {
+if ($bashSyntax -and $script:opaqueExpandingHeredoc) {
+    $reason = 'Unmodeled expansion in unquoted Bash heredoc is forbidden.'
+}
+elseif ($bashSyntax -and (Test-HasUnmodeledBashGrouping -Command $normalized)) {
     $reason = 'Unmodeled Bash command grouping or substitution is forbidden.'
 }
 foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $bashSyntax)) {
@@ -1021,6 +1036,13 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
             $reason = 'Unresolvable leading cd/chdir target or extra argument is forbidden.'
+            break
+        }
+        # A preceding Bash && or || makes the cd conditional. Static segment
+        # evaluation cannot know whether it ran; misattributing the later Git
+        # command to the skipped directory is a protected-branch bypass.
+        if ($bashSyntax -and $segment.LeadingOperator -in @('&&', '||')) {
+            $reason = 'Conditionally reached Bash directory change is forbidden.'
             break
         }
         # A Bash 'cd' terminated by single '&' or a pipeline ('|'/'|&')
