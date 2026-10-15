@@ -1087,6 +1087,43 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
 
+    # Git expands aliases before running a subcommand. An unrecognized verb can
+    # be a repository/global alias or an external git-* helper that executes a
+    # protected mutation; matching only literal reset/commit/push is insufficient.
+    # Git built-ins cannot be overridden by aliases. Accept known built-ins
+    # through the existing operation checks, but fail closed for other verbs.
+    # Per-invocation alias definitions are unsafe even with a known verb:
+    # shell aliases and config-env can change command behavior.
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?alias\.') {
+        $reason = 'Git alias definition in command options is forbidden.'
+        break
+    }
+    $gitInvocation = [regex]::Match($text, "(?i)^$gitPrefixPattern(?:\s+(?<gitVerb>[^\s]+))?")
+    $knownGitCommands = @(
+        'add', 'am', 'apply', 'archive', 'bisect', 'blame', 'branch',
+        'bundle', 'cat-file', 'check-attr', 'check-ignore', 'check-mailmap',
+        'checkout', 'checkout-index', 'cherry', 'cherry-pick', 'clean', 'clone',
+        'commit', 'config', 'count-objects', 'credential', 'describe', 'diff',
+        'diff-files', 'diff-index', 'diff-tree', 'fetch', 'filter-branch',
+        'for-each-ref', 'format-patch', 'fsck', 'gc', 'grep', 'hash-object',
+        'help', 'index-pack', 'init', 'interpret-trailers', 'log', 'ls-files',
+        'ls-remote', 'ls-tree', 'merge', 'merge-base', 'merge-file', 'merge-tree',
+        'mergetool', 'mv', 'name-rev', 'notes', 'pack-objects', 'prune', 'pull',
+        'push', 'range-diff', 'read-tree', 'rebase', 'reflog', 'remote', 'repack',
+        'replace', 'reset', 'restore', 'rev-list', 'rev-parse', 'revert', 'rm',
+        'shortlog', 'show', 'show-branch', 'show-index', 'show-ref',
+        'sparse-checkout', 'stash', 'status', 'submodule', 'switch',
+        'symbolic-ref', 'tag', 'update-index', 'update-ref', 'var',
+        'verify-commit', 'verify-pack', 'verify-tag', 'version', 'whatchanged',
+        'worktree', 'write-tree', '--version'
+    )
+    if (-not $gitInvocation.Success -or
+        ($gitInvocation.Groups['gitVerb'].Success -and
+         $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -notin $knownGitCommands)) {
+        $reason = 'Unknown Git subcommand or unsupported global option may be an alias.'
+        break
+    }
+
     # Keep malformed/unresolvable long -C values fail-closed without sending
     # the general mutation regex through an expensive unsuccessful scan. This
     # is a bounded lexical guard; normal paths continue through full parsing.

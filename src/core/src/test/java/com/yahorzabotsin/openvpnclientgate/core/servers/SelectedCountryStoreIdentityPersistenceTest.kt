@@ -209,6 +209,59 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
+    fun countryChangesAfterEncodedPrepareStart_decodedServiceStartRetainsOriginalIdentity() {
+        val decodedConfig = vpnText(1194)
+        val encodedConfig = encode(decodedConfig)
+        select(srv(encodedConfig, id = 11))
+        // prepareStart captures the persisted Base64 profile.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encodedConfig, "5.5.5.5")
+        assertEquals("id:11", startedKey())
+
+        // The new country has the same profile text but a different backend identity.
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encodedConfig, id = 22)))
+        val newCountryIndex = SelectedCountryStore.getCurrentIndex(ctx)
+        // The real VPN service receives decoded config from startVpn.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, decodedConfig, "5.5.5.5", alignIndex = true)
+
+        assertEquals("CountryB", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(newCountryIndex, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("id:11", startedKey())
+        assertEquals(decodedConfig, rawPrefs().getString("last_started_config", null))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, decodedConfig, "5.5.5.5", alignIndex = false)
+        assertEquals("id:11", lastSuccessKey())
+    }
+
+    @Test
+    fun countryChangesAfterEncodedPrepareStart_differentDecodedServiceStartCannotBorrowIdentity() {
+        val prepared = vpnText(1194)
+        val different = vpnText(443)
+        select(srv(encode(prepared), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(prepared), "5.5.5.5")
+        assertEquals("id:11", startedKey())
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encode(different), id = 22)))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, different, "5.5.5.5", alignIndex = true)
+
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, different, "5.5.5.5", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun countryChangesAfterEncodedPrepareStart_differentIpDoesNotBorrowIdentity() {
+        val config = vpnText(1194)
+        select(srv(encode(config), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(config), "5.5.5.5")
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encode(config), id = 22)))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, config, "6.6.6.6", alignIndex = true)
+
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, config, "6.6.6.6", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
     fun countryChangesBeforeDifferentStart_neverBorrowsIdentityOfPreviousStart() {
         val first = vpnText(1194)
         val second = vpnText(443)

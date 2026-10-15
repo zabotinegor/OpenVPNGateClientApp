@@ -592,7 +592,7 @@ object SelectedCountryStore {
             // A newer country selection owns a different server pool: never align its cursor
             // or replace the original start key with the new country's same-config entry.
             val matchingCapturedStart = !selectedCountryMatchesStart &&
-                stored.getString(KEY_LAST_STARTED_CONFIG, null) == config &&
+                ServerIdentity.sameConfig(stored.getString(KEY_LAST_STARTED_CONFIG, null).orEmpty(), config) &&
                 stored.getString(KEY_LAST_STARTED_COUNTRY, null) == country &&
                 (ip == null || stored.getString(KEY_LAST_STARTED_IP, null) == ip)
             val ipToStore = ip ?: when {
