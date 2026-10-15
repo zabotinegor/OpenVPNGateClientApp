@@ -1050,8 +1050,9 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # change the working directory before the next Git segment. Its effects
     # cannot be inferred from command text; fail closed instead of judging
     # following Git operations against the old checkout.
-    if (-not $bashSyntax -and $text -match '^\.(?:\s|$)') {
-        $reason = 'Opaque PowerShell dot-sourcing is forbidden.'
+    if ($text -match '^\.(?:\s|$)' -or
+        ($bashSyntax -and $text -match '^source(?:\s|$)')) {
+        $reason = 'Opaque shell script sourcing is forbidden.'
         break
     }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
@@ -1291,7 +1292,37 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # feature checkout; --update-refs may also rewrite other branches.
     if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'rebase') {
         $rebaseArgs = $text.Substring($gitInvocation.Length).Trim()
-        if ($rebaseArgs -match '(?i)(?:^|\s)--update-refs(?:\s|$)') {
+        # rebase.updateRefs also enables cross-branch rewriting without the
+        # --update-refs CLI flag. Check caller -c options AND effective Git
+        # config (local/global/environment). Reject opaque inline values rather
+        # than assuming a false setting. config --bool canonicalizes booleans.
+        $rebasePrefix = $text.Substring(0, $gitInvocation.Groups['gitVerb'].Index)
+        $rebaseInlineSettings = [regex]::Matches(
+            $rebasePrefix,
+            '(?i)(?:^|\s)-c\s+["'']?rebase\.updateRefs(?:=(?<value>[^\s"''`]+))?["'']?(?=\s|$)'
+        )
+        foreach ($setting in $rebaseInlineSettings) {
+            if ($setting.Groups['value'].Value.ToLowerInvariant() -notin @('false', 'no', 'off', '0')) {
+                $reason = 'Rebase rebase.updateRefs override may rewrite protected refs.'
+                break
+            }
+        }
+        if (-not $reason) {
+            $priorRebaseEap = $ErrorActionPreference
+            $configuredUpdateRefs = ''
+            $rebaseConfigStatus = 1
+            try {
+                $ErrorActionPreference = 'Continue'
+                $configuredUpdateRefs = ((git -C $evalPath config --bool --get rebase.updateRefs 2>$null) | Out-String).Trim()
+                $rebaseConfigStatus = $LASTEXITCODE
+            }
+            finally { $ErrorActionPreference = $priorRebaseEap }
+            if ($rebaseConfigStatus -notin @(0, 1) -or
+                ($rebaseConfigStatus -eq 0 -and $configuredUpdateRefs -ne 'false')) {
+                $reason = 'Effective rebase.updateRefs configuration is enabled or cannot be verified.'
+            }
+        }
+        if (-not $reason -and $rebaseArgs -match '(?i)(?:^|\s)--update-refs(?:\s|$)') {
             $reason = 'Rebase --update-refs may rewrite protected refs.'
         }
         elseif ($rebaseArgs -match '[;&|]' -or $rebaseArgs -match '[\x22\x27$]') {
