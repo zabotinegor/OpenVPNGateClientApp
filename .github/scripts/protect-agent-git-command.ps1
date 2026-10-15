@@ -1046,6 +1046,14 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
             break
         }
     }
+    # PowerShell dot-sourcing executes a script in the caller's scope and can
+    # change the working directory before the next Git segment. Its effects
+    # cannot be inferred from command text; fail closed instead of judging
+    # following Git operations against the old checkout.
+    if (-not $bashSyntax -and $text -match '^\.(?:\s|$)') {
+        $reason = 'Opaque PowerShell dot-sourcing is forbidden.'
+        break
+    }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
@@ -1194,6 +1202,24 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if ((-not [string]::IsNullOrWhiteSpace($repoRoot)) -and
             (Test-Path -LiteralPath (Join-Path $repoRoot '.agenttools-source'))) {
         continue
+    }
+
+    # symbolic-ref is read-only with a single ref argument, but its write
+    # form can replace refs/heads/main with a symbolic reference even from a
+    # feature checkout. Only statically known read-only query forms are safe;
+    # deletion and multi-argument forms fail closed regardless of checkout.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'symbolic-ref') {
+        $symbolicArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($symbolicArgs -notmatch '^(?:(?:-q|--quiet|--short)\s+)*(?:HEAD|refs/heads/[A-Za-z0-9._/-]+)$') {
+            $reason = 'Writing, deleting or opaque symbolic-ref arguments are forbidden.'
+        }
+    }
+
+    # filter-branch can rewrite named protected refs or all branches even when
+    # the current checkout is a feature branch; arbitrary revision expressions
+    # and filter shell snippets cannot be safely analyzed by this lexical hook.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'filter-branch') {
+        $reason = 'Git filter-branch history rewriting is forbidden in client repositories.'
     }
 
     # Explicit fetch destinations and remote.*.fetch config can rewrite LOCAL

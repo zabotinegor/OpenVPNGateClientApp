@@ -262,6 +262,71 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
+    fun pendingStartAfterCountryRelocalization_keepsIdentityAndStoresLocalizedSuccess() {
+        val decoded = vpnText(1194)
+        val localized = "Country A localized"
+        select(srv(encode(decoded), id = 11))
+        // The prepared intent captured the old country label and encoded config.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(decoded), "5.5.5.5")
+        assertEquals("id:11", startedKey())
+        assertTrue(SelectedCountryStore.updateSelectedCountryNameIfCurrent(ctx, country, localized))
+        assertEquals(localized, SelectedCountryStore.getLastStartedConfig(ctx)?.country)
+
+        // ACTION_START and the later success still carry the pre-relocalization label.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, decoded, "5.5.5.5", alignIndex = true)
+        assertEquals("id:11", startedKey())
+        assertEquals(localized, SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(localized, SelectedCountryStore.getLastStartedConfig(ctx)?.country)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, decoded, "5.5.5.5", alignIndex = false)
+        assertEquals("id:11", lastSuccessKey())
+        assertEquals(localized, rawPrefs().getString("last_success_country", null))
+    }
+
+    @Test
+    fun pendingSuccessWithoutSecondStartAfterRelocalization_usesCapturedIdentity() {
+        val decoded = vpnText(1194)
+        select(srv(encode(decoded), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(decoded), "5.5.5.5")
+        SelectedCountryStore.updateSelectedCountryNameIfCurrent(ctx, country, "Country A localized")
+
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, decoded, "5.5.5.5", alignIndex = false)
+
+        assertEquals("id:11", lastSuccessKey())
+        assertEquals("Country A localized", rawPrefs().getString("last_success_country", null))
+    }
+
+    @Test
+    fun relocalizedPendingStartAfterActualCountrySwitch_keepsOldIdentityNotNewCursor() {
+        val decoded = vpnText(1194)
+        select(srv(encode(decoded), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(decoded), "5.5.5.5")
+        SelectedCountryStore.updateSelectedCountryNameIfCurrent(ctx, country, "Country A localized")
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encode(decoded), id = 22)))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, decoded, "5.5.5.5", alignIndex = true)
+        assertEquals("CountryB", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals("id:11", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, decoded, "5.5.5.5", alignIndex = false)
+        assertEquals("id:11", lastSuccessKey())
+        assertEquals("Country A localized", rawPrefs().getString("last_success_country", null))
+    }
+
+    @Test
+    fun relocalizationAliasIsClearedOnANewStartAndDoesNotAuthorizeStaleAttempt() {
+        val first = vpnText(1194)
+        val second = vpnText(443)
+        select(srv(encode(first), id = 11), srv(encode(second), id = 12))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, encode(first), "5.5.5.5")
+        SelectedCountryStore.updateSelectedCountryNameIfCurrent(ctx, country, "Country A localized")
+        SelectedCountryStore.saveLastStartedConfig(ctx, "Country A localized", second, "5.5.5.5")
+        assertEquals("id:12", startedKey())
+
+        // A delayed older ACTION_START cannot borrow the new attempt's key.
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, first, "5.5.5.5")
+        assertEquals("", startedKey())
+    }
+
+    @Test
     fun countryChangesBeforeDifferentStart_neverBorrowsIdentityOfPreviousStart() {
         val first = vpnText(1194)
         val second = vpnText(443)

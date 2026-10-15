@@ -66,6 +66,8 @@ object SelectedCountryStore {
     private const val KEY_LAST_SUCCESS_COUNTRY = "last_success_country"
     private const val KEY_LAST_SUCCESS_CONFIG = "last_success_config"
     private const val KEY_LAST_STARTED_COUNTRY = "last_started_country"
+    // Preserves the country label carried by an in-flight ACTION_START through relocalization.
+    private const val KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME = "last_started_country_before_rename"
     // Shared with UserSettingsStore's server-source writes: a source transition and a guarded
     // selection commit must never interleave, or a pool written for the old source can land after
     // the source has already changed. See [SelectionWriteLock].
@@ -525,8 +527,14 @@ object SelectedCountryStore {
             val ipToStore = ip ?: resolveIpForConfig(ctx, config)
             if (alignIndex) ensureIndexForConfig(ctx, config, ipToStore)
             val stored = prefs(ctx)
-            val matchingStart = stored.getString(KEY_LAST_STARTED_CONFIG, null) == config &&
-                stored.getString(KEY_LAST_STARTED_COUNTRY, null) == country &&
+            val recordedStartCountry = stored.getString(KEY_LAST_STARTED_COUNTRY, null)
+            val effectiveCountry = if (
+                stored.getString(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME, null) == country &&
+                recordedStartCountry != null
+            ) recordedStartCountry else country
+            val matchingStart = ServerIdentity.sameConfig(
+                stored.getString(KEY_LAST_STARTED_CONFIG, null).orEmpty(), config
+            ) && recordedStartCountry == effectiveCountry &&
                 stored.getString(KEY_LAST_STARTED_IP, null) == ipToStore
             // A connected UI selection can change while the old VPN session is still running.
             // Prefer the identity captured at ACTION_START. An empty value records that the start
@@ -545,7 +553,7 @@ object SelectedCountryStore {
             }
             stored.edit()
                 .putString(KEY_LAST_SUCCESS_CONFIG, config)
-                .putString(KEY_LAST_SUCCESS_COUNTRY, country)
+                .putString(KEY_LAST_SUCCESS_COUNTRY, effectiveCountry)
                 .putString(KEY_LAST_SUCCESS_IP, ipToStore)
                 .putString(KEY_LAST_SUCCESS_SERVER_KEY, key)
                 .apply()
@@ -591,9 +599,12 @@ object SelectedCountryStore {
             // prepareStart may already have captured this identity before ACTION_START arrives.
             // A newer country selection owns a different server pool: never align its cursor
             // or replace the original start key with the new country's same-config entry.
+            val recordedStartCountry = stored.getString(KEY_LAST_STARTED_COUNTRY, null)
+            val relocalizedStart = recordedStartCountry != null &&
+                stored.getString(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME, null) == country
             val matchingCapturedStart = !selectedCountryMatchesStart &&
                 ServerIdentity.sameConfig(stored.getString(KEY_LAST_STARTED_CONFIG, null).orEmpty(), config) &&
-                stored.getString(KEY_LAST_STARTED_COUNTRY, null) == country &&
+                (recordedStartCountry == country || relocalizedStart) &&
                 (ip == null || stored.getString(KEY_LAST_STARTED_IP, null) == ip)
             val ipToStore = ip ?: when {
                 matchingCapturedStart -> stored.getString(KEY_LAST_STARTED_IP, null)
@@ -603,8 +614,14 @@ object SelectedCountryStore {
             if (alignIndex && selectedCountryMatchesStart) ensureIndexForConfig(ctx, config, ipToStore)
             val editor = stored.edit()
                 .putString(KEY_LAST_STARTED_CONFIG, config)
-                .putString(KEY_LAST_STARTED_COUNTRY, country)
+                .putString(
+                    KEY_LAST_STARTED_COUNTRY,
+                    if (matchingCapturedStart && relocalizedStart) recordedStartCountry else country
+                )
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
+            if (!matchingCapturedStart || !relocalizedStart) {
+                editor.remove(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME)
+            }
             // An aligned start records the cursor's identity only when the entry under it is PROVEN
             // to be the started target (see provenStartIndex). An IP never proves it, parked or not; ensureIndexForConfig has already
             // moved the cursor onto a proven entry when one exists. A reconnect (alignIndex=false)
@@ -835,6 +852,9 @@ object SelectedCountryStore {
             val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
             if (lastStartedCountry == currentName) {
                 editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+                if (!prefs.contains(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME)) {
+                    editor.putString(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME, currentName)
+                }
             }
 
             editor.apply()
@@ -875,6 +895,9 @@ object SelectedCountryStore {
             val lastStartedCountry = prefs.getString(KEY_LAST_STARTED_COUNTRY, null)
             if (lastStartedCountry == currentName) {
                 editor.putString(KEY_LAST_STARTED_COUNTRY, newCountryName)
+                if (!prefs.contains(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME)) {
+                    editor.putString(KEY_LAST_STARTED_COUNTRY_BEFORE_RENAME, currentName)
+                }
             }
 
             val committed = editor.commit()
