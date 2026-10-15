@@ -1055,6 +1055,14 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         $reason = 'Opaque shell script sourcing or evaluation is forbidden.'
         break
     }
+    # Invoke-Expression and its iex alias execute expressions in the calling
+    # PowerShell scope. The expression may change cwd before a later Git
+    # mutation; reject it instead of inferring Git's checkout from stale state.
+    if (-not $bashSyntax -and
+        $text -match '(?i)^(?:Invoke-Expression|iex|Microsoft\.PowerShell\.Utility\\Invoke-Expression)(?:\s|$)') {
+        $reason = 'Opaque PowerShell expression evaluation is forbidden.'
+        break
+    }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
@@ -1528,6 +1536,16 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
             $branchArgs -match '(?i)(?:^|\s)(?:-[a-z]*[mMcC][a-z]*|--(?:move|copy))(?:\s|$)')
         if ($branchMutates -and ($branchNamesProtected -or $renamesCurrentProtected)) {
             $reason = 'Deleting, renaming, copying or force-moving a protected branch is forbidden.'
+        }
+        # A plain "git branch main feature/next" creates refs/heads/main when
+        # absent, without -f/-m/-d and without invoking commit/push hooks.
+        # Explicit read-only branch listings may name a protected branch.
+        # Track/reflog/recurse options are creation-capable, not read-only.
+        $branchReadOnly = $branchArgs -match '(?i)(?:^|\s)(?:--list|--show-current|--all|--remotes|--contains|--no-contains|--merged|--no-merged|--points-at|--sort|--format|--column|--verbose|-a|-r|-v+)(?=\s|=|$)'
+        $branchCreationOption = $branchArgs -match '(?i)(?:^|\s)(?:--track|--no-track|--recurse-submodules|--create-reflog|-t|-l)(?=\s|=|$)'
+        if (-not $reason -and $branchNamesProtected -and
+            ($branchCreationOption -or -not $branchReadOnly)) {
+            $reason = 'Creating a protected local branch is forbidden.'
         }
     }
 }
