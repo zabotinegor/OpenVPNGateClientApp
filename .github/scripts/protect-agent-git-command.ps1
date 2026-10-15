@@ -1292,18 +1292,40 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         }
     }
 
-    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern(?![-\w/.])") {
-        $reason = 'Direct protected branch ref mutation is forbidden.'
+    # update-ref can mutate the symbolic HEAD of a protected branch without
+    # spelling refs/heads/main. --stdin can send arbitrarily many hidden ref
+    # updates; --no-deref changes symbolic-ref semantics. Reject both globally.
+    # Accept only statically identifiable single-ref writes on feature branches.
+    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+update-ref(?:\s|$)") {
+        $refMatch = [regex]::Match($text, "(?i)$gitPrefixPattern\s+update-ref\b")
+        $refArgs = $text.Substring($refMatch.Index + $refMatch.Length).Trim()
+        if ($refArgs -match '(?i)(?:^|\s)--(?:stdin|no-deref)(?:\s|$)') {
+            $reason = 'Opaque update-ref stdin or no-deref mode is forbidden.'
+        }
+        elseif ($refArgs -match "(?i)(?:^|\s)refs/heads/$protectedPattern(?=\s|$)") {
+            $reason = 'Direct protected branch ref mutation is forbidden.'
+        }
+        elseif ($refArgs -match '(?i)^(?:-d|--delete)\s+HEAD(?:\s|$)' -and $protected -contains $eff) {
+            $reason = "Deleting symbolic HEAD on protected branch '$eff' is forbidden."
+        }
+        elseif ($refArgs -match '(?i)^HEAD(?:\s|$)' -and $protected -contains $eff) {
+            $reason = "Updating symbolic HEAD on protected branch '$eff' is forbidden."
+        }
+        elseif ($refArgs -notmatch '^(?:HEAD|refs/heads/[A-Za-z0-9._/-]+)\s+[^\s;&|]+(?:\s+[^\s;&|]+)?$') {
+            $reason = 'Unmodeled update-ref target or arguments are forbidden.'
+        }
     }
 
-    # Reset: judged against this segment's own effective branch. Strip quotes from
-    # switch targets so git switch "main" does not bypass the protected check.
+    # Every revision-form reset may move the current branch ref: --soft,
+    # --mixed, and the default mode can rewind protected HEAD just as --hard
+    # does. Only the unambiguous 'reset -- <literal-path>' form updates the
+    # index without moving HEAD. All other protected reset shapes fail closed.
     if (-not $reason -and $text -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b") {
         $rm = [regex]::Match($text, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b")
         $argSeg = $text.Substring($rm.Index + $rm.Length)
         if ($protected -contains $eff -and
-                $argSeg -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)') {
-            $reason = "Hard reset on protected branch '$eff' is forbidden."
+            $argSeg -notmatch '^\s+--\s+[A-Za-z0-9_./\\-]+\s*$') {
+            $reason = "Branch-moving or ambiguous reset on protected branch '$eff' is forbidden."
         }
     }
 
