@@ -990,7 +990,11 @@ try {
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $tempRoot, 'checkout', '--quiet', $sourceCommit) -FailureMessage 'git checkout failed.' | Out-Null
 
     $distribution = Get-CopilotToolsDistribution -Root $tempRoot
-    if ($normalizedScope.Count -eq 0) { $normalizedScope = @($distribution.allAssets) }
+    # A scoped sync verifies only the requested files. It must not advance the
+    # global runtime-layer attestation: unsynchronized assets may still be stale
+    # even if the scoped verification passes.
+    $isFullManifestSync = ($normalizedScope.Count -eq 0)
+    if ($isFullManifestSync) { $normalizedScope = @($distribution.allAssets) }
     # Manifest config adapters own their declared formats (including TOML).
     # They must not fall into the generic JSON merge/verification pipeline,
     # even when a runtime also advertises that path as mergeable JSON.
@@ -1411,7 +1415,7 @@ try {
         }
     }
 
-    if (-not $DryRun) {
+    if (-not $DryRun -and $isFullManifestSync -and $mismatches.Count -eq 0) {
         $assetLockPath = Join-Path $targetRootResolved '.copilottools/asset-lock.json'
         New-Item -ItemType Directory -Path (Split-Path -Parent $assetLockPath) -Force | Out-Null
         $assetLock = [ordered]@{

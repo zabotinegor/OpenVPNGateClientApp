@@ -1196,6 +1196,27 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         continue
     }
 
+    # merge/pull/rebase and sequencer operations can advance a checked-out
+    # branch without calling a pre-commit or pre-push hook (fast-forward,
+    # --ff-only, rebases and cherry-picks). The protected HEAD must never be
+    # modified directly by these commands. Read-only merge-base is unaffected.
+    if (-not $reason -and $protected -contains $eff -and
+        $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in
+            @('merge', 'pull', 'rebase', 'cherry-pick', 'revert', 'am')) {
+        $reason = "History-changing Git operation on protected branch '$eff' is forbidden."
+    }
+
+    # git checkout -B / switch -C can force-create or reset a protected branch
+    # even when the currently checked-out branch is an unprotected feature.
+    if (-not $reason -and
+        $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in @('checkout', 'switch')) {
+        $changeArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($changeArgs -match '(?i)(?:^|\s)(?:-[bBcC]|--(?:force-create|create))(?:\s|$)' -and
+            $changeArgs -match "(?i)(?:^|\s)[\x22\x27]?$protectedPattern[\x22\x27]?(?=\s|$)") {
+            $reason = 'Creating or replacing a protected branch through checkout/switch is forbidden.'
+        }
+    }
+
     if ($text -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+commit\b") {
         if ($protected -contains $eff) {
             $reason = "Direct commit on protected branch '$eff' is forbidden."
@@ -1329,20 +1350,19 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         }
     }
 
-    # Branch -f: the forced pointer target is a ref name, so this check does not
-    # depend on the segment's checked-out branch.
-    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+branch\b") {
-        foreach ($bm in [regex]::Matches($text, "(?i)$gitPrefixPattern\s+branch\b")) {
-            $seg = $text.Substring($bm.Index)
-            if ($seg -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])') {
-                if ($seg -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
-                    $branchTarget = ($Matches[2] -replace "^['`"]+|['`"]+$").ToLowerInvariant()
-                    if ($protected -contains $branchTarget) {
-                        $reason = 'Forcing a protected branch pointer is forbidden.'
-                        break
-                    }
-                }
-            }
+    # git branch -D is --delete --force; -d and --delete also remove a
+    # protected ref without running Git hooks. -m/-M/-c/-C can rename/copy
+    # over a protected name, or rename the currently checked-out protected
+    # branch without spelling its name. Inspect all mutation arguments, not
+    # only the first positional token or the current checkout's branch.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'branch') {
+        $branchArgs = $text.Substring($gitInvocation.Length).Trim()
+        $branchMutates = $branchArgs -match '(?i)(?:^|\s)(?:-[a-z]*[dDmMcCf][a-z]*|--(?:delete|move|copy|force))(?:\s|$)'
+        $branchNamesProtected = $branchArgs -match "(?i)(?:^|\s)[\x22\x27]?(?:refs/heads/)?$protectedPattern[\x22\x27]?(?=\s|$)"
+        $renamesCurrentProtected = ($protected -contains $eff -and
+            $branchArgs -match '(?i)(?:^|\s)(?:-[a-z]*[mMcC][a-z]*|--(?:move|copy))(?:\s|$)')
+        if ($branchMutates -and ($branchNamesProtected -or $renamesCurrentProtected)) {
+            $reason = 'Deleting, renaming, copying or force-moving a protected branch is forbidden.'
         }
     }
 }
