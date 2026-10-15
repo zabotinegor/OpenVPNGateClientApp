@@ -937,6 +937,27 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
 
     $text = $segment.Text.Trim()
     if ($bashSyntax -and $text.Length -gt 0) {
+        # Bash assignment prefixes precede the executable, rather than being
+        # executable names themselves: LC_ALL=C git -C /main reset --hard ...
+        # Consume only a bounded literal subset before both cwd and Git checks.
+        # Assignments that can change Git's repository resolution or Bash cd
+        # behavior, and assignments requiring shell expansion/quoting, are
+        # rejected instead of evaluating a mutation against the wrong checkout.
+        while ($text -match '^(?<name>[A-Za-z_][A-Za-z0-9_]*)=(?<value>[A-Za-z0-9_.,:/+%-]*)(?:\s+|$)') {
+            $assignmentName = $Matches['name']
+            if ($assignmentName -match '^(?i:GIT_|HOME$|CDPATH$|PWD$|PATH$|IFS$|BASH_ENV$|ENV$)') {
+                $reason = 'Git or shell location-changing Bash environment assignment is forbidden.'
+                break
+            }
+            $text = $text.Substring($Matches[0].Length).TrimStart()
+        }
+        if ($reason) { break }
+        if ($text -match '^[A-Za-z_][A-Za-z0-9_]*=') {
+            $reason = 'Unsupported Bash environment assignment syntax is forbidden.'
+            break
+        }
+    }
+    if ($bashSyntax -and $text.Length -gt 0) {
         # Bash removes unquoted backslashes and quote delimiters from the
         # COMMAND NAME before lookup. Looking for literal "builtin", "cd" or
         # "git" in the raw text can silently skip a cwd change or mutation

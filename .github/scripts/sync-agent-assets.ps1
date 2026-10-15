@@ -991,7 +991,15 @@ try {
 
     $distribution = Get-CopilotToolsDistribution -Root $tempRoot
     if ($normalizedScope.Count -eq 0) { $normalizedScope = @($distribution.allAssets) }
-    $normalizedMergeJsonPaths = @(@($normalizedMergeJsonPaths) + @($distribution.mergeJsonPaths) | Select-Object -Unique)
+    # Manifest config adapters own their declared formats (including TOML).
+    # They must not fall into the generic JSON merge/verification pipeline,
+    # even when a runtime also advertises that path as mergeable JSON.
+    $adapterOwnedPaths = @($distribution.configMerges | ForEach-Object { Convert-ToRepoRelativePath -Path ([string]$_.path) })
+    $normalizedMergeJsonPaths = @(
+        @($normalizedMergeJsonPaths) + @($distribution.mergeJsonPaths) |
+            Where-Object { $_ -notin $adapterOwnedPaths } |
+            Select-Object -Unique
+    )
     $ExcludeSyncPathPattern = @($distribution.excludeSyncPathPatterns)
 
     $requestedProtectedRootMd = @(
@@ -1031,7 +1039,7 @@ try {
         $configMergeEntry = $distribution.configMerges | Where-Object { $_.path -ieq $relativePath } | Select-Object -First 1
 
         if (-not $targetFiles.ContainsKey($relativePath)) {
-            if ($isMergeJson) {
+            if ($isMergeJson -and $null -eq $configMergeEntry) {
                 $newMergeJsonPaths.Add($relativePath) | Out-Null
             } else {
                 $added.Add($relativePath)
@@ -1041,11 +1049,13 @@ try {
                 if ($isRootMd) {
                     # Create root markdown with managed sync markers
                     Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
-                } elseif (-not $isMergeJson) {
+                } elseif (-not $isMergeJson -or $null -ne $configMergeEntry) {
+                    # Initialize adapter-managed files with their source-format
+                    # bytes; the adapter below then computes canonical content.
                     Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
                 }
             }
-            continue
+            if ($null -eq $configMergeEntry -or $DryRun) { continue }
         }
 
         if ($null -ne $configMergeEntry) {
