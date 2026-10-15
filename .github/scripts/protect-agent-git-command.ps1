@@ -1196,6 +1196,58 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         continue
     }
 
+    # Explicit fetch destinations and remote.*.fetch config can rewrite LOCAL
+    # branch refs without triggering commit/push hooks. Remote-tracking refs
+    # (refs/remotes/*) do not have this property. Fail closed on any explicit
+    # refs/heads destination, abbreviated protected destination, opaque stdin
+    # / refmap / update-head-ok, and configured mappings into local heads.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'fetch') {
+        $fetchArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($fetchArgs -match '(?i)(?:^|\s)--(?:stdin|update-head-ok)(?=\s|$)' -or
+            $fetchArgs -match '(?i)(?:^|\s)--refmap(?:=|\s|$)' -or
+            $fetchArgs -match '(?i):refs/heads/' -or
+            $fetchArgs -match "(?i):(?:refs/heads/)?$protectedPattern(?=\s|$|[\x22\x27])" -or
+            $text -match '(?i)(?:^|\s)-c\s+[\x22\x27]?remote\.[^=\s]+\.fetch=') {
+            $reason = 'Fetch into local/protected branch refs or opaque fetch mapping is forbidden.'
+        }
+        else {
+            # A plain "git fetch origin" still consumes remote.origin.fetch.
+            # Reject a configured mapping into any local refs/heads/*, including
+            # wildcard destinations that may later include protected names.
+            $priorFetchEap = $ErrorActionPreference
+            $fetchConfigLines = @()
+            $fetchConfigExit = 1
+            try {
+                $ErrorActionPreference = 'Continue'
+                $fetchConfigLines = @(git -C $evalPath config --get-regexp '^remote\..*\.fetch$' 2>$null)
+                $fetchConfigExit = $LASTEXITCODE
+            }
+            finally { $ErrorActionPreference = $priorFetchEap }
+            if ($fetchConfigExit -notin @(0, 1) -or
+                @($fetchConfigLines | Where-Object { $_ -match '(?i):refs/heads/' }).Count -gt 0) {
+                $reason = 'Configured fetch may write local branch refs.'
+            }
+        }
+    }
+
+    # worktree add -B forcibly resets an existing branch ref, even when that
+    # branch is not checked out by any worktree. -b creates a named branch.
+    # Check their named target independently of the current effective branch.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'worktree') {
+        $worktreeArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($worktreeArgs -match '(?i)^add(?:\s|$)') {
+            $branchOption = [regex]::Match($worktreeArgs, '(?i)(?:^|\s)-[bB]\s*(?<branch>[A-Za-z0-9._/-]+)(?=\s|$)')
+            if ($worktreeArgs -match '(?i)(?:^|\s)-[bB](?=\s|[A-Za-z0-9._/-]|$)') {
+                if (-not $branchOption.Success) {
+                    $reason = 'Ambiguous worktree branch creation/replacement is forbidden.'
+                }
+                elseif ($protected -contains $branchOption.Groups['branch'].Value.ToLowerInvariant()) {
+                    $reason = 'Creating or replacing a protected branch through worktree add is forbidden.'
+                }
+            }
+        }
+    }
+
     # merge/pull/rebase and sequencer operations can advance a checked-out
     # branch without calling a pre-commit or pre-push hook (fast-forward,
     # --ff-only, rebases and cherry-picks). The protected HEAD must never be
