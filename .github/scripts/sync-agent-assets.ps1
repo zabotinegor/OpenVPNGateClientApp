@@ -866,8 +866,15 @@ function Set-RepositoryGitHooksPath {
             # Trusted hook contents and Unix execution permissions are separate
             # invariants. A restored but non-executable hook is silently ignored
             # by Git even when the hashes match, so repair metadata independently.
-            $mode = [IO.File]::GetUnixFileMode($dst)
-            $needsExecuteRepair = (($mode -band [IO.UnixFileMode]::UserExecute) -eq 0)
+            # POSIX test -x is available on supported Unix hosts even with
+            # PowerShell 7.0/7.2 (.NET Core 3.1/.NET 6). The .NET 7-only
+            # File.GetUnixFileMode/UnixFileMode APIs would crash routine sync.
+            & test -x $dst
+            $testExit = $LASTEXITCODE
+            if ($testExit -notin @(0, 1)) {
+                throw "Cannot verify trusted hook execution permission: $dst (test exit $testExit)"
+            }
+            $needsExecuteRepair = $testExit -eq 1
         }
         if ($different -or $needsExecuteRepair) {
             $fileChanged = $true

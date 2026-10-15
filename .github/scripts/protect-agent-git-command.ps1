@@ -699,6 +699,23 @@ function Get-ChangedWorkingDirectory {
         $verb = $trimmed.Substring($verbStart, $i - $verbStart)
     }
     $verb = $verb.ToLowerInvariant()
+    if ($script:bashSyntax -and $verb -in @('builtin', 'command')) {
+        # Bash executes cd in the CURRENT shell through these static wrappers.
+        # Treating "builtin" or "command" as an unrelated command allowed the
+        # following git mutation to run in a different, protected checkout.
+        # Unmodeled wrapper targets and options fail closed; they may execute
+        # other cwd-changing builtins, source/eval, or Git with unknown effects.
+        while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        if ($i -ge $length) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+        $wrappedStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $verb = $trimmed.Substring($wrappedStart, $i - $wrappedStart).ToLowerInvariant()
+        if ($verb -notin @('cd', 'chdir')) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+    }
     $locationVerbs = if ($script:bashSyntax) {
         @('cd', 'chdir', 'pushd', 'popd')
     } else {
