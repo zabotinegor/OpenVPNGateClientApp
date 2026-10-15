@@ -360,6 +360,43 @@ function ConvertTo-NormalizedCommand {
 $command = Protect-HeredocBodies -Command $command -BashSyntax $bashSyntax
 $normalized = ConvertTo-NormalizedCommand -Command $command -BashSyntax $bashSyntax
 
+# Bash groups, subshells, and command substitutions change execution scope
+# without necessarily beginning a segment with 'cd' or 'git'. The segment
+# walker below deliberately does not model nested shell grammars; reject those
+# constructs before attributing a Git mutation to the wrong checkout.
+# Ignore escaped punctuation, quoted literal arguments, and heredoc bodies
+# (already neutralized as NULs), while retaining executable $(...) within
+# double quotes. Standalone braces are Bash reserved words; brace expansion
+# such as {one,two} is not a command group.
+function Test-HasUnmodeledBashGrouping {
+    param([string]$Command)
+
+    $quote = $null
+    $ansiQuote = $false
+    for ($i = 0; $i -lt $Command.Length; $i++) {
+        $ch = $Command[$i]
+        if ($null -ne $quote) {
+            if ($quote -eq '"' -and $ch -eq '$' -and $i + 1 -lt $Command.Length -and $Command[$i + 1] -eq '(') { return $true }
+            if (($quote -eq '"' -or $ansiQuote) -and $ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
+            if ($ch -eq $quote) { $quote = $null; $ansiQuote = $false }
+            continue
+        }
+        if ($ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
+        if ($ch -eq '"' -or $ch -eq "'") {
+            $ansiQuote = ($ch -eq "'" -and $i -gt 0 -and $Command[$i - 1] -eq '$')
+            $quote = $ch
+            continue
+        }
+        if ($ch -eq '(' -or $ch -eq ')') { return $true }
+        if ($ch -eq '{' -or $ch -eq '}') {
+            $leftBoundary = ($i -eq 0 -or [char]::IsWhiteSpace($Command[$i - 1]) -or ';|&()'.Contains($Command[$i - 1]))
+            $rightBoundary = ($i + 1 -eq $Command.Length -or [char]::IsWhiteSpace($Command[$i + 1]) -or ';|&()'.Contains($Command[$i + 1]))
+            if ($leftBoundary -and $rightBoundary) { return $true }
+        }
+    }
+    return $false
+}
+
 # Shell separators only separate commands OUTSIDE quotes. A bare '[;&|]+' split
 # truncates a legitimately quoted path that contains one of those characters
 # ('git -C "/srv/prod&repo" commit'), so the guard would resolve - and judge - a
@@ -938,6 +975,9 @@ $branchByPath = @{}
 $segmentWorkingDirectory = $cwd
 
 $reason = $null
+if ($bashSyntax -and (Test-HasUnmodeledBashGrouping -Command $normalized)) {
+    $reason = 'Unmodeled Bash command grouping or substitution is forbidden.'
+}
 foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $bashSyntax)) {
     if ($reason) { break }
 
