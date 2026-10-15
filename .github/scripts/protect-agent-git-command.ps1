@@ -1227,8 +1227,11 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # (refs/remotes/*) do not have this property. Fail closed on any explicit
     # refs/heads destination, abbreviated protected destination, opaque stdin
     # / refmap / update-head-ok, and configured mappings into local heads.
-    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'fetch') {
-        $fetchArgs = $text.Substring($gitInvocation.Length).Trim()
+    $gitVerbForFetch = $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant()
+    $fetchArgs = $text.Substring($gitInvocation.Length).Trim()
+    $isRemoteUpdate = $gitVerbForFetch -eq 'remote' -and
+        $fetchArgs -match '(?i)^update(?:\s|$)'
+    if (-not $reason -and ($gitVerbForFetch -eq 'fetch' -or $isRemoteUpdate)) {
         if ($fetchArgs -match '(?i)(?:^|\s)--(?:stdin|update-head-ok)(?=\s|$)' -or
             $fetchArgs -match '(?i)(?:^|\s)--refmap(?:=|\s|$)' -or
             $fetchArgs -match '(?i):refs/heads/' -or
@@ -1282,6 +1285,39 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in
             @('merge', 'pull', 'rebase', 'cherry-pick', 'revert', 'am')) {
         $reason = "History-changing Git operation on protected branch '$eff' is forbidden."
+    }
+
+    # Explicit target branches in rebase can rewrite protected refs from a
+    # feature checkout; --update-refs may also rewrite other branches.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'rebase') {
+        $rebaseArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($rebaseArgs -match '(?i)(?:^|\s)--update-refs(?:\s|$)') {
+            $reason = 'Rebase --update-refs may rewrite protected refs.'
+        }
+        elseif ($rebaseArgs -match '[;&|]' -or $rebaseArgs -match '[\x22\x27$]') {
+            $reason = 'Opaque rebase arguments cannot prove protected ref safety.'
+        }
+        else {
+            $rebaseOperands = [System.Collections.Generic.List[string]]::new()
+            $skipNext = $false
+            foreach ($arg in ($rebaseArgs -split '\s+')) {
+                if (-not $arg) { continue }
+                if ($skipNext) { $skipNext = $false; continue }
+                if ($arg -in @('--onto', '--exec', '-X', '--strategy-option')) {
+                    $skipNext = $true
+                    continue
+                }
+                if ($arg.StartsWith('-')) { continue }
+                $rebaseOperands.Add($arg)
+            }
+            if ($skipNext) {
+                $reason = 'Incomplete rebase option is forbidden.'
+            }
+            elseif ($rebaseOperands.Count -ge 2 -and
+                    $protected -contains $rebaseOperands[$rebaseOperands.Count - 1].ToLowerInvariant()) {
+                $reason = 'Rebasing an explicit protected branch target is forbidden.'
+            }
+        }
     }
 
     # git checkout -B / switch -C can force-create or reset a protected branch

@@ -189,6 +189,43 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
+    fun reconnectAfterSameCountryCursorAdvances_doesNotBorrowWrongServerIdentity() {
+        val dispatched = vpnText(1194)
+        val other = vpnText(443)
+        select(srv(encode(dispatched), id = 11), srv(encode(other), id = 22))
+        // An automatic reconnect dispatched the first server before ACTION_START arrived.
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, dispatched, "5.5.5.5", alignIndex = false)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, dispatched, "5.5.5.5", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
+    fun reconnectAtMatchingSameCountryCursor_keepsItsCapturedIdentity() {
+        val dispatched = vpnText(1194)
+        select(srv(encode(dispatched), id = 11), srv(encode(vpnText(443)), id = 22))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, dispatched, "5.5.5.5", alignIndex = false)
+
+        assertEquals("id:11", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, dispatched, "5.5.5.5", alignIndex = false)
+        assertEquals("id:11", lastSuccessKey())
+    }
+
+    @Test
+    fun reconnectAtSameConfigButDifferentIp_doesNotBorrowCursorIdentity() {
+        val dispatched = vpnText(1194, "5.5.5.5")
+        select(srv(encode(dispatched), ip = "5.5.5.5", id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, dispatched, "6.6.6.6", alignIndex = false)
+
+        assertEquals("", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, dispatched, "6.6.6.6", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
     fun countryChangesAfterPrepareStart_preservesOriginalServerIdentity() {
         val started = vpnText(1194)
         select(srv(encode(started), id = 11))

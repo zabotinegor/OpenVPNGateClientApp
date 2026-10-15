@@ -640,7 +640,12 @@ object SelectedCountryStore {
                     null
                 }
             } else {
-                currentAttemptedServerKey(ctx)
+                // An automatic reconnect can dispatch before the service observes ACTION_START.
+                // The cycle cursor may have advanced meanwhile; never adopt its identity unless
+                // its config and IP positively match the dispatched start.
+                currentAttemptedServerKey(ctx)?.takeIf {
+                    currentEntryMatchesStart(ctx, config, ipToStore)
+                }
             }
             // "" (not null, which would remove the entry) marks a start that has no identity.
             if (alignIndex && selectedCountryMatchesStart &&
