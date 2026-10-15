@@ -829,6 +829,12 @@ function Get-ChangedWorkingDirectory {
     if ($i -lt $length) { return $result }
 
     $rawToken = $trimmed.Substring($tokenStart, $i - $tokenStart)
+    # Bash 'cd -' means OLDPWD, not a literal directory named '-'. Without
+    # tracking OLDPWD across segments, a subsequent Git mutation could be
+    # checked against the wrong checkout. Reject this special form fail-closed.
+    if ($script:bashSyntax -and (ConvertFrom-BashPathToken -Value $rawToken) -eq '-') {
+        return $result
+    }
     if ($rawToken -match '^\s*["'']?~' -or $rawToken.Contains('$')) {
         return $result
     }
@@ -977,7 +983,20 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
             $reason = 'Unresolvable leading cd/chdir target or extra argument is forbidden.'
             break
         }
-        $segmentWorkingDirectory = $directoryChange.Path
+        # A Bash 'cd' terminated by single '&' or a pipeline ('|'/'|&')
+        # runs in a subshell. The parent shell keeps its original cwd, even
+        # when a later segment performs a Git mutation. '&&' and '||' are
+        # list operators, not pipeline/background boundaries.
+        $terminatorIndex = $segment.Index + $segment.Text.Length
+        $subshellCd = $false
+        if ($bashSyntax -and $terminatorIndex -lt $normalized.Length) {
+            $suffix = $normalized.Substring($terminatorIndex)
+            $subshellCd = ($suffix.StartsWith('&') -and -not $suffix.StartsWith('&&')) -or
+                          ($suffix.StartsWith('|') -and -not $suffix.StartsWith('||'))
+        }
+        if (-not $subshellCd) {
+            $segmentWorkingDirectory = $directoryChange.Path
+        }
         continue
     }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
