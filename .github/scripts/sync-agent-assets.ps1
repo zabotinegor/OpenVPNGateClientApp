@@ -860,12 +860,23 @@ function Set-RepositoryGitHooksPath {
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing trusted hook source: $($item.Value)" }
         $different = (-not (Test-Path -LiteralPath $dst -PathType Leaf)) -or
             ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash)
-        if ($different) {
+        $isExecutableHook = $item.Key -in @('post-checkout', 'pre-commit', 'pre-push')
+        $needsExecuteRepair = $false
+        if (-not $IsWindows -and $isExecutableHook -and (Test-Path -LiteralPath $dst -PathType Leaf)) {
+            # Trusted hook contents and Unix execution permissions are separate
+            # invariants. A restored but non-executable hook is silently ignored
+            # by Git even when the hashes match, so repair metadata independently.
+            $mode = [IO.File]::GetUnixFileMode($dst)
+            $needsExecuteRepair = (($mode -band [IO.UnixFileMode]::UserExecute) -eq 0)
+        }
+        if ($different -or $needsExecuteRepair) {
             $fileChanged = $true
             if (-not $DryRun) {
-                New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
-                Copy-Item -LiteralPath $src -Destination $dst -Force
-                if (-not $IsWindows -and $item.Key -in @('post-checkout', 'pre-commit', 'pre-push')) {
+                if ($different) {
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+                    Copy-Item -LiteralPath $src -Destination $dst -Force
+                }
+                if (-not $IsWindows -and $isExecutableHook) {
                     & chmod +x $dst
                     if ($LASTEXITCODE -ne 0) { throw 'Cannot chmod trusted hook' }
                 }
@@ -1298,7 +1309,16 @@ try {
     }
 
     $gitHooksConfiguration = $null
-    if ($normalizedScope -icontains '.githooks') {
+    # A file-scoped sync can update a hook or its trusted runtime dependencies.
+    # Keep the installed immutable copy synchronized whenever ANY source it
+    # contains intersects the requested scope (not only the .githooks folder).
+    $trustedSourcePaths = @(
+        '.githooks',
+        '.github/scripts/sync-agent-assets.ps1',
+        '.github/scripts/runtime-layer-hash.ps1',
+        '.github/scripts/runtime-distribution-lib.ps1'
+    )
+    if (Test-ScopeIntersectsPaths -Scope $normalizedScope -Paths $trustedSourcePaths) {
         $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -SourceRoot $tempRoot -DryRun:$DryRun
     }
 
