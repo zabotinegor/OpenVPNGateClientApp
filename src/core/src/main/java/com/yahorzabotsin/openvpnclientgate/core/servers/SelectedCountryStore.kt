@@ -586,9 +586,22 @@ object SelectedCountryStore {
     ) {
         if (config.isBlank()) return
         synchronized(selectionRenameLock) {
-            val ipToStore = ip ?: resolveIpForConfig(ctx, config)
-            if (alignIndex) ensureIndexForConfig(ctx, config, ipToStore)
-            val editor = prefs(ctx).edit()
+            val stored = prefs(ctx)
+            val selectedCountryMatchesStart = getSelectedCountry(ctx) == country
+            // prepareStart may already have captured this identity before ACTION_START arrives.
+            // A newer country selection owns a different server pool: never align its cursor
+            // or replace the original start key with the new country's same-config entry.
+            val matchingCapturedStart = !selectedCountryMatchesStart &&
+                stored.getString(KEY_LAST_STARTED_CONFIG, null) == config &&
+                stored.getString(KEY_LAST_STARTED_COUNTRY, null) == country &&
+                (ip == null || stored.getString(KEY_LAST_STARTED_IP, null) == ip)
+            val ipToStore = ip ?: when {
+                matchingCapturedStart -> stored.getString(KEY_LAST_STARTED_IP, null)
+                selectedCountryMatchesStart -> resolveIpForConfig(ctx, config)
+                else -> null
+            }
+            if (alignIndex && selectedCountryMatchesStart) ensureIndexForConfig(ctx, config, ipToStore)
+            val editor = stored.edit()
                 .putString(KEY_LAST_STARTED_CONFIG, config)
                 .putString(KEY_LAST_STARTED_COUNTRY, country)
                 .putString(KEY_LAST_STARTED_IP, ipToStore)
@@ -596,7 +609,13 @@ object SelectedCountryStore {
             // to be the started target (see provenStartIndex). An IP never proves it, parked or not; ensureIndexForConfig has already
             // moved the cursor onto a proven entry when one exists. A reconnect (alignIndex=false)
             // keeps the cursor its cycle placed on the candidate.
-            val startedKey = if (alignIndex) {
+            val startedKey = if (!selectedCountryMatchesStart) {
+                if (matchingCapturedStart) {
+                    stored.getString(KEY_LAST_STARTED_SERVER_KEY, null)?.takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                }
+            } else if (alignIndex) {
                 if (currentEntryMatchesStart(ctx, config, ipToStore)) {
                     if (isIndexParked(ctx)) editor.remove(KEY_INDEX_PARKED)
                     currentServerKey(ctx)
@@ -607,7 +626,8 @@ object SelectedCountryStore {
                 currentAttemptedServerKey(ctx)
             }
             // "" (not null, which would remove the entry) marks a start that has no identity.
-            if (alignIndex && currentCursorIsPositivelyDisproven(ctx, config, ipToStore)) {
+            if (alignIndex && selectedCountryMatchesStart &&
+                currentCursorIsPositivelyDisproven(ctx, config, ipToStore)) {
                 editor.putBoolean(KEY_INDEX_PARKED, true)
             }
             editor.putString(KEY_LAST_STARTED_SERVER_KEY, startedKey.orEmpty()).apply()

@@ -189,6 +189,42 @@ class SelectedCountryStoreIdentityPersistenceTest {
     }
 
     @Test
+    fun countryChangesAfterPrepareStart_preservesOriginalServerIdentity() {
+        val started = vpnText(1194)
+        select(srv(encode(started), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, started, "5.5.5.5")
+        assertEquals("id:11", startedKey())
+
+        // ACTION_START reaches the service after the user has selected another country.
+        // The new country's pool contains the same config but a different server identity.
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encode(started), id = 22)))
+        val selectedIndexBeforeDispatch = SelectedCountryStore.getCurrentIndex(ctx)
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, started, "5.5.5.5", alignIndex = true)
+
+        assertEquals("CountryB", SelectedCountryStore.getSelectedCountry(ctx))
+        assertEquals(selectedIndexBeforeDispatch, SelectedCountryStore.getCurrentIndex(ctx))
+        assertEquals("id:11", startedKey())
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, started, "5.5.5.5", alignIndex = false)
+        assertEquals("id:11", lastSuccessKey())
+    }
+
+    @Test
+    fun countryChangesBeforeDifferentStart_neverBorrowsIdentityOfPreviousStart() {
+        val first = vpnText(1194)
+        val second = vpnText(443)
+        select(srv(encode(first), id = 11))
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, first, "5.5.5.5")
+        SelectedCountryStore.saveSelection(ctx, "CountryB", listOf(srv(encode(second), id = 22)))
+
+        SelectedCountryStore.saveLastStartedConfig(ctx, country, second, "5.5.5.5", alignIndex = true)
+
+        assertEquals("", startedKey())
+        assertEquals("CountryB", SelectedCountryStore.getSelectedCountry(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, country, second, "5.5.5.5", alignIndex = false)
+        assertNull(lastSuccessKey())
+    }
+
+    @Test
     fun successNotMatchingTheRecordedStart_recordsNoIdentity() {
         select(srv(encode(vpnText(1001))), srv(encode(vpnText(1002))), index = 0)
         SelectedCountryStore.saveLastStartedConfig(ctx, country, vpnText(1001), "5.5.5.5")

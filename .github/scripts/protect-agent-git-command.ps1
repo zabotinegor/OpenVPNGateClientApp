@@ -214,6 +214,16 @@ function Protect-HeredocBodies {
                 }
             }
 
+            # Bash performs quote removal on heredoc delimiter words, including
+            # backslash and concatenated quoted fragments. This parser models
+            # only wholly unquoted or wholly single/double-quoted literals.
+            # Reject unmodeled delimiters BEFORE their bogus terminator could
+            # consume all later commands as inert heredoc text.
+            if (-not [string]::IsNullOrEmpty($delim) -and
+                $delim.IndexOfAny([char[]]@('\', "'", '"')) -ge 0) {
+                $script:unsupportedBashHeredocDelimiter = $true
+                return $Command
+            }
             if ([string]::IsNullOrEmpty($delim)) {
                 # Not a recognizable heredoc operator (bare '<<' with nothing
                 # after it) - copy the two characters through unexamined
@@ -367,6 +377,7 @@ function ConvertTo-NormalizedCommand {
 }
 
 $script:opaqueExpandingHeredoc = $false
+$script:unsupportedBashHeredocDelimiter = $false
 $command = Protect-HeredocBodies -Command $command -BashSyntax $bashSyntax
 $normalized = ConvertTo-NormalizedCommand -Command $command -BashSyntax $bashSyntax
 
@@ -987,7 +998,10 @@ $branchByPath = @{}
 $segmentWorkingDirectory = $cwd
 
 $reason = $null
-if ($bashSyntax -and $script:opaqueExpandingHeredoc) {
+if ($bashSyntax -and $script:unsupportedBashHeredocDelimiter) {
+    $reason = 'Unsupported Bash heredoc delimiter quoting is forbidden.'
+}
+elseif ($bashSyntax -and $script:opaqueExpandingHeredoc) {
     $reason = 'Unmodeled expansion in unquoted Bash heredoc is forbidden.'
 }
 elseif ($bashSyntax -and (Test-HasUnmodeledBashGrouping -Command $normalized)) {
@@ -1061,6 +1075,16 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         }
         continue
     }
+    # Shell environment wrappers can redirect Git to another checkout without
+    # invoking a leading `git` command. Only small, side-effect-free forms are
+    # modeled; all other environment-setting wrappers fail closed.
+    if ($bashSyntax -and $text -match '^(?:builtin\s+|command\s+)?(?:env|export|declare|typeset|readonly)(?:\s|$)') {
+        if ($text -match '^env\s+LANG=[A-Za-z0-9_.-]+\s+(?:git\s+status(?:\s|$)|echo\s+[^;&|]+$)') {
+            continue
+        }
+        $reason = 'Unmodeled Bash environment wrapper or shell export is forbidden.'
+        break
+    }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
 
     # Keep malformed/unresolvable long -C values fail-closed without sending
@@ -1114,6 +1138,14 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # command line stays consistent.
     $sm = [regex]::Match($text, $switchPattern)
     if ($sm.Success) {
+        # A switch may fail or be skipped by shell short-circuiting. Predicting
+        # its success in a compound command can turn a real protected-branch
+        # reset into an incorrectly allowed feature-branch reset. A standalone
+        # switch is checked again from real Git state on the next hook call.
+        if ($segment.Index + $segment.Text.Length -lt $normalized.Length) {
+            $reason = 'Git switch/checkout in a compound command has unknown outcome.'
+            break
+        }
         $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
         if (-not $t.StartsWith('-')) { $branchByPath[$stateKey] = $t }
     }
