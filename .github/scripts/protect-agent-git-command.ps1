@@ -1051,8 +1051,8 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # cannot be inferred from command text; fail closed instead of judging
     # following Git operations against the old checkout.
     if ($text -match '^\.(?:\s|$)' -or
-        ($bashSyntax -and $text -match '^source(?:\s|$)')) {
-        $reason = 'Opaque shell script sourcing is forbidden.'
+        ($bashSyntax -and $text -match '^(?:source|eval)(?:\s|$)')) {
+        $reason = 'Opaque shell script sourcing or evaluation is forbidden.'
         break
     }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
@@ -1232,7 +1232,10 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     $fetchArgs = $text.Substring($gitInvocation.Length).Trim()
     $isRemoteUpdate = $gitVerbForFetch -eq 'remote' -and
         $fetchArgs -match '(?i)^update(?:\s|$)'
-    if (-not $reason -and ($gitVerbForFetch -eq 'fetch' -or $isRemoteUpdate)) {
+    # Pull performs a fetch phase before merging/rebasing. Its explicit refspecs
+    # and configured remote mappings can write local protected heads, even when
+    # the calling checkout is an unprotected feature branch.
+    if (-not $reason -and ($gitVerbForFetch -in @('fetch', 'pull') -or $isRemoteUpdate)) {
         if ($fetchArgs -match '(?i)(?:^|\s)--(?:stdin|update-head-ok)(?=\s|$)' -or
             $fetchArgs -match '(?i)(?:^|\s)--refmap(?:=|\s|$)' -or
             $fetchArgs -match '(?i):refs/heads/' -or
@@ -1344,8 +1347,12 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
             if ($skipNext) {
                 $reason = 'Incomplete rebase option is forbidden.'
             }
-            elseif ($rebaseOperands.Count -ge 2 -and
-                    $protected -contains $rebaseOperands[$rebaseOperands.Count - 1].ToLowerInvariant()) {
+            elseif ($rebaseOperands.Count -ge 1 -and
+                    ($rebaseOperands.Count -ge 2 -or
+                     $rebaseArgs -match '(?i)(?:^|\s)--root(?:\s|$)') -and
+                    $protected -contains (
+                        $rebaseOperands[$rebaseOperands.Count - 1].ToLowerInvariant() -replace '^refs/heads/', ''
+                    )) {
                 $reason = 'Rebasing an explicit protected branch target is forbidden.'
             }
         }
@@ -1356,8 +1363,21 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if (-not $reason -and
         $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in @('checkout', 'switch')) {
         $changeArgs = $text.Substring($gitInvocation.Length).Trim()
-        if ($changeArgs -match '(?i)(?:^|\s)(?:-[bBcC]|--(?:force-create|create))(?:\s|$)' -and
-            $changeArgs -match "(?i)(?:^|\s)[\x22\x27]?$protectedPattern[\x22\x27]?(?=\s|$)") {
+        $createFlags = [regex]::Matches(
+            $changeArgs,
+            '(?i)(?:^|\s)(?:-[bBcC](?=\S|\s|$)|--(?:force-create|create)(?==|\s|$))'
+        )
+        $createTargets = [regex]::Matches(
+            $changeArgs,
+            '(?i)(?:^|\s)(?:-[bBcC]\s*|--(?:force-create|create)(?:=|\s+))(?<branch>[A-Za-z0-9._/-]+)(?=\s|$)'
+        )
+        if ($createFlags.Count -gt 0 -and $createTargets.Count -ne $createFlags.Count) {
+            $reason = 'Ambiguous branch-creation arguments to checkout/switch are forbidden.'
+        }
+        elseif (@($createTargets | Where-Object {
+            $target = $_.Groups['branch'].Value.ToLowerInvariant() -replace '^refs/heads/', ''
+            $protected -contains $target
+        }).Count -gt 0) {
             $reason = 'Creating or replacing a protected branch through checkout/switch is forbidden.'
         }
     }
