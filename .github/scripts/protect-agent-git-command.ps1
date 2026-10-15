@@ -936,6 +936,20 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if ($reason) { break }
 
     $text = $segment.Text.Trim()
+    if ($bashSyntax -and $text.Length -gt 0) {
+        # Bash removes unquoted backslashes and quote delimiters from the
+        # COMMAND NAME before lookup. Looking for literal "builtin", "cd" or
+        # "git" in the raw text can silently skip a cwd change or mutation
+        # (e.g. \builtin cd /protected && git reset --hard HEAD~1).
+        # Only plain static command names are modeled. Fail closed on shell-
+        # transformed or dynamically composed leading words rather than
+        # making a repository/branch decision on the wrong command.
+        $leadingWord = ($text -split '\s+', 2)[0]
+        if ($leadingWord.IndexOfAny([char[]]@('\', "'", '"', '$', '`')) -ge 0) {
+            $reason = 'Opaque Bash command name (escape, quote or expansion) is forbidden.'
+            break
+        }
+    }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
