@@ -1063,6 +1063,13 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         $reason = 'Opaque PowerShell expression evaluation is forbidden.'
         break
     }
+    # Structured PowerShell expressions run statement blocks in the caller's
+    # scope. Their internal Set-Location/Git side effects cannot be modeled by
+    # splitting at semicolons. Reject them before using a cached checkout.
+    if (-not $bashSyntax -and $text -match '(?i)^(?:if|elseif|else|switch|foreach|for|while|do|try|catch|finally|function|filter|trap|class|data|workflow)(?:\s|\(|\{|$)') {
+        $reason = 'Unmodeled PowerShell control flow is forbidden.'
+        break
+    }
     $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
@@ -1103,6 +1110,14 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         break
     }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
+
+    # Native reference-transaction protection is an independent enforcement
+    # layer. Do not let a Git invocation disable it via a one-shot hooksPath.
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?core\.hooksPath(?:=|\s|$)' -or
+        $text -match '(?i)^git(?:\s+-\S+\s+)*\s+config\s+(?:--\S+\s+)*core\.hooksPath(?:\s|=|$)') {
+        $reason = 'Disabling or overriding native Git hooks is forbidden.'
+        break
+    }
 
     # Git expands aliases before running a subcommand. An unrecognized verb can
     # be a repository/global alias or an external git-* helper that executes a
@@ -1277,6 +1292,24 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'worktree') {
         $worktreeArgs = $text.Substring($gitInvocation.Length).Trim()
         if ($worktreeArgs -match '(?i)^add(?:\s|$)') {
+            # With no branch flag or explicit commit-ish, worktree add <path>
+            # creates a local branch from the path basename. Classify that
+            # implicit write here, not only explicit -b/-B mutations.
+            if ($worktreeArgs -notmatch '(?i)(?:^|\s)-[bB](?=\s|[A-Za-z0-9._/-]|$)' -and
+                $worktreeArgs -notmatch '(?i)(?:^|\s)(?:--detach|-d)(?=\s|$)') {
+                $worktreeTokens = @(($worktreeArgs -replace '(?i)^add\s*', '') -split '\s+' | Where-Object { $_ })
+                if ($worktreeTokens.Count -eq 1 -and $worktreeTokens[0] -match '^[A-Za-z0-9._/\\:-]+$') {
+                    $impliedBranch = @($worktreeTokens[0] -split '[/\\]')[-1].ToLowerInvariant()
+                    if ($protected -contains $impliedBranch) {
+                        $reason = 'Implicit worktree branch creation targets a protected ref.'
+                    }
+                }
+                elseif ($worktreeTokens.Count -ne 2 -or
+                        $worktreeTokens[0] -notmatch '^[A-Za-z0-9._/\\:-]+$' -or
+                        $worktreeTokens[1] -notmatch '^[A-Za-z0-9._/\\:-]+$') {
+                    $reason = 'Opaque worktree branch creation is forbidden.'
+                }
+            }
             $branchOption = [regex]::Match($worktreeArgs, '(?i)(?:^|\s)-[bB]\s*(?<branch>[A-Za-z0-9._/-]+)(?=\s|$)')
             if ($worktreeArgs -match '(?i)(?:^|\s)-[bB](?=\s|[A-Za-z0-9._/-]|$)') {
                 if (-not $branchOption.Success) {
@@ -1285,6 +1318,21 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
                 elseif ($protected -contains $branchOption.Groups['branch'].Value.ToLowerInvariant()) {
                     $reason = 'Creating or replacing a protected branch through worktree add is forbidden.'
                 }
+            }
+        }
+    }
+
+    # 'git stash branch <name>' creates a branch at the stashed base commit.
+    # The ref is written without commit/push hooks and must obey the same
+    # protected branch policy as ordinary git branch/worktree creation.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'stash') {
+        $stashArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($stashArgs -match '(?i)^branch(?:\s|$)') {
+            if ($stashArgs -notmatch '^(?i:branch)\s+(?<target>[A-Za-z0-9._/-]+)(?:\s+(?<stash>[A-Za-z0-9._/@{}-]+))?$') {
+                $reason = 'Opaque stash branch creation is forbidden.'
+            }
+            elseif ($protected -contains ($Matches['target'].ToLowerInvariant() -replace '^refs/heads/', '')) {
+                $reason = 'Stash branch creation of a protected ref is forbidden.'
             }
         }
     }
