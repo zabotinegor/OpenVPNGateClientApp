@@ -849,6 +849,7 @@ function Set-RepositoryGitHooksPath {
         'post-checkout' = '.githooks/post-checkout'
         'pre-commit' = '.githooks/pre-commit'
         'pre-push' = '.githooks/pre-push'
+        'reference-transaction' = '.githooks/reference-transaction'
         'trusted-runtime/sync-agent-assets.ps1' = '.github/scripts/sync-agent-assets.ps1'
         'trusted-runtime/runtime-layer-hash.ps1' = '.github/scripts/runtime-layer-hash.ps1'
         'trusted-runtime/runtime-distribution-lib.ps1' = '.github/scripts/runtime-distribution-lib.ps1'
@@ -860,7 +861,7 @@ function Set-RepositoryGitHooksPath {
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing trusted hook source: $($item.Value)" }
         $different = (-not (Test-Path -LiteralPath $dst -PathType Leaf)) -or
             ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash)
-        $isExecutableHook = $item.Key -in @('post-checkout', 'pre-commit', 'pre-push')
+        $isExecutableHook = $item.Key -in @('post-checkout', 'pre-commit', 'pre-push', 'reference-transaction')
         $needsExecuteRepair = $false
         if (-not $IsWindows -and $isExecutableHook -and (Test-Path -LiteralPath $dst -PathType Leaf)) {
             # Trusted hook contents and Unix execution permissions are separate

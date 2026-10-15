@@ -640,6 +640,59 @@ function Resolve-TargetToken {
 # SINGLE git segment actually targets (chained segments are resolved and judged
 # one by one by the caller, so two different -C targets on one command line can
 # never collapse into one branch verdict).
+# Consume git config option values before identifying the key. Persistently
+# overriding core.hooksPath would disable the trusted native hooks.
+function Test-UnsafeHooksPathConfig {
+    param([string]$Arguments)
+    $tokens = @([regex]::Matches($Arguments, $gitValuePattern) | ForEach-Object { $_.Value })
+    $positionals = [System.Collections.Generic.List[string]]::new()
+    $readMode = $false
+    $writeMode = $false
+    $unknownOption = $false
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $word = if ($script:bashSyntax) {
+            ConvertFrom-BashPathToken -Value $tokens[$i]
+        } else {
+            ConvertFrom-PowerShellPathToken -Value $tokens[$i]
+        }
+        if ($word -in @('--file', '-f', '--default', '--type', '--blob')) {
+            if ($i + 1 -lt $tokens.Count) { $i++ } else { $unknownOption = $true }
+            continue
+        }
+        if ($word -match '^(?:--file|--default|--type|--blob)=' -or $word -match '^-f.+') { continue }
+        if ($word -in @('--get', '--get-all', '--get-regexp', '--get-urlmatch', '--list', '-l',
+                        'get', 'get-all', 'get-regexp', 'list')) {
+            $readMode = $true
+            continue
+        }
+        if ($word -in @('--unset', '--unset-all', '--add', '--replace-all', '--rename-section',
+                        '--remove-section', 'set', 'unset', 'unset-all', 'rename-section',
+                        'remove-section')) {
+            $writeMode = $true
+            continue
+        }
+        if ($word -in @('--edit', '-e', 'edit')) { return $true }
+        if ($word.StartsWith('-')) {
+            if ($word -notin @('--local', '--global', '--system', '--worktree', '--includes',
+                               '--no-includes', '--fixed-value', '--name-only',
+                               '--show-origin', '--show-scope', '--null', '-z')) {
+                $unknownOption = $true
+            }
+            continue
+        }
+        $positionals.Add($word)
+    }
+    $keyNamed = @($positionals | Where-Object { $_ -match '^(?i:core\.hookspath)$' }).Count -gt 0
+    $coreSectionNamed = @($positionals | Where-Object { $_ -match '^(?i:core)$' }).Count -gt 0
+    if ($writeMode -and ($keyNamed -or $coreSectionNamed)) { return $true }
+    if (-not $keyNamed) {
+        return $Arguments -match '(?i)core\s*\.\s*["'']?hookspath'
+    }
+    if ($unknownOption -or $writeMode) { return $true }
+    if ($readMode) { return $false }
+    return $positionals.Count -ne 1
+}
+
 function Get-GitTargetPath {
     param([string]$Segment, [string]$FallbackPath)
 
@@ -1113,8 +1166,7 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
 
     # Native reference-transaction protection is an independent enforcement
     # layer. Do not let a Git invocation disable it via a one-shot hooksPath.
-    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?core\.hooksPath(?:=|\s|$)' -or
-        $text -match '(?i)^git(?:\s+-\S+\s+)*\s+config\s+(?:--\S+\s+)*core\.hooksPath(?:\s|=|$)') {
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?core\.hooksPath(?:=|\s|$)') {
         $reason = 'Disabling or overriding native Git hooks is forbidden.'
         break
     }
@@ -1153,6 +1205,12 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         ($gitInvocation.Groups['gitVerb'].Success -and
          $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -notin $knownGitCommands)) {
         $reason = 'Unknown Git subcommand or unsupported global option may be an alias.'
+        break
+    }
+
+    if ($gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'config' -and
+        (Test-UnsafeHooksPathConfig -Arguments ($text.Substring($gitInvocation.Length).Trim()))) {
+        $reason = 'Disabling or overriding native Git hooks is forbidden.'
         break
     }
 

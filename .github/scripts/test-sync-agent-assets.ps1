@@ -197,7 +197,7 @@ if ((Test-Path -LiteralPath $stale) -and @(Get-ChildItem -LiteralPath $stale -Fi
 '@
     Set-Content -LiteralPath (Join-Path $runtimeAdapterDir 'post-sync.ps1') -Value $fixtureStub -NoNewline
 
-    foreach ($rel in @('.githooks/post-checkout', '.githooks/pre-commit', '.githooks/pre-push',
+    foreach ($rel in @('.githooks/post-checkout', '.githooks/pre-commit', '.githooks/pre-push', '.githooks/reference-transaction',
                       '.github/scripts/sync-agent-assets.ps1', '.github/scripts/runtime-layer-hash.ps1',
                       '.github/scripts/runtime-distribution-lib.ps1')) {
         $dst = Join-Path $src $rel
@@ -491,6 +491,23 @@ try {
     $hookDir = ((git -C $secureTgt config --local --get core.hooksPath) | Out-String).Trim()
     Assert "hooks installed in Git directory, outside versioned files" ([IO.Path]::IsPathRooted($hookDir) -and $hookDir -match '[\\/]\.git[\\/]')
     Assert "installed hook matches source after newline normalization" (([string]::Join([char]10, @(Get-Content -LiteralPath (Join-Path $hookDir 'post-checkout')))) -eq ([string]::Join([char]10, @(Get-Content -LiteralPath (Join-Path $secureSrc '.githooks/post-checkout')))))
+    $installedRefHook = Join-Path $hookDir 'reference-transaction'
+    Assert "native reference-transaction installed in active trusted hooksPath" (Test-Path -LiteralPath $installedRefHook -PathType Leaf)
+    Assert "installed native hook matches source" (
+        (Get-FileHash -LiteralPath $installedRefHook -Algorithm SHA256).Hash -eq
+        (Get-FileHash -LiteralPath (Join-Path $secureSrc '.githooks/reference-transaction') -Algorithm SHA256).Hash
+    )
+    if (-not $IsWindows) {
+        & test -x $installedRefHook
+        Assert "installed reference-transaction is executable" ($LASTEXITCODE -eq 0)
+        & chmod -x $installedRefHook
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to damage fixture execution permission.' }
+        $refDry = ((& $script -SourceRepo $secureSrc -SourceRef main -TargetRoot $secureTgt -Scope @('.githooks/reference-transaction') -DryRun 2>$null) | Out-String | ConvertFrom-Json)
+        Assert "dry-run detects native hook permission drift" ($refDry.gitHooksConfiguration.status -eq 'would-configure')
+        $refRepair = Invoke-Sync -Source $secureSrc -Target $secureTgt -Scope @('.githooks/reference-transaction')
+        & test -x $installedRefHook
+        Assert "scoped sync repairs native hook execution" ($LASTEXITCODE -eq 0 -and $refRepair.gitHooksConfiguration.status -eq 'configured')
+    }
     Assert "installed bootstrap matches source after newline normalization" (([string]::Join([char]10, @(Get-Content -LiteralPath (Join-Path $hookDir 'trusted-runtime/sync-agent-assets.ps1')))) -eq ([string]::Join([char]10, @(Get-Content -LiteralPath (Join-Path $secureSrc '.github/scripts/sync-agent-assets.ps1')))))
     $refresh = Join-Path $secureTgt '.github/scripts/refresh-agent-assets.ps1'
     New-Item -ItemType Directory -Path (Split-Path -Parent $refresh) -Force | Out-Null
@@ -513,6 +530,13 @@ try {
     git -C $secureTgt checkout -q feature/evil
     Assert "branch hook was not executed" (-not (Test-Path (Join-Path $secureTgt 'branch-hook-executed')))
     Assert "branch bootstrap was not executed" (-not (Test-Path (Join-Path $secureTgt 'branch-script-executed')))
+    $protectedBefore = ((git -C $secureTgt rev-parse main) | Out-String).Trim()
+    $featureTip = ((git -C $secureTgt rev-parse HEAD) | Out-String).Trim()
+    $nativeResult = (git -C $secureTgt update-ref refs/heads/main $featureTip 2>&1 | Out-String)
+    $nativeExit = $LASTEXITCODE
+    Assert "installed Git native hook rejects protected ref transaction" ($nativeExit -ne 0 -and $nativeResult -match 'BLOCKED: protected local reference')
+    Assert "rejected native transaction left main unchanged" (((git -C $secureTgt rev-parse main) | Out-String).Trim() -eq $protectedBefore)
+
 
     Write-Host "== 10c. Upgrading a legacy relative hooksPath installs trusted hooks in Git metadata =="
     $legacySrc = New-SourceRepo
