@@ -7,6 +7,7 @@ is structured the way it is.
 
 - [Two foreground services](#two-foreground-services)
 - [Channels and the controller notification](#channels-and-the-controller-notification)
+- [Safety-net controller notification](#safety-net-controller-notification)
 - [Disconnect action](#disconnect-action)
 - [Permission gating](#permission-gating)
 
@@ -34,19 +35,40 @@ for the full root cause, the mitigation, and the recommended deterministic follo
 `OpenVpnService.ensureEngineNotificationChannels()` creates the channels the engine expects, so the
 engine's own notifications land in a channel the app controls rather than a default one.
 
-The controller's ongoing notification uses id **`CONTROLLER_NOTIFICATION_ID = 7014`** and is posted
-via `startForeground()` as part of the connect path. When an existing engine session reports
-`LEVEL_CONNECTED`, the controller only relinquishes this notification if the engine has an
-active notification of its own. This protects controller-process recreation when the native
-tunnel survives but the engine notification is missing. A failed stop also retains or restores
-the controller notification until the engine confirms disconnection. `enterControllerForeground()` always
-(re)issues this call on a genuine `ACTION_START`, even if the service was already foreground-active
-from an earlier, unrelated promotion — repeated `startForeground()` calls are safe/idempotent, and
-skipping the reissue was the root cause of a foreground-service-start crash; see
+The controller's ongoing notification uses id **`CONTROLLER_NOTIFICATION_ID = 7014`**. This is a
+controller id, not an engine id. It is posted via `startForeground()` on the connect path and on the
+safety-net paths described below. `enterControllerForeground()` always (re)issues this call on a
+genuine `ACTION_START`, even if the service was already foreground-active from an earlier, unrelated
+promotion. Repeated `startForeground()` calls are safe and idempotent. Skipping the reissue was the
+root cause of a foreground-service-start crash; see
 [guides/troubleshooting.md](../guides/troubleshooting.md#openvpnservice-remoteserviceexception-foregroundservicedidnotstartintimeexception-on-reconnect-after-a-background-status-sync--bug-86cb35fbt).
 
 `specialUse` is the correct type for VPN on modern Android; it is not a placeholder to be "corrected"
 to `connectedDevice` or `dataSync`.
+
+## Safety-net controller notification
+
+The engine normally shows its own ongoing status notification. The controller shows notification 7014
+only as a **safety net**, when no such engine notification exists while a tunnel may still be live.
+
+- **Engine ownership check.** `hasEngineOngoingNotification()` looks for an active, ongoing or
+  foreground notification posted under the hash codes of the engine channels `openvpn_bg` and
+  `openvpn_newstat`. The `openvpn_userreq` channel is excluded because that notification is
+  dismissable and never keeps the engine in the foreground. If the notification manager cannot be
+  queried, the controller keeps its safety notification.
+- **Variants** (`ControllerNotificationMode`). Neither safety variant uses "connecting" wording,
+  because a possibly live tunnel must not be described as being established.
+  - `CONNECTED`: restored after controller recreation when the engine reports `LEVEL_CONNECTED` or
+    `LEVEL_VPNPAUSED` while neither the controller nor the engine shows a notification. This is
+    not gated on the app `ConnectionState`. Includes the Disconnect action.
+  - `DISCONNECTING`: shown on `ACTION_STOP` when neither notification is present, so the notification
+    is not removed before teardown is confirmed. No Disconnect action.
+- **Tap target.** Both variants open the launcher activity through the content intent.
+- **Lifetime.** A failed or unconfirmed stop keeps the notification, and `STOP_FAILED` ensures the
+  `CONNECTED` variant is shown (see [connection-recovery.md](connection-recovery.md#stop-and-teardown)). The
+  notification is released by `exitControllerForeground()` only when the engine reports an idle level
+  outside an in-progress user stop, or when the service is destroyed. It is never released merely
+  because a stop was dispatched.
 
 ## Disconnect action
 
@@ -73,4 +95,4 @@ ongoing session to report, and asking on first launch produces a denial the user
 The VPN consent grant is tracked alongside it in the same action, so both are resolved before a
 connect attempt starts rather than failing partway.
 
-*Last verified against: `vpn/OpenVpnService.kt` notification setup, `vpn/DisconnectReceiver.kt`, `ui/main/MainContract`, launcher manifests, `src/external/OpenVPNEngine/main/.../core/OpenVPNService.java` (2026-08-16).*
+*Last verified against: `vpn/OpenVpnService.kt` notification setup, `vpn/DisconnectReceiver.kt`, `ui/main/MainContract`, launcher manifests, `src/external/OpenVPNEngine/main/.../core/OpenVPNService.java` (2026-08-16); safety-net notification against `OpenVpnService.kt` `enterControllerForeground`, `hasEngineOngoingNotification` and the ACTION_STOP path (2026-10-16).*

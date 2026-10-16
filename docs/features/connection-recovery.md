@@ -147,11 +147,33 @@ the stop intent is **persisted** and retried.
 | `PREF_PENDING_STOP_INTENT` | the stop that has not yet been confirmed |
 | `PREF_STOP_FAILURE_COUNT` | consecutive dispatch failures |
 | `PREF_STOP_STALE_RECONCILE_COUNT` | reconciliations of a stale pending stop |
-| `STOP_DISPATCH_MAX_ATTEMPTS` = 3 | bounded retry |
+| `STOP_DISPATCH_MAX_ATTEMPTS` = 3 | bounded management-stop dispatches |
+| `STOP_CONFIRMATION_TIMEOUT_MS` = 8 s | how long a dispatched stop waits for `LEVEL_NOTCONNECTED` |
+| `FORCE_KILL_GRACE_MS` = 2 s (engine) | SIGTERM-to-SIGKILL delay inside the engine's `forceStopVPN()` |
 
-`finishStopFlowConfirmed()` clears the pending state once the engine confirms. If the attempts are
-exhausted the app surfaces `ConnectionStateManager.VpnError.STOP_FAILED` rather than pretending the
-tunnel is down — the one case where the UI must not show `DISCONNECTED`.
+**Dispatch is not confirmation.** A `stopVPN` call returning true only means the request was sent.
+The stop completes only when the engine reports `LEVEL_NOTCONNECTED` (`finishStopFlowConfirmed()`).
+Each user stop request then follows this escalation:
+
+1. **Management stop.** Up to `STOP_DISPATCH_MAX_ATTEMPTS` dispatches over the management channel.
+2. **Immediate escalation.** A dispatch that returns false while the engine still reports
+   `LEVEL_CONNECTED` or `LEVEL_VPNPAUSED` (an orphaned control plane) escalates at once, because
+   retrying the same call cannot succeed. Exhausting the attempts also escalates.
+3. **Force stop, once per stop request.** The app calls the engine's AIDL method `forceStopVPN()`,
+   which does not use the management channel. The engine sends SIGTERM to the exact openvpn process
+   objects it tracks in its process-wide registry, then SIGKILLs any of them still alive after 2 s.
+   Result codes: `0` no session, `1` termination requested, `2` unsupported or session still
+   starting (the in-process core is only interrupted). Every code is followed by waiting for
+   `LEVEL_NOTCONNECTED`. None of them is treated as a completed stop.
+4. **Bounded confirmation.** If no `LEVEL_NOTCONNECTED` arrives within `STOP_CONFIRMATION_TIMEOUT_MS`,
+   a timeout before the force stop goes back to step 1, or to step 2 once the attempts are exhausted,
+   and a timeout after the force stop surfaces
+   `ConnectionStateManager.VpnError.STOP_FAILED`. `STOP_FAILED` is the one case where the UI must not
+   show `DISCONNECTED`. The controller notification stays, and the user can retry Stop. A repeated
+   stop request while force-stop confirmation is in flight is coalesced rather than started again.
+
+A session that a server switch replaces is marked in the engine before it is signalled, so its exit
+does not report `LEVEL_NOTCONNECTED` to the app.
 
 During teardown the state manager holds `DISCONNECTING` sticky while the engine reports
 `NOPROCESS`, `EXITING` or `DISCONNECTED`, so the UI does not flicker through an intermediate state.
@@ -166,10 +188,10 @@ See [vpn-connection.md](vpn-connection.md).
   attempts that never happened.
 - A user-initiated stop takes precedence: the stop flow is what persists across process death, and a
   pending stop is reconciled on next start.
-- **Every path is bounded, but by a different thing each time.** The stop path: 3 dispatch attempts,
-  then `STOP_FAILED`. The auto-switcher: one full pass over the country's servers when they fail to
-  *connect*. The watchdog: 3 recoveries until traffic actually flows, carried across its own
+- **Every path is bounded, but by a different thing each time.** The stop path: 3 management dispatch
+  attempts, one force stop, then `STOP_FAILED`. The auto-switcher: one full pass over the country's
+  servers when they fail to *connect*. The watchdog: 3 recoveries until traffic actually flows, carried across its own
   reconnects, then a fail-safe disconnect. The watchdog's is the bound that covers servers which
   connect cleanly and carry nothing — the case the other two miss.
 
-*Last verified against: `vpn/OpenVpnService.kt` watchdog and stop constants, `vpn/ServerAutoSwitcher.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt` (2026-08-01).*
+*Last verified against: `vpn/OpenVpnService.kt` watchdog and stop constants, `vpn/ServerAutoSwitcher.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt` (2026-08-01); stop escalation and `forceStopVPN` against engine `ca9d925b` (2026-10-16).*
