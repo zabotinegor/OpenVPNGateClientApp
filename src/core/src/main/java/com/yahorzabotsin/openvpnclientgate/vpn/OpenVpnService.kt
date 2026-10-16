@@ -1099,10 +1099,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // The engine notification may have vanished while its native tunnel is still live.
                 // Mode-based, not "foreground active": an already posted CONNECTING/CONNECTED variant
                 // must switch to DISCONNECTING (no second Disconnect action, honest wording).
+                // One ownership reading for both branches: re-querying could see the engine
+                // notification vanish in between and leave no notification at all.
+                val engineOwnsNotification = hasEngineOngoingNotification()
                 if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING
-                    && !hasEngineOngoingNotification()) {
+                    && !engineOwnsNotification) {
                     enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
-                } else if (controllerNotificationMode != null && hasEngineOngoingNotification()) {
+                } else if (controllerNotificationMode != null && engineOwnsNotification) {
                     // The engine owns an ongoing notification, so any controller variant (the startup one
                     // of a service recreated by this stop, or a posted CONNECTED safety one) would duplicate
                     // it: the sync exit is gated by userInitiatedStop and markStopFailure defers to the
@@ -1871,7 +1874,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         lastReportedEngineLevel = level
-        if (shouldUseVpnStatus()) lastAcceptedEngineLevel = level
+        if (shouldUseVpnStatus()) {
+            lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
+        }
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
             // A stale connecting-family level rejected by the pause guard must not become the latest
@@ -2025,7 +2030,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ) {
             if (level == null) return
             lastReportedEngineLevel = level
-            lastAcceptedEngineLevel = level
+            // Normalized like the app state: a lagging raw level with detail CONNECTED is a live tunnel.
+            lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
@@ -2723,7 +2729,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         val engineNotificationActive = hasEngineOngoingNotification()
-        val engineTunnelLive = level == ConnectionStatus.LEVEL_CONNECTED || level == ConnectionStatus.LEVEL_VPNPAUSED
+        // Normalized, like the app state it must agree with (raw NONETWORK + detail CONNECTED is live).
+        val engineTunnelLive = normalizedLevel == ConnectionStatus.LEVEL_CONNECTED ||
+            normalizedLevel == ConnectionStatus.LEVEL_VPNPAUSED
         // onCreate() always posts the CONNECTING variant, so "foreground active" is not enough:
         // a live tunnel without an engine notification needs the actionable CONNECTED variant.
         // A stale live level during an in-flight stop must not flip DISCONNECTING back to CONNECTED;

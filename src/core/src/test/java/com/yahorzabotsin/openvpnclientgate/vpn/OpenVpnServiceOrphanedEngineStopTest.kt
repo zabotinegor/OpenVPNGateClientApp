@@ -427,6 +427,41 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun laggingRawLevelWithConnectedDetail_isTreatedAsALiveTunnel_onTheSnapshotPath() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "syncEngineState",
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_NONETWORK),
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTED"),
+            ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, false),
+            ReflectionHelpers.ClassParameter.from(String::class.java, "SNAPSHOT")
+        )
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
+    fun laggingRawLevelWithConnectedDetail_survivesTheQueuedRevalidation_onTheBinderPath() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        val binderThread = Thread {
+            ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+                .updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+        }
+        binderThread.start()
+        binderThread.join()
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
     fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
