@@ -682,11 +682,18 @@ function Test-UnsafeHooksPathConfig {
         }
         $positionals.Add($word)
     }
-    $keyNamed = @($positionals | Where-Object { $_ -match '^(?i:core\.hookspath)$' }).Count -gt 0
-    $coreSectionNamed = @($positionals | Where-Object { $_ -match '^(?i:core)$' }).Count -gt 0
-    if ($writeMode -and ($keyNamed -or $coreSectionNamed)) { return $true }
+    $keyNamed = @($positionals | Where-Object {
+        $_ -match '^(?i:core\.hookspath|include\.path|includeif\..+\.path)$'
+    }).Count -gt 0
+    $sectionNamed = @($positionals | Where-Object {
+        $_ -match '^(?i:core|include|includeif\..+)$'
+    }).Count -gt 0
+    # A config include can override the trusted hooksPath indirectly.
+    # Changes to include sections are sensitive for the same reason.
+    if ($writeMode -and ($keyNamed -or $sectionNamed)) { return $true }
     if (-not $keyNamed) {
-        return $Arguments -match '(?i)core\s*\.\s*["'']?hookspath'
+        return $Arguments -match '(?i)core\s*\.\s*["'']?hookspath' -or
+            $Arguments -match '(?i)(?:include\.path|includeif\.[^\s"''=]+\.path)'
     }
     if ($unknownOption -or $writeMode) { return $true }
     if ($readMode) { return $false }
@@ -1166,7 +1173,7 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
 
     # Native reference-transaction protection is an independent enforcement
     # layer. Do not let a Git invocation disable it via a one-shot hooksPath.
-    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?core\.hooksPath(?:=|\s|$)') {
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?(?:core\.hooksPath|include\.path|includeIf\.[^\s=]+\.path)(?:=|\s|$)') {
         $reason = 'Disabling or overriding native Git hooks is forbidden.'
         break
     }
