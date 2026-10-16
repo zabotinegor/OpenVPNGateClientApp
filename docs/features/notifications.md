@@ -66,8 +66,9 @@ only as a **safety net**, when no such engine notification exists while a tunnel
 - **Tap target.** Both variants open the launcher activity through the content intent.
 - **Lifetime.** A failed or unconfirmed stop keeps the notification, and `STOP_FAILED` ensures the
   `CONNECTED` variant is shown (see [connection-recovery.md](connection-recovery.md#stop-and-teardown)). The
-  notification is released by `exitControllerForeground()` only when the engine reports an idle level
-  outside an in-progress user stop, or when the service is destroyed. It is never released merely
+  notification is released by `exitControllerForeground()` when the engine reports a non-live level
+  (anything except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) and either owns an ongoing notification
+  or the tunnel is down, outside an in-progress user stop, or when the service is destroyed. It is never released merely
   because a stop was dispatched.
 
 ## Disconnect action

@@ -2730,9 +2730,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
             val restoreNotification = { revalidateLevel: Boolean ->
                 // Queued from a binder thread: an idle level handled before this runs has already
-                // released the notification, so re-validate against the latest reported level.
+                // released the notification, so re-validate against the latest accepted level.
                 // Not needed (and not reliable) on the synchronous main-thread path: the snapshot
-                // path syncs without recording lastReportedEngineLevel.
+                // path syncs without recording lastAcceptedEngineLevel.
                 val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
                     it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
                 }
