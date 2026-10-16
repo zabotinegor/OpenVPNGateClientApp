@@ -495,6 +495,29 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun stopWithAPostedConnectedVariant_whileEngineRestoredItsNotification_releasesTheControllerOne() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
+        // No engine notification yet: a live CONNECTED level upgrades the controller to the actionable variant.
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertNotNull(notifications.getNotification(7014))
+        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        service.onStartCommand(stopIntent(), 0, 1)
+        assertEquals("CONNECTED variant must not duplicate the engine's notification", null, notifications.getNotification(7014))
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "markStopFailure", ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+        )
+        ShadowLooper.idleMainLooper()
+        assertEquals(null, notifications.getNotification(7014))
+        assertNotNull(notifications.getNotification(engineId))
+    }
+
+    @Test
     fun userRequestNotificationDoesNotCountAsTheEnginesOngoingNotification() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
