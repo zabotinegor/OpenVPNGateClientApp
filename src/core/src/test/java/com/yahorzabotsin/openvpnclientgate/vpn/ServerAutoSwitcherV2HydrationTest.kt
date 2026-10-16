@@ -35,7 +35,7 @@ class ServerAutoSwitcherV2HydrationTest {
 
     private val appContext = RuntimeEnvironment.getApplication()
     private val source = "VPN_STATUS"
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean, String?) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Boolean)? = null
     private var originalHydrationCallback: ((android.content.Context, () -> Unit) -> Unit)? = null
     private data class StartCall(val cfg: String, val reconnect: Boolean)
@@ -58,7 +58,7 @@ class ServerAutoSwitcherV2HydrationTest {
         originalStopper = ServerAutoSwitcher.stopper
         originalHydrationCallback = ServerAutoSwitcher.v2HydrationCallback
 
-        ServerAutoSwitcher.starter = { _, cfg, _, reconnect -> startCalls.add(StartCall(cfg, reconnect)) }
+        ServerAutoSwitcher.starter = { _, cfg, _, reconnect, _ -> startCalls.add(StartCall(cfg, reconnect)) }
         ServerAutoSwitcher.stopper = { _ -> stopCalls++; true }
         ServerAutoSwitcher.v2HydrationCallback = null
 

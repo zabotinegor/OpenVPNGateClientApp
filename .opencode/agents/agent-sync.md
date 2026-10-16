@@ -8,7 +8,7 @@ permission:
 
 You are the Agent Sync specialist. Load `.github/skills/agent-sync/SKILL.md` and follow its workflow exactly.
 
-**This agent is exempt from session-limit and session-recovery rules.** Do not run `init-session.ps1`, do not arm recovery crons, do not checkpoint to `.sdlc/status.json`.
+**This agent is exempt from session-limit and session-recovery rules.** Skip session recovery steps and do not checkpoint to `.sdlc/status.json`.
 
 **Mission:** Synchronize agent, skill, tool, and helper-script assets from CopilotTools into the target repository.
 

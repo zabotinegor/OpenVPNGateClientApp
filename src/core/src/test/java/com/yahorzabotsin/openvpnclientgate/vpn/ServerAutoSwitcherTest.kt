@@ -29,7 +29,7 @@ class ServerAutoSwitcherTest {
     private val appContext = RuntimeEnvironment.getApplication()
     private val logTag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ":" + "ServerAutoSwitcher"
     private val source = "VPN_STATUS"
-    private var originalStarter: ((android.content.Context, String, String?, Boolean) -> Boolean)? = null
+    private var originalStarter: ((android.content.Context, String, String?, Boolean, String?) -> Boolean)? = null
     private var originalStopper: ((android.content.Context) -> Boolean)? = null
     private var originalIdleNotificationStopper: ((android.content.Context) -> Boolean)? = null
     private data class Call(val ctx: android.content.Context, val cfg: String, val title: String?, val reconnect: Boolean)
@@ -54,7 +54,7 @@ class ServerAutoSwitcherTest {
         ServerAutoSwitcher.setRepliedThresholdForTest(2)
         UserSettingsStore.saveStatusStallTimeoutSeconds(appContext, 2)
         originalStarter = ServerAutoSwitcher.starter
-        ServerAutoSwitcher.starter = { ctx, config, title, reconnect -> calls.add(Call(ctx, config, title, reconnect)) }
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect, _ -> calls.add(Call(ctx, config, title, reconnect)) }
         originalStopper = ServerAutoSwitcher.stopper
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; stopDispatchResult }
         originalIdleNotificationStopper = ServerAutoSwitcher.idleNotificationStopper
@@ -149,7 +149,7 @@ class ServerAutoSwitcherTest {
     // requestSwitchNow()'s pendingConfig assignment -- but shipped with zero test coverage; gate-10
     // verified by mutation that all three edits survive reversion with a green suite. Proves at
     // least one of those guards actually rejects a blank config end to end: server 2 (the "next"
-    // server nextServerCircular() will select) has a blank config, so starting the engine with an
+    // server nextUnvisitedServer() will select) has a blank config, so starting the engine with an
     // empty profile must never happen.
     @Test
     fun retryCommit_doesNotStartNextServerWithBlankConfig() {
@@ -1225,7 +1225,7 @@ class ServerAutoSwitcherTest {
     fun staleLevelDuringStopForRetry_reconnectInvariantHoldsAtRetryDispatch() {
         var stateAtDispatch: ConnectionState? = null
         var hintAtDispatch: Boolean? = null
-        ServerAutoSwitcher.starter = { ctx, config, title, reconnect ->
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect, _ ->
             stateAtDispatch = ConnectionStateManager.state.value
             hintAtDispatch = ConnectionStateManager.reconnectingHint.value
             calls.add(Call(ctx, config, title, reconnect))
@@ -1268,6 +1268,56 @@ class ServerAutoSwitcherTest {
             true,
             hintAtDispatch
         )
+    }
+
+    @Test
+    fun refreshRemovingPendingCandidate_preservesCandidateIpAfterNotConnected() {
+        assertRemovedCandidateRetryKeepsIp(waitForStopTimeout = false)
+    }
+
+    @Test
+    fun refreshRemovingPendingCandidate_preservesCandidateIpAfterStopTimeout() {
+        assertRemovedCandidateRetryKeepsIp(waitForStopTimeout = true)
+    }
+
+    private fun assertRemovedCandidateRetryKeepsIp(waitForStopTimeout: Boolean) {
+        val startConfig = "client\nremote 1.1.1.1 1194\n"
+        val candidateConfig = "client\nremote 2.2.2.2 1194\n"
+        val servers = listOf(
+            Server(1, "start", "start", Country("RU"), 0, SignalStrength.STRONG, "1.1.1.1", 0, 0, 0, 0, 0, 0, "", "", "", startConfig),
+            Server(2, "candidate", "candidate", Country("RU"), 0, SignalStrength.STRONG, "2.2.2.2", 0, 0, 0, 0, 0, 0, "", "", "", candidateConfig)
+        )
+        SelectedCountryStore.saveSelection(appContext, "RU", servers)
+        SelectedCountryStore.setCurrentIndex(appContext, 0)
+        SelectedCountryStore.saveLastStartedConfig(appContext, "RU", startConfig, "1.1.1.1")
+        var dispatchedIp: String? = null
+        ServerAutoSwitcher.starter = { _, config, title, _, ip ->
+            dispatchedIp = ip
+            SelectedCountryStore.saveLastStartedConfig(appContext, "RU", config, ip, alignIndex = true)
+            SelectedCountryStore.saveLastSuccessfulConfig(appContext, "RU", config, ip, alignIndex = false)
+            true
+        }
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals("the retry candidate is selected before the refresh", candidateConfig, SelectedCountryStore.currentServer(appContext)?.config)
+
+        SelectedCountryStore.saveSelectionPreservingIndex(appContext, "RU", listOf(servers.first()))
+        assertEquals(startConfig, SelectedCountryStore.currentServer(appContext)?.config)
+        assertEquals("the predecessor is only a parked cursor", null, SelectedCountryStore.currentAttemptedServerKey(appContext))
+        if (waitForStopTimeout) {
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5_500))
+        } else {
+            ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_NOTCONNECTED, source)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        }
+
+        assertEquals("retry ACTION_START receives the selected candidate IP", "2.2.2.2", dispatchedIp)
+        val prefs = appContext.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+        assertEquals("2.2.2.2", prefs.getString("last_started_ip", null))
+        assertEquals("2.2.2.2", prefs.getString("last_success_ip", null))
+        assertEquals("a removed candidate's IP must not manufacture a parked cursor identity", "", prefs.getString("last_started_server_key", null))
+        assertEquals(null, prefs.getString("last_success_server_key", null))
     }
 
     @Test
@@ -1404,7 +1454,7 @@ class ServerAutoSwitcherTest {
 
     @Test
     fun retryCommitDispatchFailure_notConnectedPath_rollsBackToDisconnected() {
-        ServerAutoSwitcher.starter = { _, _, _, _ -> false }
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> false }
 
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
@@ -1423,9 +1473,9 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         assertTrue(
-            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+            "precondition: the timed switch that led here must have set the switch cycle (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1444,19 +1494,19 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
-        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // reset the switch cycle so a stale switch cycle cannot make the next auto-switch
         // cycle's wrap detection give up early.
         assertEquals(
-            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
-                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            "rollBackFailedRetryDispatch() must reset the switch cycle so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection cycle from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 
     @Test
     fun retryCommitDispatchFailure_timeoutPath_rollsBackToDisconnected() {
-        ServerAutoSwitcher.starter = { _, _, _, _ -> false }
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> false }
 
         ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, source)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
@@ -1474,9 +1524,9 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         assertTrue(
-            "precondition: the timed switch that led here must have set cycleStartIndex (via " +
+            "precondition: the timed switch that led here must have set the switch cycle (via " +
                 "beginChainedSwitch), or the F11 assertion below proves nothing",
-            ServerAutoSwitcher.cycleStartIndexForTest() != null
+            ServerAutoSwitcher.cycleVisitedForTest() != null
         )
 
         // Advance past START_AFTER_STOP_DELAY_MS (350ms): the retry-commit dispatch fires, starter
@@ -1495,13 +1545,13 @@ class ServerAutoSwitcherTest {
             ConnectionStateManager.reconnectingHint.value
         )
         // F11 (docs/qa-evidence/release-review-2.md): a failed retry-commit dispatch must also
-        // reset the switch cycle so a stale cycleStartIndex cannot make the next auto-switch
+        // reset the switch cycle so a stale switch cycle cannot make the next auto-switch
         // cycle's wrap detection give up early.
         assertEquals(
-            "rollBackFailedRetryDispatch() must reset cycleStartIndex so the next auto-switch " +
-                "cycle does not inherit a stale wrap-detection start index from this aborted attempt",
+            "rollBackFailedRetryDispatch() must reset the switch cycle so the next auto-switch " +
+                "cycle does not inherit a stale wrap-detection cycle from this aborted attempt",
             null,
-            ServerAutoSwitcher.cycleStartIndexForTest()
+            ServerAutoSwitcher.cycleVisitedForTest()
         )
     }
 
@@ -1623,7 +1673,7 @@ class ServerAutoSwitcherTest {
     fun stopRetryTimeout_reconnectInvariantHoldsAtRetryDispatch() {
         var stateAtDispatch: ConnectionState? = null
         var hintAtDispatch: Boolean? = null
-        ServerAutoSwitcher.starter = { ctx, config, title, reconnect ->
+        ServerAutoSwitcher.starter = { ctx, config, title, reconnect, _ ->
             stateAtDispatch = ConnectionStateManager.state.value
             hintAtDispatch = ConnectionStateManager.reconnectingHint.value
             calls.add(Call(ctx, config, title, reconnect))

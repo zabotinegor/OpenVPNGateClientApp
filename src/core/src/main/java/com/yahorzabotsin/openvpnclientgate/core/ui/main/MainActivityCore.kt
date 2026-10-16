@@ -269,7 +269,7 @@ open class MainActivityCore : AppCompatActivity(), ConnectionControlsView.Connec
                     dispatchConnectionButtonClick()
                 }
             }
-            is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country)
+            is MainEffect.StartVpn -> VpnManager.startVpn(this, effect.config, effect.country, ip = effect.ip)
             MainEffect.StopVpn -> VpnManager.stopVpn(this)
             MainEffect.PauseVpn -> VpnManager.pauseVpn(this)
             MainEffect.ResumeVpn -> VpnManager.resumeVpn(this)

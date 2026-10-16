@@ -62,7 +62,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -85,7 +85,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 1)
@@ -184,11 +184,11 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, config: String, _: String? ->
+            ({ _: Context, config: String, _: String?, _: String? ->
                 recoveryDispatches += 1
                 recoveryConfig = config
                 true
-            } as (Context, String, String?) -> Boolean)
+            } as (Context, String, String?, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -215,7 +215,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> recoveryDispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
         val watchdogState = ReflectionHelpers.getField<Any>(service, "watchdogState")
         ReflectionHelpers.setField(watchdogState, "consecutiveFailures", 2)
@@ -495,7 +495,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> dispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
 
         setConsecutiveFailures(service, 2)
@@ -533,7 +533,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> dispatches += 1; true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> dispatches += 1; true } as (Context, String, String?, String?) -> Boolean)
         )
         ReflectionHelpers.setField(
             service,
@@ -601,7 +601,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> true } as (Context, String, String?, String?) -> Boolean)
         )
 
         setConsecutiveFailures(service, 2)
@@ -668,7 +668,7 @@ class OpenVpnServiceWatchdogTest {
         ReflectionHelpers.setField(
             service,
             "watchdogRecoveryStarter",
-            ({ _: Context, _: String, _: String? -> true } as (Context, String, String?) -> Boolean)
+            ({ _: Context, _: String, _: String?, _: String? -> true } as (Context, String, String?, String?) -> Boolean)
         )
 
         setConsecutiveFailures(service, 2)

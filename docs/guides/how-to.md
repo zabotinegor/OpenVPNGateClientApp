@@ -21,6 +21,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [Detect a vacuous regression test with targeted single-guard mutation testing](#detect-a-vacuous-regression-test-with-targeted-single-guard-mutation-testing)
 - [Verify a flaky-test fix does not destroy regression coverage with injection mutation testing](#verify-a-flaky-test-fix-does-not-destroy-regression-coverage-with-injection-mutation-testing)
 - [README language variants and the canonical technical entry point](#readme-language-variants-and-the-canonical-technical-entry-point)
+- [Robolectric looper idling fires delayed timeouts and masks cleared-flag assertions](#robolectric-looper-idling-fires-delayed-timeouts-and-masks-cleared-flag-assertions)
+- [Build and test a git worktree (untracked local inputs are not carried over)](#build-and-test-a-git-worktree-untracked-local-inputs-are-not-carried-over)
 
 ---
 
@@ -1052,3 +1054,51 @@ GitHub cannot auto-detect visitor language on static Markdown, so the public REA
 **First documented**
 
 US-25 (`feature/us-25-friendly-readme-and-dev-docs`) — split the single README into friendly public variants + technical development guide.
+
+---
+
+## Robolectric looper idling fires delayed timeouts and masks cleared-flag assertions
+
+**When to use**
+
+Writing a Robolectric test that drives a delayed `Handler` task (a watchdog or timeout) and then asserts that some state was cleared immediately by an earlier event.
+
+**Why this matters**
+
+`Shadows.shadowOf(Looper.getMainLooper()).idleFor(...)` and `ShadowLooper.runUiThreadTasksIncludingDelayedTasks()` run delayed tasks, including the timeout. A timeout that clears the same flag will clear it on its own, so an assertion made after the pump passes even if the real event never cleared it. Assert the flag before any looper pump, then pump to check the follow-on behavior (for example, that a retry is not sent). The pause tests in `OpenVpnServicePauseTimeoutTest` show this order.
+
+---
+
+## Build and test a git worktree (untracked local inputs are not carried over)
+
+**When to use**
+
+When Gradle runs from a `git worktree` checkout (for example `.claude/worktrees/<name>`) and the
+build fails or cannot find an input that the main checkout has. The main checkout builds because
+its untracked files are present there; a worktree materialises only tracked files.
+
+**What is missing in a fresh worktree**
+
+- Git submodules. `src/external/OpenVPNEngine` (the engine) is an empty directory until it is
+  initialised, so the engine modules do not resolve.
+- `local.properties` (gitignored, normally holds `sdk.dir`). Without it, Gradle cannot locate the
+  Android SDK unless `ANDROID_HOME` is set in the shell environment.
+- `servers.local.json` (gitignored). `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` must come from
+  a `-P` flag, an environment variable, or this file; see [build-config.md](../reference/build-config.md#backend-url-resolution).
+
+**Procedure**
+
+1. From the worktree root: `git submodule update --init --recursive`.
+2. Make the SDK discoverable: export `ANDROID_HOME` for the shell, or create `src/local.properties`
+   with `sdk.dir` pointing at the SDK. Keep that file out of commits (it is gitignored).
+3. Supply the two server URLs: copy `src/servers.local.json` from the main checkout into the
+   worktree's `src/` folder, or pass `-PPRIMARY_SERVERS_URL=...` and `-PFALLBACK_SERVERS_URL=...`.
+   Do not paste the values into docs, evidence files or chat.
+4. Run Gradle from `src/` (not the repository root), as in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+**Verify**
+
+A quick check that the wiring is complete is a single unit test class, for example
+`./gradlew :core:testDebugUnitTest --tests "*SomeTest"` from `src/`. A configuration-time failure
+naming `PRIMARY_SERVERS_URL` means step 3 is missing; a failure about the SDK location means step 2
+is missing; an empty engine module means step 1 is missing.

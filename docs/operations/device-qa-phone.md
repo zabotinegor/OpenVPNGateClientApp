@@ -233,14 +233,24 @@ The OpenVPN Gate server API returns config strings (`configData`) that change wi
 (likely include session nonces or timestamps). As a result:
 - ViewModel state may hold a stale `configData` from the time of server selection
 - Subsequent SSE syncs refresh the store with new `configData` strings
-- `ensureIndexForConfig` config-match fails → falls back to IP-only → resets index to 0 (first server)
-- This manifests as `matched by ip index=1/N` in logs even after user selects server N/N
+- `ensureIndexForConfig` config-match fails → falls back to IP-only. When the current entry already has the started IP, it returns early and keeps the selected entry (same-IP early return). Older builds reset the index to 0 (first server) here
+- On those older builds this manifested as `matched by ip index=1/N` in logs even after user selects server N/N
+- Reconnect `ACTION_START` skips index alignment entirely (`saveLastStartedConfig(alignIndex=false)`), so a reconnect cannot move the index either
 
 This is a fundamental constraint for all Belarus/multi-server IP tests.
 
 ### Belarus has 3 servers, all sharing IP 213.184.224.127
 All config-match tests must use Belarus because it is the only known country with multiple servers
 sharing the same IP, which exercises the IP-vs-config disambiguation logic.
+
+### Shared-IP QA step: relaunch and Connect keeps the last successful same-IP entry
+Use Belarus (3 entries, one IP). Verifies that the restored last-success server is kept by identity,
+not collapsed onto the first same-IP entry (bug 12487v2bg7u; see [troubleshooting.md](../guides/troubleshooting.md)).
+1. Select the 2nd Belarus entry (counter `2/3`), tap Connect, wait for the connected state.
+2. Disconnect, then relaunch the app (a relaunch, not a fresh install).
+3. Without changing the selection, tap Connect again.
+4. Expected: the counter still shows `2/3` after the connection is established, and the logcat
+   filter from "Server selection + counter" shows no `matched by ip index=1/3` line.
 
 ### SSE fires `servers-changed` on connection open and repeatedly during session
 The SSE client fires `servers-changed` events causing the store to be refreshed every few seconds.

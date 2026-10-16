@@ -43,6 +43,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
 - [Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a](#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a)
 
+- [Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u](#server-counter-rolls-back-to-an-earlier-entry-after-an-auto-switch-or-a-background-refresh-shared-ip-entries--bug-12487v2bg7u)
+
 ---
 
 ## Server counter resets to position 1 immediately after the user picks a server
@@ -1726,7 +1728,7 @@ the twin abort paths above, two accepted and fixed, one partially rejected on ev
   *cycle*, not just the stale tunnel. Fixed with a narrow `cancelPendingStopDispatchForFreshStart()`
   called from both `ACTION_START` and `beginChainedSwitch()` — deliberately narrower than the
   existing `cancel()` helper, which would itself have been unsafe here (it resets
-  `cycleStartIndex`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
+  `cycleVisited`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
 - **F3-9 (Copilot, partially rejected):** Copilot claimed the NOTCONNECTED-confirmed twin's
   `idleNotificationStopper` dispatch also discards a rejected-dispatch result the way the timeout
   twin's `stopper` used to. Verified false on two counts: `idleNotificationStopper` maps to
@@ -1932,3 +1934,39 @@ channel.
 `adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. This procedure is the
 intended repro. It has not yet been confirmed on a device, so verify it on the target before using it as
 a regression check.
+
+## Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u
+
+**Status: fixed on branch `bugfix/12487v2bg7u-reconnect-server-counter`** (not yet merged; confirm on device with the [shared-IP QA step](../operations/device-qa-phone.md#shared-ip-qa-step-relaunch-and-connect-keeps-the-last-successful-same-ip-entry) before relying on it).
+
+### Symptoms
+
+- The details line (`Server: X/N`) jumps back to an earlier entry in the same country after an auto-switch, a reconnect, or a background server-list refresh during a cycle.
+- An auto-switch cycle re-offers a server it already tried, or stops before every server was tried.
+- On a plain Connect, the last successful server is not restored when several entries share one IP (the counter lands on the first same-IP entry).
+
+### Root cause
+
+The auto-switch cycle and the persisted current index were tracked by numeric list position (`cycleStartIndex`, `nextServerCircular`). A background refresh can add, remove or reorder entries, which shifts positions. Several entries can also share one IP, so IP-based alignment (`ensureIndexForConfig`'s IP-only fallback) collapsed a same-IP start onto the first matching entry. A reconnect `ACTION_START` re-aligned the index as well.
+
+### Fix
+
+- Entries are tracked by identity: `ServerIdentity` keys are `id:<id>` when the server id is greater than 0, otherwise `ep:<proto/remote endpoint>|<ip>` (`cfg:<SHA-256>|<ip>` when the config declares no `remote`), with a `#n` suffix for repeats. The IP alone is never an identity.
+- `ServerAutoSwitcher.cycleVisited` (in-memory) replaces `cycleStartIndex`. `SelectedCountryStore.nextUnvisitedServer(ctx, visited)` replaces `nextServerCircular`. The cycle ends when every key currently in the list is visited, and the start server is restored by identity (`setCurrentIndexByKey`).
+- `saveSelectionPreservingIndex` restores the index by identity. If the current server was removed, the index is parked on the predecessor of the first surviving successor. If nothing survives, it is parked on the first new entry.
+- `last_success_server_key` is persisted and restored on Connect before config/IP alignment is used.
+- Reconnect `ACTION_START` and the success persist skip index alignment (`alignIndex=false`). `ensureIndexForConfig` keeps the current entry when its IP equals the started IP.
+- `OpenVpnService`'s `VPN_STATUS` fallback uses `ServerAutoSwitcher.nextCycleCandidate`, so it wraps circularly like the timer path. A parked index yields no hardprobe target.
+- See [connection-recovery.md](../features/connection-recovery.md#auto-switch-within-country) and [server-sync.md](../features/server-sync.md#last-successful-server-restore-shared-ip-entries).
+
+### Diagnose
+
+```
+adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(ensureIndex|Session attempt|Server sel|getLastSuccessful|saveLastStart|prepareStart|completed full server cycle|discarding stale cycle|current_restored)"
+```
+
+A `matched by ip index=1/N` line after the user picked server N/N points at the old same-IP collapse. `current_restored=false` after a refresh means the current server was removed and the index was parked on a neighbour.
+
+### Known limitation (follow-up)
+
+Re-picking a same-IP server while connected can save a wrong last-success key. Not fixed in this branch.

@@ -7,6 +7,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -34,7 +35,7 @@ class OpenVpnServiceSessionLoggingTest {
         ShadowLog.clear()
     }
 
-    private fun saveServers(count: Int) {
+    private fun saveServers(count: Int, sameIp: Boolean = false) {
         val list = (1..count).map { idx ->
             Server(
                 lineIndex = idx,
@@ -43,7 +44,7 @@ class OpenVpnServiceSessionLoggingTest {
                 country = Country("RU"),
                 ping = 0,
                 signalStrength = SignalStrength.STRONG,
-                ip = "0.0.0.$idx",
+                ip = if (sameIp) "0.0.0.1" else "0.0.0.$idx",
                 score = 0,
                 speed = 0,
                 numVpnSessions = 0,
@@ -93,6 +94,140 @@ class OpenVpnServiceSessionLoggingTest {
     }
 
     @Test
+    fun reconnectStartKeepsSecondServerWhenConfigsDifferAndIpIsShared() {
+        saveServers(2, sameIp = true)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val intent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), true)
+            // The engine receives decoded config; the selected country stores another representation.
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+
+        service.onStartCommand(intent, 0, 1)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(appContext))
+        assertEquals("conf2", SelectedCountryStore.currentServer(appContext)?.config)
+        assertEquals("client\n", SelectedCountryStore.getLastStartedConfig(appContext)?.config)
+        assertTrue(
+            ShadowLog.getLogs().any {
+                it.tag == logTag && it.msg.contains("server=2/2, ip=0.0.0.1")
+            }
+        )
+    }
+
+    @Test
+    fun manualStartKeepsSecondServerWhenConfigsDifferAndIpIsShared() {
+        saveServers(2, sameIp = true)
+        SelectedCountryStore.setCurrentIndex(appContext, 1)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val intent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), false)
+            // VpnManager.startVpn decodes the config; the store keeps the encoded representation.
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+
+        service.onStartCommand(intent, 0, 1)
+
+        assertEquals(1, SelectedCountryStore.getCurrentIndex(appContext))
+        assertTrue(
+            ShadowLog.getLogs().any {
+                it.tag == logTag && it.msg.contains("server=2/2, ip=0.0.0.1")
+            }
+        )
+    }
+
+    private fun idServer(id: Int, config: String, ip: String) = Server(
+        lineIndex = id, name = "n$config", city = "c$config", country = Country("RU"), ping = 0,
+        signalStrength = SignalStrength.STRONG, ip = ip, score = 0, speed = 0, numVpnSessions = 0,
+        uptime = 0, totalUsers = 0, totalTraffic = 0, logType = "", operator = "", message = "",
+        configData = config, id = id
+    )
+
+    private fun reconnectStart(service: OpenVpnService, decodedConfig: String) {
+        val intent = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraAutoSwitchKey(appContext), true)
+            putExtra(VpnManager.extraConfigKey(appContext), decodedConfig)
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(intent, 0, 1)
+    }
+
+    @Test
+    fun reconnectStartOfCandidateRemovedBeforeActionStart_doesNotAttributeItToTheParkedEntry() {
+        val a = idServer(1, "A", "1.1.1.1")
+        val b = idServer(2, "B", "2.2.2.2")
+        val c = idServer(3, "C", "3.3.3.3")
+        SelectedCountryStore.saveSelection(appContext, "RU", listOf(a, b, c))
+        SelectedCountryStore.resetIndex(appContext)
+        ServerAutoSwitcher.resetForTest()
+        try {
+            // A failed: the auto-switch selects B and holds its config until the delayed ACTION_START.
+            assertEquals("B", ServerAutoSwitcher.nextCycleCandidate(appContext)?.config)
+            // A refresh removes B in that window: the index parks on A, which is only a cursor now.
+            SelectedCountryStore.saveSelectionPreservingIndex(appContext, "RU", listOf(a, c))
+            assertEquals("A", SelectedCountryStore.currentServer(appContext)?.config)
+
+            val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+            // The engine is started with B's (decoded) config.
+            reconnectStart(service, "decoded-B")
+
+            org.junit.Assert.assertNull(
+                "ACTION_START of the removed B must not make the parked A the attempted server",
+                SelectedCountryStore.currentAttemptedServerKey(appContext)
+            )
+            assertEquals(
+                "B's failure must not be probed as A",
+                0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
+            )
+
+            // B connects: the success must not record A's identity alongside B's config. This is the
+            // persistence the AIDL LEVEL_CONNECTED callback runs.
+            OpenVpnService::class.java.getDeclaredMethod("persistLastSuccessfulConfig")
+                .apply { isAccessible = true }
+                .invoke(service)
+            assertEquals("decoded-B", SelectedCountryStore.getLastSuccessfulConfigForSelected(appContext))
+            SelectedCountryStore.setCurrentIndex(appContext, 1)
+            assertEquals(false, SelectedCountryStore.restoreLastSuccessfulServerIndex(appContext))
+            assertEquals("C", SelectedCountryStore.currentServer(appContext)?.config)
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun reconnectStartOfCandidateSurvivingARefresh_recordsThatCandidate() {
+        val a = idServer(1, "A", "1.1.1.1")
+        val b = idServer(2, "B", "2.2.2.2")
+        val c = idServer(3, "C", "3.3.3.3")
+        SelectedCountryStore.saveSelection(appContext, "RU", listOf(a, b, c))
+        SelectedCountryStore.resetIndex(appContext)
+        ServerAutoSwitcher.resetForTest()
+        try {
+            assertEquals("B", ServerAutoSwitcher.nextCycleCandidate(appContext)?.config)
+            // The refresh reorders the pool but keeps B, so the index still identifies it.
+            SelectedCountryStore.saveSelectionPreservingIndex(appContext, "RU", listOf(c, b, a))
+            val bKey = SelectedCountryStore.currentServerKey(appContext)
+
+            val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+            reconnectStart(service, "decoded-B")
+
+            assertEquals(bKey, SelectedCountryStore.currentAttemptedServerKey(appContext))
+            assertEquals(2, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext))
+            assertEquals("counter follows the started B", 2 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
     fun logsExhaustedListWhenNoAlternative() {
         saveServers(1)
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
@@ -110,6 +245,50 @@ class OpenVpnServiceSessionLoggingTest {
 
         val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
         assertTrue(logs.any { it.contains("Exhausted server list without success") && it.contains("1 attempts (serversInCountry=1)") })
+    }
+
+    @Test
+    fun fallbackExhaustion_doesNotLeaveSeededCycleBehind() {
+        saveServers(1)
+        ServerAutoSwitcher.resetForTest()
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val start = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(start, 0, 1)
+
+        service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+        org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+    }
+
+    @Test
+    fun fallbackFailureOnLastServer_wrapsToFirstServerWithMatchingCounter() {
+        saveServers(3)
+        SelectedCountryStore.setCurrentIndex(appContext, 2)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val start = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        try {
+            service.onStartCommand(start, 0, 1)
+
+            service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
+
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("Auto-switching to next server in country list: RU -> c1 (server=1/3") })
+            assertTrue(logs.none { it.contains("Exhausted server list without success") })
+            assertEquals(1 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
     }
 
     @Test
@@ -168,8 +347,9 @@ class OpenVpnServiceSessionLoggingTest {
             service.onStartCommand(reconnect, 0, idx + 2)
         }
 
-        // Move index to the last server so that nextServer() returns null
-        repeat(9) { SelectedCountryStore.nextServer(appContext) }
+        // Every server has been attempted in this cycle, so the next lookup finds no candidate.
+        ServerAutoSwitcher.resetForTest()
+        repeat(9) { ServerAutoSwitcher.nextCycleCandidate(appContext) }
         ConnectionStateManager.setReconnectingHint(false)
 
         service.updateState(null, null, 0, ConnectionStatus.LEVEL_AUTH_FAILED, null)
