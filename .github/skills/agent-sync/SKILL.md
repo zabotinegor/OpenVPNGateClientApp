@@ -42,6 +42,9 @@ state patterns. Preserve client-specific ignore rules outside these blocks.
 Never broad-ignore agent directories or native branch protection. A formerly
 tracked infrastructure test needs an explicit client commit to remove it
 from the Git index: an ignore rule alone cannot untrack an indexed file.
+For excluded legacy test files already outside the managed ignore block, the
+sync script may clean them only when their bytes match the canonical source.
+Locally edited, unproven files remain untouched and require owner review.
 
 Canonical standalone guard regressions can be run from CopilotTools with:
 `sh .github/tests/test-pre-push-dev-archive-guard.sh` and
