@@ -406,6 +406,27 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun synchronousSnapshotPathStillRestoresTheNotification_withoutARecordedCallbackLevel() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        // The snapshot path syncs on the main thread and never records lastReportedEngineLevel.
+        assertEquals(ConnectionStatus.LEVEL_NOTCONNECTED, ReflectionHelpers.getField<ConnectionStatus?>(service, "lastReportedEngineLevel") ?: ConnectionStatus.LEVEL_NOTCONNECTED)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "syncEngineState",
+            ReflectionHelpers.ClassParameter.from(ConnectionStatus::class.java, ConnectionStatus.LEVEL_CONNECTED),
+            ReflectionHelpers.ClassParameter.from(String::class.java, "CONNECTED"),
+            ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, false),
+            ReflectionHelpers.ClassParameter.from(String::class.java, "SNAPSHOT")
+        )
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN connected", posted.extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
     fun recreatedController_engineOwnsOngoingNotification_controllerHandsOver() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

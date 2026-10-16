@@ -2722,10 +2722,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !stopInFlightNotification && !engineNotificationActive) {
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
-            val restoreNotification = {
+            val restoreNotification = { revalidateLevel: Boolean ->
                 // Queued from a binder thread: an idle level handled before this runs has already
                 // released the notification, so re-validate against the latest reported level.
-                val stillLive = lastReportedEngineLevel.let {
+                // Not needed (and not reliable) on the synchronous main-thread path: the snapshot
+                // path syncs without recording lastReportedEngineLevel.
+                val stillLive = !revalidateLevel || lastReportedEngineLevel.let {
                     it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
                 }
                 if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
@@ -2735,9 +2737,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 }
             }
             if (Looper.myLooper() == Looper.getMainLooper()) {
-                restoreNotification()
+                restoreNotification(false)
             } else {
-                statusHandler.post { restoreNotification() }
+                statusHandler.post { restoreNotification(true) }
             }
         }
         if (controllerForegroundActive
