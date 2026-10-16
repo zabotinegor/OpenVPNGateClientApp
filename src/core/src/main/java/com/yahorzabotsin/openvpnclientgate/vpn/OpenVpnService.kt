@@ -1093,7 +1093,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.i(TAG, "ACTION_STOP")
                 // Do not remove the last VPN notification before teardown is confirmed.
                 // The engine notification may have vanished while its native tunnel is still live.
-                if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
+                // Mode-based, not "foreground active": an already posted CONNECTING/CONNECTED variant
+                // must switch to DISCONNECTING (no second Disconnect action, honest wording).
+                if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING
+                    && !hasEngineOngoingNotification()) {
                     enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
                 }
                 oneShotSyncRequested = false
@@ -2711,12 +2714,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val engineTunnelLive = level == ConnectionStatus.LEVEL_CONNECTED || level == ConnectionStatus.LEVEL_VPNPAUSED
         // onCreate() always posts the CONNECTING variant, so "foreground active" is not enough:
         // a live tunnel without an engine notification needs the actionable CONNECTED variant.
+        // A stale live level during an in-flight stop must not flip DISCONNECTING back to CONNECTED;
+        // markStopFailure is the only place that upgrades while a stop is running.
+        val stopInFlightNotification = userInitiatedStop
+            && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING
         if (engineTunnelLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
-            && !engineNotificationActive) {
+            && !stopInFlightNotification && !engineNotificationActive) {
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
             val restoreNotification = {
                 if (!serviceDestroyed && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+                    && !(userInitiatedStop && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING)
                     && !hasEngineOngoingNotification()) {
                     enterControllerForeground(ControllerNotificationMode.CONNECTED)
                 }

@@ -364,6 +364,31 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun userStopOverAnAlreadyPostedConnectedNotification_switchesToDisconnecting_andStaleLiveLevelDoesNotFlipItBack() {
+        val binder = CountingBinder()
+        val service = controllerWithConnectedEngine(binder)
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "precondition: the actionable CONNECTED safety notification is posted",
+            "VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+
+        service.onStartCommand(stopIntent(), 0, 1)
+
+        val disconnecting = notifications.allNotifications.single()
+        assertEquals("VPN disconnecting", disconnecting.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("No second Disconnect action during teardown", 0, disconnecting.actions?.size ?: 0)
+
+        // The engine still reports the tunnel as live while the stop is in flight.
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "VPN disconnecting",
+            notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+    }
+
+    @Test
     fun recreatedController_engineOwnsOngoingNotification_controllerHandsOver() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
