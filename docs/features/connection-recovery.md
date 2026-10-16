@@ -224,4 +224,4 @@ See [vpn-connection.md](vpn-connection.md).
   reconnects, then a fail-safe disconnect. The watchdog's is the bound that covers servers which
   connect cleanly and carry nothing — the case the other two miss.
 
-*Last verified against: `vpn/OpenVpnService.kt`, `vpn/ServerAutoSwitcher.kt`, `core/servers/SelectedCountryStore.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt`, `vpn/ServerAutoSwitcherCycleIdentityTest.kt` (2026-10-14).; stop escalation and `forceStopVPN` against engine `ca9d925b` (2026-10-16).*
+*Last verified against: `vpn/OpenVpnService.kt`, `vpn/ServerAutoSwitcher.kt`, `core/servers/SelectedCountryStore.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt`, `vpn/ServerAutoSwitcherCycleIdentityTest.kt` (2026-10-14); stop escalation and `forceStopVPN` against engine `ca9d925b` (2026-10-16).*

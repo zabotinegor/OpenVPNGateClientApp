@@ -42,7 +42,6 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [`SseServerEventsClientTest` "onOpen does not reset failure count" is flaky under full-suite contention — bug 86cb9kpx9](#sseservereventsclienttest-onopen-does-not-reset-failure-count-is-flaky-under-full-suite-contention--bug-86cb9kpx9)
 - [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
 - [Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a](#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a)
-
 - [Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u](#server-counter-rolls-back-to-an-earlier-entry-after-an-auto-switch-or-a-background-refresh-shared-ip-entries--bug-12487v2bg7u)
 
 ---
@@ -1934,6 +1933,8 @@ channel.
 `adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. This procedure is the
 intended repro. It has not yet been confirmed on a device, so verify it on the target before using it as
 a regression check.
+
+---
 
 ## Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u
 
