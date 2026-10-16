@@ -8,6 +8,37 @@
 - The related backend/API codebase is local-only and must be resolved from untracked `AGENTS.local.md` at repo root.
 - If `AGENTS.local.md` is missing, ask the user for the local backend path and do not add it to tracked files.
 
+
+## Code Review Rules
+
+### Android product changes (primary review scope)
+- Prioritize regressions introduced in Android/Kotlin, Gradle/build logic, VPN
+  connection lifecycle, server identity/selection, UI, persisted state, bundled
+  media/engine integration, permissions, signing, and client-facing API contracts.
+- Treat app-owned CI workflows, tests and deployment configuration as product
+  code, even when they live in \`.github/\`; flag concrete product regressions
+  there with their normal severity.
+
+### CopilotTools-owned mirrored assets (advisory by default)
+- Shared assets under \`.github/agents/\`, \`.github/skills/\`, \`.github/scripts/\`,
+  \`.github/hooks/\`, \`.githooks/\` and the Agent Sync launchers are maintained in
+  \`zabotinegor/CopilotTools\`. Establish source ownership and, if available,
+  compare the changed file against a specific canonical CopilotTools revision.
+- For a byte-identical mirror with **no demonstrated direct Android impact**,
+  do not raise an inline blocking finding for standalone script refactoring,
+  hardening opportunities, test coverage, style or tooling maintainability.
+  These are optional, non-blocking CopilotTools recommendations; mention the
+  canonical source path in the review summary when useful. Do not request an
+  Android-only code fix or fresh Android revision for such recommendations.
+- For a source-mismatched file, an unverified origin, or a **demonstrable**
+  regression in bootstrap, Git branch protection, secret handling, Android CI,
+  application behavior or secure delivery, perform the normal rigorous review.
+  A real safety or functionality defect is not advisory merely because its
+  source lives in CopilotTools: request the canonical fix and synchronize the
+  affected tracked bootstrap file. Do not hide actual product-impacting issues.
+- These rules guide finding priority and ownership, not GitHub required checks,
+  mandatory approvals, security gates or review of application code.
+
 ## Local Overlay (AGENTS.local.md)
 - `AGENTS.local.md` at the repo root is the single place for **machine-specific paths and local-only context** that agents need but that must never be committed.
 - Typical content: local path to the backend server repository, local deployment URLs, notes about the current machine's toolchain.
