@@ -59,7 +59,7 @@ only as a **safety net**, when no such engine notification exists while a tunnel
 - **Variants** (`ControllerNotificationMode`). Neither safety variant uses "connecting" wording,
   because a possibly live tunnel must not be described as being established.
   - `CONNECTED`: restored after controller recreation when the engine reports `LEVEL_CONNECTED` or
-    `LEVEL_VPNPAUSED` while neither the controller nor the engine shows a notification. This is
+    `LEVEL_VPNPAUSED` (a lagging raw level whose detail is `CONNECTED` counts as connected, like the app state) while neither the controller nor the engine shows a notification. This is
     not gated on the app `ConnectionState`. Includes the Disconnect action.
   - `DISCONNECTING`: shown on `ACTION_STOP` when neither notification is present, so the notification
     is not removed before teardown is confirmed. No Disconnect action.
@@ -71,7 +71,7 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   the `CONNECTED` variant with Disconnect, but only when the engine still owns no notification (see
   [connection-recovery.md](connection-recovery.md#stop-and-teardown)). Outside a user stop,
   `exitControllerForeground()` releases it when the engine reports a level other than START/UNKNOWN and either
-  the tunnel is not live (any level except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) or the engine
+  the tunnel is not live (any normalized level except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) or the engine
   owns an ongoing notification of its own; it is also released when the service is destroyed.
 
 ## Disconnect action
