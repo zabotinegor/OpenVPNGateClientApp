@@ -2723,7 +2723,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
             val restoreNotification = {
-                if (!serviceDestroyed && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+                // Queued from a binder thread: an idle level handled before this runs has already
+                // released the notification, so re-validate against the latest reported level.
+                val stillLive = lastReportedEngineLevel.let {
+                    it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
+                }
+                if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
                     && !(userInitiatedStop && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING)
                     && !hasEngineOngoingNotification()) {
                     enterControllerForeground(ControllerNotificationMode.CONNECTED)

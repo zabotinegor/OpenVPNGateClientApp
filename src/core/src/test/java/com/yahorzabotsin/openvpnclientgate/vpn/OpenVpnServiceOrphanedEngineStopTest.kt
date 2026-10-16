@@ -389,6 +389,23 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        // The AIDL callback arrives on a binder thread, so the restore is queued on the main looper.
+        val binderThread = Thread { reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED) }
+        binderThread.start()
+        binderThread.join()
+        // Before the queued restore runs, the engine reports the session as gone.
+        reportEngineLevel(service, ConnectionStatus.LEVEL_NOTCONNECTED)
+        ShadowLooper.idleMainLooper()
+
+        assertFalse("A stale restore must not resurrect the notification", hasControllerNotification())
+    }
+
+    @Test
     fun recreatedController_engineOwnsOngoingNotification_controllerHandsOver() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
