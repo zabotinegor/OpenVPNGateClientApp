@@ -11,6 +11,13 @@ zero=0000000000000000000000000000000000000000
 remote_tip() {
   git rev-parse -q --verify "refs/remotes/origin/$1^{commit}" 2>/dev/null || true
 }
+# Local remote-tracking refs are mutable and cannot attest a server branch tip.
+# Reject protected ref updates when the live origin cannot be verified.
+verified_remote_tip() {
+  remote_result=$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --heads origin "refs/heads/$1" 2>/dev/null) || return 1
+  printf '%s\n' "$remote_result" |
+    awk -v expected="refs/heads/$1" 'NF == 2 && $2 == expected { print $1 }'
+}
 is_ancestor() {
   [ "$1" = "$zero" ] || git merge-base --is-ancestor "$1" "$2" 2>/dev/null
 }
@@ -40,11 +47,11 @@ while read -r old new ref; do
     *) continue ;;
   esac
   [ "$old" = "$new" ] && continue
-  # A local tracking branch may be created or advanced to the exact fetched
-  # remote tip (e.g. after an approved PR merge). No arbitrary target allowed.
+  # Require agreement between tracking state and the actual server ref
+  # before accepting a protected fast-forward after an approved merge.
   remote=$(remote_tip "$branch")
   if [ -n "$remote" ] && [ "$new" = "$remote" ] &&
-     is_ancestor "$old" "$new"; then
+     is_ancestor "$old" "$new" && [ "$new" = "$(verified_remote_tip "$branch")" ]; then
     continue
   fi
   if [ "$branch" = dev ]; then
