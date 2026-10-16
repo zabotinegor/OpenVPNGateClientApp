@@ -70,9 +70,9 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   switches to) `DISCONNECTING`, and a failed or unconfirmed stop keeps it; `STOP_FAILED` then upgrades it to
   the `CONNECTED` variant with Disconnect, but only when the engine still owns no notification (see
   [connection-recovery.md](connection-recovery.md#stop-and-teardown)). Outside a user stop,
-  `exitControllerForeground()` releases it when the engine reports a non-live level (anything except
-  CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) and either owns an ongoing notification or the
-  tunnel is down, and it is released when the service is destroyed.
+  `exitControllerForeground()` releases it when the engine reports a level other than START/UNKNOWN and either
+  the tunnel is not live (any level except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) or the engine
+  owns an ongoing notification of its own; it is also released when the service is destroyed.
 
 ## Disconnect action
 
