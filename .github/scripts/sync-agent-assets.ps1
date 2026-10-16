@@ -3,8 +3,8 @@ param(
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
     [string[]]$Scope = @(),
-    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets', 'asset-lock.json'),
-    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command', '.copilottools/config.json'),
+    [string[]]$PreservePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', 'asset-lock.json'),
+    [string[]]$ExcludeGitignorePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', '.github/hooks/', '.githooks/', 'protect-agent-git-command', '.copilottools/config.json'),
     [string[]]$MergeJsonPaths = @(),
     [switch]$DryRun,
     [switch]$AllowRootMdSync
