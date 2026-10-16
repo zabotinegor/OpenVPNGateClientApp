@@ -331,6 +331,39 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun freshlyCreatedController_connectingNotificationIsUpgradedForALiveTunnel() {
+        val binder = CountingBinder()
+        // Production path: onCreate() has already posted the CONNECTING variant (foreground active).
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", binder)
+
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN connected", posted.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("The upgraded notification must offer Disconnect", 1, posted.actions?.size ?: 0)
+    }
+
+    @Test
+    fun failedStopAfterDisconnectingNotification_isUpgradedToTheActionableVariant() {
+        val binder = CountingBinder(stopResult = false, forceThrows = true)
+        val service = controllerWithConnectedEngine(binder)
+        // The controller has lost its foreground notification while the engine tunnel is live.
+        ReflectionHelpers.callInstanceMethod<Unit>(service, "exitControllerForeground")
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+
+        // ACTION_STOP posts the DISCONNECTING variant (no engine notification), then the stop fails.
+        service.onStartCommand(stopIntent(), 0, 1)
+
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN connected", posted.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("A failed stop must leave Disconnect available", 1, posted.actions?.size ?: 0)
+    }
+
+    @Test
     fun recreatedController_engineOwnsOngoingNotification_controllerHandsOver() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

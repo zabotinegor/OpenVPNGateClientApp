@@ -208,6 +208,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     @Volatile private var aidlLastOutBytes: Long = 0L
     @Volatile private var lastAidlByteUpdateTs: Long = 0L
     @Volatile private var controllerForegroundActive = false
+    // Which variant of the controller notification is currently posted; null when none.
+    @Volatile private var controllerNotificationMode: ControllerNotificationMode? = null
 
     // Binding to status service for engine logs/metrics
     @Volatile private var statusBinder: IServiceStatus? = null
@@ -555,7 +557,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     private fun markStopFailure(reason: String) {
         // A failed dispatch must not leave a potentially live tunnel invisible.
-        if (!controllerForegroundActive && !hasEngineOngoingNotification()) {
+        // Also upgrade an already-posted CONNECTING/DISCONNECTING variant: it carries no
+        // Disconnect action and would be wrong for a possibly live tunnel.
+        if (controllerNotificationMode != ControllerNotificationMode.CONNECTED && !hasEngineOngoingNotification()) {
             enterControllerForeground(ControllerNotificationMode.CONNECTED)
         }
         stopAwaitingConfirmation = false
@@ -1774,6 +1778,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 .build()
             startForeground(CONTROLLER_NOTIFICATION_ID, notification)
             controllerForegroundActive = true
+            controllerNotificationMode = mode
             return true
         } catch (t: Throwable) {
             // Do NOT call stopSelf() here. ACTION_START calls this method after its own
@@ -1783,6 +1788,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // callers already treat a `false` return as sufficient signal to bail out.
             AppLog.e(TAG, "Failed to enter controller foreground", t)
             controllerForegroundActive = false
+            controllerNotificationMode = null
             return false
         }
     }
@@ -1838,6 +1844,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             stopForeground(true)
         }
         controllerForegroundActive = false
+        controllerNotificationMode = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -2702,11 +2709,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
         val engineNotificationActive = hasEngineOngoingNotification()
         val engineTunnelLive = level == ConnectionStatus.LEVEL_CONNECTED || level == ConnectionStatus.LEVEL_VPNPAUSED
-        if (engineTunnelLive && !controllerForegroundActive && !engineNotificationActive) {
+        // onCreate() always posts the CONNECTING variant, so "foreground active" is not enough:
+        // a live tunnel without an engine notification needs the actionable CONNECTED variant.
+        if (engineTunnelLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+            && !engineNotificationActive) {
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
             val restoreNotification = {
-                if (!serviceDestroyed && !controllerForegroundActive && !hasEngineOngoingNotification()) {
+                if (!serviceDestroyed && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+                    && !hasEngineOngoingNotification()) {
                     enterControllerForeground(ControllerNotificationMode.CONNECTED)
                 }
             }
