@@ -72,6 +72,16 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
         private val TAG = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "OpenVpnService"
         const val DEFAULT_COMPAT_MODE = 20400
+
+        /**
+         * The IP recorded for a started config. The caller's resolved IP wins: the decoded config
+         * often cannot be matched to the stored (encoded) one, and the cursor may be parked on a
+         * different server, so the cursor's own IP is only the last resort.
+         */
+        fun resolveStartIp(ctx: android.content.Context, config: String, intentIp: String?): String? =
+            intentIp?.takeIf { it.isNotBlank() }
+                ?: runCatching { SelectedCountryStore.getIpForConfig(ctx, config) }.getOrNull()
+                ?: runCatching { SelectedCountryStore.currentServer(ctx)?.ip }.getOrNull()
         const val KEY_OVPN3 = "ovpn3"
         const val KEY_DISABLE_CONFIRMATION = "disableconfirmation"
         private val AUTO_SWITCH_LEVELS = setOf(
@@ -251,7 +261,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     )
     private data class WatchdogRecoveryTarget(
         val config: String,
-        val title: String?
+        val title: String?,
+        val ip: String?
     )
     private var watchdogState = HealthWatchdogState()
 
@@ -281,8 +292,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
      * [ServerAutoSwitcher.beginChainedSwitch] reports false for every such case: auto-switch off,
      * a rejected stop command, or an exception while requesting the stop.
      */
-    internal var watchdogRecoveryStarter: (Context, String, String?) -> Boolean = { ctx, config, title ->
-        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title)
+    internal var watchdogRecoveryStarter: (Context, String, String?, String?) -> Boolean = { ctx, config, title, ip ->
+        ServerAutoSwitcher.beginChainedSwitch(ctx, config, title, ip)
     }
     private var watchdogProbeJob: Job? = null
     
@@ -961,17 +972,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (isReconnect) {
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
-                val targetIp = runCatching { SelectedCountryStore.getIpForConfig(applicationContext, config) }.getOrNull()
-                    ?: runCatching { SelectedCountryStore.currentServer(applicationContext)?.ip }.getOrNull()
-                // Auto-switch already selected the intended candidate before ACTION_START.
-                // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
-                if (!isReconnect) {
-                    try {
-                        SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
-                    } catch (e: Exception) {
-                        AppLog.w(TAG, "Failed to align server index with config being started", e)
-                    }
-                }
+                val targetIp = resolveStartIp(applicationContext, config, intent.getStringExtra(VpnManager.extraIpKey(this)))
+                // saveLastStartedConfig performs the guarded alignment for a fresh start. Keeping
+                // it there prevents a late ACTION_START from moving a newly selected country's
+                // cursor before the store can determine that the start belongs to another country.
                 run {
                     val titleStr = title?.let { ": $it" } ?: ""
                     val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
@@ -1774,7 +1778,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 val positionStr = position?.let { "${it.first}/${it.second}" } ?: "unknown"
                 AppLog.i(TAG, "Auto-switching to next server in country list: ${title} -> ${next.city} (server=${positionStr}, ip=${next.ip ?: "<none>"})")
                 try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (engine auto-switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for engine auto-switch", e) }
-                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
+                try { ServerAutoSwitcher.beginChainedSwitch(applicationContext, next.config, title, next.ip) } catch (e: Exception) { AppLog.e(TAG, "Failed to begin chained server switch", e) }
                 return
               } else {
                   userInitiatedStart = false
@@ -2172,7 +2176,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // Set before dispatch: beginChainedSwitch can drive the state change synchronously.
             watchdogRecoveryInFlight = true
             val dispatched =
-                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title)
+                watchdogRecoveryStarter(applicationContext, recoveryTarget.config, recoveryTarget.title, recoveryTarget.ip)
             if (!dispatched) {
                 // Nothing was dispatched -- auto-switch is off, or the stop command was rejected.
                 // Do not burn the budget on attempts that never happen: that ends in a fail-safe
@@ -2292,7 +2296,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         if (!lastStarted?.config.isNullOrBlank()) {
             return WatchdogRecoveryTarget(
                 config = lastStarted!!.config!!,
-                title = lastStarted.country ?: selectedCountry
+                title = lastStarted.country ?: selectedCountry,
+                ip = lastStarted.ip
             )
         }
 
@@ -2300,7 +2305,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             SelectedCountryStore.getLastSuccessfulConfigForSelected(applicationContext)
         }.getOrNull()
         return if (!lastSuccessfulConfig.isNullOrBlank()) {
-            WatchdogRecoveryTarget(lastSuccessfulConfig, selectedCountry)
+            WatchdogRecoveryTarget(
+                lastSuccessfulConfig,
+                selectedCountry,
+                runCatching { SelectedCountryStore.getLastSuccessfulIpForSelected(applicationContext) }.getOrNull()
+            )
         } else {
             null
         }

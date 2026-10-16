@@ -6,10 +6,12 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.Country
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
 import com.yahorzabotsin.openvpnclientgate.core.servers.Server
 import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
+import com.yahorzabotsin.openvpnclientgate.core.servers.probe.ProbeRequestQueue
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -33,8 +35,9 @@ class ServerAutoSwitcherCycleIdentityTest {
     private val source = "VPN_STATUS"
     private val started = mutableListOf<String>()
     private var stopCalls = 0
-    private var originalStarter: ((Context, String, String?, Boolean) -> Boolean)? = null
+    private var originalStarter: ((Context, String, String?, Boolean, String?) -> Boolean)? = null
     private var originalStopper: ((Context) -> Boolean)? = null
+    private var originalProbeQueue: ProbeRequestQueue? = null
 
     @Before
     fun setUp() {
@@ -44,8 +47,9 @@ class ServerAutoSwitcherCycleIdentityTest {
         ServerAutoSwitcher.setNoReplyThresholdForTest(1)
         ServerAutoSwitcher.setRepliedThresholdForTest(1)
         originalStarter = ServerAutoSwitcher.starter
+        originalProbeQueue = ServerAutoSwitcher.probeRequestQueue
         originalStopper = ServerAutoSwitcher.stopper
-        ServerAutoSwitcher.starter = { _, config, _, _ -> started.add(config); true }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> started.add(config); true }
         ServerAutoSwitcher.stopper = { _ -> stopCalls += 1; true }
         started.clear()
         stopCalls = 0
@@ -59,6 +63,7 @@ class ServerAutoSwitcherCycleIdentityTest {
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         ConnectionStateManager.clearStopFailure()
         originalStarter?.let { ServerAutoSwitcher.starter = it }
+        ServerAutoSwitcher.probeRequestQueue = originalProbeQueue
         originalStopper?.let { ServerAutoSwitcher.stopper = it }
         ServerAutoSwitcher.resetNoReplyThreshold()
         ServerAutoSwitcher.resetRepliedThreshold()
@@ -411,11 +416,15 @@ class ServerAutoSwitcherCycleIdentityTest {
 
     @Test
     fun manualStartOnAParkedEntry_makesItTheAttemptedServer() {
-        select(srv(1, "A"), srv(2, "B"), srv(3, "C"), index = 0)
-        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, "C")))
+        // The store keeps the Base64 config; ACTION_START carries the decoded text of that entry.
+        val decodedC = "client\nremote 9.9.9.9 443\n"
+        val encodedC = android.util.Base64.encodeToString(decodedC.toByteArray(), android.util.Base64.NO_WRAP)
+        select(srv(1, "A"), srv(2, "B"), srv(3, encodedC), index = 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "RU", listOf(srv(2, "B"), srv(3, encodedC)))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
 
-        // The user taps Connect on the parked C: ACTION_START records it as started.
-        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", "decoded", "9.9.9.9")
+        // The user taps Connect on the parked C (B shares its IP): ACTION_START records C as started.
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", decodedC, "9.9.9.9")
         assertEquals(SelectedCountryStore.currentServerKey(ctx), SelectedCountryStore.currentAttemptedServerKey(ctx))
 
         failAndSwitch()
@@ -423,6 +432,55 @@ class ServerAutoSwitcherCycleIdentityTest {
 
         assertEquals("C was attempted by the manual start, so only B remains", listOf("B"), started)
         assertEquals(1, stopCalls)
+    }
+
+    @Test
+    fun missingStartConfigWithDifferentEndpointCursor_doesNotSeedOrAttributeCursor() {
+        val cursorConfig = "client\nproto udp\nremote 9.9.9.9 443\n"
+        val startedConfig = "client\nproto udp\nremote 9.9.9.9 1194\n"
+        val candidateConfig = "client\nproto udp\nremote 8.8.8.8 443\n"
+        select(srv(42, cursorConfig), srv(43, candidateConfig, ip = "8.8.8.8"))
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", startedConfig, "9.9.9.9", alignIndex = true)
+
+        val probedIds = mutableListOf<Int>()
+        ServerAutoSwitcher.probeRequestQueue = object : ProbeRequestQueue {
+            override fun enqueue(serverId: Int) { probedIds += serverId }
+        }
+
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+        failAndSwitch()
+        assertEquals("the distinct-IP candidate goes first; the disproven cursor remains eligible", listOf(candidateConfig), started)
+        failAndSwitch()
+
+        assertEquals(
+            "after the other candidate, the same-IP cursor is still offered once",
+            listOf(candidateConfig, cursorConfig),
+            started
+        )
+        assertFalse("the cursor's id must not be queued for the failed missing config", 42 in probedIds)
+    }
+
+    @Test
+    fun missingStartConfigSameEndpointDifferentPositiveIds_doesNotSeedAttributeOrSkipSurvivor() {
+        val cursorConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 3\n"
+        val survivorConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 2\n"
+        val startedConfig = "client\nproto udp\nremote 9.9.9.9 443\nverb 4\n"
+        select(srv(42, cursorConfig), srv(43, survivorConfig), index = 0)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "RU", startedConfig, "9.9.9.9", alignIndex = true)
+
+        val probedIds = mutableListOf<Int>()
+        ServerAutoSwitcher.probeRequestQueue = object : ProbeRequestQueue {
+            override fun enqueue(serverId: Int) { probedIds += serverId }
+        }
+
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(ctx))
+        failAndSwitch()
+        assertEquals("the other same-endpoint profile remains eligible", listOf(survivorConfig), started)
+        failAndSwitch()
+        assertEquals("the parked positive-id cursor remains eligible after its survivor", listOf(survivorConfig, cursorConfig), started)
+        assertFalse("the unproven cursor id must not be queued for hardprobe", 42 in probedIds)
     }
 
     @Test

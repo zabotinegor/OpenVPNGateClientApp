@@ -50,6 +50,98 @@ class SelectedCountryStoreTest {
     )
 
     @Test
+    fun identity_key_cache_derives_once_per_distinct_serialized_list() {
+        var derivations = 0
+        val cache = ServerIdentityKeyCache { entries ->
+            derivations++
+            ServerIdentity.keys(entries)
+        }
+        val first = listOf(StoredServer("city", "config-A", ip = "1.1.1.1"))
+        val second = listOf(StoredServer("city", "config-B", ip = "1.1.1.1"))
+        val initial = cache.get("raw-A") { first }
+        assertSame(initial, cache.get("raw-A") { error("a hit must not parse") })
+        assertEquals(1, derivations)
+        assertNotEquals(initial, cache.get("raw-B") { second })
+        assertEquals(2, derivations)
+        assertSame(cache.get("raw-B") { second }, cache.get("raw-B") { error("a hit must not parse") })
+        assertEquals(2, derivations)
+        assertEquals(2, cache.derivations)
+    }
+
+    @Test
+    fun identity_keys_in_store_are_reused_until_servers_change() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(
+            server(name = "one", city = "City1", config = "config1")
+        ))
+        val first = SelectedCountryStore.currentServerKeys(ctx)
+        assertSame(first, SelectedCountryStore.currentServerKeys(ctx))
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(
+            server(name = "two", city = "City2", config = "config2")
+        ))
+        val second = SelectedCountryStore.currentServerKeys(ctx)
+        assertNotEquals(first, second)
+        assertSame(second, SelectedCountryStore.currentServerKeys(ctx))
+    }
+
+    @Test
+    fun parked_index_is_not_unparked_by_same_ip_manual_start_of_removed_server() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        val removed = server(name = "removed", city = "Old", config = "removed", ip = "1.1.1.1")
+        val survivor = server(name = "survivor", city = "New", config = "survivor", ip = "1.1.1.1")
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(removed, survivor))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "CountryA", listOf(survivor))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", "removed", "1.1.1.1")
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "CountryA", "removed", "1.1.1.1", alignIndex = false)
+        assertNull(ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE)
+            .getString("last_success_server_key", null))
+    }
+
+    @Test
+    fun parked_index_is_unparked_when_started_endpoint_matches_current_entry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        val decoded = "client\nremote 1.1.1.1 443\n"
+        val encoded = android.util.Base64.encodeToString(
+            decoded.toByteArray(), android.util.Base64.NO_WRAP
+        )
+        val removed = server(name = "removed", city = "Old", config = "old", ip = "1.1.1.1")
+        val surviving = server(name = "survivor", city = "New", config = encoded, ip = "1.1.1.1")
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(removed, surviving))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        SelectedCountryStore.saveSelectionPreservingIndex(ctx, "CountryA", listOf(surviving))
+        assertNull(SelectedCountryStore.currentAttemptedServerKey(ctx))
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", decoded, "1.1.1.1")
+        assertEquals(SelectedCountryStore.currentServerKey(ctx), SelectedCountryStore.currentAttemptedServerKey(ctx))
+    }
+
+    @Test
+    fun success_preserves_key_captured_at_start_when_same_ip_selection_changes() {
+        val ctx = RuntimeEnvironment.getApplication()
+        fun encoded(text: String) = android.util.Base64.encodeToString(text.toByteArray(), android.util.Base64.NO_WRAP)
+        val firstText = "client\nproto udp\nremote 1.1.1.1 1194\n"
+        ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        SelectedCountryStore.saveSelection(ctx, "CountryA", listOf(
+            server(name = "first", city = "City1", config = encoded(firstText), ip = "1.1.1.1"),
+            server(name = "second", city = "City2", config = encoded("client\nproto udp\nremote 1.1.1.1 443\n"), ip = "1.1.1.1")
+        ))
+        SelectedCountryStore.setCurrentIndex(ctx, 0)
+        val startedKey = SelectedCountryStore.currentServerKey(ctx)
+        SelectedCountryStore.saveLastStartedConfig(ctx, "CountryA", firstText, "1.1.1.1")
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        SelectedCountryStore.saveLastSuccessfulConfig(ctx, "CountryA", firstText, "1.1.1.1", alignIndex = false)
+        SelectedCountryStore.setCurrentIndex(ctx, 1)
+        assertTrue(SelectedCountryStore.restoreLastSuccessfulServerIndex(ctx))
+        assertEquals(startedKey, SelectedCountryStore.currentServerKey(ctx))
+        assertEquals(0, SelectedCountryStore.getCurrentIndex(ctx))
+    }
+
+    @Test
     fun save_and_iterate_servers() {
         val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("vpn_selection_prefs", Context.MODE_PRIVATE).edit().clear().commit()

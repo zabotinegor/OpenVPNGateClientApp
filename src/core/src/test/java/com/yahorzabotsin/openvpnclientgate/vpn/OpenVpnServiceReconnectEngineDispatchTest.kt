@@ -10,6 +10,7 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.IStatusCallbacks
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -218,6 +219,51 @@ class OpenVpnServiceReconnectEngineDispatchTest {
                 "race and must be dispatched to the engine immediately, exactly as before this fix " +
                 "-- the reconnect-only buffer must not add latency to this path",
             hasEngineStartLog()
+        )
+    }
+
+    @Test
+    fun lateStartAfterCountryChange_keepsNewCountryCursorAndOriginalStartedIdentity() {
+        val config = "client\n"
+        val countryA = "CountryA"
+        val countryB = "CountryB"
+        val countryAServer = Server(
+            11, "a", "a", Country(countryA), 0, SignalStrength.STRONG, "1.1.1.1",
+            0, 0, 0, 0, 0, 0, "", "", "", config, id = 11
+        )
+        val countryBServers = listOf(
+            Server(21, "b0", "b", Country(countryB), 0, SignalStrength.STRONG, "2.2.2.2",
+                0, 0, 0, 0, 0, 0, "", "", "", "other\n", id = 21),
+            Server(22, "b1", "b", Country(countryB), 0, SignalStrength.STRONG, "1.1.1.1",
+                0, 0, 0, 0, 0, 0, "", "", "", config, id = 22)
+        )
+
+        SelectedCountryStore.saveSelection(appContext, countryA, listOf(countryAServer))
+        SelectedCountryStore.saveLastStartedConfig(appContext, countryA, config, "1.1.1.1")
+        SelectedCountryStore.saveSelection(appContext, countryB, countryBServers)
+        SelectedCountryStore.setCurrentIndex(appContext, 0)
+
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        val lateStart = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), config)
+            putExtra(VpnManager.extraTitleKey(appContext), countryA)
+            putExtra(VpnManager.extraIpKey(appContext), "1.1.1.1")
+        }
+
+        service.onStartCommand(lateStart, 0, 1)
+
+        assertEquals(countryB, SelectedCountryStore.getSelectedCountry(appContext))
+        assertEquals(
+            "A late ACTION_START must not align CountryB's cursor to its same-config entry",
+            0,
+            SelectedCountryStore.getCurrentIndex(appContext)
+        )
+        assertEquals(
+            "id:11",
+            appContext.getSharedPreferences("vpn_selection_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("last_started_server_key", null)
         )
     }
 
@@ -792,7 +838,7 @@ class OpenVpnServiceReconnectEngineDispatchTest {
         val originalStarter = ServerAutoSwitcher.starter
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
-        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> startCalls.add(config) }
         ServerAutoSwitcher.stopper = { _ -> true }
 
         // Invoke dispatchAutoSwitcherOnEngineLevel() directly, reflectively, rather than going

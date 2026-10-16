@@ -345,7 +345,7 @@ class MainViewModel(
                         ip = prepared.ip ?: selected.ip,
                         fromUserSelection = false
                     )
-                    _effects.send(MainEffect.StartVpn(prepared.config, prepared.country))
+                    _effects.send(MainEffect.StartVpn(prepared.config, prepared.country, prepared.ip))
                 }
             }
         }

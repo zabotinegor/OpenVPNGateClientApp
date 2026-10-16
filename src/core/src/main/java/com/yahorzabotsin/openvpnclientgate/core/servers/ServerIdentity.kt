@@ -32,7 +32,7 @@ import java.security.MessageDigest
  * them swap whenever the config is re-issued, which the endpoint key exists to tolerate.
  */
 internal object ServerIdentity {
-    private val REMOTE_LINE = Regex("(?m)^\\s*remote\\s+\\S")
+    private val REMOTE_LINE = Regex("(?m)^[ \\t]*remote[ \\t]+\\S")
     private val WHITESPACE = Regex("\\s+")
 
     fun keys(servers: List<StoredServer>): List<String> {
@@ -75,6 +75,18 @@ internal object ServerIdentity {
         return "$proto:$port@${remotes.joinToString(",")}"
     }
 
+    /** Whether [started] is [stored] itself or its Base64-decoded text (what ACTION_START carries). */
+    fun sameConfig(stored: String, started: String): Boolean {
+        if (stored == started) return true
+        if (stored.isBlank()) return false
+        val decoded = try {
+            String(Base64.decode(stored, Base64.DEFAULT), Charsets.UTF_8)
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        return decoded == started
+    }
+
     private fun configText(config: String): String? {
         if (config.isBlank()) return null
         if (REMOTE_LINE.containsMatchIn(config)) return config
@@ -86,9 +98,18 @@ internal object ServerIdentity {
         return decoded.takeIf { REMOTE_LINE.containsMatchIn(it) }
     }
 
-    private fun sha256(text: String): String =
-        MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+    private val HEX = "0123456789abcdef".toCharArray()
+
+    private fun sha256(text: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return buildString(bytes.size * 2) {
+            for (byte in bytes) {
+                val value = byte.toInt() and 0xff
+                append(HEX[value ushr 4])
+                append(HEX[value and 0x0f])
+            }
+        }
+    }
 }
 
 /** A cycle candidate resolved against the persisted list: the server, its identity and position. */

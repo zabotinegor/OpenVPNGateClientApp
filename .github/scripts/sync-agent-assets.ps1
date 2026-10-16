@@ -2,15 +2,72 @@ param(
     [string]$SourceRepo = 'https://github.com/zabotinegor/CopilotTools.git',
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
-    [string[]]$Scope = @('.github/agents', '.github/skills', '.github/tools', '.github/scripts', '.github/hooks', '.githooks', '.claude/commands', '.claude/settings.json', '.opencode/commands', '.opencode/agents', '.opencode/plugins', 'opencode.jsonc', '.kilo/agents', '.kilo/commands', '.kilo/plugins', 'kilo.jsonc', '.github/runtime-parity.json', '.mcp.json', '.copilottools'),
-    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets'),
-    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command'),
-    [string[]]$MergeJsonPaths = @('.claude/settings.json', '.mcp.json'),
+    [string[]]$Scope = @(),
+    [string[]]$PreservePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', 'asset-lock.json'),
+    [string[]]$ExcludeGitignorePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', '.github/hooks/', '.githooks/', 'protect-agent-git-command', '.copilottools/config.json'),
+    [string[]]$MergeJsonPaths = @(),
     [switch]$DryRun,
     [switch]$AllowRootMdSync
 )
 
 $ErrorActionPreference = 'Stop'
+$ExcludeSyncPathPattern = @()
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "sync-agent-assets.ps1 requires PowerShell 7+ (pwsh); it uses APIs missing from Windows PowerShell $($PSVersionTable.PSVersion). Re-run with: pwsh -NoProfile -File .github/scripts/sync-agent-assets.ps1"
+}
+. (Join-Path $PSScriptRoot 'runtime-layer-hash.ps1')
+. (Join-Path $PSScriptRoot 'runtime-distribution-lib.ps1')
+# runtime-distribution-lib.ps1 enables strict mode at dot-source time; this entrypoint is
+# written for non-strict property access, so restore it for the caller scope.
+Set-StrictMode -Off
+
+# Every helper this entrypoint dot-sources is needed to run it at all, so it must stay
+# trackable in client repos (a fresh clone cannot obtain it by syncing). Derive the list
+# from this script's own dot-source statements and exempt it from the managed .gitignore block.
+$bootstrapHelpers = @([regex]::Matches((Get-Content -LiteralPath $PSCommandPath -Raw), '(?m)^\.\s+\(Join-Path \$PSScriptRoot ''([^'']+\.ps1)''\)') | ForEach-Object { $_.Groups[1].Value })
+$ExcludeGitignorePattern = @($ExcludeGitignorePattern) + $bootstrapHelpers
+
+function ConvertTo-QuotedProcessArgument {
+    # Quotes a single argument per the CommandLineToArgvW escaping rules so it
+    # survives being joined into ONE pre-built command-line string. Needed
+    # because Start-Process -ArgumentList <string[]> does NOT auto-quote array
+    # elements containing spaces - it joins them with plain spaces, silently
+    # splitting a spaced path (e.g. 'C:\Users\Jane Doe\...') into separate
+    # argv entries on the receiving side (unlike ProcessStartInfo.ArgumentList,
+    # which quotes each element correctly, or a normal '&' call).
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
+
+    if ($Value.Length -gt 0 -and $Value.IndexOfAny([char[]]@(' ', "`t", '"')) -lt 0) {
+        return $Value
+    }
+
+    $builder = [System.Text.StringBuilder]::new()
+    [void]$builder.Append('"')
+    $index = 0
+    while ($index -lt $Value.Length) {
+        if ($Value[$index] -eq '\') {
+            $backslashCount = 0
+            while ($index -lt $Value.Length -and $Value[$index] -eq '\') { $backslashCount++; $index++ }
+            if ($index -eq $Value.Length) { [void]$builder.Append([char]'\', $backslashCount * 2) }
+            elseif ($Value[$index] -eq '"') {
+                [void]$builder.Append([char]'\', $backslashCount * 2 + 1)
+                [void]$builder.Append('"')
+                $index++
+            }
+            else { [void]$builder.Append([char]'\', $backslashCount) }
+        }
+        elseif ($Value[$index] -eq '"') {
+            [void]$builder.Append('\"')
+            $index++
+        }
+        else {
+            [void]$builder.Append($Value[$index])
+            $index++
+        }
+    }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
 
 function Invoke-ExternalCommand {
     param(
@@ -19,14 +76,38 @@ function Invoke-ExternalCommand {
         [string]$FailureMessage
     )
 
-    $previousEap = $ErrorActionPreference
+    # Redirect stdout/stderr to temp files instead of merging them into
+    # PowerShell's pipeline via '2>&1'. A shallow clone ('git clone --depth')
+    # of a LOCAL repository path still goes through the smart pack-negotiation
+    # protocol - git spawns a 'git-upload-pack' grandchild that inherits the
+    # stdout/stderr pipe handles. Windows only signals EOF on an anonymous
+    # pipe once every handle to its write end closes, including ones
+    # inherited by that grandchild; PowerShell's native-command '2>&1' capture
+    # can then hang indefinitely waiting for EOF that the already-exited
+    # direct child will never provide by itself. This was reproduced directly
+    # (git.exe clone plus a still-running git-upload-pack.exe blocked the
+    # whole call). File redirection has no such handle-coupling: the OS
+    # signals process exit independently of who still holds the file open.
+    #
+    # The array elements are pre-quoted and joined into a single command-line
+    # string (rather than passed as -ArgumentList $Arguments directly) because
+    # Start-Process -ArgumentList <string[]> joins array elements with plain
+    # spaces and does not quote ones containing spaces - a path argument with
+    # a space (e.g. under a Windows user profile like 'C:\Users\Jane Doe\...')
+    # would otherwise be split into multiple separate argv entries.
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
     try {
-        $ErrorActionPreference = 'Continue'
-        $output = & $FilePath @Arguments 2>&1
-        $exitCode = $LASTEXITCODE
+        $argumentLine = (@($Arguments) | ForEach-Object { ConvertTo-QuotedProcessArgument -Value $_ }) -join ' '
+        $process = Start-Process -FilePath $FilePath -ArgumentList $argumentLine -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $exitCode = $process.ExitCode
+        $output = @()
+        if (Test-Path -LiteralPath $stdoutPath) { $output += @(Get-Content -LiteralPath $stdoutPath -Encoding UTF8 -ErrorAction SilentlyContinue) }
+        if (Test-Path -LiteralPath $stderrPath) { $output += @(Get-Content -LiteralPath $stderrPath -Encoding UTF8 -ErrorAction SilentlyContinue) }
     }
     finally {
-        $ErrorActionPreference = $previousEap
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
     }
     if ($exitCode -ne 0) {
         $details = (($output | Out-String).Trim())
@@ -220,7 +301,8 @@ function Get-RelativePath {
 function Get-RelativeFileMap {
     param(
         [string]$Root,
-        [string[]]$ScopePaths
+        [string[]]$ScopePaths,
+        [string[]]$ExcludePattern = @()
     )
 
     $map = @{}
@@ -231,12 +313,16 @@ function Get-RelativeFileMap {
         }
 
         if (Test-Path -LiteralPath $absoluteScope -PathType Leaf) {
-            $relative = Get-RelativePath -Root $Root -Path $absoluteScope
-            $map[(Convert-ToRepoRelativePath -Path $relative)] = $absoluteScope
+            $relative = Convert-ToRepoRelativePath -Path (Get-RelativePath -Root $Root -Path $absoluteScope)
+            if (@($ExcludePattern | Where-Object { $relative -match $_ }).Count -eq 0) {
+                $map[$relative] = $absoluteScope
+            }
         } else {
             Get-ChildItem -LiteralPath $absoluteScope -File -Recurse | ForEach-Object {
-                $relative = Get-RelativePath -Root $Root -Path $_.FullName
-                $map[(Convert-ToRepoRelativePath -Path $relative)] = $_.FullName
+                $relative = Convert-ToRepoRelativePath -Path (Get-RelativePath -Root $Root -Path $_.FullName)
+                if (@($ExcludePattern | Where-Object { $relative -match $_ }).Count -eq 0) {
+                    $map[$relative] = $_.FullName
+                }
             }
         }
     }
@@ -248,13 +334,13 @@ function Set-ExactGitignoreEntries {
     param(
         [string]$Root,
         [string[]]$RelativePaths,
-        [string[]]$ExcludePattern
+        [string[]]$ExcludePattern,
+        [string[]]$BlockedPatterns = @()
     )
 
     $gitignorePath = Join-Path $Root '.gitignore'
     $beginMarker = '# BEGIN synced-agent-assets'
     $endMarker = '# END synced-agent-assets'
-    $blockedPatterns = @('/.github/agents/**', '/.github/skills/**', '/.github/tools/**', '/.github/scripts/**', '/.opencode/agents/**', '/.opencode/commands/**', '/.opencode/plugins/**', '/.kilo/agents/**', '/.kilo/commands/**', '/.kilo/plugins/**')
     $beginMarkers = @('# BEGIN synced-agent-assets', '# BEGIN synced-copilot-assets')
     $endMarkers = @('# END synced-agent-assets', '# END synced-copilot-assets')
     $existing = @()
@@ -262,7 +348,7 @@ function Set-ExactGitignoreEntries {
         $existing = @(Get-Content -LiteralPath $gitignorePath -Encoding UTF8)
     }
 
-    foreach ($blockedPattern in $blockedPatterns) {
+    foreach ($blockedPattern in $BlockedPatterns) {
         if ($existing -contains $blockedPattern) {
             throw ".gitignore contains blocked broad pattern '$blockedPattern'. Use exact synced file paths only."
         }
@@ -318,7 +404,7 @@ function Set-ExactGitignoreEntries {
 }
 
 function Set-TransientCopilotArtifactGitignoreEntries {
-    param([string]$Root)
+    param([string]$Root, [string[]]$AdditionalEntries = @())
 
     $gitignorePath = Join-Path $Root '.gitignore'
     $beginMarker = '# BEGIN transient-agent-artifacts'
@@ -335,7 +421,6 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '/.sdlc/operations/',
         '/.sdlc/operations/**',
         '**/.sdlc/operations/**',
-        '/.claude/launch.json',
         '/.sdlc/logs/',
         '/.sdlc/logs/**',
         '**/.sdlc/logs/**',
@@ -370,9 +455,18 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         '**/.sdlc/tools-fix/',
         '/.sdlc/tools-fix.json',
         '**/.sdlc/tools-fix.json',
-        '/.claude/settings.local.json',
-        '**/.claude/settings.local.json'
+        # The lock every non-dry-run sync writes (revision + runtime-layer hash).
+        # It is generated per machine and PreservePattern keeps later syncs from
+        # deleting it, so without an ignore rule it is a permanent untracked file.
+        # Only the lock is ignored: .copilottools/config.json is a hand-authored
+        # hand-authored runtime configuration stays trackable.
+        '/.copilottools/asset-lock.json'
     )
+    # Built-in and source/runtime-manifest patterns overlap. Emit each once.
+    $seenIgnoreEntries = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $entries = @((@($entries) + @($AdditionalEntries | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_)
+    })) | Where-Object { $seenIgnoreEntries.Add([string]$_) })
 
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
@@ -468,7 +562,9 @@ function Get-NestedSdlcStatusFiles {
 function Merge-PsObjects {
     param(
         [pscustomobject]$Source,
-        [pscustomobject]$Target
+        [pscustomobject]$Target,
+        # Top-level keys the target owns once it defines them: seeded when absent, never overwritten.
+        [string[]]$SeedOnlyKeys = @()
     )
     $changed = $false
     foreach ($prop in $Source.PSObject.Properties) {
@@ -476,6 +572,8 @@ function Merge-PsObjects {
         if ($null -eq $existing) {
             $Target | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
             $changed = $true
+        } elseif ($prop.Name -in $SeedOnlyKeys) {
+            continue
         } elseif ($prop.Value -is [pscustomobject] -and $existing.Value -is [pscustomobject]) {
             if (Merge-PsObjects -Source $prop.Value -Target $existing.Value) {
                 $changed = $true
@@ -615,208 +713,13 @@ function Remove-DeadHookEntries {
     return $removed
 }
 
-function Remove-SessionRecoveryHooks {
-    <#
-    .SYNOPSIS
-        Remove Claude session-recovery hooks from a settings object when
-        claude_session_recovery_enabled is false.
-    .DESCRIPTION
-        Precisely targets only session-recovery hook commands:
-        - init-session.ps1 (UserPromptUse)
-        - check-session-before-tool.ps1 (PreToolUse)
-        - update-session-from-hook.ps1 (Stop)
-        - record-scheduler-evidence.ps1 (PostToolUse)
-        Preserves all other hooks (git safety guards, client hooks, etc.).
-    #>
-    param(
-        [pscustomobject]$Settings
-    )
-
-    $sessionHookScripts = @(
-        'init-session.ps1',
-        'check-session-before-tool.ps1',
-        'update-session-from-hook.ps1',
-        'record-scheduler-evidence.ps1'
-    )
-
-    $removed = New-Object System.Collections.Generic.List[string]
-    if ($null -eq $Settings -or $null -eq $Settings.hooks) { return $removed }
-
-    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
-        $entries = @($event.Value)
-        if ($entries.Count -eq 0) { continue }
-
-        $keptEntries = New-Object System.Collections.Generic.List[object]
-        $entryChanged = $false
-
-        foreach ($entry in $entries) {
-            if ($null -eq $entry -or $null -eq $entry.hooks) {
-                $keptEntries.Add($entry)
-                continue
-            }
-
-            $keptHooks = New-Object System.Collections.Generic.List[object]
-            foreach ($hook in @($entry.hooks)) {
-                $command = [string]$hook.command
-                $isSessionHook = $false
-                foreach ($scriptName in $sessionHookScripts) {
-                    if ($command -match [regex]::Escape($scriptName)) {
-                        $isSessionHook = $true
-                        break
-                    }
-                }
-                if ($isSessionHook) {
-                    $removed.Add("${($event.Name)}: $command")
-                } else {
-                    $keptHooks.Add($hook)
-                }
-            }
-
-            if ($keptHooks.Count -eq 0) { continue }
-            if ($keptHooks.Count -ne @($entry.hooks).Count) {
-                $entry.hooks = [object[]]$keptHooks.ToArray()
-            }
-            $keptEntries.Add($entry)
-        }
-
-        if ($entryChanged -or $keptEntries.Count -ne @($entries).Count) {
-            $event.Value = [object[]]$keptEntries.ToArray()
-        }
-    }
-
-    # Clean up empty hook event arrays
-    $emptyEvents = @()
-    foreach ($event in @($Settings.hooks.PSObject.Properties)) {
-        $entries = @($event.Value)
-        if ($entries.Count -eq 0) {
-            $emptyEvents += $event.Name
-        }
-    }
-    foreach ($eventName in $emptyEvents) {
-        $Settings.hooks.PSObject.Properties.Remove($eventName)
-    }
-    if ($Settings.hooks.PSObject.Properties.Count -eq 0) {
-        $Settings.PSObject.Properties.Remove('hooks')
-    }
-
-    return $removed
-}
-
-function Add-SessionRecoveryHooks {
-    <#
-    .SYNOPSIS
-        Add Claude session-recovery hooks to a settings object when
-        claude_session_recovery_enabled is true.
-    .DESCRIPTION
-        Ensures exactly one copy of each session-recovery hook exists.
-        Preserves all existing hooks (git safety guards, client hooks, etc.).
-    #>
-    param(
-        [pscustomobject]$Settings
-    )
-
-    $added = New-Object System.Collections.Generic.List[string]
-    if ($null -eq $Settings) { return $added }
-
-    # Ensure hooks property exists
-    if ($null -eq $Settings.hooks) {
-        $Settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{})
-    }
-
-    $sessionHooks = @(
-        @{
-            Event = 'UserPromptSubmit'
-            Entry = @{
-                hooks = @(
-                    @{
-                        type = 'command'
-                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/init-session.ps1"'
-                    }
-                )
-            }
-        },
-        @{
-            Event = 'Stop'
-            Entry = @{
-                hooks = @(
-                    @{
-                        type = 'command'
-                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/update-session-from-hook.ps1"'
-                    }
-                )
-            }
-        },
-        @{
-            Event = 'PostToolUse'
-            Entry = @{
-                hooks = @(
-                    @{
-                        type = 'command'
-                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/record-scheduler-evidence.ps1"'
-                    }
-                )
-            }
-        },
-        @{
-            Event = 'PreToolUse'
-            Entry = @{
-                hooks = @(
-                    @{
-                        type = 'command'
-                        command = 'pwsh -NoProfile -NonInteractive -File "${CLAUDE_PROJECT_DIR}/.github/scripts/check-session-before-tool.ps1"'
-                    }
-                )
-            }
-        }
-    )
-
-    foreach ($hookDef in $sessionHooks) {
-        $event = $hookDef.Event
-        $newEntry = $hookDef.Entry
-
-        # Check if this hook already exists
-        $eventProp = $Settings.hooks.PSObject.Properties[$event]
-        $existingEntries = @()
-        if ($null -ne $eventProp) {
-            $existingEntries = @($eventProp.Value)
-        }
-
-        $alreadyExists = $false
-        foreach ($entry in $existingEntries) {
-            if ($null -eq $entry -or $null -eq $entry.hooks) { continue }
-            foreach ($hook in @($entry.hooks)) {
-                $command = [string]$hook.command
-                if ($command -match 'init-session\.ps1' -and $event -eq 'UserPromptSubmit') { $alreadyExists = $true; break }
-                if ($command -match 'check-session-before-tool\.ps1' -and $event -eq 'PreToolUse') { $alreadyExists = $true; break }
-                if ($command -match 'update-session-from-hook\.ps1' -and $event -eq 'Stop') { $alreadyExists = $true; break }
-                if ($command -match 'record-scheduler-evidence\.ps1' -and $event -eq 'PostToolUse') { $alreadyExists = $true; break }
-            }
-            if ($alreadyExists) { break }
-        }
-
-        if (-not $alreadyExists) {
-            $entriesList = New-Object System.Collections.Generic.List[object]
-            foreach ($entry in $existingEntries) { $entriesList.Add($entry) }
-            $entriesList.Add([pscustomobject]$newEntry)
-
-            if ($null -eq $eventProp) {
-                $Settings.hooks | Add-Member -MemberType NoteProperty -Name $event -Value ([object[]]$entriesList.ToArray())
-            } else {
-                $eventProp.Value = [object[]]$entriesList.ToArray()
-            }
-            $added.Add("${event}: $($newEntry.hooks[0].command)")
-        }
-    }
-
-    return $added
-}
-
 function Merge-JsonSettings {
     param(
         [string]$SourcePath,
         [string]$TargetPath,
         [string]$RepoRoot,
         [System.Collections.Generic.HashSet[string]]$PendingDeletions,
+        [string[]]$SeedOnlyKeys = @(),
         [switch]$DryRun
     )
 
@@ -849,7 +752,7 @@ function Merge-JsonSettings {
         $targetObj = [pscustomobject]@{}
     }
 
-    $changed = Merge-PsObjects -Source $sourceObj -Target $targetObj
+    $changed = Merge-PsObjects -Source $sourceObj -Target $targetObj -SeedOnlyKeys $SeedOnlyKeys
 
     $removedHooks = @()
     if (-not [string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -879,54 +782,133 @@ function Merge-JsonSettings {
     }
 }
 
-function Set-RepositoryGitHooksPath {
-    param(
-        [string]$Root,
-        [string]$HooksPath = '.githooks',
-        [switch]$DryRun
-    )
+function Get-SeedOnlyConfigKeys {
+    param([object]$Distribution, [string]$RelativePath)
+    $keys = @()
+    foreach ($entry in @($Distribution.seedOnlyConfigKeys)) {
+        if ($entry -and [string]$entry.path -ieq $RelativePath) { $keys += @($entry.keys) }
+    }
+    return ,@($keys)
+}
 
-    $gitDir = $null
-    $previousEapGit = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $gitDir = ((git -C $Root rev-parse --git-dir 2>$null) | Out-String).Trim()
+function Resolve-SourceAdapterScript {
+    # Manifest-declared adapters are executed from the fetched source. -SourceRepo is trusted
+    # caller input (the canonical default, or an explicit mirror/fixture the caller chose), so
+    # execution is intentional, but a manifest must never point outside the fetched checkout:
+    # only a relative, traversal-free path to an existing .github/scripts/** file is accepted.
+    param([string]$SourceRoot, [string]$AdapterPath, [string]$Label)
+    $normalized = Convert-ToRepoRelativePath -Path ([string]$AdapterPath)
+    if ([string]::IsNullOrWhiteSpace($normalized) -or [IO.Path]::IsPathRooted([string]$AdapterPath) -or $normalized -match '^[A-Za-z]:' -or ($normalized -split '/') -contains '..') {
+        throw "$Label adapter path '$AdapterPath' must be a relative path without '..' segments."
     }
-    finally {
-        $ErrorActionPreference = $previousEapGit
+    if ($normalized -notmatch '^\.github/scripts/') {
+        throw "$Label adapter path '$AdapterPath' must live under .github/scripts/."
     }
-    if ([string]::IsNullOrWhiteSpace($gitDir)) {
-        return [pscustomobject]@{
-            changed = $false
-            status = 'not-a-git-worktree'
-            hooksPath = $null
+    $full = [IO.Path]::GetFullPath((Join-Path $SourceRoot $normalized))
+    $rootFull = [IO.Path]::GetFullPath($SourceRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $full.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label adapter path '$AdapterPath' resolves outside the source checkout."
+    }
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "$Label adapter is missing: $full" }
+    return $full
+}
+
+function Test-PathInSyncScope {
+    param([string]$Path, [string[]]$Scope)
+    $candidate = Convert-ToRepoRelativePath -Path $Path
+    foreach ($scopePath in @($Scope)) {
+        $normalizedScopePath = (Convert-ToRepoRelativePath -Path $scopePath).TrimEnd('/')
+        if ($candidate -ieq $normalizedScopePath -or $candidate.StartsWith("$normalizedScopePath/", [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Test-ScopeIntersectsPaths {
+    param([string[]]$Scope, [string[]]$Paths)
+    foreach ($owned in @($Paths)) {
+        foreach ($scopePath in @($Scope)) {
+            if ((Test-PathInSyncScope -Path $owned -Scope @($scopePath)) -or (Test-PathInSyncScope -Path $scopePath -Scope @($owned))) { return $true }
         }
     }
+    return $false
+}
 
-    $current = ''
+function Set-RepositoryGitHooksPath {
+    param([string]$Root, [string]$SourceRoot, [switch]$DryRun)
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        # --git-path hooks follows core.hooksPath: a legacy relative value such as
+        # .githooks resolves inside the checkout. Use the real shared Git
+        # metadata directory instead, including for linked worktrees.
+        $gitCommonDir = ((git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null) | Out-String).Trim()
+    } finally { $ErrorActionPreference = $previousEap }
+    if (-not $gitCommonDir) {
+        return [pscustomobject]@{ changed = $false; status = 'not-a-git-worktree'; hooksPath = $null }
+    }
+    # Never trust a core.hooksPath derived location or versioned checkout file.
+    # All worktrees of this repository share the same stable Git common directory.
+    $trusted = Join-Path $gitCommonDir 'copilottools-trusted-hooks'
+    $files = [ordered]@{
+        'post-checkout' = '.githooks/post-checkout'
+        'pre-commit' = '.githooks/pre-commit'
+        'pre-push' = '.githooks/pre-push'
+        'reference-transaction' = '.githooks/reference-transaction'
+        'trusted-runtime/sync-agent-assets.ps1' = '.github/scripts/sync-agent-assets.ps1'
+        'trusted-runtime/runtime-layer-hash.ps1' = '.github/scripts/runtime-layer-hash.ps1'
+        'trusted-runtime/runtime-distribution-lib.ps1' = '.github/scripts/runtime-distribution-lib.ps1'
+    }
+    $fileChanged = $false
+    foreach ($item in $files.GetEnumerator()) {
+        $src = Join-Path $SourceRoot $item.Value
+        $dst = Join-Path $trusted $item.Key
+        if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing trusted hook source: $($item.Value)" }
+        $different = (-not (Test-Path -LiteralPath $dst -PathType Leaf)) -or
+            ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash)
+        $isExecutableHook = $item.Key -in @('post-checkout', 'pre-commit', 'pre-push', 'reference-transaction')
+        $needsExecuteRepair = $false
+        if (-not $IsWindows -and $isExecutableHook -and (Test-Path -LiteralPath $dst -PathType Leaf)) {
+            # Trusted hook contents and Unix execution permissions are separate
+            # invariants. A restored but non-executable hook is silently ignored
+            # by Git even when the hashes match, so repair metadata independently.
+            # POSIX test -x is available on supported Unix hosts even with
+            # PowerShell 7.0/7.2 (.NET Core 3.1/.NET 6). The .NET 7-only
+            # File.GetUnixFileMode/UnixFileMode APIs would crash routine sync.
+            & test -x $dst
+            $testExit = $LASTEXITCODE
+            if ($testExit -notin @(0, 1)) {
+                throw "Cannot verify trusted hook execution permission: $dst (test exit $testExit)"
+            }
+            $needsExecuteRepair = $testExit -eq 1
+        }
+        if ($different -or $needsExecuteRepair) {
+            $fileChanged = $true
+            if (-not $DryRun) {
+                if ($different) {
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+                    Copy-Item -LiteralPath $src -Destination $dst -Force
+                }
+                if (-not $IsWindows -and $isExecutableHook) {
+                    & chmod +x $dst
+                    if ($LASTEXITCODE -ne 0) { throw 'Cannot chmod trusted hook' }
+                }
+            }
+        }
+    }
     $previousEap = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
         $current = ((git -C $Root config --local --get core.hooksPath 2>$null) | Out-String).Trim()
+    } finally { $ErrorActionPreference = $previousEap }
+    $needsConfig = $current -ne $trusted
+    if ($needsConfig -and -not $DryRun) {
+        Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $Root, 'config', '--local', 'core.hooksPath', $trusted) -FailureMessage 'Cannot configure trusted hooks path.' | Out-Null
     }
-    finally {
-        $ErrorActionPreference = $previousEap
-    }
-
-    $changed = $current -ne $HooksPath
-    if ($changed -and -not $DryRun) {
-        Invoke-ExternalCommand `
-            -FilePath 'git' `
-            -Arguments @('-C', $Root, 'config', '--local', 'core.hooksPath', $HooksPath) `
-            -FailureMessage 'Unable to configure repository Git hooks path.' | Out-Null
-    }
-
-    if ($changed -and $DryRun) { $statusValue = 'would-configure' } elseif ($changed) { $statusValue = 'configured' } else { $statusValue = 'already-configured' }
-    return [pscustomobject]@{
-        changed = $changed
-        status = $statusValue
-        hooksPath = $HooksPath
-    }
+    $changed = $fileChanged -or $needsConfig
+    if ($DryRun -and $changed) { $status = 'would-configure' }
+    elseif ($changed) { $status = 'configured' }
+    else { $status = 'already-configured' }
+    return [pscustomobject]@{ changed = $changed; status = $status; hooksPath = $trusted }
 }
 
 $targetRootResolved = (Resolve-Path -LiteralPath $TargetRoot).Path
@@ -1012,7 +994,36 @@ try {
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('clone', '--quiet', '--no-checkout', '--depth', '1', '--branch', $SourceRef, $SourceRepo, $tempRoot) -FailureMessage 'git clone failed.' | Out-Null
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $tempRoot, 'checkout', '--quiet', $sourceCommit) -FailureMessage 'git checkout failed.' | Out-Null
 
-    $sourceFiles = Get-RelativeFileMap -Root $tempRoot -ScopePaths $normalizedScope
+    $distribution = Get-CopilotToolsDistribution -Root $tempRoot
+    # A scoped sync verifies only the requested files. It must not advance the
+    # global runtime-layer attestation: unsynchronized assets may still be stale
+    # even if the scoped verification passes.
+    $isFullManifestSync = ($normalizedScope.Count -eq 0)
+    if ($isFullManifestSync) { $normalizedScope = @($distribution.allAssets) }
+    # Manifest config adapters own their declared formats (including TOML).
+    # They must not fall into the generic JSON merge/verification pipeline,
+    # even when a runtime also advertises that path as mergeable JSON.
+    $adapterOwnedPaths = @($distribution.configMerges | ForEach-Object { Convert-ToRepoRelativePath -Path ([string]$_.path) })
+    $normalizedMergeJsonPaths = @(
+        @($normalizedMergeJsonPaths) + @($distribution.mergeJsonPaths) |
+            Where-Object { $_ -notin $adapterOwnedPaths } |
+            Select-Object -Unique
+    )
+    $ExcludeSyncPathPattern = @($distribution.excludeSyncPathPatterns)
+
+    $requestedProtectedRootMd = @(
+        $normalizedScope |
+            Where-Object {
+                $scopePath = $_
+                @($protectedRootMdPaths | Where-Object { $_ -ieq $scopePath }).Count -gt 0
+            }
+    )
+    if ($requestedProtectedRootMd.Count -gt 0 -and -not $AllowRootMdSync) {
+        $blocked = ($requestedProtectedRootMd | Sort-Object -Unique) -join ', '
+        throw "Resolved sync scope contains protected root markdown path(s): $blocked. Re-run with -AllowRootMdSync only when explicitly approved."
+    }
+
+    $sourceFiles = Get-RelativeFileMap -Root $tempRoot -ScopePaths $normalizedScope -ExcludePattern $ExcludeSyncPathPattern
     $targetFiles = Get-RelativeFileMap -Root $targetRootResolved -ScopePaths $normalizedScope
 
     if ($sourceFiles.Count -eq 0) {
@@ -1034,9 +1045,10 @@ try {
         $targetPath = Join-Path $targetRootResolved $relativePath
         $targetDirectory = Split-Path -Parent $targetPath
         $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
+        $configMergeEntry = $distribution.configMerges | Where-Object { $_.path -ieq $relativePath } | Select-Object -First 1
 
         if (-not $targetFiles.ContainsKey($relativePath)) {
-            if ($isMergeJson) {
+            if ($isMergeJson -and $null -eq $configMergeEntry) {
                 $newMergeJsonPaths.Add($relativePath) | Out-Null
             } else {
                 $added.Add($relativePath)
@@ -1046,14 +1058,27 @@ try {
                 if ($isRootMd) {
                     # Create root markdown with managed sync markers
                     Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
-                } elseif (-not $isMergeJson) {
+                } elseif (-not $isMergeJson -or $null -ne $configMergeEntry) {
+                    # Initialize adapter-managed files with their source-format
+                    # bytes; the adapter below then computes canonical content.
                     Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
                 }
             }
-            continue
+            if ($null -eq $configMergeEntry -or $DryRun) { continue }
         }
 
-        if ($isRootMd) {
+        if ($null -ne $configMergeEntry) {
+            $adapterPath = Resolve-SourceAdapterScript -SourceRoot $tempRoot -AdapterPath ([string]$configMergeEntry.adapterScript) -Label 'Config merge'
+            $adapterOutput = Invoke-ExternalCommand -FilePath 'pwsh' -Arguments @('-NoProfile','-NonInteractive','-File',$adapterPath,'-SourcePath',$sourcePath,'-TargetPath',$targetPath) -FailureMessage "Config merge adapter failed for '$relativePath'."
+            $adapterResult = ([string]::Join([Environment]::NewLine, @($adapterOutput))) | ConvertFrom-Json
+            if ($null -eq $adapterResult.PSObject.Properties['content']) { throw "Config merge adapter for '$relativePath' returned no content." }
+            $before = Get-Content -LiteralPath $targetPath -Raw -Encoding UTF8
+            $after = [string]$adapterResult.content
+            if ($before -ne $after) {
+                $changed.Add($relativePath)
+                if (-not $DryRun) { [IO.File]::WriteAllText($targetPath, $after, [Text.UTF8Encoding]::new($false)) }
+            }
+        } elseif ($isRootMd) {
             # Update only the section between sync markers
             $result = Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
             if ($result.changed) {
@@ -1087,6 +1112,46 @@ try {
             continue
         }
 
+        # An explicitly excluded service path may already exist in a client
+        # from an older sync. Only remove it when the managed ignore block
+        # proves Agent Sync previously owned the path; never delete a
+        # client-owned file merely because its name matches the boundary.
+        $isExcludedServicePath = @($ExcludeSyncPathPattern | Where-Object { $relativePath -match $_ }).Count -gt 0
+        if ($isExcludedServicePath) {
+            $managedIgnorePath = "/$relativePath"
+            $managedIgnoreOwned = $false
+            $targetGitignorePath = Join-Path $targetRootResolved '.gitignore'
+            if (Test-Path -LiteralPath $targetGitignorePath) {
+                $gitignoreLines = @(Get-Content -LiteralPath $targetGitignorePath -Encoding UTF8)
+                foreach ($markerPair in @(
+                    @('# BEGIN synced-agent-assets', '# END synced-agent-assets'),
+                    @('# BEGIN synced-copilot-assets', '# END synced-copilot-assets')
+                )) {
+                    $beginManaged = [array]::IndexOf($gitignoreLines, $markerPair[0])
+                    $endManaged = [array]::IndexOf($gitignoreLines, $markerPair[1])
+                    if ($beginManaged -ge 0 -and $endManaged -gt $beginManaged) {
+                        $managedIgnoreOwned = @($gitignoreLines[($beginManaged + 1)..($endManaged - 1)] | Where-Object { $_ -eq $managedIgnorePath }).Count -gt 0
+                        if ($managedIgnoreOwned) { break }
+                    }
+                }
+            }
+            # Once a previous full sync has pruned the legacy ignore entry,
+            # only a byte-identical, source-owned excluded test is safe to
+            # remove. Never delete locally edited or unrelated client files.
+            if (-not $managedIgnoreOwned -and
+                $relativePath -match '^\.github/scripts/(?:test-[^/]+|run-all-tests\.ps1)$') {
+                $sourceOnlyFile = Join-Path $tempRoot $relativePath
+                if ((Test-Path -LiteralPath $sourceOnlyFile -PathType Leaf) -and
+                    (Get-FileHash -LiteralPath $sourceOnlyFile -Algorithm SHA256).Hash -eq
+                    (Get-FileHash -LiteralPath $targetFiles[$relativePath] -Algorithm SHA256).Hash) {
+                    $managedIgnoreOwned = $true
+                }
+            }
+            if (-not $managedIgnoreOwned) {
+                continue
+            }
+        }
+
         $isMergeJson = @($normalizedMergeJsonPaths | Where-Object { $_ -ieq $relativePath }).Count -gt 0
         if ($isMergeJson) {
             continue
@@ -1098,18 +1163,45 @@ try {
         }
     }
 
-    # Clean up stale .kilo/command (singular) directory from older sync versions
-    $staleKiloCommand = Join-Path $targetRootResolved '.kilo/command'
-    if (Test-Path -LiteralPath $staleKiloCommand) {
-        $staleFiles = @(Get-ChildItem -LiteralPath $staleKiloCommand -File -Recurse -ErrorAction SilentlyContinue)
-        if ($staleFiles.Count -eq 0) {
-            if (-not $DryRun) {
-                Remove-Item -LiteralPath $staleKiloCommand -Recurse -Force -ErrorAction SilentlyContinue
-            }
-            $changed.Add('.kilo/command (stale directory removed)')
-        } else {
-            Write-Warning "Stale .kilo/command directory still contains $($staleFiles.Count) files. Manually migrate to .kilo/commands/."
+    # Retired legacy directories are data-driven, not hard-coded per runtime.
+    # A hidden file or even an empty subdirectory counts as user-owned content.
+    foreach ($legacy in @($distribution.config.retiredLegacyDirectories)) {
+        if ($null -eq $legacy) { continue }
+        $legacyPath = Convert-ToRepoRelativePath -Path ([string]$legacy.path)
+        $replacementPath = Convert-ToRepoRelativePath -Path ([string]$legacy.replacedBy)
+        if ([string]::IsNullOrWhiteSpace($legacyPath) -or
+            $legacyPath -match '(^|/)\.\.(/|$)' -or
+            [IO.Path]::IsPathRooted($legacyPath)) {
+            throw "Unsafe retired legacy directory path in distribution manifest: '$legacyPath'."
         }
+        if ($Scope.Count -gt 0 -and
+            -not (Test-PathInSyncScope -Path $legacyPath -Scope $normalizedScope) -and
+            -not (Test-PathInSyncScope -Path $replacementPath -Scope $normalizedScope)) {
+            continue
+        }
+
+        $staleDirectory = Join-Path $targetRootResolved $legacyPath
+        if (-not (Test-Path -LiteralPath $staleDirectory -PathType Container)) {
+            if (Test-Path -LiteralPath $staleDirectory) {
+                Write-Warning "Stale '$legacyPath' is not a directory. Manually migrate to '$replacementPath'."
+            }
+            continue
+        }
+
+        $children = @(Get-ChildItem -LiteralPath $staleDirectory -Force -ErrorAction Stop)
+        if ($children.Count -gt 0) {
+            Write-Warning "Stale '$legacyPath' contains $($children.Count) item(s). Manually migrate to '$replacementPath'; nothing was removed."
+            continue
+        }
+
+        if (-not $DryRun) {
+            # Do not recurse: content created after enumeration must not be deleted.
+            Remove-Item -LiteralPath $staleDirectory -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $staleDirectory) {
+                throw "Failed to remove stale directory '$legacyPath': path still exists."
+            }
+        }
+        $changed.Add($legacyPath)
     }
 
     # Inject universal governance section into target AGENTS.md (marker-based; never overwrites)
@@ -1149,6 +1241,7 @@ try {
             -TargetPath $targetMergePath `
             -RepoRoot $targetRootResolved `
             -PendingDeletions $pendingDeletions `
+            -SeedOnlyKeys (Get-SeedOnlyConfigKeys -Distribution $distribution -RelativePath $mergeRelPath) `
             -DryRun:$DryRun
         if ($mergeResult.changed) {
             $mergedJsonFiles.Add($mergeRelPath)
@@ -1161,91 +1254,92 @@ try {
         }
     }
 
-    # Session hook migration: read the CopilotTools config from the cloned
-    # source and conditionally add/remove session-recovery hooks in the
-    # target .claude/settings.json.  This is deterministic and idempotent:
-    # OFF removes the four session hooks, ON ensures exactly one copy of each.
-    $sessionHookMigrationResult = $null
-    $configPath = Join-Path $tempRoot '.copilottools/config.json'
-    $sessionRecoveryEnabled = $false
-    if (Test-Path -LiteralPath $configPath) {
-        try {
-            $configRaw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
-            $configObj = $configRaw | ConvertFrom-Json
-            if ($null -ne $configObj -and $null -ne $configObj.PSObject.Properties['claude_session_recovery_enabled']) {
-                $sessionRecoveryEnabled = [bool]$configObj.claude_session_recovery_enabled
-            }
-        } catch {
-            Write-Warning "Failed to read session recovery config: $_"
+    # Runtime-owned post-sync migrations are declared by manifests.
+    $runtimePostSyncResults = [ordered]@{}
+    foreach ($postSync in @($distribution.postSyncAdapters)) {
+        # A narrow -Scope must not trigger runtime migrations for assets it does not cover.
+        if (-not (Test-ScopeIntersectsPaths -Scope $normalizedScope -Paths @($postSync.ownedPaths))) {
+            $runtimePostSyncResults[[string]$postSync.runtime] = [ordered]@{ skipped = $true; reason = 'runtime assets are outside the requested scope' }
+            continue
         }
-    }
-
-    $targetSettingsPath = Join-Path $targetRootResolved '.claude/settings.json'
-    if (Test-Path -LiteralPath $targetSettingsPath) {
-        $targetSettingsRaw = Get-Content -LiteralPath $targetSettingsPath -Raw -Encoding UTF8
-        $targetSettings = $null
-        try {
-            $targetSettings = $targetSettingsRaw | ConvertFrom-Json
-        } catch {
-            Write-Warning "Failed to parse target settings for session migration: $_"
+        $adapterPath = Resolve-SourceAdapterScript -SourceRoot $tempRoot -AdapterPath ([string]$postSync.adapterScript) -Label "Runtime post-sync ($($postSync.runtime))"
+        $adapterArguments = @('-NoProfile','-NonInteractive','-File',$adapterPath,'-SourceRoot',$tempRoot,'-TargetRoot',$targetRootResolved)
+        # Preview first: an adapter whose changes would escape the requested scope is skipped, not applied.
+        $previewOutput = Invoke-ExternalCommand -FilePath 'pwsh' -Arguments ($adapterArguments + '-DryRun') -FailureMessage "Runtime post-sync adapter preview failed for '$($postSync.runtime)'."
+        $previewResult = ([string]::Join([Environment]::NewLine, @($previewOutput))) | ConvertFrom-Json
+        $effectiveScope = @($normalizedScope)
+        foreach ($legacy in @($postSync.legacyPaths)) {
+            if ($legacy -and (Test-PathInSyncScope -Path ([string]$legacy.replacedBy) -Scope $normalizedScope)) { $effectiveScope += [string]$legacy.path }
         }
-
-        if ($null -ne $targetSettings) {
-            $migrationRemoved = @()
-            $migrationAdded = @()
-
-            if (-not $sessionRecoveryEnabled) {
-                $migrationRemoved = @(Remove-SessionRecoveryHooks -Settings $targetSettings)
-            } else {
-                $migrationAdded = @(Add-SessionRecoveryHooks -Settings $targetSettings)
-            }
-
-            $migrationChanged = $migrationRemoved.Count -gt 0 -or $migrationAdded.Count -gt 0
-            if ($migrationChanged -and -not $DryRun) {
-                $json = ConvertTo-Json -InputObject $targetSettings -Depth 10
-                $encoding = New-Object System.Text.UTF8Encoding($false)
-                [System.IO.File]::WriteAllText($targetSettingsPath, ($json + "`r`n"), $encoding)
-            }
-
-            $sessionHookMigrationResult = [pscustomobject]@{
-                sessionRecoveryEnabled = $sessionRecoveryEnabled
-                removed = @($migrationRemoved)
-                added = @($migrationAdded)
-                changed = $migrationChanged
-            }
-
-            if ($migrationRemoved.Count -gt 0) {
-                foreach ($r in $migrationRemoved) {
-                    $removedDeadHooks.Add("session-recovery: $r")
-                }
-            }
+        $escaping = @(@($previewResult.changedPaths) | Where-Object { $_ -and -not (Test-PathInSyncScope -Path ([string]$_) -Scope $effectiveScope) })
+        if ($escaping.Count -gt 0) {
+            Write-Warning "Runtime post-sync adapter '$($postSync.runtime)' skipped: it would change path(s) outside the requested scope: $($escaping -join ', ')"
+            $runtimePostSyncResults[[string]$postSync.runtime] = [ordered]@{ skipped = $true; reason = 'adapter changes would escape the requested scope'; outOfScopePaths = @($escaping) }
+            continue
         }
+        $adapterResult = $previewResult
+        if (-not $DryRun) {
+            $adapterOutput = Invoke-ExternalCommand -FilePath 'pwsh' -Arguments $adapterArguments -FailureMessage "Runtime post-sync adapter failed for '$($postSync.runtime)'."
+            $adapterResult = ([string]::Join([Environment]::NewLine, @($adapterOutput))) | ConvertFrom-Json
+        }
+        $runtimePostSyncResults[[string]$postSync.runtime] = $adapterResult
+        foreach ($changedPath in @($adapterResult.changedPaths)) {
+            if ($changedPath -and $changedPath -notin $added -and $changedPath -notin $changed) { $changed.Add([string]$changedPath) }
+        }
+        foreach ($warning in @($adapterResult.warnings)) { if ($warning) { Write-Warning ([string]$warning) } }
+        foreach ($removedHook in @($adapterResult.removed)) { if ($removedHook) { $removedDeadHooks.Add("$($postSync.runtime): $removedHook") } }
     }
 
     $gitignoreEntryCount = Set-ExactGitignoreEntries `
         -Root $targetRootResolved `
         -RelativePaths @($sourceFiles.Keys) `
-        -ExcludePattern $ExcludeGitignorePattern
+        -ExcludePattern $ExcludeGitignorePattern `
+        -BlockedPatterns @($distribution.config.blockedBroadGitignorePatterns)
 
-    $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved
+    $transientGitignoreEntryCount = Set-TransientCopilotArtifactGitignoreEntries -Root $targetRootResolved -AdditionalEntries @($distribution.transientIgnorePaths)
 
     # Untrack any synced files that git is still tracking despite being gitignored.
     # git rm --cached removes from the index only; the file stays on disk.
     # This prevents synced scripts from appearing as modified in git clients (Fork, VS Code).
     if (-not $DryRun) {
         $untrackedCount = 0
+        # One ls-files call for the whole index instead of one git process per
+        # synced file (hundreds of spawns dominated sync time on Windows). Plain
+        # ls-files: untracked files yield empty output instead of stderr, which
+        # Windows PowerShell 5.1 would turn into a terminating NativeCommandError
+        # under EAP=Stop. Path matching follows core.ignorecase like a pathspec.
+        $ignoreCase = ([string](git -C $targetRootResolved config --get core.ignorecase 2>$null)).Trim() -eq 'true'
+        $trackedComparer = if ($ignoreCase) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }
+        $trackedPaths = [System.Collections.Generic.HashSet[string]]::new($trackedComparer)
+        $indexListing = git -C $targetRootResolved ls-files -z
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($entry in ([string]::Join('', @($indexListing)) -split "`0")) {
+                if ($entry) { [void]$trackedPaths.Add($entry) }
+            }
+        }
+        $pathsToUntrack = [System.Collections.Generic.List[string]]::new()
         foreach ($relativePath in $sourceFiles.Keys) {
             $isExcluded = (@($ExcludeGitignorePattern | Where-Object { $relativePath -match [regex]::Escape($_) }).Count -gt 0)
             if ($isExcluded) { continue }
             $repoPath = Convert-ToRepoRelativePath -Path $relativePath
-            # Plain ls-files (no --error-unmatch): untracked files yield empty
-            # output instead of stderr, which Windows PowerShell 5.1 would turn
-            # into a terminating NativeCommandError under EAP=Stop.
-            $tracked = git -C $targetRootResolved ls-files -- $repoPath
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$tracked)) {
-                git -C $targetRootResolved rm --cached --quiet $repoPath 2>$null | Out-Null
-                $untrackedCount++
+            if ($trackedPaths.Contains($repoPath)) { $pathsToUntrack.Add($repoPath) }
+        }
+        for ($offset = 0; $offset -lt $pathsToUntrack.Count; $offset += 50) {
+            $batch = @($pathsToUntrack.GetRange($offset, [Math]::Min(50, $pathsToUntrack.Count - $offset)))
+            # Native commands do not automatically honor ErrorActionPreference.
+            # A failed batched rm was previously ignored and every path was
+            # reported as untracked even though it remained in the git index.
+            git -C $targetRootResolved rm --cached --quiet -- @batch 2>$null | Out-Null
+            $removeExit = $LASTEXITCODE
+            if ($removeExit -ne 0) {
+                throw "Failed to remove $($batch.Count) synchronized file(s) from the git index (git rm --cached exit $removeExit); sync is incomplete."
             }
+            $stillTracked = @(git -C $targetRootResolved ls-files --cached -- @batch)
+            $verifyExit = $LASTEXITCODE
+            if ($verifyExit -ne 0 -or $stillTracked.Count -gt 0) {
+                throw "Git index verification failed after synchronized-file cleanup (exit $verifyExit, $($stillTracked.Count) tracked path(s) remain); sync is incomplete."
+            }
+            $untrackedCount += $batch.Count
         }
         if ($untrackedCount -gt 0) {
             Write-Host "  Untracked $untrackedCount gitignored file(s) from git index"
@@ -1253,16 +1347,25 @@ try {
     }
 
     $gitHooksConfiguration = $null
-    if ($normalizedScope -icontains '.githooks') {
-        $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -DryRun:$DryRun
+    # A file-scoped sync can update a hook or its trusted runtime dependencies.
+    # Keep the installed immutable copy synchronized whenever ANY source it
+    # contains intersects the requested scope (not only the .githooks folder).
+    $trustedSourcePaths = @(
+        '.githooks',
+        '.github/scripts/sync-agent-assets.ps1',
+        '.github/scripts/runtime-layer-hash.ps1',
+        '.github/scripts/runtime-distribution-lib.ps1'
+    )
+    if (Test-ScopeIntersectsPaths -Scope $normalizedScope -Paths $trustedSourcePaths) {
+        $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -SourceRoot $tempRoot -DryRun:$DryRun
     }
 
     # No session-tracking preflight here. Agent Sync is the one workflow exempt
     # from the session-limit stack: it delivers those scripts, it does not
     # depend on them, and running the preflight made a short, idempotent,
-    # freely repeatable file sync launch Chrome, probe claude.ai identity, and
-    # block on account questions that have nothing to do with copying files.
-    # `check-tracking-preflight.ps1` is still shipped and is run on demand
+    # freely repeatable file sync trigger runtime-specific side effects or
+    # block on runtime setup questions that have nothing to do with copying files.
+    # Runtime-specific preflight tools are still shipped and run on demand
     # (see .github/skills/session-limit-tracking/SKILL.md) by the agents that
     # actually rely on it.
 
@@ -1279,6 +1382,7 @@ try {
                     -SourcePath $sourceFiles[$relativePath] `
                     -TargetPath (Join-Path $targetRootResolved $relativePath) `
                     -RepoRoot $targetRootResolved `
+                    -SeedOnlyKeys (Get-SeedOnlyConfigKeys -Distribution $distribution -RelativePath $relativePath) `
                     -DryRun
                 if ($verifyResult.changed) { $mismatches.Add($relativePath) }
                 continue
@@ -1286,6 +1390,18 @@ try {
 
             if (-not $postTargetFiles.ContainsKey($relativePath)) {
                 $mismatches.Add($relativePath)
+                continue
+            }
+
+            # Runtime config merges intentionally preserve target-only settings, so the target is
+            # verified against the adapter's own expected merge result, not the raw source bytes.
+            $verifyConfigMerge = $distribution.configMerges | Where-Object { $_.path -ieq $relativePath } | Select-Object -First 1
+            if ($null -ne $verifyConfigMerge) {
+                $verifyAdapter = Resolve-SourceAdapterScript -SourceRoot $tempRoot -AdapterPath ([string]$verifyConfigMerge.adapterScript) -Label 'Config merge'
+                $verifyOutput = Invoke-ExternalCommand -FilePath 'pwsh' -Arguments @('-NoProfile','-NonInteractive','-File',$verifyAdapter,'-SourcePath',$sourceFiles[$relativePath],'-TargetPath',$postTargetFiles[$relativePath]) -FailureMessage "Config merge adapter failed while verifying '$relativePath'."
+                $verifyResultJson = ([string]::Join([Environment]::NewLine, @($verifyOutput))) | ConvertFrom-Json
+                $actualConfig = Get-Content -LiteralPath $postTargetFiles[$relativePath] -Raw -Encoding UTF8
+                if ($null -eq $verifyResultJson.PSObject.Properties['content'] -or [string]$verifyResultJson.content -ne $actualConfig) { $mismatches.Add($relativePath) }
                 continue
             }
 
@@ -1316,22 +1432,28 @@ try {
         }
     }
 
-    $categoryCounts = [ordered]@{
-        githubCopilot = [ordered]@{ added = 0; changed = 0; deleted = 0 }
-        claude = [ordered]@{ added = 0; changed = 0; deleted = 0 }
-        openCode = [ordered]@{ added = 0; changed = 0; deleted = 0 }
-        kilo = [ordered]@{ added = 0; changed = 0; deleted = 0 }
-        shared = [ordered]@{ added = 0; changed = 0; deleted = 0 }
-        branchGuards = [ordered]@{ added = 0; changed = 0; deleted = 0 }
+    if (-not $DryRun -and $isFullManifestSync -and $mismatches.Count -eq 0) {
+        $assetLockPath = Join-Path $targetRootResolved '.copilottools/asset-lock.json'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $assetLockPath) -Force | Out-Null
+        $assetLock = [ordered]@{
+            schemaVersion = 2
+            sourceRepo = $SourceRepo
+            sourceRef = $SourceRef
+            sourceRevision = $sourceCommit
+            manifestHash = (Get-RuntimeLayerHash -Root $targetRootResolved)
+        }
+        $assetLock | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $assetLockPath -Encoding UTF8
+    }
+
+    $categoryCounts = [ordered]@{}
+    $categoryNames = @('shared') + @($distribution.categories | ForEach-Object { [string]$_.name })
+    foreach ($categoryName in @($categoryNames | Select-Object -Unique)) {
+        $categoryCounts[$categoryName] = [ordered]@{ added = 0; changed = 0; deleted = 0 }
     }
     foreach ($kind in @(@('added', $added), @('changed', $changed), @('deleted', $deleted))) {
         foreach ($path in $kind[1]) {
-            if ($path -like '.opencode/*' -or $path -eq 'opencode.jsonc') { $category = 'openCode' }
-            elseif ($path -like '.kilo/*' -or $path -eq 'kilo.jsonc') { $category = 'kilo' }
-            elseif ($path -like '.claude/*') { $category = 'claude' }
-            elseif ($path -like '.github/hooks/*' -or $path -like '.githooks/*') { $category = 'branchGuards' }
-            elseif ($path -like '.github/agents/*') { $category = 'githubCopilot' }
-            else { $category = 'shared' }
+            $category = Resolve-CopilotToolsAssetCategory -Distribution $distribution -Path $path
+            if (-not $categoryCounts.Contains($category)) { $categoryCounts[$category] = [ordered]@{ added = 0; changed = 0; deleted = 0 } }
             $categoryCounts[$category][$kind[0]]++
         }
     }
@@ -1361,7 +1483,7 @@ try {
         nestedSdlcStatusFiles = @($nestedSdlcStatusFiles)
         verification = $(if ($mismatches.Count -eq 0) { 'passed' } else { 'failed' })
         mismatches = @($mismatches)
-        sessionHookMigration = $sessionHookMigrationResult
+        runtimePostSync = $runtimePostSyncResults
     }
 
     $result | ConvertTo-Json -Depth 5

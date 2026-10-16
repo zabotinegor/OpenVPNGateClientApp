@@ -23,6 +23,7 @@ object VpnManager {
     fun extraTitleKey(context: Context) = "${context.packageName}.vpn.TITLE"
     fun actionKey(context: Context) = "${context.packageName}.vpn.ACTION"
 
+    fun extraIpKey(context: Context) = "${context.packageName}.vpn.IP"
     fun extraAutoSwitchKey(context: Context) = "${context.packageName}.vpn.AUTOSWITCH"
     fun extraPreserveReconnectKey(context: Context) = "${context.packageName}.vpn.PRESERVE_RECONNECT"
 
@@ -97,7 +98,7 @@ object VpnManager {
         recheckHandler.postDelayed(recheck, IDLE_RECHECK_AFTER_FAILED_START_DELAY_MS)
     }
 
-    fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false): Boolean {
+    fun startVpn(context: Context, base64Config: String, displayName: String? = null, isReconnect: Boolean = false, ip: String? = null): Boolean {
         AppLog.d(TAG, "startVpn")
         val decodedConfig = try {
             String(Base64.decode(base64Config, Base64.DEFAULT))
@@ -107,6 +108,9 @@ object VpnManager {
         val intent = Intent(context.applicationContext, OpenVpnService::class.java).apply {
             putExtra(extraConfigKey(context), decodedConfig)
             if (!displayName.isNullOrBlank()) putExtra(extraTitleKey(context), displayName)
+            // The IP the caller already resolved for this config; the service cannot re-derive it
+            // from the decoded config when the cursor is parked on another server.
+            if (!ip.isNullOrBlank()) putExtra(extraIpKey(context), ip)
             putExtra(actionKey(context), ACTION_START)
             putExtra(extraAutoSwitchKey(context), isReconnect)
         }
