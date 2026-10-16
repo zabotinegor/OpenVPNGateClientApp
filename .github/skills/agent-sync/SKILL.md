@@ -18,6 +18,36 @@ in distribution scope is not.
 
 This workflow installs the SDLC/session machinery; it must not invoke it.
 
+## Ownership and client Git-tracking policy
+
+CopilotTools owns the source and tests for all shared agent infrastructure.
+A client repository tracks only the **pre-sync bootstrap**: the `agent-sync`
+skill and platform launchers, the sync script and its dot-sourced helpers,
+and native Git hooks/branch guards. Never commit copied infrastructure tests.
+
+Operational SDLC skills, agents, scripts and runtime manifests are copied to
+the local client worktree but individually **gitignored**; existing runtime
+entrypoints expect those local paths. Changing to an external runtime cache
+requires a separate coordinated migration.
+
+CopilotTools test assets are **source-only, not copied at all**:
+`.github/scripts/test-*`, `.github/scripts/run-all-tests.ps1`, and
+`.github/tests/`. Client-owned application tests are independent and must
+not be removed merely because they are named `test`.
+
+Agent Sync owns the exact `.gitignore` projections: the synced-assets block
+covers all non-bootstrap files from the effective source/runtime manifest,
+with obsolete entries pruned; the transient block contains unique per-machine
+state patterns. Preserve client-specific ignore rules outside these blocks.
+Never broad-ignore agent directories or native branch protection. A formerly
+tracked infrastructure test needs an explicit client commit to remove it
+from the Git index: an ignore rule alone cannot untrack an indexed file.
+
+Canonical standalone guard regressions can be run from CopilotTools with:
+`sh .github/tests/test-pre-push-dev-archive-guard.sh` and
+`pwsh -NoProfile -File .github/tests/test-protect-agent-git-command-decisions.ps1`.
+
+
 ## When to use
 
 - Bring a target branch/worktree up to a verified source revision.
@@ -83,7 +113,10 @@ root Markdown. Otherwise leave protected root Markdown unchanged.
    changed files, while leaving `agent-sync`, sync scripts, Git hooks and
    protected branch guards trackable. Runtime transient paths are declared
    by manifests. Do not copy the source-only marker.
-4. **Verify the result:** Compare against the resolved source revision,
+4. **Verify the result:** Verify source-only test scripts and runners are
+   absent from the client copy; managed ignored paths match the effective
+   source/runtime inventory minus bootstrap, and transient patterns are unique.
+   Compare against the resolved source revision,
    including unchanged assets, stale-file deletion, `.gitignore` entries,
    runtime post-sync checks, trusted hook installation outside the worktree
    and configured Git hooks path. Report prohibited prompt/handoff artifacts

@@ -462,7 +462,11 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         # hand-authored runtime configuration stays trackable.
         '/.copilottools/asset-lock.json'
     )
-    $entries = @($entries) + @($AdditionalEntries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    # Built-in and source/runtime-manifest patterns overlap. Emit each once.
+    $seenIgnoreEntries = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $entries = @((@($entries) + @($AdditionalEntries | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_)
+    })) | Where-Object { $seenIgnoreEntries.Add([string]$_) })
 
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
