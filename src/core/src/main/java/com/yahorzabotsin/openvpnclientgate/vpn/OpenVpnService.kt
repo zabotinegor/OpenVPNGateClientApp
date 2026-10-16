@@ -1102,6 +1102,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING
                     && !hasEngineOngoingNotification()) {
                     enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
+                } else if (controllerNotificationMode == ControllerNotificationMode.CONNECTING) {
+                    // Service recreated by this stop while the engine owns an ongoing notification:
+                    // the startup CONNECTING variant would linger as a duplicate (the sync exit is
+                    // gated by userInitiatedStop and markStopFailure defers to the engine's one).
+                    exitControllerForeground()
                 }
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false

@@ -474,6 +474,27 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun stopRecreatingTheController_whileEngineOwnsANotification_doesNotLeaveADuplicateStartupNotification() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
+        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        assertNotNull("precondition: onCreate posted the startup notification", notifications.getNotification(7014))
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        service.onStartCommand(stopIntent(), 0, 1)
+        assertEquals("Startup CONNECTING variant must be released", null, notifications.getNotification(7014))
+
+        // A failed stop must not bring a duplicate back either: the engine's notification stays the owner.
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "markStopFailure", ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+        )
+        ShadowLooper.idleMainLooper()
+        assertEquals(null, notifications.getNotification(7014))
+        assertNotNull(notifications.getNotification(engineId))
+    }
+
+    @Test
     fun userRequestNotificationDoesNotCountAsTheEnginesOngoingNotification() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
