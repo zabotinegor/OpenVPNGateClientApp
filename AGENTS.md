@@ -16,13 +16,13 @@
   connection lifecycle, server identity/selection, UI, persisted state, bundled
   media/engine integration, permissions, signing, and client-facing API contracts.
 - Treat app-owned CI workflows, tests and deployment configuration as product
-  code, even when they live in \`.github/\`; flag concrete product regressions
+  code, even when they live in `.github/`; flag concrete product regressions
   there with their normal severity.
 
 ### CopilotTools-owned mirrored assets (advisory by default)
-- Shared assets under \`.github/agents/\`, \`.github/skills/\`, \`.github/scripts/\`,
-  \`.github/hooks/\`, \`.githooks/\` and the Agent Sync launchers are maintained in
-  \`zabotinegor/CopilotTools\`. Establish source ownership and, if available,
+- Shared assets under `.github/agents/`, `.github/skills/`, `.github/scripts/`,
+  `.github/hooks/`, `.githooks/` and the Agent Sync launchers are maintained in
+  `zabotinegor/CopilotTools`. Establish source ownership and, if available,
   compare the changed file against a specific canonical CopilotTools revision.
 - For a byte-identical mirror with **no demonstrated direct Android impact**,
   do not raise an inline blocking finding for standalone script refactoring,
