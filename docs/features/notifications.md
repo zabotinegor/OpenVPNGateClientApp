@@ -64,12 +64,15 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   - `DISCONNECTING`: shown on `ACTION_STOP` when neither notification is present, so the notification
     is not removed before teardown is confirmed. No Disconnect action.
 - **Tap target.** Both variants open the launcher activity through the content intent.
-- **Lifetime.** A failed or unconfirmed stop keeps the notification, and `STOP_FAILED` ensures the
-  `CONNECTED` variant is shown (see [connection-recovery.md](connection-recovery.md#stop-and-teardown)). The
-  notification is released by `exitControllerForeground()` when the engine reports a non-live level
-  (anything except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) and either owns an ongoing notification
-  or the tunnel is down, outside an in-progress user stop, or when the service is destroyed. It is never released merely
-  because a stop was dispatched.
+- **Lifetime.** The last VPN notification is never removed before teardown is confirmed. If the engine
+  owns an ongoing notification, `ACTION_STOP` hands ownership to it and releases whichever controller
+  variant is showing, so there is never a duplicate. If the engine owns none, the controller keeps (or
+  switches to) `DISCONNECTING`, and a failed or unconfirmed stop keeps it; `STOP_FAILED` then upgrades it to
+  the `CONNECTED` variant with Disconnect, but only when the engine still owns no notification (see
+  [connection-recovery.md](connection-recovery.md#stop-and-teardown)). Outside a user stop,
+  `exitControllerForeground()` releases it when the engine reports a non-live level (anything except
+  CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) and either owns an ongoing notification or the
+  tunnel is down, and it is released when the service is destroyed.
 
 ## Disconnect action
 
