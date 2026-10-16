@@ -337,6 +337,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // Latest level the engine reported through ANY path (AIDL callback or VpnStatus listener).
     // lastEngineLevel above is a log-throttle helper only written by the AIDL sync path.
     @Volatile private var lastReportedEngineLevel: ConnectionStatus? = null
+    // Latest level the app actually accepted as engine truth: every AIDL level, and VpnStatus
+    // levels only while AIDL is not fresh. Unlike lastReportedEngineLevel it is never moved by a
+    // VpnStatus callback that is ignored, so queued notification work can trust it.
+    @Volatile private var lastAcceptedEngineLevel: ConnectionStatus? = null
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
@@ -1861,6 +1865,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         lastReportedEngineLevel = level
+        if (shouldUseVpnStatus()) lastAcceptedEngineLevel = level
         if (!shouldUseVpnStatus()) {
             updateStatusSource(StatusSource.AIDL, "AIDL fresh; ignore VpnStatus")
             // A stale connecting-family level rejected by the pause guard must not become the latest
@@ -2014,6 +2019,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ) {
             if (level == null) return
             lastReportedEngineLevel = level
+            lastAcceptedEngineLevel = level
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
@@ -2727,7 +2733,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // released the notification, so re-validate against the latest reported level.
                 // Not needed (and not reliable) on the synchronous main-thread path: the snapshot
                 // path syncs without recording lastReportedEngineLevel.
-                val stillLive = !revalidateLevel || lastReportedEngineLevel.let {
+                val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
                     it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
                 }
                 if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
@@ -2747,7 +2753,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && level != ConnectionStatus.UNKNOWN_LEVEL
             && !reconnectPending
             && !userInitiatedStop
-            && (idleLevel || engineNotificationActive)) {
+            && (!engineTunnelLive || engineNotificationActive)) {
+            // Every non-live level (idle, terminal failures such as AUTH_FAILED, connecting
+            // phases) releases the controller notification as before; a live tunnel keeps it
+            // until the engine owns an ongoing notification of its own.
             exitControllerForeground()
         }
         // The only place userInitiatedStart gets cleared while the status service is fresh (the

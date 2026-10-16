@@ -427,6 +427,35 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        val binderThread = Thread { reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED) }
+        binderThread.start()
+        binderThread.join()
+        reportEngineLevel(service, ConnectionStatus.LEVEL_NOTCONNECTED) // AIDL is now fresh
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        // A lagging VpnStatus callback is ignored by the app and must not count as engine truth.
+        service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+        ShadowLooper.idleMainLooper()
+
+        assertFalse("An ignored VpnStatus level must not revive the notification", hasControllerNotification())
+    }
+
+    @Test
+    fun terminalAuthFailure_releasesTheControllerNotification() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        assertTrue("precondition: onCreate posted the controller notification", hasControllerNotification())
+
+        reportEngineLevel(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+        ShadowLooper.idleMainLooper()
+
+        assertFalse("AUTH_FAILED is terminal; the CONNECTING notification must not linger", hasControllerNotification())
+    }
+
+    @Test
     fun recreatedController_engineOwnsOngoingNotification_controllerHandsOver() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
