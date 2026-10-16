@@ -973,15 +973,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     reconnectDispatchGuard.armPending(attemptGeneration)
                 }
                 val targetIp = resolveStartIp(applicationContext, config, intent.getStringExtra(VpnManager.extraIpKey(this)))
-                // Auto-switch already selected the intended candidate before ACTION_START.
-                // Re-resolving the decoded VPN config by IP can select an earlier same-IP entry.
-                if (!isReconnect) {
-                    try {
-                        SelectedCountryStore.ensureIndexForConfig(applicationContext, config, targetIp)
-                    } catch (e: Exception) {
-                        AppLog.w(TAG, "Failed to align server index with config being started", e)
-                    }
-                }
+                // saveLastStartedConfig performs the guarded alignment for a fresh start. Keeping
+                // it there prevents a late ACTION_START from moving a newly selected country's
+                // cursor before the store can determine that the start belongs to another country.
                 run {
                     val titleStr = title?.let { ": $it" } ?: ""
                     val position = runCatching { SelectedCountryStore.getCurrentPosition(applicationContext) }.getOrNull()
