@@ -195,8 +195,10 @@ function Protect-HeredocBodies {
             # expansion in real bash, irrelevant here - only the literal text
             # is needed to recognize the terminator line) or bare.
             $delim = $null
+            $quotedDelim = $false
             if ($j -lt $len -and ($Command[$j] -eq '"' -or $Command[$j] -eq "'")) {
                 $q = $Command[$j]
+                $quotedDelim = $true
                 $k = $j + 1
                 while ($k -lt $len -and $Command[$k] -ne $q) { $k++ }
                 if ($k -lt $len) {
@@ -212,6 +214,16 @@ function Protect-HeredocBodies {
                 }
             }
 
+            # Bash performs quote removal on heredoc delimiter words, including
+            # backslash and concatenated quoted fragments. This parser models
+            # only wholly unquoted or wholly single/double-quoted literals.
+            # Reject unmodeled delimiters BEFORE their bogus terminator could
+            # consume all later commands as inert heredoc text.
+            if (-not [string]::IsNullOrEmpty($delim) -and
+                $delim.IndexOfAny([char[]]@('\', "'", '"')) -ge 0) {
+                $script:unsupportedBashHeredocDelimiter = $true
+                return $Command
+            }
             if ([string]::IsNullOrEmpty($delim)) {
                 # Not a recognizable heredoc operator (bare '<<' with nothing
                 # after it) - copy the two characters through unexamined
@@ -257,6 +269,13 @@ function Protect-HeredocBodies {
                 while ($i -lt $len -and $Command[$i] -ne "`n") { $i++ }
                 $line = $Command.Substring($lineStart, $i - $lineStart).TrimEnd("`r")
                 $lineForCompare = if ($line -match '^\t*(.*)$') { $Matches[1] } else { $line }
+                # An unquoted Bash heredoc expands parameters and executes command
+                # substitutions before handing input to its command. Do not erase
+                # potentially executable '$' or backticks and then approve the
+                # outer command as harmless; reject unsupported expansion.
+                if (-not $quotedDelim -and ($line.Contains('$') -or $line.Contains([char]96))) {
+                    $script:opaqueExpandingHeredoc = $true
+                }
                 # Heredoc body text is stdin, not shell syntax. Neutralize the
                 # entire body line in the normalized copy so quotes, separators,
                 # and words such as "git" cannot affect later command parsing.
@@ -357,8 +376,49 @@ function ConvertTo-NormalizedCommand {
     return $sb.ToString().Trim()
 }
 
+$script:opaqueExpandingHeredoc = $false
+$script:unsupportedBashHeredocDelimiter = $false
 $command = Protect-HeredocBodies -Command $command -BashSyntax $bashSyntax
 $normalized = ConvertTo-NormalizedCommand -Command $command -BashSyntax $bashSyntax
+
+# Bash groups, subshells, and command substitutions change execution scope
+# without necessarily beginning a segment with 'cd' or 'git'. The segment
+# walker below deliberately does not model nested shell grammars; reject those
+# constructs before attributing a Git mutation to the wrong checkout.
+# Ignore escaped punctuation, quoted literal arguments, and heredoc bodies
+# (already neutralized as NULs), while retaining executable $(...) within
+# double quotes. Standalone braces are Bash reserved words; brace expansion
+# such as {one,two} is not a command group.
+function Test-HasUnmodeledBashGrouping {
+    param([string]$Command)
+
+    $quote = $null
+    $ansiQuote = $false
+    for ($i = 0; $i -lt $Command.Length; $i++) {
+        $ch = $Command[$i]
+        if ($null -ne $quote) {
+            if ($quote -eq '"' -and $ch -eq '$' -and $i + 1 -lt $Command.Length -and $Command[$i + 1] -eq '(') { return $true }
+            if ($quote -eq '"' -and $ch -eq [char]96) { return $true }
+            if (($quote -eq '"' -or $ansiQuote) -and $ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
+            if ($ch -eq $quote) { $quote = $null; $ansiQuote = $false }
+            continue
+        }
+        if ($ch -eq '\' -and $i + 1 -lt $Command.Length) { $i++; continue }
+        if ($ch -eq [char]96) { return $true }
+        if ($ch -eq '"' -or $ch -eq "'") {
+            $ansiQuote = ($ch -eq "'" -and $i -gt 0 -and $Command[$i - 1] -eq '$')
+            $quote = $ch
+            continue
+        }
+        if ($ch -eq '(' -or $ch -eq ')') { return $true }
+        if ($ch -eq '{' -or $ch -eq '}') {
+            $leftBoundary = ($i -eq 0 -or [char]::IsWhiteSpace($Command[$i - 1]) -or ';|&()'.Contains($Command[$i - 1]))
+            $rightBoundary = ($i + 1 -eq $Command.Length -or [char]::IsWhiteSpace($Command[$i + 1]) -or ';|&()'.Contains($Command[$i + 1]))
+            if ($leftBoundary -and $rightBoundary) { return $true }
+        }
+    }
+    return $false
+}
 
 # Shell separators only separate commands OUTSIDE quotes. A bare '[;&|]+' split
 # truncates a legitimately quoted path that contains one of those characters
@@ -386,6 +446,7 @@ function Split-CommandSegments {
     $segments = New-Object System.Collections.Generic.List[object]
     $separators = @(';', '&', '|')
     $start = 0
+    $leadingOperator = ''
     $quote = $null
     # See ConvertTo-NormalizedCommand's matching $ansiQuote comment: an ANSI-C
     # ($'...') string's internal backslash-escapes (including \' for a literal
@@ -421,14 +482,18 @@ function Split-CommandSegments {
         }
 
         if ($separators -contains $ch) {
-            $segments.Add([pscustomobject]@{ Text = $Command.Substring($start, $i - $start); Index = $start })
-            # Consume the whole separator run ('&&', '||', ';;') in one cut.
+            $segments.Add([pscustomobject]@{ Text = $Command.Substring($start, $i - $start); Index = $start; LeadingOperator = $leadingOperator })
+            # Preserve the actual operator: a single PowerShell '&' invokes a
+            # command, while '&&' chains commands. Discarding this distinction
+            # let opaque call-operator expressions bypass cwd tracking.
+            $operatorStart = $i
             while (($i + 1) -lt $Command.Length -and ($separators -contains $Command[$i + 1])) { $i++ }
+            $leadingOperator = $Command.Substring($operatorStart, $i - $operatorStart + 1)
             $start = $i + 1
         }
     }
 
-    $segments.Add([pscustomobject]@{ Text = $Command.Substring($start); Index = $start })
+    $segments.Add([pscustomobject]@{ Text = $Command.Substring($start); Index = $start; LeadingOperator = $leadingOperator })
 
     # Comma-wrap: a List returned bare is unwrapped by the pipeline, and a
     # single-segment command would then arrive at the caller as a scalar.
@@ -492,6 +557,43 @@ function ConvertFrom-PowerShellPathToken {
     return $sb.ToString()
 }
 
+# Decode one Bash path token using shell quote rules, without executing shell
+# expansions. Unquoted backslash escapes any next character (including a space);
+# in double quotes it escapes only $, backtick, double quote and backslash.
+# Inside single quotes a backslash is literal. This must be quote-aware:
+# blanket removal would alter legitimate quoted paths and Windows separators.
+function ConvertFrom-BashPathToken {
+    param([string]$Value)
+
+    $sb = [System.Text.StringBuilder]::new()
+    $quote = $null
+    for ($i = 0; $i -lt $Value.Length; $i++) {
+        $ch = $Value[$i]
+        if ($quote -eq "'") {
+            if ($ch -eq "'") { $quote = $null }
+            else { [void]$sb.Append($ch) }
+            continue
+        }
+        if ($quote -eq '"') {
+            if ($ch -eq '"') { $quote = $null; continue }
+            if ($ch -eq '\' -and $i + 1 -lt $Value.Length) {
+                $next = $Value[$i + 1]
+                if ($next -eq '\' -or $next -eq '"' -or $next -eq '$' -or
+                    $next -eq '`') {
+                    [void]$sb.Append($next); $i++; continue
+                }
+            }
+            [void]$sb.Append($ch); continue
+        }
+        if ($ch -eq "'" -or $ch -eq '"') { $quote = $ch; continue }
+        if ($ch -eq '\' -and $i + 1 -lt $Value.Length) {
+            [void]$sb.Append($Value[$i + 1]); $i++; continue
+        }
+        [void]$sb.Append($ch)
+    }
+    return $sb.ToString()
+}
+
 # A -C/--git-dir value may be POSIX-absolute ('/d/Apps/CopilotTools', which a
 # Git-Bash-issued command produces naturally) or relative. This guard always
 # resolves the target through pwsh's own git.exe (see protect-agent-git-command.sh,
@@ -513,26 +615,14 @@ function Resolve-TargetToken {
     # collapsing that backtick truncated the path to a nonexistent one,
     # resolution failed, and the guard fell back to the SESSION repo - judging a
     # mutation on the target repo's protected branch against the session's own
-    # branch. Bash has no backtick escape, so there the token only needs its
-    # wrapping quotes stripped.
+    # branch. Bash instead needs quote-aware decoding of backslash escapes,
+    # including escaped whitespace in unquoted paths.
     if ($script:bashSyntax) {
-        $clean = ($Value -replace '["'']', '')
+        $clean = ConvertFrom-BashPathToken -Value $Value
     }
     else {
         $clean = ConvertFrom-PowerShellPathToken -Value $Value
     }
-    # A shell metacharacter reaches the path only escaped ('/srv/prod\&repo') or
-    # quoted; the backslash is the shell's, not part of the directory name. Strip
-    # it for exactly those characters so the escaped form resolves to the same
-    # repository the quoted form does - otherwise the path stays unresolvable,
-    # the caller falls back to the SESSION repo, and a commit into a target repo
-    # sitting on main is judged against the session's feature branch and allowed.
-    # Restricted to ';', '&' and '|' on purpose: a blanket unescape would maul
-    # ordinary Windows paths ('C:\repo' -> 'C:repo'). Restricted to bash command
-    # lines for the same reason the segmenter is: ';' and '&' are legal Windows
-    # filename characters, so under PowerShell 'C:\a\&b' names a real directory
-    # '&b' and un-escaping it would break a path that resolves perfectly well.
-    if ($script:bashSyntax) { $clean = ($clean -replace '\\([;&|])', '$1') }
     if ($clean -match '^/([A-Za-z])(/.*)?$') {
         $clean = "$($Matches[1]):$($Matches[2])"
     }
@@ -550,6 +640,66 @@ function Resolve-TargetToken {
 # SINGLE git segment actually targets (chained segments are resolved and judged
 # one by one by the caller, so two different -C targets on one command line can
 # never collapse into one branch verdict).
+# Consume git config option values before identifying the key. Persistently
+# overriding core.hooksPath would disable the trusted native hooks.
+function Test-UnsafeHooksPathConfig {
+    param([string]$Arguments)
+    $tokens = @([regex]::Matches($Arguments, $gitValuePattern) | ForEach-Object { $_.Value })
+    $positionals = [System.Collections.Generic.List[string]]::new()
+    $readMode = $false
+    $writeMode = $false
+    $unknownOption = $false
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $word = if ($script:bashSyntax) {
+            ConvertFrom-BashPathToken -Value $tokens[$i]
+        } else {
+            ConvertFrom-PowerShellPathToken -Value $tokens[$i]
+        }
+        if ($word -in @('--file', '-f', '--default', '--type', '--blob')) {
+            if ($i + 1 -lt $tokens.Count) { $i++ } else { $unknownOption = $true }
+            continue
+        }
+        if ($word -match '^(?:--file|--default|--type|--blob)=' -or $word -match '^-f.+') { continue }
+        if ($word -in @('--get', '--get-all', '--get-regexp', '--get-urlmatch', '--list', '-l',
+                        'get', 'get-all', 'get-regexp', 'list')) {
+            $readMode = $true
+            continue
+        }
+        if ($word -in @('--unset', '--unset-all', '--add', '--replace-all', '--rename-section',
+                        '--remove-section', 'set', 'unset', 'unset-all', 'rename-section',
+                        'remove-section')) {
+            $writeMode = $true
+            continue
+        }
+        if ($word -in @('--edit', '-e', 'edit')) { return $true }
+        if ($word.StartsWith('-')) {
+            if ($word -notin @('--local', '--global', '--system', '--worktree', '--includes',
+                               '--no-includes', '--fixed-value', '--name-only',
+                               '--show-origin', '--show-scope', '--null', '-z')) {
+                $unknownOption = $true
+            }
+            continue
+        }
+        $positionals.Add($word)
+    }
+    $keyNamed = @($positionals | Where-Object {
+        $_ -match '^(?i:core\.hookspath|include\.path|includeif\..+\.path)$'
+    }).Count -gt 0
+    $sectionNamed = @($positionals | Where-Object {
+        $_ -match '^(?i:core|include|includeif\..+)$'
+    }).Count -gt 0
+    # A config include can override the trusted hooksPath indirectly.
+    # Changes to include sections are sensitive for the same reason.
+    if ($writeMode -and ($keyNamed -or $sectionNamed)) { return $true }
+    if (-not $keyNamed) {
+        return $Arguments -match '(?i)core\s*\.\s*["'']?hookspath' -or
+            $Arguments -match '(?i)(?:include\.path|includeif\.[^\s"''=]+\.path)'
+    }
+    if ($unknownOption -or $writeMode) { return $true }
+    if ($readMode) { return $false }
+    return $positionals.Count -ne 1
+}
+
 function Get-GitTargetPath {
     param([string]$Segment, [string]$FallbackPath)
 
@@ -570,7 +720,13 @@ function Get-GitTargetPath {
     # after which the guard resolves the wrong repository and judges it against
     # the fallback branch. It also keeps a backtick-escaped space ('`  ') glued.
     # Resolve-TargetToken then collapses the escapes to the true path.
-    $tokens = @([regex]::Matches($Segment.Trim(), '(?:`.|"(?:`.|[^"])*"|''[^'']*''|[^\s"''`]+)+') | ForEach-Object { $_.Value })
+    $tokenPattern = if ($script:bashSyntax) {
+        # A backslash-escaped space remains inside one Bash argument.
+        '(?>(?:\\.|"(?:\\.|[^"\\])*"|''[^'']*''|[^\s"''\\]+)+)'
+    } else {
+        '(?>(?:`.|"(?:`.|[^"])*"|''[^'']*''|[^\s"''`]+)+)'
+    }
+    $tokens = @([regex]::Matches($Segment.Trim(), $tokenPattern) | ForEach-Object { $_.Value })
     if ($tokens.Count -eq 0 -or $tokens[0] -ne 'git') { return $FallbackPath }
 
     $dir = $FallbackPath
@@ -619,10 +775,14 @@ function Get-GitTargetPath {
 }
 
 function Get-ChangedWorkingDirectory {
-    param([string]$Segment, [string]$FallbackPath)
+    param([string]$Segment, [string]$FallbackPath, [bool]$CallOperator = $false)
 
-    # A leading literal cd/chdir changes the shell directory for later command
-    # segments. Parse only one static path token. This is deliberately a small
+    # Track every supported literal PowerShell location command, not just
+    # cd/chdir: Set-Location and sl are equivalent ways to change the directory.
+    # Push/Pop-Location (including pushd/popd) change location stack state that
+    # is not modeled here; explicitly reject them instead of checking later git
+    # mutations against the wrong checkout.
+    # Parse only one static path token. This is deliberately a small
     # character scanner rather than a backtracking regex: the guard must stay
     # bounded even when it receives hostile input. Path expansion is intentionally
     # not performed: ~ and environment-variable forms ($HOME, $env:USERPROFILE,
@@ -635,16 +795,87 @@ function Get-ChangedWorkingDirectory {
     $length = $trimmed.Length
     $i = 0
     while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
-    $verbStart = $i
-    while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
-    $verb = $trimmed.Substring($verbStart, $i - $verbStart)
-    if (-not [string]::Equals($verb, 'cd', [System.StringComparison]::OrdinalIgnoreCase) -and
-            -not [string]::Equals($verb, 'chdir', [System.StringComparison]::OrdinalIgnoreCase)) {
+    # The command's spelling is not its identity in PowerShell. A single '&'
+    # invokes static quoted names and parenthesized literal strings; a module
+    # qualification can also select the built-in location cmdlet. Parse the
+    # bounded, purely literal subset without evaluating PowerShell expressions.
+    # Everything else after '&' is opaque and must fail closed: it could invoke
+    # Set-Location, a script that changes location, or Git itself.
+    $verb = $null
+    if ($CallOperator -and -not $script:bashSyntax) {
+        $remainder = $trimmed.Substring($i)
+        $literal = [regex]::Match($remainder, '^\(\s*(["''])([A-Za-z][A-Za-z0-9_.\\-]*)\1\s*\)(?=\s|$)')
+        if (-not $literal.Success) {
+            $literal = [regex]::Match($remainder, '^(["''])([A-Za-z][A-Za-z0-9_.\\-]*)\1(?=\s|$)')
+        }
+        if ($literal.Success) {
+            $verb = $literal.Groups[2].Value
+            $i += $literal.Length
+        }
+    }
+    if ($null -eq $verb) {
+        $verbStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $verb = $trimmed.Substring($verbStart, $i - $verbStart)
+    }
+    $verb = $verb.ToLowerInvariant()
+    if ($script:bashSyntax -and $verb -in @('builtin', 'command')) {
+        # Bash executes cd in the CURRENT shell through these static wrappers.
+        # Treating "builtin" or "command" as an unrelated command allowed the
+        # following git mutation to run in a different, protected checkout.
+        # Unmodeled wrapper targets and options fail closed; they may execute
+        # other cwd-changing builtins, source/eval, or Git with unknown effects.
+        while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        if ($i -ge $length) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+        $wrappedStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $verb = $trimmed.Substring($wrappedStart, $i - $wrappedStart).ToLowerInvariant()
+        if ($verb -notin @('cd', 'chdir')) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+    }
+    $locationVerbs = if ($script:bashSyntax) {
+        @('cd', 'chdir', 'pushd', 'popd')
+    } else {
+        @('cd', 'chdir', 'sl', 'set-location', 'pushd', 'push-location', 'popd', 'pop-location')
+    }
+    # Unqualified aliases and the actual built-in Management module have
+    # deterministic location behavior. An unfamiliar module defining a command
+    # with the same basename is opaque, so block rather than guess.
+    if (-not $script:bashSyntax -and $verb -match '^(?<module>[a-z][a-z0-9_.-]*)\\(?<name>set-location|push-location|pop-location)$') {
+        if ($Matches['module'] -ne 'microsoft.powershell.management') {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
+        $verb = $Matches['name']
+    }
+    if ($verb -notin $locationVerbs) {
+        if ($CallOperator) {
+            return [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+        }
         return $null
     }
 
     $result = [pscustomobject]@{ Matched = $true; Valid = $false; Path = $null }
+    $literalLocationPath = $false
+    # A directory stack requires tracking nested pushes and pops across segments.
+    # Reject unmodeled stack operations fail-closed in both shell modes.
+    if ($verb -in @('pushd', 'push-location', 'popd', 'pop-location')) { return $result }
+
     while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+    # Allow the two unambiguous named parameters for PowerShell location changes.
+    # Other switches (e.g. -StackName) could change location without a literal
+    # path and must be rejected rather than treated as a directory name.
+    if (-not $script:bashSyntax -and $i -lt $length -and $trimmed[$i] -eq '-') {
+        $parameterStart = $i
+        while ($i -lt $length -and -not [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        $parameter = $trimmed.Substring($parameterStart, $i - $parameterStart)
+        if ($parameter -notin @('-Path', '-LiteralPath')) { return $result }
+        $literalLocationPath = ($parameter -eq '-LiteralPath')
+        while ($i -lt $length -and [char]::IsWhiteSpace($trimmed[$i])) { $i++ }
+        if ($i -ge $length) { return $result }
+    }
     if ($i -ge $length) {
         # A bare cd/chdir has one fixed meaning in bash and PowerShell 7: go to the user's home
         # directory. Resolve it from the account profile (never from a path the command could
@@ -718,11 +949,25 @@ function Get-ChangedWorkingDirectory {
     if ($i -lt $length) { return $result }
 
     $rawToken = $trimmed.Substring($tokenStart, $i - $tokenStart)
+    # Bash 'cd -' means OLDPWD, not a literal directory named '-'. Without
+    # tracking OLDPWD across segments, a subsequent Git mutation could be
+    # checked against the wrong checkout. Reject this special form fail-closed.
+    if ($script:bashSyntax -and (ConvertFrom-BashPathToken -Value $rawToken) -eq '-') {
+        return $result
+    }
     if ($rawToken -match '^\s*["'']?~' -or $rawToken.Contains('$')) {
         return $result
     }
     $candidate = Resolve-TargetToken -Value $rawToken -BaseDir $FallbackPath
     if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $result
+    }
+    # Set-Location -Path, cd and sl expand wildcard paths before changing cwd.
+    # Literal Test-Path would miss the expanded checkout and incorrectly judge
+    # later git commands against the previous feature branch. Conservatively
+    # reject unmodeled wildcard expansion, including Bash globs. -LiteralPath
+    # has no wildcard expansion, so valid literal bracket paths still work.
+    if (-not $literalLocationPath -and $candidate.IndexOfAny([char[]]@('*', '?', '[', ']')) -ge 0) {
         return $result
     }
 
@@ -813,20 +1058,168 @@ $branchByPath = @{}
 $segmentWorkingDirectory = $cwd
 
 $reason = $null
+if ($bashSyntax -and $script:unsupportedBashHeredocDelimiter) {
+    $reason = 'Unsupported Bash heredoc delimiter quoting is forbidden.'
+}
+elseif ($bashSyntax -and $script:opaqueExpandingHeredoc) {
+    $reason = 'Unmodeled expansion in unquoted Bash heredoc is forbidden.'
+}
+elseif ($bashSyntax -and (Test-HasUnmodeledBashGrouping -Command $normalized)) {
+    $reason = 'Unmodeled Bash command grouping or substitution is forbidden.'
+}
 foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $bashSyntax)) {
     if ($reason) { break }
 
     $text = $segment.Text.Trim()
-    $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory
+    if ($bashSyntax -and $text.Length -gt 0) {
+        # Bash assignment prefixes precede the executable, rather than being
+        # executable names themselves: LC_ALL=C git -C /main reset --hard ...
+        # Consume only a bounded literal subset before both cwd and Git checks.
+        # Assignments that can change Git's repository resolution or Bash cd
+        # behavior, and assignments requiring shell expansion/quoting, are
+        # rejected instead of evaluating a mutation against the wrong checkout.
+        while ($text -match '^(?<name>[A-Za-z_][A-Za-z0-9_]*)=(?<value>[A-Za-z0-9_.,:/+%-]*)(?:\s+|$)') {
+            $assignmentName = $Matches['name']
+            if ($assignmentName -match '^(?i:GIT_|HOME$|CDPATH$|PWD$|PATH$|IFS$|BASH_ENV$|ENV$)') {
+                $reason = 'Git or shell location-changing Bash environment assignment is forbidden.'
+                break
+            }
+            $text = $text.Substring($Matches[0].Length).TrimStart()
+        }
+        if ($reason) { break }
+        if ($text -match '^[A-Za-z_][A-Za-z0-9_]*=') {
+            $reason = 'Unsupported Bash environment assignment syntax is forbidden.'
+            break
+        }
+    }
+    if ($bashSyntax -and $text.Length -gt 0) {
+        # Bash removes unquoted backslashes and quote delimiters from the
+        # COMMAND NAME before lookup. Looking for literal "builtin", "cd" or
+        # "git" in the raw text can silently skip a cwd change or mutation
+        # (e.g. \builtin cd /protected && git reset --hard HEAD~1).
+        # Only plain static command names are modeled. Fail closed on shell-
+        # transformed or dynamically composed leading words rather than
+        # making a repository/branch decision on the wrong command.
+        $leadingWord = ($text -split '\s+', 2)[0]
+        if ($leadingWord.IndexOfAny([char[]]@('\', "'", '"', '$', '`')) -ge 0) {
+            $reason = 'Opaque Bash command name (escape, quote or expansion) is forbidden.'
+            break
+        }
+    }
+    # PowerShell dot-sourcing executes a script in the caller's scope and can
+    # change the working directory before the next Git segment. Its effects
+    # cannot be inferred from command text; fail closed instead of judging
+    # following Git operations against the old checkout.
+    if ($text -match '^\.(?:\s|$)' -or
+        ($bashSyntax -and $text -match '^(?:source|eval)(?:\s|$)')) {
+        $reason = 'Opaque shell script sourcing or evaluation is forbidden.'
+        break
+    }
+    # Invoke-Expression and its iex alias execute expressions in the calling
+    # PowerShell scope. The expression may change cwd before a later Git
+    # mutation; reject it instead of inferring Git's checkout from stale state.
+    if (-not $bashSyntax -and
+        $text -match '(?i)^(?:Invoke-Expression|iex|Microsoft\.PowerShell\.Utility\\Invoke-Expression)(?:\s|$)') {
+        $reason = 'Opaque PowerShell expression evaluation is forbidden.'
+        break
+    }
+    # Structured PowerShell expressions run statement blocks in the caller's
+    # scope. Their internal Set-Location/Git side effects cannot be modeled by
+    # splitting at semicolons. Reject them before using a cached checkout.
+    if (-not $bashSyntax -and $text -match '(?i)^(?:if|elseif|else|switch|foreach|for|while|do|try|catch|finally|function|filter|trap|class|data|workflow)(?:\s|\(|\{|$)') {
+        $reason = 'Unmodeled PowerShell control flow is forbidden.'
+        break
+    }
+    $directoryChange = Get-ChangedWorkingDirectory -Segment $text -FallbackPath $segmentWorkingDirectory -CallOperator (-not $bashSyntax -and $segment.LeadingOperator -eq '&')
     if ($null -ne $directoryChange) {
         if (-not $directoryChange.Valid) {
             $reason = 'Unresolvable leading cd/chdir target or extra argument is forbidden.'
             break
         }
-        $segmentWorkingDirectory = $directoryChange.Path
+        # A preceding Bash && or || makes the cd conditional. Static segment
+        # evaluation cannot know whether it ran; misattributing the later Git
+        # command to the skipped directory is a protected-branch bypass.
+        if ($bashSyntax -and $segment.LeadingOperator -in @('&&', '||')) {
+            $reason = 'Conditionally reached Bash directory change is forbidden.'
+            break
+        }
+        # A Bash 'cd' terminated by single '&' or a pipeline ('|'/'|&')
+        # runs in a subshell. The parent shell keeps its original cwd, even
+        # when a later segment performs a Git mutation. '&&' and '||' are
+        # list operators, not pipeline/background boundaries.
+        $terminatorIndex = $segment.Index + $segment.Text.Length
+        $subshellCd = $false
+        if ($bashSyntax -and $terminatorIndex -lt $normalized.Length) {
+            $suffix = $normalized.Substring($terminatorIndex)
+            $subshellCd = ($suffix.StartsWith('&') -and -not $suffix.StartsWith('&&')) -or
+                          ($suffix.StartsWith('|') -and -not $suffix.StartsWith('||'))
+        }
+        if (-not $subshellCd) {
+            $segmentWorkingDirectory = $directoryChange.Path
+        }
         continue
     }
+    # Shell environment wrappers can redirect Git to another checkout without
+    # invoking a leading `git` command. Only small, side-effect-free forms are
+    # modeled; all other environment-setting wrappers fail closed.
+    if ($bashSyntax -and $text -match '^(?:builtin\s+|command\s+)?(?:env|export|declare|typeset|readonly)(?:\s|$)') {
+        if ($text -match '^env\s+LANG=[A-Za-z0-9_.-]+\s+(?:git\s+status(?:\s|$)|echo\s+[^;&|]+$)') {
+            continue
+        }
+        $reason = 'Unmodeled Bash environment wrapper or shell export is forbidden.'
+        break
+    }
     if ($text -notmatch '(?i)^git(\s|$)') { continue }
+
+    # Native reference-transaction protection is an independent enforcement
+    # layer. Do not let a Git invocation disable it via a one-shot hooksPath.
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?(?:core\.hooksPath|include\.path|includeIf\.[^\s=]+\.path)(?:=|\s|$)') {
+        $reason = 'Disabling or overriding native Git hooks is forbidden.'
+        break
+    }
+
+    # Git expands aliases before running a subcommand. An unrecognized verb can
+    # be a repository/global alias or an external git-* helper that executes a
+    # protected mutation; matching only literal reset/commit/push is insufficient.
+    # Git built-ins cannot be overridden by aliases. Accept known built-ins
+    # through the existing operation checks, but fail closed for other verbs.
+    # Per-invocation alias definitions are unsafe even with a known verb:
+    # shell aliases and config-env can change command behavior.
+    if ($text -match '(?i)(?:^|\s)(?:-c\s+|--config-env(?:=|\s+))["'']?alias\.') {
+        $reason = 'Git alias definition in command options is forbidden.'
+        break
+    }
+    $gitInvocation = [regex]::Match($text, "(?i)^$gitPrefixPattern(?:\s+(?<gitVerb>[^\s]+))?")
+    $knownGitCommands = @(
+        'add', 'am', 'apply', 'archive', 'bisect', 'blame', 'branch',
+        'bundle', 'cat-file', 'check-attr', 'check-ignore', 'check-mailmap',
+        'checkout', 'checkout-index', 'cherry', 'cherry-pick', 'clean', 'clone',
+        'commit', 'config', 'count-objects', 'credential', 'describe', 'diff',
+        'diff-files', 'diff-index', 'diff-tree', 'fetch', 'filter-branch',
+        'for-each-ref', 'format-patch', 'fsck', 'gc', 'grep', 'hash-object',
+        'help', 'index-pack', 'init', 'interpret-trailers', 'log', 'ls-files',
+        'ls-remote', 'ls-tree', 'merge', 'merge-base', 'merge-file', 'merge-tree',
+        'mergetool', 'mv', 'name-rev', 'notes', 'pack-objects', 'prune', 'pull',
+        'push', 'range-diff', 'read-tree', 'rebase', 'reflog', 'remote', 'repack',
+        'replace', 'reset', 'restore', 'rev-list', 'rev-parse', 'revert', 'rm',
+        'shortlog', 'show', 'show-branch', 'show-index', 'show-ref',
+        'sparse-checkout', 'stash', 'status', 'submodule', 'switch',
+        'symbolic-ref', 'tag', 'update-index', 'update-ref', 'var',
+        'verify-commit', 'verify-pack', 'verify-tag', 'version', 'whatchanged',
+        'worktree', 'write-tree', '--version'
+    )
+    if (-not $gitInvocation.Success -or
+        ($gitInvocation.Groups['gitVerb'].Success -and
+         $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -notin $knownGitCommands)) {
+        $reason = 'Unknown Git subcommand or unsupported global option may be an alias.'
+        break
+    }
+
+    if ($gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'config' -and
+        (Test-UnsafeHooksPathConfig -Arguments ($text.Substring($gitInvocation.Length).Trim()))) {
+        $reason = 'Disabling or overriding native Git hooks is forbidden.'
+        break
+    }
 
     # Keep malformed/unresolvable long -C values fail-closed without sending
     # the general mutation regex through an expensive unsuccessful scan. This
@@ -879,6 +1272,14 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     # command line stays consistent.
     $sm = [regex]::Match($text, $switchPattern)
     if ($sm.Success) {
+        # A switch may fail or be skipped by shell short-circuiting. Predicting
+        # its success in a compound command can turn a real protected-branch
+        # reset into an incorrectly allowed feature-branch reset. A standalone
+        # switch is checked again from real Git state on the next hook call.
+        if ($segment.Index + $segment.Text.Length -lt $normalized.Length) {
+            $reason = 'Git switch/checkout in a compound command has unknown outcome.'
+            break
+        }
         $t = ($sm.Groups[1].Value -replace "^['`"]+|['`"]+$").ToLowerInvariant()
         if (-not $t.StartsWith('-')) { $branchByPath[$stateKey] = $t }
     }
@@ -890,6 +1291,216 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
     if ((-not [string]::IsNullOrWhiteSpace($repoRoot)) -and
             (Test-Path -LiteralPath (Join-Path $repoRoot '.agenttools-source'))) {
         continue
+    }
+
+    # symbolic-ref is read-only with a single ref argument, but its write
+    # form can replace refs/heads/main with a symbolic reference even from a
+    # feature checkout. Only statically known read-only query forms are safe;
+    # deletion and multi-argument forms fail closed regardless of checkout.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'symbolic-ref') {
+        $symbolicArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($symbolicArgs -notmatch '^(?:(?:-q|--quiet|--short)\s+)*(?:HEAD|refs/heads/[A-Za-z0-9._/-]+)$') {
+            $reason = 'Writing, deleting or opaque symbolic-ref arguments are forbidden.'
+        }
+    }
+
+    # filter-branch can rewrite named protected refs or all branches even when
+    # the current checkout is a feature branch; arbitrary revision expressions
+    # and filter shell snippets cannot be safely analyzed by this lexical hook.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'filter-branch') {
+        $reason = 'Git filter-branch history rewriting is forbidden in client repositories.'
+    }
+
+    # Explicit fetch destinations and remote.*.fetch config can rewrite LOCAL
+    # branch refs without triggering commit/push hooks. Remote-tracking refs
+    # (refs/remotes/*) do not have this property. Fail closed on any explicit
+    # refs/heads destination, abbreviated protected destination, opaque stdin
+    # / refmap / update-head-ok, and configured mappings into local heads.
+    $gitVerbForFetch = $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant()
+    $fetchArgs = $text.Substring($gitInvocation.Length).Trim()
+    $isRemoteUpdate = $gitVerbForFetch -eq 'remote' -and
+        $fetchArgs -match '(?i)^update(?:\s|$)'
+    # Pull performs a fetch phase before merging/rebasing. Its explicit refspecs
+    # and configured remote mappings can write local protected heads, even when
+    # the calling checkout is an unprotected feature branch.
+    if (-not $reason -and ($gitVerbForFetch -in @('fetch', 'pull') -or $isRemoteUpdate)) {
+        if ($fetchArgs -match '(?i)(?:^|\s)--(?:stdin|update-head-ok)(?=\s|$)' -or
+            $fetchArgs -match '(?i)(?:^|\s)--refmap(?:=|\s|$)' -or
+            $fetchArgs -match '(?i):refs/heads/' -or
+            $fetchArgs -match "(?i):(?:refs/heads/)?$protectedPattern(?=\s|$|[\x22\x27])" -or
+            $text -match '(?i)(?:^|\s)-c\s+[\x22\x27]?remote\.[^=\s]+\.fetch=') {
+            $reason = 'Fetch into local/protected branch refs or opaque fetch mapping is forbidden.'
+        }
+        else {
+            # A plain "git fetch origin" still consumes remote.origin.fetch.
+            # Reject a configured mapping into any local refs/heads/*, including
+            # wildcard destinations that may later include protected names.
+            $priorFetchEap = $ErrorActionPreference
+            $fetchConfigLines = @()
+            $fetchConfigExit = 1
+            try {
+                $ErrorActionPreference = 'Continue'
+                $fetchConfigLines = @(git -C $evalPath config --get-regexp '^remote\..*\.fetch$' 2>$null)
+                $fetchConfigExit = $LASTEXITCODE
+            }
+            finally { $ErrorActionPreference = $priorFetchEap }
+            if ($fetchConfigExit -notin @(0, 1) -or
+                @($fetchConfigLines | Where-Object { $_ -match '(?i):refs/heads/' }).Count -gt 0) {
+                $reason = 'Configured fetch may write local branch refs.'
+            }
+        }
+    }
+
+    # worktree add -B forcibly resets an existing branch ref, even when that
+    # branch is not checked out by any worktree. -b creates a named branch.
+    # Check their named target independently of the current effective branch.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'worktree') {
+        $worktreeArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($worktreeArgs -match '(?i)^add(?:\s|$)') {
+            # With no branch flag or explicit commit-ish, worktree add <path>
+            # creates a local branch from the path basename. Classify that
+            # implicit write here, not only explicit -b/-B mutations.
+            if ($worktreeArgs -notmatch '(?i)(?:^|\s)-[bB](?=\s|[A-Za-z0-9._/-]|$)' -and
+                $worktreeArgs -notmatch '(?i)(?:^|\s)(?:--detach|-d)(?=\s|$)') {
+                $worktreeTokens = @(($worktreeArgs -replace '(?i)^add\s*', '') -split '\s+' | Where-Object { $_ })
+                if ($worktreeTokens.Count -eq 1 -and $worktreeTokens[0] -match '^[A-Za-z0-9._/\\:-]+$') {
+                    $impliedBranch = @($worktreeTokens[0] -split '[/\\]')[-1].ToLowerInvariant()
+                    if ($protected -contains $impliedBranch) {
+                        $reason = 'Implicit worktree branch creation targets a protected ref.'
+                    }
+                }
+                elseif ($worktreeTokens.Count -ne 2 -or
+                        $worktreeTokens[0] -notmatch '^[A-Za-z0-9._/\\:-]+$' -or
+                        $worktreeTokens[1] -notmatch '^[A-Za-z0-9._/\\:-]+$') {
+                    $reason = 'Opaque worktree branch creation is forbidden.'
+                }
+            }
+            $branchOption = [regex]::Match($worktreeArgs, '(?i)(?:^|\s)-[bB]\s*(?<branch>[A-Za-z0-9._/-]+)(?=\s|$)')
+            if ($worktreeArgs -match '(?i)(?:^|\s)-[bB](?=\s|[A-Za-z0-9._/-]|$)') {
+                if (-not $branchOption.Success) {
+                    $reason = 'Ambiguous worktree branch creation/replacement is forbidden.'
+                }
+                elseif ($protected -contains $branchOption.Groups['branch'].Value.ToLowerInvariant()) {
+                    $reason = 'Creating or replacing a protected branch through worktree add is forbidden.'
+                }
+            }
+        }
+    }
+
+    # 'git stash branch <name>' creates a branch at the stashed base commit.
+    # The ref is written without commit/push hooks and must obey the same
+    # protected branch policy as ordinary git branch/worktree creation.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'stash') {
+        $stashArgs = $text.Substring($gitInvocation.Length).Trim()
+        if ($stashArgs -match '(?i)^branch(?:\s|$)') {
+            if ($stashArgs -notmatch '^(?i:branch)\s+(?<target>[A-Za-z0-9._/-]+)(?:\s+(?<stash>[A-Za-z0-9._/@{}-]+))?$') {
+                $reason = 'Opaque stash branch creation is forbidden.'
+            }
+            elseif ($protected -contains ($Matches['target'].ToLowerInvariant() -replace '^refs/heads/', '')) {
+                $reason = 'Stash branch creation of a protected ref is forbidden.'
+            }
+        }
+    }
+
+    # merge/pull/rebase and sequencer operations can advance a checked-out
+    # branch without calling a pre-commit or pre-push hook (fast-forward,
+    # --ff-only, rebases and cherry-picks). The protected HEAD must never be
+    # modified directly by these commands. Read-only merge-base is unaffected.
+    if (-not $reason -and $protected -contains $eff -and
+        $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in
+            @('merge', 'pull', 'rebase', 'cherry-pick', 'revert', 'am')) {
+        $reason = "History-changing Git operation on protected branch '$eff' is forbidden."
+    }
+
+    # Explicit target branches in rebase can rewrite protected refs from a
+    # feature checkout; --update-refs may also rewrite other branches.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'rebase') {
+        $rebaseArgs = $text.Substring($gitInvocation.Length).Trim()
+        # rebase.updateRefs also enables cross-branch rewriting without the
+        # --update-refs CLI flag. Check caller -c options AND effective Git
+        # config (local/global/environment). Reject opaque inline values rather
+        # than assuming a false setting. config --bool canonicalizes booleans.
+        $rebasePrefix = $text.Substring(0, $gitInvocation.Groups['gitVerb'].Index)
+        $rebaseInlineSettings = [regex]::Matches(
+            $rebasePrefix,
+            '(?i)(?:^|\s)-c\s+["'']?rebase\.updateRefs(?:=(?<value>[^\s"''`]+))?["'']?(?=\s|$)'
+        )
+        foreach ($setting in $rebaseInlineSettings) {
+            if ($setting.Groups['value'].Value.ToLowerInvariant() -notin @('false', 'no', 'off', '0')) {
+                $reason = 'Rebase rebase.updateRefs override may rewrite protected refs.'
+                break
+            }
+        }
+        if (-not $reason) {
+            $priorRebaseEap = $ErrorActionPreference
+            $configuredUpdateRefs = ''
+            $rebaseConfigStatus = 1
+            try {
+                $ErrorActionPreference = 'Continue'
+                $configuredUpdateRefs = ((git -C $evalPath config --bool --get rebase.updateRefs 2>$null) | Out-String).Trim()
+                $rebaseConfigStatus = $LASTEXITCODE
+            }
+            finally { $ErrorActionPreference = $priorRebaseEap }
+            if ($rebaseConfigStatus -notin @(0, 1) -or
+                ($rebaseConfigStatus -eq 0 -and $configuredUpdateRefs -ne 'false')) {
+                $reason = 'Effective rebase.updateRefs configuration is enabled or cannot be verified.'
+            }
+        }
+        if (-not $reason -and $rebaseArgs -match '(?i)(?:^|\s)--update-refs(?:\s|$)') {
+            $reason = 'Rebase --update-refs may rewrite protected refs.'
+        }
+        elseif ($rebaseArgs -match '[;&|]' -or $rebaseArgs -match '[\x22\x27$]') {
+            $reason = 'Opaque rebase arguments cannot prove protected ref safety.'
+        }
+        else {
+            $rebaseOperands = [System.Collections.Generic.List[string]]::new()
+            $skipNext = $false
+            foreach ($arg in ($rebaseArgs -split '\s+')) {
+                if (-not $arg) { continue }
+                if ($skipNext) { $skipNext = $false; continue }
+                if ($arg -in @('--onto', '--exec', '-X', '--strategy-option')) {
+                    $skipNext = $true
+                    continue
+                }
+                if ($arg.StartsWith('-')) { continue }
+                $rebaseOperands.Add($arg)
+            }
+            if ($skipNext) {
+                $reason = 'Incomplete rebase option is forbidden.'
+            }
+            elseif ($rebaseOperands.Count -ge 1 -and
+                    ($rebaseOperands.Count -ge 2 -or
+                     $rebaseArgs -match '(?i)(?:^|\s)--root(?:\s|$)') -and
+                    $protected -contains (
+                        $rebaseOperands[$rebaseOperands.Count - 1].ToLowerInvariant() -replace '^refs/heads/', ''
+                    )) {
+                $reason = 'Rebasing an explicit protected branch target is forbidden.'
+            }
+        }
+    }
+
+    # git checkout -B / switch -C can force-create or reset a protected branch
+    # even when the currently checked-out branch is an unprotected feature.
+    if (-not $reason -and
+        $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -in @('checkout', 'switch')) {
+        $changeArgs = $text.Substring($gitInvocation.Length).Trim()
+        $createFlags = [regex]::Matches(
+            $changeArgs,
+            '(?i)(?:^|\s)(?:-[bBcC](?=\S|\s|$)|--(?:force-create|create)(?==|\s|$))'
+        )
+        $createTargets = [regex]::Matches(
+            $changeArgs,
+            '(?i)(?:^|\s)(?:-[bBcC]\s*|--(?:force-create|create)(?:=|\s+))(?<branch>[A-Za-z0-9._/-]+)(?=\s|$)'
+        )
+        if ($createFlags.Count -gt 0 -and $createTargets.Count -ne $createFlags.Count) {
+            $reason = 'Ambiguous branch-creation arguments to checkout/switch are forbidden.'
+        }
+        elseif (@($createTargets | Where-Object {
+            $target = $_.Groups['branch'].Value.ToLowerInvariant() -replace '^refs/heads/', ''
+            $protected -contains $target
+        }).Count -gt 0) {
+            $reason = 'Creating or replacing a protected branch through checkout/switch is forbidden.'
+        }
     }
 
     if ($text -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+commit\b") {
@@ -988,35 +1599,66 @@ foreach ($segment in (Split-CommandSegments -Command $normalized -BashSyntax $ba
         }
     }
 
-    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+update-ref\b[^\r\n]*refs/heads/$protectedPattern(?![-\w/.])") {
-        $reason = 'Direct protected branch ref mutation is forbidden.'
+    # update-ref can mutate the symbolic HEAD of a protected branch without
+    # spelling refs/heads/main. --stdin can send arbitrarily many hidden ref
+    # updates; --no-deref changes symbolic-ref semantics. Reject both globally.
+    # Accept only statically identifiable single-ref writes on feature branches.
+    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+update-ref(?:\s|$)") {
+        $refMatch = [regex]::Match($text, "(?i)$gitPrefixPattern\s+update-ref\b")
+        $refArgs = $text.Substring($refMatch.Index + $refMatch.Length).Trim()
+        if ($refArgs -match '(?i)(?:^|\s)--(?:stdin|no-deref)(?:\s|$)') {
+            $reason = 'Opaque update-ref stdin or no-deref mode is forbidden.'
+        }
+        elseif ($refArgs -match "(?i)(?:^|\s)refs/heads/$protectedPattern(?=\s|$)") {
+            $reason = 'Direct protected branch ref mutation is forbidden.'
+        }
+        elseif ($refArgs -match '(?i)^(?:-d|--delete)\s+HEAD(?:\s|$)' -and $protected -contains $eff) {
+            $reason = "Deleting symbolic HEAD on protected branch '$eff' is forbidden."
+        }
+        elseif ($refArgs -match '(?i)^HEAD(?:\s|$)' -and $protected -contains $eff) {
+            $reason = "Updating symbolic HEAD on protected branch '$eff' is forbidden."
+        }
+        elseif ($refArgs -notmatch '^(?:HEAD|refs/heads/[A-Za-z0-9._/-]+)\s+[^\s;&|]+(?:\s+[^\s;&|]+)?$') {
+            $reason = 'Unmodeled update-ref target or arguments are forbidden.'
+        }
     }
 
-    # Reset: judged against this segment's own effective branch. Strip quotes from
-    # switch targets so git switch "main" does not bypass the protected check.
+    # Every revision-form reset may move the current branch ref: --soft,
+    # --mixed, and the default mode can rewind protected HEAD just as --hard
+    # does. Only the unambiguous 'reset -- <literal-path>' form updates the
+    # index without moving HEAD. All other protected reset shapes fail closed.
     if (-not $reason -and $text -match "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b") {
         $rm = [regex]::Match($text, "(?i)(?:^|[;&|]\s*)$gitPrefixPattern\s+reset\b")
         $argSeg = $text.Substring($rm.Index + $rm.Length)
         if ($protected -contains $eff -and
-                $argSeg -match '(?i)(?:^|\s)(?:--hard|--keep|--merge)(?:\s|$)') {
-            $reason = "Hard reset on protected branch '$eff' is forbidden."
+            $argSeg -notmatch '^\s+--\s+[A-Za-z0-9_./\\-]+\s*$') {
+            $reason = "Branch-moving or ambiguous reset on protected branch '$eff' is forbidden."
         }
     }
 
-    # Branch -f: the forced pointer target is a ref name, so this check does not
-    # depend on the segment's checked-out branch.
-    if (-not $reason -and $text -match "(?i)$gitPrefixPattern\s+branch\b") {
-        foreach ($bm in [regex]::Matches($text, "(?i)$gitPrefixPattern\s+branch\b")) {
-            $seg = $text.Substring($bm.Index)
-            if ($seg -match '(?i)(?:^|\s)(?:-f|--force)(?:\s|$|[;&|])') {
-                if ($seg -match "(?i)$gitPrefixPattern\s+branch\b((?:\s+-\S+)*)\s+([^\s-]\S*)") {
-                    $branchTarget = ($Matches[2] -replace "^['`"]+|['`"]+$").ToLowerInvariant()
-                    if ($protected -contains $branchTarget) {
-                        $reason = 'Forcing a protected branch pointer is forbidden.'
-                        break
-                    }
-                }
-            }
+    # git branch -D is --delete --force; -d and --delete also remove a
+    # protected ref without running Git hooks. -m/-M/-c/-C can rename/copy
+    # over a protected name, or rename the currently checked-out protected
+    # branch without spelling its name. Inspect all mutation arguments, not
+    # only the first positional token or the current checkout's branch.
+    if (-not $reason -and $gitInvocation.Groups['gitVerb'].Value.ToLowerInvariant() -eq 'branch') {
+        $branchArgs = $text.Substring($gitInvocation.Length).Trim()
+        $branchMutates = $branchArgs -match '(?i)(?:^|\s)(?:-[a-z]*[dDmMcCf][a-z]*|--(?:delete|move|copy|force))(?:\s|$)'
+        $branchNamesProtected = $branchArgs -match "(?i)(?:^|\s)[\x22\x27]?(?:refs/heads/)?$protectedPattern[\x22\x27]?(?=\s|$)"
+        $renamesCurrentProtected = ($protected -contains $eff -and
+            $branchArgs -match '(?i)(?:^|\s)(?:-[a-z]*[mMcC][a-z]*|--(?:move|copy))(?:\s|$)')
+        if ($branchMutates -and ($branchNamesProtected -or $renamesCurrentProtected)) {
+            $reason = 'Deleting, renaming, copying or force-moving a protected branch is forbidden.'
+        }
+        # A plain "git branch main feature/next" creates refs/heads/main when
+        # absent, without -f/-m/-d and without invoking commit/push hooks.
+        # Explicit read-only branch listings may name a protected branch.
+        # Track/reflog/recurse options are creation-capable, not read-only.
+        $branchReadOnly = $branchArgs -match '(?i)(?:^|\s)(?:--list|--show-current|--all|--remotes|--contains|--no-contains|--merged|--no-merged|--points-at|--sort|--format|--column|--verbose|-a|-r|-v+)(?=\s|=|$)'
+        $branchCreationOption = $branchArgs -match '(?i)(?:^|\s)(?:--track|--no-track|--recurse-submodules|--create-reflog|-t|-l)(?=\s|=|$)'
+        if (-not $reason -and $branchNamesProtected -and
+            ($branchCreationOption -or -not $branchReadOnly)) {
+            $reason = 'Creating a protected local branch is forbidden.'
         }
     }
 }

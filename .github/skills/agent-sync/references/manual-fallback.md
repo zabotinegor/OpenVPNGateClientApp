@@ -22,7 +22,11 @@ bypass the deterministic script: report its error instead.
 
 1. Inspect the existing target branch/worktree without creating, switching,
    staging, committing or pushing any branch.
-2. Enumerate in-scope source files from the shared distribution manifest
+2. Apply the canonical exclude patterns to the source inventory before
+   copying: never copy CopilotTools `.github/scripts/test-*`,
+   `.github/scripts/run-all-tests.ps1` or `.github/tests/`. Preserve
+   separately owned client application tests. Enumerate in-scope source files
+   from the shared distribution manifest
    plus every declared runtime manifest (no hard-coded runtime IDs). Compare
    exact relative paths and contents at the resolved source SHA.
 3. Mirror additions/updates/deletions within the approved scope; never delete
@@ -34,7 +38,8 @@ bypass the deterministic script: report its error instead.
    in-scope files, not only changed files. Exclude `agent-sync` and
    `sync-agent-assets`; keep hooks, branch guards and these protected paths
    trackable. Add shared transient ignore entries and runtime-manifest
-   `distribution.transientIgnorePaths`, never broad directory ignores.
+   `distribution.transientIgnorePaths`, keeping only the first occurrence
+   of each pattern; never broad directory ignores.
 5. Verify that the managed ignore block count equals all in-scope sync paths
    minus protected exclusions, that source bytes match for **every** changed
    file and that no unexpected untracked paths remain. If a path remains

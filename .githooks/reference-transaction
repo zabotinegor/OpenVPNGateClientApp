@@ -1,0 +1,75 @@
+#!/bin/sh
+# Enforce protected local branch invariants at the Git ref transaction itself.
+# Unlike a text-based PreToolUse guard, this observes branch creation/update/
+# deletion regardless of which Git subcommand caused it. Release-flow dev
+# archive and remote-sync exceptions are intentionally narrowly scoped.
+[ "$1" = "prepared" ] || exit 0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+[ -f "$root/.agenttools-source" ] && exit 0
+zero=0000000000000000000000000000000000000000
+
+remote_tip() {
+  git rev-parse -q --verify "refs/remotes/origin/$1^{commit}" 2>/dev/null || true
+}
+# Local remote-tracking refs are mutable and cannot attest a server branch tip.
+# Reject protected ref updates when the live origin cannot be verified.
+verified_remote_tip() {
+  remote_result=$(GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code --heads origin "refs/heads/$1" 2>/dev/null) || return 1
+  printf '%s\n' "$remote_result" |
+    awk -v expected="refs/heads/$1" 'NF == 2 && $2 == expected { print $1 }'
+}
+is_ancestor() {
+  [ "$1" = "$zero" ] || git merge-base --is-ancestor "$1" "$2" 2>/dev/null
+}
+valid_dev_archive_proof() {
+  proof=$(git rev-parse --git-path copilottools-dev-archive-guard 2>/dev/null) || return 1
+  [ -f "$proof" ] || return 1
+  [ "$(wc -l < "$proof" | tr -d ' ')" = "3" ] || return 1
+  proof_remote=$(sed -n '1p' "$proof")
+  proof_old=$(sed -n '2p' "$proof")
+  proof_main=$(sed -n '3p' "$proof")
+  [ "$proof_remote" = origin ] && [ -n "$proof_old" ] &&
+    [ "$proof_main" = "$(remote_tip main)" ] || return 1
+  git for-each-ref --format='%(objectname)' 'refs/remotes/origin/archive/archive-dev-*' |
+    grep -Fxq "$proof_old"
+}
+while read -r old new ref; do
+  case "$ref" in
+    refs/heads/main|refs/heads/dev|refs/heads/master|refs/heads/develop)
+      branch=${ref#refs/heads/}
+      ;;
+    HEAD)
+      # A checkout may repoint symbolic HEAD without changing a branch.
+      case "$new" in ref:*) continue ;; esac
+      branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
+      case "$branch" in main|dev|master|develop) ;; *) continue ;; esac
+      ;;
+    *) continue ;;
+  esac
+  [ "$old" = "$new" ] && continue
+  # Require agreement between tracking state and the actual server ref
+  # before accepting a protected fast-forward after an approved merge.
+  remote=$(remote_tip "$branch")
+  if [ -n "$remote" ] && [ "$new" = "$remote" ] &&
+     is_ancestor "$old" "$new" && [ "$new" = "$(verified_remote_tip "$branch")" ]; then
+    continue
+  fi
+  if [ "$branch" = dev ]; then
+    # The release flow archives old dev and recreates it from approved main.
+    # The pre-push dev-archive proof binds the archived old tip and main SHA.
+    if valid_dev_archive_proof; then
+      if [ "$new" = "$zero" ] && [ "$old" = "$proof_old" ]; then continue; fi
+      if [ "$old" = "$zero" ] && [ "$new" = "$proof_main" ]; then continue; fi
+    fi
+    # Local release cleanup may remove new dev after it was cut from main.
+    # Tracking origin/dev may still be stale until the next fetch, so the
+    # decisive value is the locally fetched canonical origin/main tip.
+    if [ "$new" = "$zero" ] && [ -n "$(remote_tip main)" ] &&
+       [ "$old" = "$(remote_tip main)" ]; then
+      continue
+    fi
+  fi
+  echo "BLOCKED: protected local reference '$ref' cannot be created, replaced or deleted at this target." >&2
+  exit 1
+done
+exit 0

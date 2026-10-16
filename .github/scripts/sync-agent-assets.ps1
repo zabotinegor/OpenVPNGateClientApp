@@ -3,8 +3,8 @@ param(
     [string]$SourceRef = 'main',
     [string]$TargetRoot = (Get-Location).Path,
     [string[]]$Scope = @(),
-    [string[]]$PreservePattern = @('agent-sync', 'sync-agent-assets', 'asset-lock.json'),
-    [string[]]$ExcludeGitignorePattern = @('agent-sync', 'sync-agent-assets', '.github/hooks/', '.githooks/', 'protect-agent-git-command', '.copilottools/config.json'),
+    [string[]]$PreservePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', 'asset-lock.json'),
+    [string[]]$ExcludeGitignorePattern = @('agent-sync', '.github/scripts/sync-agent-assets.ps1', '.github/hooks/', '.githooks/', 'protect-agent-git-command', '.copilottools/config.json'),
     [string[]]$MergeJsonPaths = @(),
     [switch]$DryRun,
     [switch]$AllowRootMdSync
@@ -462,7 +462,11 @@ function Set-TransientCopilotArtifactGitignoreEntries {
         # hand-authored runtime configuration stays trackable.
         '/.copilottools/asset-lock.json'
     )
-    $entries = @($entries) + @($AdditionalEntries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    # Built-in and source/runtime-manifest patterns overlap. Emit each once.
+    $seenIgnoreEntries = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $entries = @((@($entries) + @($AdditionalEntries | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_)
+    })) | Where-Object { $seenIgnoreEntries.Add([string]$_) })
 
     $existing = @()
     if (Test-Path -LiteralPath $gitignorePath) {
@@ -849,6 +853,7 @@ function Set-RepositoryGitHooksPath {
         'post-checkout' = '.githooks/post-checkout'
         'pre-commit' = '.githooks/pre-commit'
         'pre-push' = '.githooks/pre-push'
+        'reference-transaction' = '.githooks/reference-transaction'
         'trusted-runtime/sync-agent-assets.ps1' = '.github/scripts/sync-agent-assets.ps1'
         'trusted-runtime/runtime-layer-hash.ps1' = '.github/scripts/runtime-layer-hash.ps1'
         'trusted-runtime/runtime-distribution-lib.ps1' = '.github/scripts/runtime-distribution-lib.ps1'
@@ -860,12 +865,30 @@ function Set-RepositoryGitHooksPath {
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing trusted hook source: $($item.Value)" }
         $different = (-not (Test-Path -LiteralPath $dst -PathType Leaf)) -or
             ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash)
-        if ($different) {
+        $isExecutableHook = $item.Key -in @('post-checkout', 'pre-commit', 'pre-push', 'reference-transaction')
+        $needsExecuteRepair = $false
+        if (-not $IsWindows -and $isExecutableHook -and (Test-Path -LiteralPath $dst -PathType Leaf)) {
+            # Trusted hook contents and Unix execution permissions are separate
+            # invariants. A restored but non-executable hook is silently ignored
+            # by Git even when the hashes match, so repair metadata independently.
+            # POSIX test -x is available on supported Unix hosts even with
+            # PowerShell 7.0/7.2 (.NET Core 3.1/.NET 6). The .NET 7-only
+            # File.GetUnixFileMode/UnixFileMode APIs would crash routine sync.
+            & test -x $dst
+            $testExit = $LASTEXITCODE
+            if ($testExit -notin @(0, 1)) {
+                throw "Cannot verify trusted hook execution permission: $dst (test exit $testExit)"
+            }
+            $needsExecuteRepair = $testExit -eq 1
+        }
+        if ($different -or $needsExecuteRepair) {
             $fileChanged = $true
             if (-not $DryRun) {
-                New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
-                Copy-Item -LiteralPath $src -Destination $dst -Force
-                if (-not $IsWindows -and $item.Key -in @('post-checkout', 'pre-commit', 'pre-push')) {
+                if ($different) {
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+                    Copy-Item -LiteralPath $src -Destination $dst -Force
+                }
+                if (-not $IsWindows -and $isExecutableHook) {
                     & chmod +x $dst
                     if ($LASTEXITCODE -ne 0) { throw 'Cannot chmod trusted hook' }
                 }
@@ -972,8 +995,20 @@ try {
     Invoke-ExternalCommand -FilePath 'git' -Arguments @('-C', $tempRoot, 'checkout', '--quiet', $sourceCommit) -FailureMessage 'git checkout failed.' | Out-Null
 
     $distribution = Get-CopilotToolsDistribution -Root $tempRoot
-    if ($normalizedScope.Count -eq 0) { $normalizedScope = @($distribution.allAssets) }
-    $normalizedMergeJsonPaths = @(@($normalizedMergeJsonPaths) + @($distribution.mergeJsonPaths) | Select-Object -Unique)
+    # A scoped sync verifies only the requested files. It must not advance the
+    # global runtime-layer attestation: unsynchronized assets may still be stale
+    # even if the scoped verification passes.
+    $isFullManifestSync = ($normalizedScope.Count -eq 0)
+    if ($isFullManifestSync) { $normalizedScope = @($distribution.allAssets) }
+    # Manifest config adapters own their declared formats (including TOML).
+    # They must not fall into the generic JSON merge/verification pipeline,
+    # even when a runtime also advertises that path as mergeable JSON.
+    $adapterOwnedPaths = @($distribution.configMerges | ForEach-Object { Convert-ToRepoRelativePath -Path ([string]$_.path) })
+    $normalizedMergeJsonPaths = @(
+        @($normalizedMergeJsonPaths) + @($distribution.mergeJsonPaths) |
+            Where-Object { $_ -notin $adapterOwnedPaths } |
+            Select-Object -Unique
+    )
     $ExcludeSyncPathPattern = @($distribution.excludeSyncPathPatterns)
 
     $requestedProtectedRootMd = @(
@@ -1013,7 +1048,7 @@ try {
         $configMergeEntry = $distribution.configMerges | Where-Object { $_.path -ieq $relativePath } | Select-Object -First 1
 
         if (-not $targetFiles.ContainsKey($relativePath)) {
-            if ($isMergeJson) {
+            if ($isMergeJson -and $null -eq $configMergeEntry) {
                 $newMergeJsonPaths.Add($relativePath) | Out-Null
             } else {
                 $added.Add($relativePath)
@@ -1023,11 +1058,13 @@ try {
                 if ($isRootMd) {
                     # Create root markdown with managed sync markers
                     Set-FileSectionByMarkers -TargetPath $targetPath -SourceSectionPath $sourcePath -DryRun:$DryRun
-                } elseif (-not $isMergeJson) {
+                } elseif (-not $isMergeJson -or $null -ne $configMergeEntry) {
+                    # Initialize adapter-managed files with their source-format
+                    # bytes; the adapter below then computes canonical content.
                     Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
                 }
             }
-            continue
+            if ($null -eq $configMergeEntry -or $DryRun) { continue }
         }
 
         if ($null -ne $configMergeEntry) {
@@ -1096,6 +1133,18 @@ try {
                         $managedIgnoreOwned = @($gitignoreLines[($beginManaged + 1)..($endManaged - 1)] | Where-Object { $_ -eq $managedIgnorePath }).Count -gt 0
                         if ($managedIgnoreOwned) { break }
                     }
+                }
+            }
+            # Once a previous full sync has pruned the legacy ignore entry,
+            # only a byte-identical, source-owned excluded test is safe to
+            # remove. Never delete locally edited or unrelated client files.
+            if (-not $managedIgnoreOwned -and
+                $relativePath -match '^\.github/scripts/(?:test-[^/]+|run-all-tests\.ps1)$') {
+                $sourceOnlyFile = Join-Path $tempRoot $relativePath
+                if ((Test-Path -LiteralPath $sourceOnlyFile -PathType Leaf) -and
+                    (Get-FileHash -LiteralPath $sourceOnlyFile -Algorithm SHA256).Hash -eq
+                    (Get-FileHash -LiteralPath $targetFiles[$relativePath] -Algorithm SHA256).Hash) {
+                    $managedIgnoreOwned = $true
                 }
             }
             if (-not $managedIgnoreOwned) {
@@ -1277,16 +1326,37 @@ try {
         }
         for ($offset = 0; $offset -lt $pathsToUntrack.Count; $offset += 50) {
             $batch = @($pathsToUntrack.GetRange($offset, [Math]::Min(50, $pathsToUntrack.Count - $offset)))
+            # Native commands do not automatically honor ErrorActionPreference.
+            # A failed batched rm was previously ignored and every path was
+            # reported as untracked even though it remained in the git index.
             git -C $targetRootResolved rm --cached --quiet -- @batch 2>$null | Out-Null
+            $removeExit = $LASTEXITCODE
+            if ($removeExit -ne 0) {
+                throw "Failed to remove $($batch.Count) synchronized file(s) from the git index (git rm --cached exit $removeExit); sync is incomplete."
+            }
+            $stillTracked = @(git -C $targetRootResolved ls-files --cached -- @batch)
+            $verifyExit = $LASTEXITCODE
+            if ($verifyExit -ne 0 -or $stillTracked.Count -gt 0) {
+                throw "Git index verification failed after synchronized-file cleanup (exit $verifyExit, $($stillTracked.Count) tracked path(s) remain); sync is incomplete."
+            }
+            $untrackedCount += $batch.Count
         }
-        $untrackedCount = $pathsToUntrack.Count
         if ($untrackedCount -gt 0) {
             Write-Host "  Untracked $untrackedCount gitignored file(s) from git index"
         }
     }
 
     $gitHooksConfiguration = $null
-    if ($normalizedScope -icontains '.githooks') {
+    # A file-scoped sync can update a hook or its trusted runtime dependencies.
+    # Keep the installed immutable copy synchronized whenever ANY source it
+    # contains intersects the requested scope (not only the .githooks folder).
+    $trustedSourcePaths = @(
+        '.githooks',
+        '.github/scripts/sync-agent-assets.ps1',
+        '.github/scripts/runtime-layer-hash.ps1',
+        '.github/scripts/runtime-distribution-lib.ps1'
+    )
+    if (Test-ScopeIntersectsPaths -Scope $normalizedScope -Paths $trustedSourcePaths) {
         $gitHooksConfiguration = Set-RepositoryGitHooksPath -Root $targetRootResolved -SourceRoot $tempRoot -DryRun:$DryRun
     }
 
@@ -1362,7 +1432,7 @@ try {
         }
     }
 
-    if (-not $DryRun) {
+    if (-not $DryRun -and $isFullManifestSync -and $mismatches.Count -eq 0) {
         $assetLockPath = Join-Path $targetRootResolved '.copilottools/asset-lock.json'
         New-Item -ItemType Directory -Path (Split-Path -Parent $assetLockPath) -Force | Out-Null
         $assetLock = [ordered]@{
