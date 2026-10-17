@@ -2743,7 +2743,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // a live tunnel without an engine notification needs the actionable CONNECTED variant.
         // A stale live level during an in-flight stop must not flip DISCONNECTING back to CONNECTED;
         // markStopFailure is the only place that upgrades while a stop is running.
-        val stopInFlightNotification = userInitiatedStop
+        // A failed stop (STOP_FAILED) leaves userInitiatedStop set but is no longer "in flight".
+        val stopFailed = ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED
+        val stopInFlightNotification = userInitiatedStop && !stopFailed
             && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING
         if (engineTunnelLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
             && !stopInFlightNotification && !engineNotificationActive) {
@@ -2764,7 +2766,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     // null (ownership handed to an engine notification that has since vanished). During
                     // a stop never show the actionable CONNECTED variant; keep the honest DISCONNECTING
                     // one. markStopFailure is the only place that upgrades while a stop is running.
-                    if (!userInitiatedStop) {
+                    if (!userInitiatedStop || ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED) {
                         enterControllerForeground(ControllerNotificationMode.CONNECTED)
                     } else if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING) {
                         enterControllerForeground(ControllerNotificationMode.DISCONNECTING)

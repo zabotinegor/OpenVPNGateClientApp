@@ -61,8 +61,10 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   - `CONNECTED`: restored after controller recreation when the engine reports `LEVEL_CONNECTED` or
     `LEVEL_VPNPAUSED` (a lagging raw level whose detail is `CONNECTED` counts as connected, like the app state) while neither the controller nor the engine shows a notification. This is
     not gated on the app `ConnectionState`. Includes the Disconnect action.
-    Never posted while a user stop is active (including a stop detected only after the restore was queued):
-    the `DISCONNECTING` variant is kept or posted instead, and only `STOP_FAILED` upgrades it.
+    Never posted while a user stop is in flight (including a stop detected only after the restore was queued):
+    the `DISCONNECTING` variant is kept or posted instead. Once the stop has failed (`STOP_FAILED`) it is no longer
+    in flight, so `STOP_FAILED` and any later restore (for example after the engine notification vanished) show
+    this actionable variant.
   - `DISCONNECTING`: shown on `ACTION_STOP` when neither notification is present, so the notification
     is not removed before teardown is confirmed. No Disconnect action.
 - **Tap target.** Both variants open the launcher activity through the content intent.

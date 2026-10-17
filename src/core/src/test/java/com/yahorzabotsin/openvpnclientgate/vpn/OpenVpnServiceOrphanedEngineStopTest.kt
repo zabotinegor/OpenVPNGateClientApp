@@ -525,9 +525,10 @@ class OpenVpnServiceOrphanedEngineStopTest {
         ReflectionHelpers.setField(service, "userInitiatedStop", true)
         ShadowLooper.idleMainLooper()
 
-        val titles = notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
-        assertTrue("No actionable CONNECTED notification during a stop, got $titles", "VPN connected" !in titles)
-        assertEquals(1, titles.size)
+        assertEquals(
+            listOf("VPN disconnecting"),
+            notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+        )
     }
 
     @Test
@@ -543,9 +544,53 @@ class OpenVpnServiceOrphanedEngineStopTest {
         ReflectionHelpers.setField(service, "userInitiatedStop", true)
         ShadowLooper.idleMainLooper()
 
-        val titles = notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
-        assertTrue("No actionable CONNECTED notification during a stop, got $titles", "VPN connected" !in titles)
-        assertEquals(1, titles.size)
+        assertEquals(
+            listOf("VPN disconnecting"),
+            notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+        )
+    }
+
+    @Test
+    fun restoreAfterAFailedStop_withNoControllerNotification_postsTheActionableConnectedVariant() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        ReflectionHelpers.callInstanceMethod<Unit>(service, "exitControllerForeground") // handed to the engine
+        // markStopFailure deferred to the engine notification, which has since vanished.
+        ReflectionHelpers.setField(service, "userInitiatedStop", true)
+        ConnectionStateManager.setStopFailure()
+        try {
+            reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(
+                listOf("VPN connected"),
+                notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+            )
+        } finally {
+            ConnectionStateManager.clearStopFailure()
+        }
+    }
+
+    @Test
+    fun restoreAfterAFailedStop_whileTheModeIsDisconnecting_upgradesToConnected() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        service.onStartCommand(stopIntent(), 0, 1) // posts DISCONNECTING (no engine notification)
+        assertEquals("VPN disconnecting", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+        ConnectionStateManager.setStopFailure()
+        try {
+            reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(
+                listOf("VPN connected"),
+                notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+            )
+        } finally {
+            ConnectionStateManager.clearStopFailure()
+        }
     }
 
     @Test
