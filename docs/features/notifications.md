@@ -81,6 +81,26 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   one pause-guard decision per callback covers all of these); it is also
   released when the service is destroyed.
 
+### Notification-loss recovery and its limits
+
+While the accepted engine level is live, the AIDL byte-count callback schedules a recheck at most every
+15 s (`scheduleNotificationOwnershipRecheck()`), decided on the main thread by the same restore as the
+state-callback path:
+
+- the engine notification vanished and the controller shows none (or the user dismissed the posted
+  `CONNECTED` variant: the cached mode only counts while notification 7014 is actually posted) -> the
+  actionable `CONNECTED` variant is (re)posted, or `DISCONNECTING` during a stop;
+- the engine re-posted its own notification while the controller `CONNECTED` variant is showing -> the
+  controller variant is released.
+
+Known limitation: the recheck is owned by the controller service instance. After ownership is handed to the
+engine the controller is no longer a foreground service, so Android may stop it while the engine process
+survives; if the engine notification then also disappears, nothing in the main process can repost 7014 until the
+app is opened, a state callback recreates the controller, or the user acts from the app UI or the system VPN
+indicator. Recovering from that needs engine-side notification recovery or a permanently foreground
+controller (which would bring back the duplicate notification the handoff removes); it is tracked as a
+follow-up outside this fix, whose scope is the orphaned-stop path.
+
 ## Disconnect action
 
 `vpn/DisconnectReceiver` handles the notification's disconnect action. If the app's own path is
