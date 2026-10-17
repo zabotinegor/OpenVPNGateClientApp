@@ -462,6 +462,25 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun queuedRestoreSurvivesAStaleConnectingLevelRejectedByThePauseGuard() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        ReflectionHelpers.setField(service, "pauseActionInFlight", true)
+
+        val binderThread = Thread {
+            reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+            // Stale connecting-family callback: ignored by the pause guard, so not engine truth.
+            reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED)
+        }
+        binderThread.start()
+        binderThread.join()
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
     fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()

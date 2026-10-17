@@ -1274,6 +1274,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun isPauseGuardActive() =
         pauseActionInFlight || ConnectionStateManager.state.value == ConnectionState.PAUSING
 
+    /** Mirrors the pause guard in syncEngineState(): raw `level`, not the normalized one. */
+    private fun isPauseGuardRejected(level: ConnectionStatus) =
+        isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS
+
     // Cancels both the final timeout and the mid-window retry together, and resets the retry's
     // one-shot guard -- every site that gives up on or confirms a pause must clear all three in
     // step, or a stale retry could fire after the pause has already been abandoned or confirmed.
@@ -1874,7 +1878,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         lastReportedEngineLevel = level
-        if (shouldUseVpnStatus()) {
+        if (shouldUseVpnStatus() && !isPauseGuardRejected(level)) {
             lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
         }
         if (!shouldUseVpnStatus()) {
@@ -2031,7 +2035,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             if (level == null) return
             lastReportedEngineLevel = level
             // Normalized like the app state: a lagging raw level with detail CONNECTED is a live tunnel.
-            lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
+            // Not for a stale connecting-family level the pause guard in syncEngineState() rejects.
+            if (!isPauseGuardRejected(level)) {
+                lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
+            }
             lastStatusSnapshotMs = watchdogNowMs()
             lastLiveStatusMs = lastStatusSnapshotMs
             lastLiveStatusElapsedRealtimeMs = elapsedRealtimeMs()
