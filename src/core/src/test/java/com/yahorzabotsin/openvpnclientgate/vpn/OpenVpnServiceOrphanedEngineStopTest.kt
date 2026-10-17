@@ -595,6 +595,98 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun recheckDoesNotRepostWhileNotificationsAreDisabledForTheApp() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        assertNotNull("precondition: the safety notification is posted", notifications.getNotification(7014))
+
+        manager.cancel(7014)
+        notifications.setNotificationsEnabled(false)
+        callbacks.updateByteCount(1L, 1L)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("Nothing could be shown; no repost churn", null, notifications.getNotification(7014))
+    }
+
+    @Test
+    fun dismissedSafetyNotificationDuringAPause_isRepostedOnTheNextLevelCallback() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancelAll()
+        reportEngineLevel(service, ConnectionStatus.LEVEL_VPNPAUSED)
+        ShadowLooper.idleMainLooper()
+        assertNotNull("precondition: posted for a paused live tunnel", notifications.getNotification(7014))
+
+        manager.cancel(7014)
+        reportEngineLevel(service, ConnectionStatus.LEVEL_VPNPAUSED)
+        ShadowLooper.idleMainLooper()
+
+        assertNotNull("A dismissed safety notification must come back", notifications.getNotification(7014))
+    }
+
+    @Test
+    fun stopFailureRepostsADismissedConnectedNotification() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        assertNotNull(notifications.getNotification(7014))
+        manager.cancel(7014)
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "markStopFailure", ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+        )
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.getNotification(7014)
+        assertNotNull("The failed stop must leave a visible, actionable notification", posted)
+        assertEquals("VPN connected", posted!!.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(1, posted.actions?.size ?: 0)
+    }
+
+    @Test
+    fun stopFailureFromABinderThread_upgradesOnlyOnTheMainThread_andIsDroppedIfTheFailureIsCleared() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        service.onStartCommand(stopIntent(), 0, 1)
+        assertEquals("VPN disconnecting", notifications.getNotification(7014)!!.extras.getString(Notification.EXTRA_TITLE))
+
+        val fail = {
+            val t = Thread {
+                ReflectionHelpers.callInstanceMethod<Unit>(
+                    service, "markStopFailure", ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+                )
+            }
+            t.isDaemon = true
+            t.start()
+            t.join(5_000)
+            assertFalse("binder thread did not finish", t.isAlive)
+        }
+        fail()
+        assertEquals(
+            "Notification state is only mutated on the main thread",
+            "VPN disconnecting", notifications.getNotification(7014)!!.extras.getString(Notification.EXTRA_TITLE)
+        )
+        ShadowLooper.idleMainLooper()
+        assertEquals("VPN connected", notifications.getNotification(7014)!!.extras.getString(Notification.EXTRA_TITLE))
+
+        // Back to the in-flight stop, then fail again but clear the failure before the main looper runs.
+        service.onStartCommand(stopIntent(), 0, 1)
+        ShadowLooper.idleMainLooper()
+        assertEquals("VPN disconnecting", notifications.getNotification(7014)!!.extras.getString(Notification.EXTRA_TITLE))
+        fail()
+        ConnectionStateManager.clearStopFailure()
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "A cleared failure drops the pending upgrade",
+            "VPN disconnecting", notifications.getNotification(7014)!!.extras.getString(Notification.EXTRA_TITLE)
+        )
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
