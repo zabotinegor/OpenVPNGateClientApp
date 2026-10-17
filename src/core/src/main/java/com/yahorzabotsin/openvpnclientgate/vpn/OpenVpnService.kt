@@ -2774,6 +2774,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && level != ConnectionStatus.UNKNOWN_LEVEL
             && !reconnectPending
             && !userInitiatedStop
+            // A stale connecting-family level the pause guard below discards must not release it either.
+            && !isPauseGuardRejected(level)
             && (!engineTunnelLive || engineNotificationActive)) {
             // Every non-live level (idle, terminal failures such as AUTH_FAILED, connecting
             // phases) releases the controller notification as before; a live tunnel keeps it

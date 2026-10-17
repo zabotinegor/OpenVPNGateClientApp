@@ -481,6 +481,37 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun staleConnectingLevelDuringAPause_doesNotReleaseTheRestoredNotification() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+
+        ReflectionHelpers.setField(service, "pauseActionInFlight", true)
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
+    fun connectingLevelWithoutAPause_stillReleasesTheRestoredNotification() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertEquals(1, notifications.allNotifications.size)
+
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(0, notifications.allNotifications.size)
+    }
+
+    @Test
     fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
