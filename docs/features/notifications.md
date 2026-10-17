@@ -77,7 +77,8 @@ only as a **safety net**, when no such engine notification exists while a tunnel
   `exitControllerForeground()` releases it when the engine reports a level other than START/UNKNOWN and either
   the tunnel is not live (any normalized level except CONNECTED/VPNPAUSED, including a terminal AUTH_FAILED) or the engine
   owns an ongoing notification of its own, except for a stale connecting-family level that the pause guard
-  discards while a pause is in flight (such a level neither releases nor revokes a pending restore); it is also
+  discards while a pause is in flight (such a level neither releases, restores nor revokes a pending restore;
+  one pause-guard decision per callback covers all of these); it is also
   released when the service is destroyed.
 
 ## Disconnect action

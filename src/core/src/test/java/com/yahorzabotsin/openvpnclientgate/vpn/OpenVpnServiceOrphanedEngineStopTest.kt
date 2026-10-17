@@ -594,6 +594,26 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun staleConnectingLevelWithConnectedDetailDuringAPause_neitherRestoresNorChangesTheMarker() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        ReflectionHelpers.setField(service, "pauseActionInFlight", true)
+        val markerBefore = ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAcceptedEngineLevel")
+
+        val binderThread = Thread {
+            ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+                .updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED, null)
+        }
+        binderThread.start()
+        binderThread.join()
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(markerBefore, ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAcceptedEngineLevel"))
+        assertTrue(notifications.allNotifications.none { it.extras.getString(Notification.EXTRA_TITLE) == "VPN connected" })
+    }
+
+    @Test
     fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
