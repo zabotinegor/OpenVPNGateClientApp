@@ -512,6 +512,43 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun restoreRunningDuringAUserStop_postsDisconnecting_notTheActionableConnectedVariant() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+
+        // The restore is queued while no stop is known; a stale-stop reconciliation then sets
+        // userInitiatedStop before the queued runnable executes (controller mode is still CONNECTING).
+        val binderThread = Thread { reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED) }
+        binderThread.start()
+        binderThread.join()
+        ReflectionHelpers.setField(service, "userInitiatedStop", true)
+        ShadowLooper.idleMainLooper()
+
+        val titles = notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+        assertTrue("No actionable CONNECTED notification during a stop, got $titles", "VPN connected" !in titles)
+        assertEquals(1, titles.size)
+    }
+
+    @Test
+    fun restoreRunningDuringAUserStop_afterEngineHandoff_postsDisconnecting() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        ReflectionHelpers.setField(service, "engineBinder", CountingBinder())
+        ReflectionHelpers.callInstanceMethod<Unit>(service, "exitControllerForeground") // mode == null
+
+        val binderThread = Thread { reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED) }
+        binderThread.start()
+        binderThread.join()
+        ReflectionHelpers.setField(service, "userInitiatedStop", true)
+        ShadowLooper.idleMainLooper()
+
+        val titles = notifications.allNotifications.map { it.extras.getString(Notification.EXTRA_TITLE) }
+        assertTrue("No actionable CONNECTED notification during a stop, got $titles", "VPN connected" !in titles)
+        assertEquals(1, titles.size)
+    }
+
+    @Test
     fun queuedRestoreIsNotRevivedByAStaleVpnStatusLevelWhileAidlIsFresh() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()

@@ -2758,9 +2758,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
                 }
                 if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
-                    && !(userInitiatedStop && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING)
                     && !hasEngineOngoingNotification()) {
-                    enterControllerForeground(ControllerNotificationMode.CONNECTED)
+                    // Re-read here: userInitiatedStop can be set after this was queued (stale-stop
+                    // reconciliation) and the controller mode can be CONNECTING (startup variant) or
+                    // null (ownership handed to an engine notification that has since vanished). During
+                    // a stop never show the actionable CONNECTED variant; keep the honest DISCONNECTING
+                    // one. markStopFailure is the only place that upgrades while a stop is running.
+                    if (!userInitiatedStop) {
+                        enterControllerForeground(ControllerNotificationMode.CONNECTED)
+                    } else if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING) {
+                        enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
+                    }
                 }
             }
             if (Looper.myLooper() == Looper.getMainLooper()) {
