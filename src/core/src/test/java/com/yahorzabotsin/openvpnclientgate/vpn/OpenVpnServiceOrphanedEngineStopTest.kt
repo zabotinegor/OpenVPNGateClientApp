@@ -565,6 +565,36 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun stopFailureFromABinderThread_afterAQueuedSwitch_endsWithTheActionableConnectedVariant() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        assertEquals("VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE))
+
+        val binderThread = Thread {
+            // Stale-stop reconciliation off the main thread queues the DISCONNECTING switch ...
+            ReflectionHelpers.callInstanceMethod<Unit>(
+                service, "startUserStopTeardown",
+                ReflectionHelpers.ClassParameter.from(String::class.java, "stale_relaunch"),
+                ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, false)
+            )
+            // ... and the stop then fails on the same thread before the main looper ran it.
+            ReflectionHelpers.callInstanceMethod<Unit>(
+                service, "markStopFailure", ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+            )
+        }
+        binderThread.isDaemon = true
+        binderThread.start()
+        binderThread.join(5_000)
+        assertFalse("binder thread did not finish", binderThread.isAlive)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(ConnectionStateManager.VpnError.STOP_FAILED, ConnectionStateManager.error.value)
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN connected", posted.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("A failed stop must leave Disconnect available", 1, posted.actions?.size ?: 0)
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()

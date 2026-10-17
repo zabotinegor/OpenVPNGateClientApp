@@ -604,11 +604,25 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun markStopFailure(reason: String) {
+        // Publish the failure first: a stop-time notification switch queued on the main thread
+        // (teardown started off-main) skips itself once STOP_FAILED is recorded, so it can never
+        // run between the upgrade below and this publication and undo the upgrade.
+        ConnectionStateManager.setStopFailure()
         // A failed dispatch must not leave a potentially live tunnel invisible.
         // Also upgrade an already-posted CONNECTING/DISCONNECTING variant: it carries no
-        // Disconnect action and would be wrong for a possibly live tunnel.
-        if (!isControllerConnectedVariantShown() && !hasEngineOngoingNotification()) {
-            enterControllerForeground(ControllerNotificationMode.CONNECTED)
+        // Disconnect action and would be wrong for a possibly live tunnel. Notification state is
+        // only mutated on the main thread; this can be reached from the AIDL binder thread.
+        val upgradeNotification = {
+            if (!serviceDestroyed && !isControllerConnectedVariantShown() && !hasEngineOngoingNotification()) {
+                enterControllerForeground(ControllerNotificationMode.CONNECTED)
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            upgradeNotification()
+        } else {
+            statusHandler.post {
+                if (ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED) upgradeNotification()
+            }
         }
         stopAwaitingConfirmation = false
         stopBindPending = false
@@ -616,7 +630,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         statusHandler.removeCallbacks(stopRetryRunnable)
         statusHandler.removeCallbacks(stopConfirmationTimeoutRunnable)
         statusHandler.removeCallbacks(stopBindTimeoutRunnable)
-        ConnectionStateManager.setStopFailure()
         val elapsedMs = if (stopStartedAtMs > 0L) System.currentTimeMillis() - stopStartedAtMs else -1L
         val failureCount = incrementStopFailureCounter()
         AppLog.e(
