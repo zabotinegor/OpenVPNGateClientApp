@@ -459,6 +459,57 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun engineNotificationThatVanishesUnderALiveTunnel_isRestoredOnTheNextByteCountRecheck() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
+        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        assertEquals("precondition: ownership handed to the engine", null, notifications.getNotification(7014))
+
+        // The engine notification disappears while the native tunnel stays connected.
+        manager.cancel(engineId)
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        val binderThread = Thread { callbacks.updateByteCount(1_000L, 2_000L) }
+        binderThread.isDaemon = true
+        binderThread.start()
+        binderThread.join(5_000)
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.getNotification(7014)
+        assertNotNull("The safety notification must come back", posted)
+        assertEquals("VPN connected", posted!!.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("Disconnect must be available", 1, posted.actions?.size ?: 0)
+    }
+
+    @Test
+    fun byteCountRecheck_isThrottled_andNeverRunsForANonLiveTunnel() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        // Not live: a byte-count callback must not post anything.
+        manager.cancelAll()
+        callbacks.updateByteCount(1L, 1L)
+        ShadowLooper.idleMainLooper()
+        assertFalse(hasControllerNotification())
+
+        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        manager.cancel(engineId)
+        callbacks.updateByteCount(2L, 2L) // first live recheck restores
+        ShadowLooper.idleMainLooper()
+        assertNotNull(notifications.getNotification(7014))
+
+        // Within the throttle window a second vanish is not looked at again.
+        manager.cancelAll()
+        callbacks.updateByteCount(3L, 3L)
+        ShadowLooper.idleMainLooper()
+        assertFalse("Throttled: no second recheck within the interval", hasControllerNotification())
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()

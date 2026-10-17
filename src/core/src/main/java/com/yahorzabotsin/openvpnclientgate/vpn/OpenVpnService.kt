@@ -135,6 +135,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         private const val PAUSE_RETRY_AT_MS = 5_000L
         private const val RESUME_CONFIRMATION_TIMEOUT_MS = 5_000L
         private const val STOP_DISPATCH_MAX_ATTEMPTS = 3
+        private const val NOTIFICATION_OWNERSHIP_RECHECK_INTERVAL_MS = 15_000L
         private const val STOP_DISPATCH_RETRY_DELAY_MS = 1_000L
         private const val STOP_CONFIRMATION_TIMEOUT_MS = 8_000L
         private const val STOP_BIND_TIMEOUT_MS = 2_000L
@@ -341,6 +342,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // levels only while AIDL is not fresh. Unlike lastReportedEngineLevel it is never moved by a
     // VpnStatus callback that is ignored, so queued notification work can trust it.
     @Volatile private var lastAcceptedEngineLevel: ConnectionStatus? = null
+    // Written and read on the AIDL binder thread only (scheduleNotificationOwnershipRecheck()).
+    private var lastOwnershipRecheckMs = -NOTIFICATION_OWNERSHIP_RECHECK_INTERVAL_MS
     private var lastEngineDetail: String? = null
     private var lastEngineLevelLogMs: Long = 0L
     private var oneShotSyncRequested = false
@@ -2112,6 +2115,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val mbps = bitsPerSec / 1_000_000.0
             ConnectionStateManager.updateSpeedMbps(mbps)
             ConnectionStateManager.updateTraffic(inBytes, outBytes)
+            scheduleNotificationOwnershipRecheck()
         }
     }
 
@@ -2739,6 +2743,50 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    /**
+     * Posts the actionable controller notification for a live tunnel whose engine notification is
+     * gone. Main thread only. [revalidateLevel] is true when the decision was taken on another
+     * thread (or earlier): the latest accepted level must still say the tunnel is live.
+     */
+    private fun restoreControllerNotificationForLiveTunnel(revalidateLevel: Boolean) {
+        // Queued from a binder thread: an idle level handled before this runs has already
+        // released the notification, so re-validate against the latest accepted level.
+        // Not needed on the synchronous main-thread path: it runs in the same call that made
+        // the decision, so nothing can have changed in between.
+        val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
+            it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
+        }
+        if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+            && !hasEngineOngoingNotification()) {
+            // Re-read here: userInitiatedStop can be set after this was queued (stale-stop
+            // reconciliation) and the controller mode can be CONNECTING (startup variant) or
+            // null (ownership handed to an engine notification that has since vanished). During
+            // a stop never show the actionable CONNECTED variant; keep the honest DISCONNECTING
+            // one. markStopFailure is the only place that upgrades while a stop is running.
+            if (!userInitiatedStop || ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED) {
+                enterControllerForeground(ControllerNotificationMode.CONNECTED)
+            } else if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING) {
+                enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
+            }
+        }
+    }
+
+    /**
+     * Called from the AIDL byte-count callback (binder thread, roughly once a second while the
+     * tunnel is up). Once the controller has handed notification ownership to the engine nothing
+     * else looks at it again, so an engine notification that vanishes under a live tunnel would
+     * go unnoticed until the next state change. Throttled; the actual decision (and every guard
+     * for stops, pauses and teardown) is taken on the main thread by the same restore.
+     */
+    private fun scheduleNotificationOwnershipRecheck() {
+        val level = lastAcceptedEngineLevel
+        if (level != ConnectionStatus.LEVEL_CONNECTED && level != ConnectionStatus.LEVEL_VPNPAUSED) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastOwnershipRecheckMs < NOTIFICATION_OWNERSHIP_RECHECK_INTERVAL_MS) return
+        lastOwnershipRecheckMs = now
+        statusHandler.post { restoreControllerNotificationForLiveTunnel(true) }
+    }
+
     @JvmOverloads
     private fun syncEngineState(level: ConnectionStatus, detail: String?, allowAutoSwitch: Boolean, source: String = "AIDL") {
         logEngineLevel(level, detail)
@@ -2788,32 +2836,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             && !stopInFlightNotification && !engineNotificationActive) {
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
-            val restoreNotification = { revalidateLevel: Boolean ->
-                // Queued from a binder thread: an idle level handled before this runs has already
-                // released the notification, so re-validate against the latest accepted level.
-                // Not needed on the synchronous main-thread path: it runs in the same call that made
-                // the decision, so nothing can have changed in between.
-                val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
-                    it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
-                }
-                if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
-                    && !hasEngineOngoingNotification()) {
-                    // Re-read here: userInitiatedStop can be set after this was queued (stale-stop
-                    // reconciliation) and the controller mode can be CONNECTING (startup variant) or
-                    // null (ownership handed to an engine notification that has since vanished). During
-                    // a stop never show the actionable CONNECTED variant; keep the honest DISCONNECTING
-                    // one. markStopFailure is the only place that upgrades while a stop is running.
-                    if (!userInitiatedStop || ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED) {
-                        enterControllerForeground(ControllerNotificationMode.CONNECTED)
-                    } else if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING) {
-                        enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
-                    }
-                }
-            }
             if (Looper.myLooper() == Looper.getMainLooper()) {
-                restoreNotification(false)
+                restoreControllerNotificationForLiveTunnel(false)
             } else {
-                statusHandler.post { restoreNotification(true) }
+                statusHandler.post { restoreControllerNotificationForLiveTunnel(true) }
             }
         }
         if (controllerForegroundActive
