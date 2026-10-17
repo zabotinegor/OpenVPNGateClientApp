@@ -43,6 +43,9 @@ code problem. Current levels are in [../reference/build-config.md](../reference/
 - Module wiring must stay: `:openVpnEngine` → `src/external/OpenVPNEngine/main`.
 - Treat the engine as an upstream integration area — avoid edits there unless the task explicitly
   requires engine changes.
+- App-scoped engine patches, including the `forceStopVPN` force-stop path, live on
+  `OpenVPNClientApp-integration` and must survive upstream syncs. See
+  [../guides/engine-update.md](../guides/engine-update.md#app-scoped-engine-fixes-and-the-local-force-stop-patch).
 
 ## Where the boundary is
 

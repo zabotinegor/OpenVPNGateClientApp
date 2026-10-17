@@ -242,6 +242,7 @@ class OpenVpnServiceWatchdogTest {
             service,
             "engineBinder",
             object : IOpenVPNServiceInternal.Stub() {
+                override fun forceStopVPN(): Int = 0
                 override fun protect(fd: Int) = false
                 override fun userPause(b: Boolean) {}
                 override fun stopVPN(replaceConnection: Boolean) = true
@@ -538,6 +539,7 @@ class OpenVpnServiceWatchdogTest {
             service,
             "engineBinder",
             object : IOpenVPNServiceInternal.Stub() {
+                override fun forceStopVPN(): Int = 0
                 override fun protect(fd: Int) = false
                 override fun userPause(b: Boolean) {}
                 override fun stopVPN(replaceConnection: Boolean) = true
@@ -628,6 +630,7 @@ class OpenVpnServiceWatchdogTest {
             service,
             "engineBinder",
             object : IOpenVPNServiceInternal.Stub() {
+                override fun forceStopVPN(): Int = 0
                 override fun protect(fd: Int) = false
                 override fun userPause(b: Boolean) {}
                 override fun stopVPN(replaceConnection: Boolean) = true

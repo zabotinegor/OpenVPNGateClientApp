@@ -41,6 +41,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
 - [`SseServerEventsClientTest` "onOpen does not reset failure count" is flaky under full-suite contention — bug 86cb9kpx9](#sseservereventsclienttest-onopen-does-not-reset-failure-count-is-flaky-under-full-suite-contention--bug-86cb9kpx9)
 - [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
+- [Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a](#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a)
 - [Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u](#server-counter-rolls-back-to-an-earlier-entry-after-an-auto-switch-or-a-background-refresh-shared-ip-entries--bug-12487v2bg7u)
 
 ---
@@ -1892,6 +1893,46 @@ Until then, treat a lone failure of this one test as known flakiness, not a regr
 `SseServerEventsClient.kt` itself is in the diff under review.
 
 **First encountered:** Bug `86cb9kpx9`, PR #142 (observed, deferred).
+
+---
+
+## Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a
+
+**Symptom:** The VPN icon stays in the status bar, but the controller's ongoing notification is gone and
+pressing Disconnect in the app or on the notification has no visible effect. The native openvpn process
+is still running.
+
+**Root cause:** The engine's management channel stopped answering while its openvpn process stayed
+alive. A stop sent over that channel could not end the tunnel, and the controller's notification could
+be absent while the tunnel was still up. The stop path had no escalation that bypassed the management
+channel.
+
+**Behavior now:**
+- The controller keeps a safety-net notification (id 7014) whenever the engine has no ongoing
+  notification of its own and a tunnel may still be live. It is restored after controller recreation
+  when the engine reports `LEVEL_CONNECTED` or `LEVEL_VPNPAUSED`. Details in
+  [features/notifications.md](../features/notifications.md#safety-net-controller-notification).
+- A stop is retried over the management channel, then escalated once to the engine's `forceStopVPN()`,
+  which terminates the openvpn process directly. Only the engine's `LEVEL_NOTCONNECTED` completes the
+  stop. If it is still unconfirmed 8 s after the force stop, the app shows `STOP_FAILED`, keeps the
+  notification, and lets the user retry. Details in
+  [features/connection-recovery.md](../features/connection-recovery.md#stop-and-teardown).
+
+**How to verify (debuggable build, target device):**
+1. Connect, then find the openvpn process: `adb shell run-as <pkg> ps -A | grep openvpn`.
+2. Freeze it to simulate a dead control plane: `adb shell run-as <pkg> kill -STOP <openvpn pid>`.
+3. Press Disconnect in the app (or the notification action).
+4. Expect the openvpn process to be gone (repeat step 1, no match) and no `tun` interface to remain
+   (for example, `adb shell ip link` shows no tun device, where that tool is available).
+   Logcat lines tagged `stop_flow` should show `dispatch_result=false`, then `force_stop dispatched=true`,
+   then the engine's `forceStopVPN: sigterm_requested=` and, if needed, `sigkill_escalation`.
+5. Expected UI: the notification clears only after the stop is confirmed. If the process cannot be
+   terminated, the UI shows the `STOP_FAILED` state and the notification stays.
+
+**Notes:** Use `<pkg>` as a placeholder. If the stop cannot complete, undo the freeze with
+`adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. This procedure is the
+intended repro. It has not yet been confirmed on a device, so verify it on the target before using it as
+a regression check.
 
 ---
 

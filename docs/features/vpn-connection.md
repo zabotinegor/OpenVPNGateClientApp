@@ -27,6 +27,12 @@ There are **two** services with similar names. Confusing them is the most common
 They communicate across the process boundary via AIDL — `IOpenVPNServiceInternal`, `IServiceStatus`,
 `IStatusCallbacks`. That boundary is why fields in the controller carry `@Volatile`.
 
+Stop uses two `IOpenVPNServiceInternal` calls. `stopVPN` goes through the engine's management channel.
+`forceStopVPN` (appended last, so existing transaction codes are unchanged) terminates the native
+openvpn process without the management channel. It is the escalation when the management stop cannot
+be dispatched or confirmed. The stop sequence and its result codes are in
+[connection-recovery.md](connection-recovery.md#stop-and-teardown).
+
 Both declare `foregroundServiceType="specialUse"` with subtype `vpn`.
 
 Because the app runs in two processes, `CoreApp.isMainProcess()` gates SSE and WorkManager
@@ -132,4 +138,4 @@ Both are applied at connect time only; changing either while connected requires 
 Pause/resume behaviour is in [pause-resume.md](pause-resume.md); watchdog, auto-switch and the stop
 retry path are in [connection-recovery.md](connection-recovery.md).
 
-*Last verified against: `vpn/ConnectionState.kt`, `vpn/OpenVpnService.kt`, `vpn/VpnManager.kt`, `core/CoreApp.kt`, engine `AndroidManifest.xml` (2026-07-31).*
+*Last verified against: `vpn/ConnectionState.kt`, `vpn/OpenVpnService.kt`, `vpn/VpnManager.kt`, `core/CoreApp.kt`, engine `AndroidManifest.xml` (2026-07-31); AIDL `forceStopVPN` at engine `ca9d925b` (2026-10-16).*
