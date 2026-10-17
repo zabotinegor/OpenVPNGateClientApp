@@ -1883,6 +1883,21 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    /**
+     * True when this controller's own notification is currently posted. When visibility cannot be
+     * verified it counts as posted, so an unverifiable state never causes a repost loop.
+     */
+    private fun isControllerNotificationPosted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        return try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.activeNotifications.any { it.id == CONTROLLER_NOTIFICATION_ID }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Cannot verify controller notification visibility", e)
+            true
+        }
+    }
+
     private fun exitControllerForeground() {
         if (!controllerForegroundActive) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -2756,7 +2771,12 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
             it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
         }
-        if (!serviceDestroyed && stillLive && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+        // The cached mode is not proof that the notification is still on screen: on Android 14+ the
+        // user can dismiss an ongoing notification, so the CONNECTED variant counts only while it is
+        // actually posted.
+        val connectedVariantShown = controllerNotificationMode == ControllerNotificationMode.CONNECTED
+            && isControllerNotificationPosted()
+        if (!serviceDestroyed && stillLive && !connectedVariantShown
             && !hasEngineOngoingNotification()) {
             // Re-read here: userInitiatedStop can be set after this was queued (stale-stop
             // reconciliation) and the controller mode can be CONNECTING (startup variant) or

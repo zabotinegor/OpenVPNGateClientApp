@@ -544,6 +544,27 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun dismissedControllerSafetyNotification_isRepostedOnTheNextRecheck_whileTheEngineHasNone() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        manager.cancelAll()
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertNotNull("precondition: the safety notification is posted", notifications.getNotification(7014))
+
+        // Android 14+: the user swipes the ongoing notification away; the cached mode stays CONNECTED.
+        manager.cancel(7014)
+        assertEquals(null, notifications.getNotification(7014))
+        callbacks.updateByteCount(1L, 1L)
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.getNotification(7014)
+        assertNotNull("A dismissed safety notification must come back", posted)
+        assertEquals("VPN connected", posted!!.extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
