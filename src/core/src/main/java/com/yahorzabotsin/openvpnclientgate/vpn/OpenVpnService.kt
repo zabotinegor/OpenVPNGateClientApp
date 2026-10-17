@@ -490,7 +490,35 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         return next
     }
 
+    /**
+     * Moves the controller safety-net notification to its stop-time state. Shared by every entry
+     * into a user stop (ACTION_STOP, the watchdog fail-safe and stale-stop reconciliation) so none
+     * of them leaves a "VPN connected" notification with an active Disconnect action during
+     * teardown. Idempotent: a repeated call finds the target state already in place.
+     *
+     * Do not remove the last VPN notification before teardown is confirmed. The engine
+     * notification may have vanished while its native tunnel is still live. Mode-based, not
+     * "foreground active": an already posted CONNECTING/CONNECTED variant must switch to
+     * DISCONNECTING (no second Disconnect action, honest wording). One ownership reading for both
+     * branches: re-querying could see the engine notification vanish in between and leave no
+     * notification at all.
+     */
+    private fun switchControllerNotificationForUserStop() {
+        val engineOwnsNotification = hasEngineOngoingNotification()
+        if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING
+            && !engineOwnsNotification) {
+            enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
+        } else if (controllerNotificationMode != null && engineOwnsNotification) {
+            // The engine owns an ongoing notification, so any controller variant (the startup one
+            // of a service recreated by this stop, or a posted CONNECTED safety one) would duplicate
+            // it: the sync exit is gated by userInitiatedStop and markStopFailure defers to the
+            // engine's notification, so it would linger indefinitely.
+            exitControllerForeground()
+        }
+    }
+
     private fun startUserStopTeardown(reason: String, forceReset: Boolean = false) {
+        switchControllerNotificationForUserStop()
         if (!userInitiatedStop || forceReset) {
             userInitiatedStop = true
             userInitiatedStart = false
@@ -1095,23 +1123,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             }
             VpnManager.ACTION_STOP -> {
                 AppLog.i(TAG, "ACTION_STOP")
-                // Do not remove the last VPN notification before teardown is confirmed.
-                // The engine notification may have vanished while its native tunnel is still live.
-                // Mode-based, not "foreground active": an already posted CONNECTING/CONNECTED variant
-                // must switch to DISCONNECTING (no second Disconnect action, honest wording).
-                // One ownership reading for both branches: re-querying could see the engine
-                // notification vanish in between and leave no notification at all.
-                val engineOwnsNotification = hasEngineOngoingNotification()
-                if (controllerNotificationMode != ControllerNotificationMode.DISCONNECTING
-                    && !engineOwnsNotification) {
-                    enterControllerForeground(ControllerNotificationMode.DISCONNECTING)
-                } else if (controllerNotificationMode != null && engineOwnsNotification) {
-                    // The engine owns an ongoing notification, so any controller variant (the startup one
-                    // of a service recreated by this stop, or a posted CONNECTED safety one) would duplicate
-                    // it: the sync exit is gated by userInitiatedStop and markStopFailure defers to the
-                    // engine's notification, so it would linger indefinitely.
-                    exitControllerForeground()
-                }
+                switchControllerNotificationForUserStop()
                 oneShotSyncRequested = false
                 oneShotSyncReceivedInitialState = false
                 statusHandler.removeCallbacks(stopAfterOneShotSyncRunnable)

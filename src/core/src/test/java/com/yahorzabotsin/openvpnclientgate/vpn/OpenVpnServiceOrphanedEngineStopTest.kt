@@ -389,6 +389,45 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun watchdogFailSafeDisconnect_overAPostedConnectedNotification_switchesToDisconnecting() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "precondition: the actionable CONNECTED safety notification is posted",
+            "VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "triggerWatchdogFailSafeDisconnect",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "test")
+        )
+
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN disconnecting", posted.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("No Disconnect action during teardown", 0, posted.actions?.size ?: 0)
+    }
+
+    @Test
+    fun staleStopReconciliation_overAPostedConnectedNotification_switchesToDisconnecting() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            service, "startUserStopTeardown",
+            ReflectionHelpers.ClassParameter.from(String::class.java, "stale_relaunch"),
+            ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, false)
+        )
+
+        assertEquals(
+            "VPN disconnecting",
+            notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
