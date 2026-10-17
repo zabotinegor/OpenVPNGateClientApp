@@ -607,7 +607,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // A failed dispatch must not leave a potentially live tunnel invisible.
         // Also upgrade an already-posted CONNECTING/DISCONNECTING variant: it carries no
         // Disconnect action and would be wrong for a possibly live tunnel.
-        if (controllerNotificationMode != ControllerNotificationMode.CONNECTED && !hasEngineOngoingNotification()) {
+        if (!isControllerConnectedVariantShown() && !hasEngineOngoingNotification()) {
             enterControllerForeground(ControllerNotificationMode.CONNECTED)
         }
         stopAwaitingConfirmation = false
@@ -1885,11 +1885,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
 
     /**
      * True when this controller's own notification is currently posted. When visibility cannot be
-     * verified it counts as posted, so an unverifiable state never causes a repost loop.
+     * verified (exception) or notifications are disabled for the app, it counts as posted: nothing
+     * could be shown anyway, so re-issuing it every recheck would only be churn.
      */
     private fun isControllerNotificationPosted(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
         return try {
+            if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) return true
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.activeNotifications.any { it.id == CONTROLLER_NOTIFICATION_ID }
         } catch (e: Exception) {
@@ -1897,6 +1899,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             true
         }
     }
+
+    /**
+     * The actionable CONNECTED variant counts as shown only while it is actually posted: the cached
+     * mode alone is not proof, since on Android 14+ the user can dismiss an ongoing notification.
+     */
+    private fun isControllerConnectedVariantShown(): Boolean =
+        controllerNotificationMode == ControllerNotificationMode.CONNECTED && isControllerNotificationPosted()
 
     private fun exitControllerForeground() {
         if (!controllerForegroundActive) return
@@ -2771,12 +2780,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
             it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
         }
-        // The cached mode is not proof that the notification is still on screen: on Android 14+ the
-        // user can dismiss an ongoing notification, so the CONNECTED variant counts only while it is
-        // actually posted.
-        val connectedVariantShown = controllerNotificationMode == ControllerNotificationMode.CONNECTED
-            && isControllerNotificationPosted()
-        if (!serviceDestroyed && stillLive && !connectedVariantShown
+        if (!serviceDestroyed && stillLive && !isControllerConnectedVariantShown()
             && !hasEngineOngoingNotification()) {
             // Re-read here: userInitiatedStop can be set after this was queued (stale-stop
             // reconciliation) and the controller mode can be CONNECTING (startup variant) or
@@ -2865,7 +2869,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val stopFailed = ConnectionStateManager.error.value == ConnectionStateManager.VpnError.STOP_FAILED
         val stopInFlightNotification = userInitiatedStop && !stopFailed
             && controllerNotificationMode == ControllerNotificationMode.DISCONNECTING
-        if (engineTunnelLive && !pauseRejected && controllerNotificationMode != ControllerNotificationMode.CONNECTED
+        if (engineTunnelLive && !pauseRejected && !isControllerConnectedVariantShown()
             && !stopInFlightNotification && !engineNotificationActive) {
             // Not gated on ConnectionState: after controller recreation the app state is still
             // DISCONNECTED at this point and only becomes CONNECTED from this very sync.
