@@ -1890,7 +1890,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             // A stale connecting-family level rejected by the pause guard must not become the latest
             // observation (see syncEngineState()); everything else is kept as fallback evidence in
             // case AIDL stalls before delivering the same transition.
-            if (!(isPauseGuardActive() && level in PAUSE_TRANSIENT_CONNECTING_LEVELS)) {
+            if (!pauseRejected) {
                 logEngineStateChange("VPN_STATUS", level, state)
             }
             // AIDL normally owns the state update here, but a PAUSED level settles the pause watch, so
@@ -2766,8 +2766,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             val restoreNotification = { revalidateLevel: Boolean ->
                 // Queued from a binder thread: an idle level handled before this runs has already
                 // released the notification, so re-validate against the latest accepted level.
-                // Not needed (and not reliable) on the synchronous main-thread path: the snapshot
-                // path syncs without recording lastAcceptedEngineLevel.
+                // Not needed on the synchronous main-thread path: it runs in the same call that made
+                // the decision, so nothing can have changed in between.
                 val stillLive = !revalidateLevel || lastAcceptedEngineLevel.let {
                     it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
                 }
