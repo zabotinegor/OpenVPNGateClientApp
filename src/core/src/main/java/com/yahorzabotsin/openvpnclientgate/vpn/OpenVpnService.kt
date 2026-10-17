@@ -2784,7 +2784,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastOwnershipRecheckMs < NOTIFICATION_OWNERSHIP_RECHECK_INTERVAL_MS) return
         lastOwnershipRecheckMs = now
-        statusHandler.post { restoreControllerNotificationForLiveTunnel(true) }
+        statusHandler.post {
+            // The engine re-posted its notification after the controller restored its own (user
+            // dismissal on Android 14+, channel re-post): release the controller variant so the
+            // two do not stay side by side. Needs a live accepted level, like the restore itself.
+            val live = lastAcceptedEngineLevel.let {
+                it == ConnectionStatus.LEVEL_CONNECTED || it == ConnectionStatus.LEVEL_VPNPAUSED
+            }
+            if (!serviceDestroyed && live && controllerNotificationMode == ControllerNotificationMode.CONNECTED
+                && hasEngineOngoingNotification()) {
+                exitControllerForeground()
+            } else {
+                restoreControllerNotificationForLiveTunnel(true)
+            }
+        }
     }
 
     @JvmOverloads

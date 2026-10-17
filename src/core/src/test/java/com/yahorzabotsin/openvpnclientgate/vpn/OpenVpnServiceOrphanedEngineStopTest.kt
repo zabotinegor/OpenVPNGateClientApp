@@ -488,6 +488,7 @@ class OpenVpnServiceOrphanedEngineStopTest {
         val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
         val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        val engineNotification = { manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT }) }
 
         // Not live: a byte-count callback must not post anything.
         manager.cancelAll()
@@ -495,18 +496,51 @@ class OpenVpnServiceOrphanedEngineStopTest {
         ShadowLooper.idleMainLooper()
         assertFalse(hasControllerNotification())
 
-        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        // Live, ownership handed to the engine, then its notification vanishes: first recheck restores.
+        engineNotification()
         reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        assertEquals(null, notifications.getNotification(7014))
         manager.cancel(engineId)
-        callbacks.updateByteCount(2L, 2L) // first live recheck restores
+        callbacks.updateByteCount(2L, 2L)
         ShadowLooper.idleMainLooper()
         assertNotNull(notifications.getNotification(7014))
 
-        // Within the throttle window a second vanish is not looked at again.
-        manager.cancelAll()
+        // Ownership goes back to the engine (controller released), then it vanishes again.
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(16))
+        engineNotification()
         callbacks.updateByteCount(3L, 3L)
         ShadowLooper.idleMainLooper()
-        assertFalse("Throttled: no second recheck within the interval", hasControllerNotification())
+        assertEquals(null, notifications.getNotification(7014))
+        manager.cancel(engineId)
+        // Within the throttle window the vanished notification is not looked at again.
+        callbacks.updateByteCount(4L, 4L)
+        ShadowLooper.idleMainLooper()
+        assertFalse("Throttled: no second recheck within the interval", notifications.getNotification(7014) != null)
+
+        // Past the interval the recheck fires again.
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(16))
+        callbacks.updateByteCount(5L, 5L)
+        ShadowLooper.idleMainLooper()
+        assertNotNull(notifications.getNotification(7014))
+    }
+
+    @Test
+    fun engineNotificationThatReturns_releasesTheControllerSafetyNotification_onTheNextRecheck() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val engineId = OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID.hashCode()
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        manager.cancelAll()
+        reportEngineLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+        ShadowLooper.idleMainLooper()
+        assertNotNull("precondition: the safety notification is posted", notifications.getNotification(7014))
+
+        manager.notify(engineId, Notification().apply { flags = flags or Notification.FLAG_ONGOING_EVENT })
+        callbacks.updateByteCount(1L, 1L)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals("No duplicate next to the engine's notification", null, notifications.getNotification(7014))
+        assertNotNull(notifications.getNotification(engineId))
     }
 
     @Test
