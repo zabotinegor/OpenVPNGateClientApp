@@ -494,7 +494,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
      * Moves the controller safety-net notification to its stop-time state. Shared by every entry
      * into a user stop (ACTION_STOP, the watchdog fail-safe and stale-stop reconciliation) so none
      * of them leaves a "VPN connected" notification with an active Disconnect action during
-     * teardown. Idempotent: a repeated call finds the target state already in place.
+     * teardown. Main thread only; a repeated call there finds the target state already in place.
      *
      * Do not remove the last VPN notification before teardown is confirmed. The engine
      * notification may have vanished while its native tunnel is still live. Mode-based, not
@@ -518,7 +518,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     }
 
     private fun startUserStopTeardown(reason: String, forceReset: Boolean = false) {
-        switchControllerNotificationForUserStop()
         if (!userInitiatedStop || forceReset) {
             userInitiatedStop = true
             userInitiatedStart = false
@@ -533,6 +532,20 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             persistPendingStopIntent(true)
             ConnectionStateManager.clearStopFailure()
             AppLog.i(TAG, "stop_flow requestId=${stopRequestId ?: "<none>"} session=${sessionAttempt} source=$reason started=true")
+        }
+        // After userInitiatedStop is set, so a restore queued from a binder thread that runs before
+        // this switch is converted to DISCONNECTING and one that runs after it is suppressed. From
+        // the AIDL binder thread (stale-stop reconciliation) the switch is posted: notification
+        // state is only ever mutated on the main thread. Posted untagged, like the cancellation below.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            switchControllerNotificationForUserStop()
+        } else {
+            statusHandler.post {
+                if (!serviceDestroyed && userInitiatedStop
+                    && ConnectionStateManager.error.value != ConnectionStateManager.VpnError.STOP_FAILED) {
+                    switchControllerNotificationForUserStop()
+                }
+            }
         }
         try {
             ConnectionStateManager.setReconnectingHint(false)

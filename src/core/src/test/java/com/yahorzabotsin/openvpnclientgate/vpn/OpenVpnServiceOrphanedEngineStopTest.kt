@@ -428,6 +428,37 @@ class OpenVpnServiceOrphanedEngineStopTest {
     }
 
     @Test
+    fun staleStopReconciliationFromABinderThread_switchesToDisconnectingOnTheMainThread() {
+        val service = controllerWithConnectedEngine(CountingBinder())
+        ShadowLooper.idleMainLooper()
+        assertEquals(
+            "VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+
+        val binderThread = Thread {
+            ReflectionHelpers.callInstanceMethod<Unit>(
+                service, "startUserStopTeardown",
+                ReflectionHelpers.ClassParameter.from(String::class.java, "stale_relaunch"),
+                ReflectionHelpers.ClassParameter.from(Boolean::class.javaPrimitiveType, false)
+            )
+        }
+        binderThread.isDaemon = true
+        binderThread.start()
+        binderThread.join(5_000)
+        assertFalse("binder thread did not finish", binderThread.isAlive)
+        assertEquals(
+            "Notification state is only mutated on the main thread",
+            "VPN connected", notifications.allNotifications.single().extras.getString(Notification.EXTRA_TITLE)
+        )
+
+        ShadowLooper.idleMainLooper()
+
+        val posted = notifications.allNotifications.single()
+        assertEquals("VPN disconnecting", posted.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("No Disconnect action during teardown", 0, posted.actions?.size ?: 0)
+    }
+
+    @Test
     fun queuedRestoreIsDroppedWhenAnIdleLevelArrivesBeforeItRuns() {
         val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
         (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
