@@ -9,7 +9,7 @@ permission seems to be missing.
 |---|---|
 | `src/core/src/main/AndroidManifest.xml` | `INTERNET`, `ACCESS_NETWORK_STATE`, `REQUEST_INSTALL_PACKAGES`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, a signature-level `${applicationId}.permission.VPN_STATUS` (declared *and* consumed), and a `<queries>` LAUNCHER block |
 | `src/mobile` / `src/tv` manifests | `POST_NOTIFICATIONS` |
-| **engine submodule** `src/external/OpenVPNEngine/main/src/main/AndroidManifest.xml` | **`BIND_VPN_SERVICE`**, `QUERY_ALL_PACKAGES`, `RECEIVE_BOOT_COMPLETED`, `READ_EXTERNAL_STORAGE`, `POST_NOTIFICATIONS` |
+| **engine submodule** `src/external/OpenVPNEngine/main/src/main/AndroidManifest.xml` | **`BIND_VPN_SERVICE`**, `QUERY_ALL_PACKAGES`, `RECEIVE_BOOT_COMPLETED`, `READ_EXTERNAL_STORAGE`, `POST_NOTIFICATIONS`, `ACCESS_LOCAL_NETWORK` (added by the upstream `14445f1c` merge; guards local-network access on newer Android releases) |
 
 > **`BIND_VPN_SERVICE` is not in this app's manifests.** It guards the engine's
 > `de.blinkt.openvpn.core.OpenVPNService`, which is the real Android `VpnService`. A statement that
