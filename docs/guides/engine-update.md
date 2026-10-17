@@ -85,3 +85,10 @@ checkout). Then run the regression checklist above and the orphaned-tunnel repro
 ---
 
 *Last verified against: the `US-14` engine bump (`a83da9ff -> 764b6b70`) and its SDK-platform-37 gotcha (2026-07-25); app-scoped force-stop patch section against engine `ca9d925b` (2026-10-16).*
+
+## Gotchas from the 18.10.2026 bump (upstream `14445f1c`)
+
+- **`libs.json` catalog entry**: upstream engine tests use `libs.json`; the client's `src/gradle/libs.versions.toml` must define it (`org.json:json`).
+- **asio symlinks on Windows**: asio 1.38.2 ships `asio/asio/include` and `asio/asio/src` as git symlinks. With `core.symlinks=false` they check out as text files and the native build fails with `asio.hpp` not found. Replace them locally with real copies of `asio/include` / `asio/src` (not committed), then delete `main/.cxx`.
+- **Kotlin 2.0 toolchain**: `kotlin.io.encoding.Base64` is still experimental there; the integration branch opts in with `@OptIn(ExperimentalEncodingApi::class)` in `AppCustomControl.kt`.
+- **Engine tests under the client's Robolectric 4.10.2**: `TestConfigParser.cleanReImport` fails on Windows (also on the pre-bump baseline), and `TestRestrictions.testOpenVPN3Restriction` fails under 4.10.2 but passes with upstream's 4.16.1.
