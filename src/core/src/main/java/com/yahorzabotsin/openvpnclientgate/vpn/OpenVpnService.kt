@@ -2010,12 +2010,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
-        applyVpnStatusLevel(level, state, previousAcceptedLevel)
+        applyVpnStatusLevel(level, state, previousAcceptedLevel, pauseRejected)
     }
 
     /** VpnStatus-authoritative handling of one engine level. Main thread only. */
     @androidx.annotation.MainThread
-    private fun applyVpnStatusLevel(level: ConnectionStatus, state: String?, previousAcceptedLevel: ConnectionStatus?) {
+    private fun applyVpnStatusLevel(
+        level: ConnectionStatus,
+        state: String?,
+        previousAcceptedLevel: ConnectionStatus?,
+        pauseRejectedAtEntry: Boolean
+    ) {
         val failureLevelsHandledByService = setOf(
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.LEVEL_NONETWORK,
@@ -2026,7 +2031,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above. Decided again under
         // pauseLock at each point that acts on it (see syncEngineState()), because a pause that begins
         // after an unlocked check would otherwise let the stale level through.
-        var isPauseTransientConnecting = isPauseGuardRejected(level)
+        // Monotonic: a level already rejected by handleVpnStatusUpdate() (which also decided the
+        // accepted-level marker) stays rejected even if an AIDL PAUSED confirmation clears the guard
+        // in between; the re-evaluations below can only add rejections.
+        var isPauseTransientConnecting = pauseRejectedAtEntry || isPauseGuardRejected(level)
         if (level !in failureLevelsHandledByService && !isPauseTransientConnecting) {
             synchronized(pauseLock) {
                 if (isPauseGuardRejected(level)) {

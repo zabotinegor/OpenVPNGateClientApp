@@ -530,6 +530,48 @@ class OpenVpnServiceSessionLoggingTest {
         }
     }
 
+    // The pause-guard decision is made once in handleVpnStatusUpdate() and must be honoured by
+    // applyVpnStatusLevel(): if the guard reads false on the second read (an AIDL PAUSED confirmation
+    // cleared it in between), a level the first read rejected must still not reach the auto-switcher
+    // or ConnectionStateManager, and the accepted-level marker written for it must be rolled back.
+    @Test
+    fun applyVpnStatusLevel_honoursFirstPauseGuardRejectionEvenWhenGuardReadsFalseOnSecondRead() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+            ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+            ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+            assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+            val level = ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+            val previousAccepted = ConnectionStatus.LEVEL_CONNECTED
+            ReflectionHelpers.setField(service, "lastAcceptedEngineLevel", level)
+            ShadowLog.clear()
+
+            val apply = OpenVpnService::class.java.getDeclaredMethod(
+                "applyVpnStatusLevel",
+                ConnectionStatus::class.java,
+                String::class.java,
+                ConnectionStatus::class.java,
+                Boolean::class.javaPrimitiveType
+            ).apply { isAccessible = true }
+            // First decision: rejected. The live guard reads false now (no pause in flight).
+            apply.invoke(service, level, null, previousAccepted, true)
+
+            val autoSwitcherLogs = ShadowLog.getLogs()
+                .filter { it.tag.endsWith("ServerAutoSwitcher") }.map { it.msg }
+            assertTrue(
+                "a level rejected by the first pause-guard decision must not reach ServerAutoSwitcher",
+                autoSwitcherLogs.none { it.contains("Engine level received") }
+            )
+            assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+            assertEquals(previousAccepted, acceptedLevel(service))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
     @Test
     fun logsConnectedAfterNthAttempt() {
         saveServers(2)
