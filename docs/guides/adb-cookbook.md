@@ -19,6 +19,31 @@ adb -s <SERIAL> shell input swipe 540 1500 540 800
 
 ---
 
+## Network ADB (TV) Recovery
+
+The TV is reached over Wi-Fi and its DHCP lease can change, so a recorded address (docs, `AGENTS.local.md`, automation defaults) may be stale. A repeated `adb connect` timeout (10060) is a reason to rediscover the address, not to retry the same one.
+
+```powershell
+adb devices -l                       # what is attached right now
+arp -a                               # neighbours the PC has talked to (MAC + IP)
+ping -n 2 <candidate-ip>             # populates ARP; a lost reply is not proof the host is down
+adb connect <candidate-ip>:5555
+adb -s <candidate-ip>:5555 shell getprop ro.product.model   # confirm identity (MIBOX4)
+adb -s <candidate-ip>:5555 shell ip -f inet addr show wlan0  # confirm the address
+```
+
+Always pass `-s <serial>` once more than one device is attached. If the TV carries a differently signed or higher-versionCode build, install fails with `INSTALL_FAILED_VERSION_DOWNGRADE` / `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: rebuild with `-PappVersionCodeTv=<higher>` and uninstall the foreign build (QA TV only; this wipes its app data).
+
+---
+
+## Notification Shade Interaction
+
+`uiautomator dump` returns `ERROR: could not get idle state` while the notification shade is open and leaves the previous `ui.xml` untouched, so a dump taken then is a stale copy of an earlier screen. Delete the file before each dump (`adb -s <SERIAL> shell rm -f //sdcard/ui.xml`) and treat a missing file as a failed dump.
+
+To tap the app's own notification without exposing other apps' notifications: save `adb exec-out screencap -p` to a file you do not open, run a local OCR (for example the Windows `Windows.Media.Ocr` engine), print only the lines that match the app's title, and `input tap` the reported coordinates. Confirm the app's own `contentIntent` with `adb shell dumpsys notification` filtered to `pkg=com.yahorzabotsin.openvpnclientgate`. On the Mi Box TV there is no shade; replaying the intent with `am start` is the only option.
+
+---
+
 ## App Lifecycle
 
 ```powershell

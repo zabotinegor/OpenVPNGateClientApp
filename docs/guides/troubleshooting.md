@@ -1930,9 +1930,15 @@ channel.
    terminated, the UI shows the `STOP_FAILED` state and the notification stays.
 
 **Notes:** Use `<pkg>` as a placeholder. If the stop cannot complete, undo the freeze with
-`adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. This procedure is the
-intended repro. It has not yet been confirmed on a device, so verify it on the target before using it as
-a regression check.
+`adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. The `<openvpn pid>` is the
+native child `libovpnexec.so` (`run-as <pkg> ps -A -o PID,PPID,NAME`), not the `:openvpn` Android process.
+
+**Device result (release 18.10.2026, SM-A715F, Android 13):** with engine 63cd7ece step 4 failed. The
+frozen process stayed alive (`State: T`, only SIGTERM pending in `/proc/<pid>/status` `ShdPnd`) and the
+tunnel stayed up, because `OpenVPNThread.killProcess()` used `Process.destroyForcibly()`, which delivers
+SIGTERM on Android. Fixed in engine d4928f22: the escalation now signals SIGKILL by pid
+(`android.os.Process.sendSignal`), falling back to `destroyForcibly()`. Re-verified on the device: process
+gone, no tun, notification cleared, stop confirmed after about 11 s.
 
 ---
 
