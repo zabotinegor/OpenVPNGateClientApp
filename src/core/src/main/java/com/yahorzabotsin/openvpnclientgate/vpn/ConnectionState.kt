@@ -91,10 +91,20 @@ object ConnectionStateManager {
         }
     }
 
+    /**
+     * Monitor that orders the pause tap's PAUSING transition against engine-callback decisions.
+     * OpenVpnService holds it (as its pause lock) around "is a pause in flight? then apply the engine
+     * level", and [beginPauseTransition] takes it for the PAUSING write, so a callback either sees
+     * PAUSING and discards a stale connecting level, or is applied strictly before the pause begins.
+     */
+    internal val pauseTransitionLock = Any()
+
     @MainThread
     internal fun beginPauseTransition() {
-        resumeTransitionInFlight = false
-        updateState(ConnectionState.PAUSING)
+        synchronized(pauseTransitionLock) {
+            resumeTransitionInFlight = false
+            updateState(ConnectionState.PAUSING)
+        }
     }
 
     @MainThread

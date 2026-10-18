@@ -45,6 +45,27 @@ under test each time; don't treat any prior run's specific evidence as still val
 - `DISCONNECTING → DISCONNECTED` completes cleanly on user-initiated stop.
 - `topResumedActivity` is the app's `MainActivity` after a notification tap while connected.
 
+## App-scoped engine fixes and the local force-stop patch
+
+Engine changes that exist only to serve this app are delivered on the `OpenVPNClientApp-integration`
+branch of the engine repository. No upstream PR is opened for them. The client's engine gitlink must
+point at a commit on that branch (currently `ca9d925b`).
+
+The force-stop patch is a local, app-scoped change. It must survive every upstream sync. On conflict,
+keep it. Its pieces are:
+
+- `IOpenVPNServiceInternal.aidl`: `forceStopVPN()`, appended last so existing transaction codes do not change.
+- `OpenVPNThread`: the process-wide `LIVE` registry (`liveProcesses()`), `requestTermination()`,
+  `reserveForceKill()` and `killProcess()`.
+- `OpenVPNService.forceStopVPN()`: binds to the exact process objects, returns codes `0`/`1`/`2`,
+  and schedules the SIGKILL after `FORCE_KILL_GRACE_MS` (2 s).
+- The `DISCONNECT_VPN` intent fallback in `OpenVPNService`, which calls `forceStopVPN()` when `stopVPN` returns false.
+- The `DisconnectVPN` activity, which calls `forceStopVPN()` as well.
+
+After resolving a sync, confirm these pieces are still present (`git grep forceStopVPN` in the engine
+checkout). Then run the regression checklist above and the orphaned-tunnel repro in
+[troubleshooting.md](troubleshooting.md#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a).
+
 ## Notes
 
 - If the engine bump raises the engine module's `compileSdk`/`targetSdk`, the first build on a
@@ -63,4 +84,11 @@ under test each time; don't treat any prior run's specific evidence as still val
 
 ---
 
-*Last verified against: the `US-14` engine bump (`a83da9ff -> 764b6b70`) and its SDK-platform-37 gotcha (2026-07-25).*
+*Last verified against: the `US-14` engine bump (`a83da9ff -> 764b6b70`) and its SDK-platform-37 gotcha (2026-07-25); app-scoped force-stop patch section against engine `ca9d925b` (2026-10-16).*
+
+## Gotchas from the 18.10.2026 bump (upstream `14445f1c`)
+
+- **`libs.json` catalog entry**: upstream engine tests use `libs.json`; the client's `src/gradle/libs.versions.toml` must define it (`org.json:json`).
+- **asio symlinks on Windows**: asio 1.38.2 ships `asio/asio/include` and `asio/asio/src` as git symlinks. With `core.symlinks=false` they check out as text files and the native build fails with `asio.hpp` not found. Replace them locally with real copies of `asio/include` / `asio/src` (not committed), then delete `main/.cxx`.
+- **Kotlin 2.0 toolchain**: `kotlin.io.encoding.Base64` is still experimental there; the integration branch opts in with `@OptIn(ExperimentalEncodingApi::class)` in `AppCustomControl.kt`.
+- **Engine tests under the client's Robolectric 4.10.2**: `TestConfigParser.cleanReImport` fails on Windows (also on the pre-bump baseline), and `TestRestrictions.testOpenVPN3Restriction` fails under 4.10.2 but passes with upstream's 4.16.1.

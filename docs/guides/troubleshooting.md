@@ -41,6 +41,8 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [`./gradlew testDebugUnitTestApp` can report `BUILD SUCCESSFUL` with zero tests actually executed](#gradlew-testdebugunittestapp-can-report-build-successful-with-zero-tests-actually-executed)
 - [`SseServerEventsClientTest` "onOpen does not reset failure count" is flaky under full-suite contention — bug 86cb9kpx9](#sseservereventsclienttest-onopen-does-not-reset-failure-count-is-flaky-under-full-suite-contention--bug-86cb9kpx9)
 - [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
+- [Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a](#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a)
+- [Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u](#server-counter-rolls-back-to-an-earlier-entry-after-an-auto-switch-or-a-background-refresh-shared-ip-entries--bug-12487v2bg7u)
 
 ---
 
@@ -1725,7 +1727,7 @@ the twin abort paths above, two accepted and fixed, one partially rejected on ev
   *cycle*, not just the stale tunnel. Fixed with a narrow `cancelPendingStopDispatchForFreshStart()`
   called from both `ACTION_START` and `beginChainedSwitch()` — deliberately narrower than the
   existing `cancel()` helper, which would itself have been unsafe here (it resets
-  `cycleStartIndex`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
+  `cycleVisited`/`retryCommitInFlight` state a fresh start must not touch mid-commit).
 - **F3-9 (Copilot, partially rejected):** Copilot claimed the NOTCONNECTED-confirmed twin's
   `idleNotificationStopper` dispatch also discards a rejected-dispatch result the way the timeout
   twin's `stopper` used to. Verified false on two counts: `idleNotificationStopper` maps to
@@ -1891,3 +1893,93 @@ Until then, treat a lone failure of this one test as known flakiness, not a regr
 `SseServerEventsClient.kt` itself is in the diff under review.
 
 **First encountered:** Bug `86cb9kpx9`, PR #142 (observed, deferred).
+
+---
+
+## Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a
+
+**Symptom:** The VPN icon stays in the status bar, but the controller's ongoing notification is gone and
+pressing Disconnect in the app or on the notification has no visible effect. The native openvpn process
+is still running.
+
+**Root cause:** The engine's management channel stopped answering while its openvpn process stayed
+alive. A stop sent over that channel could not end the tunnel, and the controller's notification could
+be absent while the tunnel was still up. The stop path had no escalation that bypassed the management
+channel.
+
+**Behavior now:**
+- The controller keeps a safety-net notification (id 7014) whenever the engine has no ongoing
+  notification of its own and a tunnel may still be live. It is restored after controller recreation
+  when the engine reports `LEVEL_CONNECTED` or `LEVEL_VPNPAUSED`. Details in
+  [features/notifications.md](../features/notifications.md#safety-net-controller-notification).
+- A stop is retried over the management channel, then escalated once to the engine's `forceStopVPN()`,
+  which terminates the openvpn process directly. Only the engine's `LEVEL_NOTCONNECTED` completes the
+  stop. If it is still unconfirmed 8 s after the force stop, the app shows `STOP_FAILED`, keeps the
+  notification, and lets the user retry. Details in
+  [features/connection-recovery.md](../features/connection-recovery.md#stop-and-teardown).
+
+**How to verify (debuggable build, target device):**
+1. Connect, then find the openvpn process: `adb shell run-as <pkg> ps -A | grep openvpn`.
+2. Freeze it to simulate a dead control plane: `adb shell run-as <pkg> kill -STOP <openvpn pid>`.
+3. Press Disconnect in the app (or the notification action).
+4. Expect the openvpn process to be gone (repeat step 1, no match) and no `tun` interface to remain
+   (for example, `adb shell ip link` shows no tun device, where that tool is available).
+   Logcat lines tagged `stop_flow` should show `dispatch_result=false`, then `force_stop dispatched=true`,
+   then the engine's `forceStopVPN: sigterm_requested=` and, if needed, `sigkill_escalation`.
+5. Expected UI: the notification clears only after the stop is confirmed. If the process cannot be
+   terminated, the UI shows the `STOP_FAILED` state and the notification stays.
+
+**Notes:** Use `<pkg>` as a placeholder. If the stop cannot complete, undo the freeze with
+`adb shell run-as <pkg> kill -CONT <openvpn pid>` before reusing the device. The `<openvpn pid>` is the
+native child `libovpnexec.so` (`run-as <pkg> ps -A -o PID,PPID,NAME`), not the `:openvpn` Android process.
+
+**Device result (release 18.10.2026, SM-A715F, Android 13):** with engine 63cd7ece step 4 failed. The
+frozen process stayed alive (`State: T`, only SIGTERM pending in `/proc/<pid>/status` `ShdPnd`) and the
+tunnel stayed up, because `OpenVPNThread.killProcess()` used `Process.destroyForcibly()`, which delivers
+SIGTERM on Android. Fixed in engine d4928f22: the escalation now signals SIGKILL by pid
+(`android.os.Process.sendSignal`), falling back to `destroyForcibly()`. Re-verified on the device: process
+gone, no tun, notification cleared, stop confirmed after about 11 s.
+
+**Second finding (TV, Xiaomi MIBOX4, Android 9):** the same freeze made Stop stall about 100 s. The
+management `signal SIGINT` write blocks on the frozen peer while `stopOpenVPN()` holds the `active`
+monitor inside a synchronous binder call. Fixed in engine 1c615196: the write is bounded
+(`managementCommandBounded`, 2 s, logs `stopOpenVPN failed: sigint_write_timeout`) so the SIGKILL escalation
+runs. Re-verified: TV recovery about 4.3 s; phone unchanged; normal Stop confirmed in under 300 ms on both.
+
+---
+
+## Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u
+
+**Status: fixed on branch `bugfix/12487v2bg7u-reconnect-server-counter`** (not yet merged; confirm on device with the [shared-IP QA step](../operations/device-qa-phone.md#shared-ip-qa-step-relaunch-and-connect-keeps-the-last-successful-same-ip-entry) before relying on it).
+
+### Symptoms
+
+- The details line (`Server: X/N`) jumps back to an earlier entry in the same country after an auto-switch, a reconnect, or a background server-list refresh during a cycle.
+- An auto-switch cycle re-offers a server it already tried, or stops before every server was tried.
+- On a plain Connect, the last successful server is not restored when several entries share one IP (the counter lands on the first same-IP entry).
+
+### Root cause
+
+The auto-switch cycle and the persisted current index were tracked by numeric list position (`cycleStartIndex`, `nextServerCircular`). A background refresh can add, remove or reorder entries, which shifts positions. Several entries can also share one IP, so IP-based alignment (`ensureIndexForConfig`'s IP-only fallback) collapsed a same-IP start onto the first matching entry. A reconnect `ACTION_START` re-aligned the index as well.
+
+### Fix
+
+- Entries are tracked by identity: `ServerIdentity` keys are `id:<id>` when the server id is greater than 0, otherwise `ep:<proto/remote endpoint>|<ip>` (`cfg:<SHA-256>|<ip>` when the config declares no `remote`), with a `#n` suffix for repeats. The IP alone is never an identity.
+- `ServerAutoSwitcher.cycleVisited` (in-memory) replaces `cycleStartIndex`. `SelectedCountryStore.nextUnvisitedServer(ctx, visited)` replaces `nextServerCircular`. The cycle ends when every key currently in the list is visited, and the start server is restored by identity (`setCurrentIndexByKey`).
+- `saveSelectionPreservingIndex` restores the index by identity. If the current server was removed, the index is parked on the predecessor of the first surviving successor. If nothing survives, it is parked on the first new entry.
+- `last_success_server_key` is persisted and restored on Connect before config/IP alignment is used.
+- Reconnect `ACTION_START` and the success persist skip index alignment (`alignIndex=false`). `ensureIndexForConfig` keeps the current entry when its IP equals the started IP.
+- `OpenVpnService`'s `VPN_STATUS` fallback uses `ServerAutoSwitcher.nextCycleCandidate`, so it wraps circularly like the timer path. A parked index yields no hardprobe target.
+- See [connection-recovery.md](../features/connection-recovery.md#auto-switch-within-country) and [server-sync.md](../features/server-sync.md#last-successful-server-restore-shared-ip-entries).
+
+### Diagnose
+
+```
+adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(ensureIndex|Session attempt|Server sel|getLastSuccessful|saveLastStart|prepareStart|completed full server cycle|discarding stale cycle|current_restored)"
+```
+
+A `matched by ip index=1/N` line after the user picked server N/N points at the old same-IP collapse. `current_restored=false` after a refresh means the current server was removed and the index was parked on a neighbour.
+
+### Known limitation (follow-up)
+
+Re-picking a same-IP server while connected can save a wrong last-success key. Not fixed in this branch.

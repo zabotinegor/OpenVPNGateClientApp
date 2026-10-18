@@ -60,11 +60,16 @@ class DefaultMainConnectionInteractor(
             if (autoSwitchEnabled) {
                 runCatching {
                     SelectedCountryStore.prepareAutoSwitchFromStart(appContext)
-                    SelectedCountryStore.ensureIndexForConfig(
-                        appContext,
-                        lastSuccessfulConfig,
-                        resolveIpForConfig(lastSuccessfulConfig, selectedServer.ip)
-                    )
+                    // The last-successful config is decoded and several entries may share an IP, so
+                    // restore the exact server by identity first; config/ip is only the fallback for
+                    // data persisted without a key or a server a refresh has since removed.
+                    if (!SelectedCountryStore.restoreLastSuccessfulServerIndex(appContext)) {
+                        SelectedCountryStore.ensureIndexForConfig(
+                            appContext,
+                            lastSuccessfulConfig,
+                            resolveIpForConfig(lastSuccessfulConfig, selectedServer.ip)
+                        )
+                    }
                 }.onFailure { e -> AppLog.e(tag, "Failed to prepare index for auto-switch from start", e) }
             }
             lastSuccessfulConfig

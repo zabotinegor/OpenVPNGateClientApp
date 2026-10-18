@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import com.yahorzabotsin.openvpnclientgate.core.servers.SelectedCountryStore
+import com.yahorzabotsin.openvpnclientgate.core.servers.StoredServer
 import com.yahorzabotsin.openvpnclientgate.core.settings.ServerSource
 import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import de.blinkt.openvpn.core.ConnectionStatus
@@ -35,7 +36,7 @@ object ServerAutoSwitcher {
     private var seconds: Int = 0
     @Volatile private var timerActive: Boolean = false
     @Volatile private var timerLevel: ConnectionStatus? = null
-    internal var starter: (Context, String, String?, Boolean) -> Boolean = { ctx, config, title, isReconnect -> VpnManager.startVpn(ctx, config, title, isReconnect) }
+    internal var starter: (Context, String, String?, Boolean, String?) -> Boolean = { ctx, config, title, isReconnect, ip -> VpnManager.startVpn(ctx, config, title, isReconnect, ip) }
     // Returns Boolean, NOT Unit. VpnManager.stopVpn() -> startControllerService() returns false when
     // Context.startService() is rejected (IllegalStateException from the background-start
     // restriction, SecurityException, ...), and on that path NOTHING reaches OpenVpnService:
@@ -91,7 +92,15 @@ object ServerAutoSwitcher {
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
     @Volatile private var pendingTitle: String? = null
-    @Volatile private var cycleStartIndex: Int? = null
+    @Volatile private var pendingIp: String? = null
+    // Auto-switch cycle state, tracked by server IDENTITY (see ServerIdentity), never by list
+    // position. [cycleVisited] holds every candidate already attempted in this cycle, in order; its
+    // first element is the cycle's start server. A background refresh may add/remove/reorder the
+    // persisted list mid-cycle, so positions would drift; identities do not. In-memory only: a
+    // process death drops the cycle, exactly as the former start index was dropped. Reset on user
+    // stop, success / non-reconnect levels, cycle exhaustion and aborted dispatch (cancel(true)).
+    private var cycleVisited: LinkedHashSet<String>? = null
+    private var cycleCountry: String? = null
     private var stopRetryTimeoutRunnable: Runnable? = null
     // Pending re-dispatch of the stop-retry-timeout ACTION_STOP (see
     // dispatchStopAfterStopRetryTimeout). Held in a field, like every other posted Runnable in this
@@ -150,8 +159,10 @@ object ServerAutoSwitcher {
             if (level == ConnectionStatus.LEVEL_NOTCONNECTED) {
                 val cfg = pendingConfig
                 val title = pendingTitle
+                val ip = pendingIp
                 pendingConfig = null
                 pendingTitle = null
+                pendingIp = null
                 waitingStopForRetry = false
                 stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
                 stopRetryTimeoutRunnable = null
@@ -167,7 +178,7 @@ object ServerAutoSwitcher {
                     val r = Runnable {
                         retryStartRunnable = null
                         retryCommitInFlight = false
-                        if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                        if (!starter(appContext, cfg, title, true, ip)) rollBackFailedRetryDispatch()
                     }
                     retryStartRunnable = r
                     retryCommitInFlight = true
@@ -308,15 +319,13 @@ object ServerAutoSwitcher {
      *   auto-switch is off, or the stop command was rejected -- and the caller must not treat it as
      *   a recovery in progress. Callers that merely want best-effort behaviour may ignore it.
      */
-    fun beginChainedSwitch(appContext: Context, config: String, title: String?): Boolean {
+    fun beginChainedSwitch(appContext: Context, config: String, title: String?, ip: String? = null): Boolean {
         if (!isEnabled(appContext)) {
             AppLog.d(TAG, "Auto-switch disabled; skipping chained switch")
             return false
         }
         applyTimeoutFromSettings(appContext)
-        if (cycleStartIndex == null) {
-            cycleStartIndex = runCatching { SelectedCountryStore.getCurrentIndex(appContext) }.getOrNull()
-        }
+        runCatching { ensureCycle(appContext) }.onFailure { AppLog.w(TAG, "Failed to start switch cycle", it) }
         try { ConnectionStateManager.setReconnectingHint(true); AppLog.d(TAG, "reconnectHint=true (begin chained switch)") } catch (e: Exception) { AppLog.w(TAG, "Failed to set reconnecting hint for chained switch", e) }
         AppLog.i(TAG, "Begin chained switch (title=${title ?: "<none>"}, cfgLen=${config.length})")
         // A chained switch is a fresh cycle, so any stop-retry-timeout re-dispatch left armed by a
@@ -339,6 +348,7 @@ object ServerAutoSwitcher {
         cancelIdleTolerance()
         pendingConfig = config.takeIf { it.isNotBlank() }
         pendingTitle = title
+        pendingIp = ip ?: SelectedCountryStore.getIpForConfig(appContext, config)
         waitingStopForRetry = true
         scheduleStopRetryTimeout(appContext)
         return try {
@@ -432,6 +442,7 @@ object ServerAutoSwitcher {
         waitingStopForRetry = false
         pendingConfig = null
         pendingTitle = null
+        pendingIp = null
         stopRetryTimeoutRunnable?.let { handler.removeCallbacks(it) }
         stopRetryTimeoutRunnable = null
         timeoutStopDispatchRunnable?.let { handler.removeCallbacks(it) }
@@ -443,8 +454,70 @@ object ServerAutoSwitcher {
         _remainingSeconds.value = null
         v2HydrationPending = false
         if (resetCycle) {
-            cycleStartIndex = null
+            cycleVisited = null
         }
+    }
+
+    /**
+     * Returns the live cycle's visited set, starting a new cycle (seeded with the current server,
+     * which is by definition the one just attempted -- unless the index is merely parked after a
+     * refresh removed that server) when none is active.
+     *
+     * A cycle whose visited servers are ALL absent from the persisted list belongs to a superseded
+     * pool (the user selected another country/server list): it is dropped and restarted rather than
+     * applied to the new selection. A mere rename or reorder keeps keys, so it does not trigger this.
+     */
+    private fun ensureCycle(appContext: Context): LinkedHashSet<String> {
+        val existing = cycleVisited
+        val country = SelectedCountryStore.getSelectedCountry(appContext)
+        var seedCurrent = true
+        if (existing != null && existing.isNotEmpty()) {
+            val keys = SelectedCountryStore.currentServerKeys(appContext)
+            if (keys.any { it in existing }) return existing
+            AppLog.i(TAG, "Selection changed under the switch cycle; discarding stale cycle")
+            // Same country, every visited server gone: a refresh replaced the pool, so the persisted
+            // current server is only a parked index that was never attempted -- do not mark it
+            // visited. A different country means the user's selection is itself the attempt.
+            seedCurrent = country != cycleCountry
+        } else if (existing != null) {
+            return existing
+        }
+        val fresh = LinkedHashSet<String>()
+        // currentAttemptedServerKey is null while the index is only a cursor parked by a refresh that
+        // removed the in-flight server: the parked entry was never attempted, so it stays unvisited.
+        if (seedCurrent) SelectedCountryStore.currentAttemptedServerKey(appContext)?.let { fresh.add(it) }
+        cycleVisited = fresh
+        cycleCountry = country
+        return fresh
+    }
+
+    /**
+     * Next candidate of the identity-tracked cycle, for a caller that dispatches the switch itself
+     * via [beginChainedSwitch] (the OpenVpnService VPN_STATUS fallback). Uses the same selection as
+     * [requestSwitchNow]: a cycle is started (seeded with the failing current server) when none is
+     * active, the list is scanned circularly from the current index for the first server not yet
+     * attempted, its index is persisted (so the UI counter follows the target) and it is marked
+     * attempted. Returns null only when every server has been attempted; the cycle is then ended and
+     * the index restored to the cycle's start server, like [requestSwitchNow]'s exhaustion path.
+     *
+     * Main thread only, like [cancel]: the cycle state is unsynchronized and shares its single-looper
+     * ownership with the switch timers, so a caller on another thread must hop to the main looper first.
+     */
+    fun nextCycleCandidate(appContext: Context): StoredServer? {
+        val visited = ensureCycle(appContext)
+        val next = SelectedCountryStore.nextUnvisitedServer(appContext, visited)
+        if (next != null) {
+            visited.add(next.key)
+            return next.server
+        }
+        visited.firstOrNull()?.let { SelectedCountryStore.setCurrentIndexByKey(appContext, it) }
+        cycleVisited = null
+        return null
+    }
+
+    /** Drops the cycle without touching timers, for callers that seeded one but then found no candidate. */
+    fun resetCycle() {
+        cycleVisited = null
     }
 
     /**
@@ -514,9 +587,9 @@ object ServerAutoSwitcher {
      * startUserStopTeardown(), whose cancelForUserStop() then also kills the new cycle.
      *
      * Deliberately narrow: it clears ONLY [timeoutStopDispatchRunnable], never the switch timer or
-     * [cycleStartIndex]. Calling full [cancel] from ACTION_START would reset the cycle start index
+     * [cycleVisited]. Calling full [cancel] from ACTION_START would reset the cycle start index
      * on every auto-switch retry commit (which reaches ACTION_START through [starter]), making
-     * nextServerCircular()'s wrap detection give up early -- the exact defect
+     * nextUnvisitedServer()'s wrap detection give up early -- the exact defect
      * [rollBackFailedRetryDispatch]'s comment describes.
      *
      * Custody, not disposal, is what makes this safe to call before the start is certain. Only a
@@ -592,10 +665,8 @@ object ServerAutoSwitcher {
             SelectedCountryStore.getCurrentServerIdIfMatchingLastStarted(appContext)
         } else 0
         val next = try {
-            if (cycleStartIndex == null) {
-                cycleStartIndex = SelectedCountryStore.getCurrentIndex(appContext)
-            }
-            SelectedCountryStore.nextServerCircular(appContext, cycleStartIndex)
+            val visited = ensureCycle(appContext)
+            SelectedCountryStore.nextUnvisitedServer(appContext, visited)?.also { visited.add(it.key) }?.server
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to resolve next server circularly", e)
             null
@@ -626,12 +697,12 @@ object ServerAutoSwitcher {
                             if (hydratedTotal > 0) {
                                 AppLog.i(TAG, "DEFAULT_V2: hydration complete ($hydratedTotal servers), starting from first server")
                                 SelectedCountryStore.resetIndex(appContext)
-                                cycleStartIndex = null
+                                cycleVisited = null
                                 cancel(resetCycle = false)
                                 val firstServer = try { SelectedCountryStore.currentServer(appContext) } catch (_: Exception) { null }
                                 val hydrationTitle = SelectedCountryStore.getSelectedCountry(appContext)
                                 if (firstServer != null && !firstServer.config.isNullOrBlank()) {
-                                    beginChainedSwitch(appContext, firstServer.config!!, hydrationTitle)
+                                    beginChainedSwitch(appContext, firstServer.config!!, hydrationTitle, firstServer.ip)
                                 } else {
                                     AppLog.w(TAG, "DEFAULT_V2: hydration complete but server config is blank after reset, stopping engine")
                                     cancel(resetCycle = true)
@@ -682,6 +753,7 @@ object ServerAutoSwitcher {
                 AppLog.d(TAG, "Requesting explicit engine stop before retry")
                 pendingConfig = next.config.takeIf { it.isNotBlank() }
                 pendingTitle = title
+                pendingIp = next.ip
                 waitingStopForRetry = true
                 scheduleStopRetryTimeout(appContext)
                 val dispatched = VpnManager.stopVpn(appContext, preserveReconnectHint = true)
@@ -706,9 +778,9 @@ object ServerAutoSwitcher {
             AppLog.i(TAG, "Immediate switch: completed full server cycle for ${title ?: "<unknown>"} (serversInCountry=${if (total>=0) total else "unknown"})")
         }
         try {
-            val startIndex = cycleStartIndex
-            if (startIndex != null) {
-                SelectedCountryStore.setCurrentIndex(appContext, startIndex)
+            val startKey = cycleVisited?.firstOrNull()
+            if (startKey != null) {
+                SelectedCountryStore.setCurrentIndexByKey(appContext, startKey)
             }
         } catch (e: Exception) { AppLog.w(TAG, "Failed to restore start index after full cycle", e) }
         cancel(resetCycle = true)
@@ -760,8 +832,8 @@ object ServerAutoSwitcher {
 
     // Rolls back CONNECTING re-assertion when a retry dispatch fails (e.g. FGS-from-background
     // restriction). Also resets the switch cycle (cancel(resetCycle = true)): without this,
-    // cycleStartIndex survived the aborted attempt, so the next auto-switch cycle's
-    // nextServerCircular wrap detection was evaluated against a stale start index and could
+    // cycleVisited survived the aborted attempt, so the next auto-switch cycle's
+    // nextUnvisitedServer wrap detection was evaluated against a stale start index and could
     // believe the country's server list had already been exhausted, giving up earlier than it
     // should. Both call sites already run on the main looper (posted via this class's handler),
     // matching cancel()'s single-main-looper-caller invariant.
@@ -784,8 +856,10 @@ object ServerAutoSwitcher {
             if (!waitingStopForRetry) return@Runnable
             val cfg = pendingConfig
             val title = pendingTitle
+            val ip = pendingIp
             pendingConfig = null
             pendingTitle = null
+            pendingIp = null
             waitingStopForRetry = false
             AppLog.w(TAG, "Stop retry timeout; starting next server without NOTCONNECTED")
             if (!cfg.isNullOrBlank()) {
@@ -799,7 +873,7 @@ object ServerAutoSwitcher {
                 val startR = Runnable {
                     retryStartRunnable = null
                     retryCommitInFlight = false
-                    if (!starter(appContext, cfg, title, true)) rollBackFailedRetryDispatch()
+                    if (!starter(appContext, cfg, title, true, ip)) rollBackFailedRetryDispatch()
                 }
                 retryStartRunnable = startR
                 retryCommitInFlight = true
@@ -990,11 +1064,11 @@ object ServerAutoSwitcher {
     }
 
     // Read-only test seam for the F11 regression coverage (rollBackFailedRetryDispatch() must
-    // reset the switch cycle): cycleStartIndex has no other externally observable effect until a
+    // reset the switch cycle): the cycle state has no other externally observable effect until a
     // whole second auto-switch cycle plays out, which unit tests should not need to drive just to
-    // assert this one field.
+    // assert this one field. Null when no cycle is active; else the visited identity keys.
     @JvmStatic
-    fun cycleStartIndexForTest(): Int? = cycleStartIndex
+    fun cycleVisitedForTest(): List<String>? = cycleVisited?.toList()
 
     // Read-only test seam for the fresh-start supersession coverage. Whether a stop-retry-timeout
     // re-dispatch is still armed is otherwise only observable by letting it fire, which is exactly

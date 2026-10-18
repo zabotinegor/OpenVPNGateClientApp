@@ -1963,6 +1963,7 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = throw android.os.RemoteException("engine unreachable")
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = false
@@ -2009,6 +2010,7 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
 
         val failingBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = throw android.os.RemoteException("engine unreachable")
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = false
@@ -2029,6 +2031,7 @@ class OpenVpnServiceStatusSyncTest {
         assertEquals(3, ReflectionHelpers.getField<Int>(service, "stopAttempt"))
 
         val succeedingBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -2052,6 +2055,7 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -2081,6 +2085,7 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -2135,6 +2140,7 @@ class OpenVpnServiceStatusSyncTest {
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_VPNPAUSED, null)
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -2162,6 +2168,7 @@ class OpenVpnServiceStatusSyncTest {
         val service = controller.get()
 
         val failingStopBinder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = throw android.os.RemoteException("engine unreachable")
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = false
@@ -2205,6 +2212,11 @@ class OpenVpnServiceStatusSyncTest {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         drainStartedServices(service)
+
+        // ACTION_PAUSE only arms/dispatches when state is CONNECTED/PAUSING -- matching
+        // VpnManager.pauseVpn()'s own precondition for ever sending this action.
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
 
         val pauseIntent = Intent(appContext, OpenVpnService::class.java).apply {
             putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
@@ -2454,7 +2466,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStarter = ServerAutoSwitcher.starter
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
-        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> startCalls.add(config) }
         ServerAutoSwitcher.stopper = { _ -> true }
 
         val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
@@ -2522,6 +2534,7 @@ class OpenVpnServiceStatusSyncTest {
         ServerAutoSwitcher.resetForTest()
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -2760,6 +2773,7 @@ class OpenVpnServiceStatusSyncTest {
         ServerAutoSwitcher.resetForTest()
 
         val binder = object : IOpenVPNServiceInternal.Stub() {
+            override fun forceStopVPN(): Int = 0
             override fun protect(fd: Int) = false
             override fun userPause(b: Boolean) {}
             override fun stopVPN(replaceConnection: Boolean) = true
@@ -3080,7 +3094,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStarter = ServerAutoSwitcher.starter
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
-        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> startCalls.add(config) }
         ServerAutoSwitcher.stopper = { _ -> true }
 
         try {
@@ -3143,7 +3157,7 @@ class OpenVpnServiceStatusSyncTest {
         val originalStarter = ServerAutoSwitcher.starter
         val originalStopper = ServerAutoSwitcher.stopper
         val startCalls = mutableListOf<String>()
-        ServerAutoSwitcher.starter = { _, config, _, _ -> startCalls.add(config) }
+        ServerAutoSwitcher.starter = { _, config, _, _, _ -> startCalls.add(config) }
         ServerAutoSwitcher.stopper = { _ -> true }
 
         try {

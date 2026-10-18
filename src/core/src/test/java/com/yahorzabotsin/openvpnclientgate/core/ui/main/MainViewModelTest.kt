@@ -627,6 +627,7 @@ class MainViewModelTest {
         val effect = effects.first() as MainEffect.StartVpn
         assertEquals("config", effect.config)
         assertEquals("France", effect.country)
+        assertEquals("1.2.3.4", effect.ip)
         assertTrue(connectionInteractor.prepareCalled)
         job.cancel()
     }

@@ -38,6 +38,7 @@ mpandroidchart = "v3.1.0"
 square-okhttp = "4.10.0"
 mockito-core = "4.8.1"
 robolectric = "4.10.2"
+jsonorg = "20260814"
 androidx-test-core = "1.5.0"
 androidx-startup = "1.1.1"
 
@@ -90,6 +91,7 @@ org-bouncycastle-bcpkix-jdk15on = { group = "org.bouncycastle", name = "bcpkix-j
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito-core" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "square-okhttp" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+json = { group = "org.json", name = "json", version.ref = "jsonorg" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test-core" }
 androidx-startup-runtime = { group = "androidx.startup", name = "startup-runtime", version.ref = "androidx-startup" }
 

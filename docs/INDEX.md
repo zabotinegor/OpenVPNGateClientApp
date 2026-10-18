@@ -50,7 +50,7 @@ Current behaviour, not change history.
 
 | Doc | Covers |
 |---|---|
-| [guides/how-to.md](guides/how-to.md) | Reusable techniques: MockWebServer tests, hardprobe lifecycle, on-device SSE verification, local mock backend, prefs-migration checks, Gradle test/compile-worker OOM recovery (test-executor and Kotlin-compile-worker forms, `FROM-CACHE` trap), layout orientation-split files (`layout/` vs `layout-land/`, why portrait-only edits never reach TV), detecting a vacuous regression test with targeted single-guard mutation testing |
+| [guides/how-to.md](guides/how-to.md) | Reusable techniques: MockWebServer tests, hardprobe lifecycle, on-device SSE verification, local mock backend, prefs-migration checks, Gradle test/compile-worker OOM recovery (test-executor and Kotlin-compile-worker forms, `FROM-CACHE` trap), layout orientation-split files (`layout/` vs `layout-land/`, why portrait-only edits never reach TV), detecting a vacuous regression test with targeted single-guard mutation testing, building and testing from a git worktree (untracked `local.properties`, `servers.local.json` and submodules) |
 | [guides/troubleshooting.md](guides/troubleshooting.md) | Symptom → root cause → fix. Read before debugging anything that feels familiar |
 | [guides/adb-cookbook.md](guides/adb-cookbook.md) | Topic-organised reusable ADB one-liners: device control, app lifecycle, prefs, probe/autoswitch, SSE signals |
 | [guides/engine-update.md](guides/engine-update.md) | Post-engine-bump regression checklist and pass criteria |
