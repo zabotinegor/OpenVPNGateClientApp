@@ -1945,6 +1945,34 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         intent: Intent?
     ) {
         lastReportedEngineLevel = level
+        // VpnStatus listeners run on whatever thread reported the level. The authority decision
+        // (AIDL fresh or not), the accepted-level marker and everything that drives ServerAutoSwitcher
+        // (timer, stop/retry and switch-cycle state) or the main-looper-owned start/stop flags belong to
+        // the main looper. Off the main thread the whole handling is therefore queued onto the same
+        // looper that serializes the AIDL auto-switch dispatch, and decided only when it runs: an AIDL
+        // update that lands while the callback is queued must win over it, and a level that belongs to a
+        // superseded attempt, or arrives after teardown, must not pick or begin a switch, record an
+        // accepted level, or settle anything. The attempt generation is captured now and re-checked then.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            handleVpnStatusUpdate(level, state)
+        } else {
+            if (serviceDestroyed) return
+            val dispatchedForGeneration = reconnectDispatchGuard.currentGeneration
+            statusHandler.postAtTime(Runnable {
+                if (serviceDestroyed || reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) {
+                    return@Runnable
+                }
+                handleVpnStatusUpdate(level, state)
+            }, autoSwitchDispatchToken, SystemClock.uptimeMillis())
+        }
+    }
+
+    /**
+     * One VpnStatus callback: AIDL-authoritative supplement while AIDL is fresh, VpnStatus-authoritative
+     * handling otherwise. The authority is decided here, at execution time, once per callback. Main thread only.
+     */
+    @androidx.annotation.MainThread
+    private fun handleVpnStatusUpdate(level: ConnectionStatus, state: String?) {
         // One authority decision and one pause-guard decision per callback: concurrent AIDL/pause
         // transitions must not give the marker write and the branch below different answers.
         val useVpnStatus = shouldUseVpnStatus()
@@ -1982,24 +2010,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
-        // VpnStatus listeners run on whatever thread reported the level. Everything below drives
-        // ServerAutoSwitcher (timer, stop/retry and switch-cycle state, all owned by the main looper)
-        // and the main-looper-owned start/stop flags, so off the main thread the whole handling is
-        // queued onto the same looper that serializes the AIDL auto-switch dispatch. The attempt
-        // generation is captured now and re-checked when the runnable runs: a level that belongs to
-        // a superseded attempt, or arrives after teardown, must not pick or begin a switch.
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            applyVpnStatusLevel(level, state, previousAcceptedLevel)
-        } else {
-            if (serviceDestroyed) return
-            val dispatchedForGeneration = reconnectDispatchGuard.currentGeneration
-            statusHandler.postAtTime(Runnable {
-                if (serviceDestroyed || reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) {
-                    return@Runnable
-                }
-                applyVpnStatusLevel(level, state, previousAcceptedLevel)
-            }, autoSwitchDispatchToken, SystemClock.uptimeMillis())
-        }
+        applyVpnStatusLevel(level, state, previousAcceptedLevel)
     }
 
     /** VpnStatus-authoritative handling of one engine level. Main thread only. */

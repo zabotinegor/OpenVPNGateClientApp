@@ -8,6 +8,7 @@ import com.yahorzabotsin.openvpnclientgate.core.servers.SignalStrength
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -18,6 +19,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowLooper
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
@@ -383,6 +385,144 @@ class OpenVpnServiceSessionLoggingTest {
             controller.destroy()
             ShadowLooper.idleMainLooper()
 
+            org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    private fun acceptedLevel(service: OpenVpnService): ConnectionStatus? =
+        ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAcceptedEngineLevel")
+
+    /** Delivers a live AIDL push the way the binder callback does, which also makes AIDL authoritative. */
+    private fun deliverAidlLevel(service: OpenVpnService, level: ConnectionStatus) {
+        ReflectionHelpers.setField(service, "elapsedRealtimeMs", ({ 500_000L } as () -> Long))
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        val callbacks = ReflectionHelpers.getField<de.blinkt.openvpn.core.IStatusCallbacks>(service, "statusCallbacks")
+        callbacks.updateStateString(level.name, null, 0, level, null)
+    }
+
+    private fun assertQueuedFailureLosesToFreshAidlConnected(failure: ConnectionStatus) {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            ShadowLog.clear()
+
+            // AIDL is stale (never bound), so the failure is queued as VpnStatus-authoritative ...
+            reportFromBackgroundThread(service, failure)
+            // ... and a live AIDL CONNECTED lands before the main looper drains the queue.
+            deliverAidlLevel(service, ConnectionStatus.LEVEL_CONNECTED)
+            assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+            assertEquals(ConnectionStatus.LEVEL_CONNECTED, acceptedLevel(service))
+            assertEquals(
+                "a stale VpnStatus failure must not start a fallback server switch",
+                1 to 3, SelectedCountryStore.getCurrentPosition(appContext)
+            )
+            org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.none { it.contains("Auto-switching to next server") })
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun queuedAuthFailedFallback_isNotAppliedOverAidlConnectedThatArrivedBeforeItRan() {
+        assertQueuedFailureLosesToFreshAidlConnected(ConnectionStatus.LEVEL_AUTH_FAILED)
+    }
+
+    @Test
+    fun queuedNotConnectedFallback_isNotAppliedOverAidlConnectedThatArrivedBeforeItRan() {
+        assertQueuedFailureLosesToFreshAidlConnected(ConnectionStatus.LEVEL_NOTCONNECTED)
+    }
+
+    // The AIDL-supplement behaviour that is legitimate while AIDL is fresh (a PAUSED confirmation that
+    // settles an in-flight pause) must still be applied when the authority flipped while queued.
+    @Test
+    fun queuedPausedFallback_stillConfirmsThePauseWhenAidlTurnedFreshBeforeItRan() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+            ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+            ConnectionStateManager.beginPauseTransition()
+            val pause = Intent(appContext, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_PAUSE)
+            }
+            service.onStartCommand(pause, 0, 1)
+
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_VPNPAUSED)
+            ReflectionHelpers.setField(service, "elapsedRealtimeMs", ({ 500_000L } as () -> Long))
+            ReflectionHelpers.setField(service, "boundToStatus", true)
+            ReflectionHelpers.setField(service, "lastLiveStatusMs", System.currentTimeMillis())
+            ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", 500_000L)
+
+            ShadowLooper.idleMainLooper()
+
+            assertFalse(ReflectionHelpers.getField<Boolean>(service, "pauseActionInFlight"))
+            assertEquals(ConnectionState.PAUSED, ConnectionStateManager.state.value)
+            // AIDL owns the state, so the fallback level is not recorded as the accepted engine level.
+            assertTrue(acceptedLevel(service) != ConnectionStatus.LEVEL_VPNPAUSED)
+        } finally {
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun queuedFallbackCallback_droppedAfterAttemptGenerationChange_doesNotRecordOrAct() {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            val acceptedBefore = acceptedLevel(service)
+            ShadowLog.clear()
+
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+            assertEquals("nothing is accepted before the queued callback runs", acceptedBefore, acceptedLevel(service))
+            startAttempt(service) // supersedes the attempt the callback belonged to
+            val acceptedAfterRestart = acceptedLevel(service)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(acceptedAfterRestart, acceptedLevel(service))
+            assertTrue(acceptedLevel(service) != ConnectionStatus.LEVEL_AUTH_FAILED)
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.none { it.contains("Auto-switching to next server") })
+            org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun queuedFallbackCallback_droppedAfterServiceDestroy_doesNotRecordLevel() {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+            assertTrue(acceptedLevel(service) != ConnectionStatus.LEVEL_AUTH_FAILED)
+
+            controller.destroy()
+            ShadowLooper.idleMainLooper()
+
+            assertTrue(acceptedLevel(service) != ConnectionStatus.LEVEL_AUTH_FAILED)
             org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
         } finally {
             ServerAutoSwitcher.resetForTest()
