@@ -1940,6 +1940,12 @@ SIGTERM on Android. Fixed in engine d4928f22: the escalation now signals SIGKILL
 (`android.os.Process.sendSignal`), falling back to `destroyForcibly()`. Re-verified on the device: process
 gone, no tun, notification cleared, stop confirmed after about 11 s.
 
+**Second finding (TV, Xiaomi MIBOX4, Android 9):** the same freeze made Stop stall about 100 s. The
+management `signal SIGINT` write blocks on the frozen peer while `stopOpenVPN()` holds the `active`
+monitor inside a synchronous binder call. Fixed in engine 1c615196: the write is bounded
+(`managementCommandBounded`, 2 s, logs `stopOpenVPN failed: sigint_write_timeout`) so the SIGKILL escalation
+runs. Re-verified: TV recovery about 4.3 s; phone unchanged; normal Stop confirmed in under 300 ms on both.
+
 ---
 
 ## Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u
