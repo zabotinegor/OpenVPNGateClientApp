@@ -7,6 +7,9 @@ import com.yahorzabotsin.openvpnclientgate.core.logging.LogTags
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.StatusSnapshot
 import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import de.blinkt.openvpn.core.IStatusCallbacks
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,6 +160,70 @@ class OpenVpnServicePauseTimeoutTest {
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
         assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    private fun waitUntilBlocked(thread: Thread) {
+        val deadline = System.nanoTime() + 2_000_000_000L
+        while (thread.state != Thread.State.BLOCKED && thread.isAlive && System.nanoTime() < deadline) {
+            Thread.sleep(5)
+        }
+    }
+
+    // Runs [callback] on this thread while a second thread plays the Pause tap: it takes the shared
+    // pause-transition lock (as beginPauseTransition() does), waits until the callback has passed its
+    // unlocked pre-check and parked on that lock, and only then writes PAUSING. Without the guard being
+    // re-decided under the lock the callback would not park and would apply CONNECTING first.
+    private fun runCallbackOvertakenByThePauseTap(callback: () -> Unit) {
+        val callbackThread = Thread.currentThread()
+        val tapHoldsLock = CountDownLatch(1)
+        val tap = Thread {
+            synchronized(ConnectionStateManager.pauseTransitionLock) {
+                tapHoldsLock.countDown()
+                waitUntilBlocked(callbackThread)
+                ConnectionStateManager.updateState(ConnectionState.PAUSING)
+            }
+        }
+        tap.start()
+        assertTrue(tapHoldsLock.await(5, TimeUnit.SECONDS))
+        callback()
+        tap.join(5_000)
+        assertFalse("pause tap thread did not finish", tap.isAlive)
+    }
+
+    // The pause guard used to be evaluated before the callback took pauseLock, so a callback that read
+    // "no pause" could be overtaken by the Pause tap's PAUSING write and then apply CONNECTING on top of
+    // it (an allowed transition), making the pause button vanish.
+    @Test
+    fun aidlConnectingCallbackOvertakenByThePauseTap_isDiscardedNotAppliedOverPausing() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        val level = ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+
+        runCallbackOvertakenByThePauseTap { callbacks.updateStateString("CONNECTING", null, 0, level, null) }
+
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        assertFalse(
+            "a discarded stale level must not stay recorded as accepted engine truth",
+            ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAcceptedEngineLevel") == level
+        )
+    }
+
+    @Test
+    fun vpnStatusConnectingCallbackOvertakenByThePauseTap_isDiscardedNotAppliedOverPausing() {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        val level = ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED
+
+        runCallbackOvertakenByThePauseTap { service.updateState("CONNECTING", null, 0, level, null) }
+
+        assertEquals(ConnectionState.PAUSING, ConnectionStateManager.state.value)
+        assertFalse(
+            "a discarded stale level must not stay recorded as accepted engine truth",
+            ReflectionHelpers.getField<ConnectionStatus?>(service, "lastAcceptedEngineLevel") == level
+        )
     }
 
     // VpnManager.pauseVpn() moves ConnectionState to PAUSING synchronously; isPauseGuardActive()

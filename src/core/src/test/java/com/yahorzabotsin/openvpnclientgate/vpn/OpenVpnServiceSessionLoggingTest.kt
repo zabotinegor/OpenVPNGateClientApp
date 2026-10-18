@@ -17,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [27])
@@ -285,6 +286,104 @@ class OpenVpnServiceSessionLoggingTest {
             assertTrue(logs.any { it.contains("Auto-switching to next server in country list: RU -> c1 (server=1/3") })
             assertTrue(logs.none { it.contains("Exhausted server list without success") })
             assertEquals(1 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    private fun startAttempt(service: OpenVpnService) {
+        val start = Intent(appContext, OpenVpnService::class.java).apply {
+            putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_START)
+            putExtra(VpnManager.extraConfigKey(appContext), "client\n")
+            putExtra(VpnManager.extraTitleKey(appContext), "RU")
+        }
+        service.onStartCommand(start, 0, 1)
+    }
+
+    private fun reportFromBackgroundThread(service: OpenVpnService, level: ConnectionStatus) {
+        val worker = Thread { service.updateState(null, null, 0, level, null) }
+        worker.start()
+        worker.join(5_000)
+        org.junit.Assert.assertFalse("callback thread did not finish", worker.isAlive)
+    }
+
+    @Test
+    fun fallbackCallbackOffTheMainThread_selectsAndSwitchesOnlyOnTheMainLooper() {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            ShadowLog.clear()
+
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+
+            org.junit.Assert.assertNull(
+                "the switch cycle must not be touched from the callback thread",
+                ServerAutoSwitcher.cycleVisitedForTest()
+            )
+            assertEquals(1 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(2 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("Auto-switching to next server in country list: RU -> c2 (server=2/3") })
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    // A timed (main-looper) switch and a fallback callback from another thread used to select against the
+    // same not-yet-updated visited set and both picked the same server. Serialized onto the main looper,
+    // the queued fallback sees the server the timed switch already attempted and moves on to the next one.
+    @Test
+    fun overlappingTimedSwitchAndOffThreadFallback_pickDistinctServers() {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            ShadowLog.clear()
+
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+            // The timed path wins the race on the main looper.
+            assertEquals("c2", ServerAutoSwitcher.nextCycleCandidate(appContext)?.city)
+
+            ShadowLooper.idleMainLooper()
+
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("RU -> c3 (server=3/3") })
+            assertTrue(logs.none { it.contains("RU -> c2 ") })
+            assertEquals(3 to 3, SelectedCountryStore.getCurrentPosition(appContext))
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun queuedFallbackCallback_isDroppedWhenTheServiceIsDestroyedBeforeItRuns() {
+        saveServers(3)
+        ServerAutoSwitcher.resetForTest()
+        ConnectionStateManager.setReconnectingHint(false)
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        try {
+            startAttempt(service)
+            ShadowLooper.idleMainLooper()
+            reportFromBackgroundThread(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+
+            controller.destroy()
+            ShadowLooper.idleMainLooper()
+
+            org.junit.Assert.assertNull(ServerAutoSwitcher.cycleVisitedForTest())
         } finally {
             ServerAutoSwitcher.resetForTest()
             ConnectionStateManager.setReconnectingHint(false)

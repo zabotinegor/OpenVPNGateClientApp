@@ -499,6 +499,9 @@ object ServerAutoSwitcher {
      * attempted, its index is persisted (so the UI counter follows the target) and it is marked
      * attempted. Returns null only when every server has been attempted; the cycle is then ended and
      * the index restored to the cycle's start server, like [requestSwitchNow]'s exhaustion path.
+     *
+     * Main thread only, like [cancel]: the cycle state is unsynchronized and shares its single-looper
+     * ownership with the switch timers, so a caller on another thread must hop to the main looper first.
      */
     fun nextCycleCandidate(appContext: Context): StoredServer? {
         val visited = ensureCycle(appContext)

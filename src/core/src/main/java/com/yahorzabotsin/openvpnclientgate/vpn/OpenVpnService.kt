@@ -316,8 +316,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // thread -- re-checking after the fact only narrows the window, since a callback can still land
     // between a check and the following assignment. Holding this lock
     // across both sides' check+set/check+clear makes one side's critical section strictly precede or
-    // follow the other's, never interleave with it.
-    private val pauseLock = Any()
+    // follow the other's, never interleave with it. It is the same monitor ConnectionStateManager
+    // takes for the pause tap's PAUSING write, so the guard decision and applying the engine level
+    // cannot straddle that write either.
+    private val pauseLock = ConnectionStateManager.pauseTransitionLock
     // Track pause action to ensure PAUSED state is reached
     @Volatile private var pauseActionInFlight = false
     private var pauseActionStartedMs: Long = 0L
@@ -1947,6 +1949,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // transitions must not give the marker write and the branch below different answers.
         val useVpnStatus = shouldUseVpnStatus()
         val pauseRejected = isPauseGuardRejected(level)
+        val previousAcceptedLevel = lastAcceptedEngineLevel
         if (useVpnStatus && !pauseRejected) {
             lastAcceptedEngineLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
         }
@@ -1979,6 +1982,29 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             return
         }
         updateStatusSource(StatusSource.VPN_STATUS, "VpnStatus update")
+        // VpnStatus listeners run on whatever thread reported the level. Everything below drives
+        // ServerAutoSwitcher (timer, stop/retry and switch-cycle state, all owned by the main looper)
+        // and the main-looper-owned start/stop flags, so off the main thread the whole handling is
+        // queued onto the same looper that serializes the AIDL auto-switch dispatch. The attempt
+        // generation is captured now and re-checked when the runnable runs: a level that belongs to
+        // a superseded attempt, or arrives after teardown, must not pick or begin a switch.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            applyVpnStatusLevel(level, state, previousAcceptedLevel)
+        } else {
+            if (serviceDestroyed) return
+            val dispatchedForGeneration = reconnectDispatchGuard.currentGeneration
+            statusHandler.postAtTime(Runnable {
+                if (serviceDestroyed || reconnectDispatchGuard.currentGeneration != dispatchedForGeneration) {
+                    return@Runnable
+                }
+                applyVpnStatusLevel(level, state, previousAcceptedLevel)
+            }, autoSwitchDispatchToken, SystemClock.uptimeMillis())
+        }
+    }
+
+    /** VpnStatus-authoritative handling of one engine level. Main thread only. */
+    @androidx.annotation.MainThread
+    private fun applyVpnStatusLevel(level: ConnectionStatus, state: String?, previousAcceptedLevel: ConnectionStatus?) {
         val failureLevelsHandledByService = setOf(
             ConnectionStatus.LEVEL_AUTH_FAILED,
             ConnectionStatus.LEVEL_NONETWORK,
@@ -1986,11 +2012,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         )
         // Pause race guard: while a pause request is in flight, a stale transient connecting-family
         // status queued before the engine applied the pause must not reach the auto-switcher or
-        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above.
-        val isPauseTransientConnecting = pauseRejected
+        // ConnectionStateManager -- see PAUSE_TRANSIENT_CONNECTING_LEVELS above. Decided again under
+        // pauseLock at each point that acts on it (see syncEngineState()), because a pause that begins
+        // after an unlocked check would otherwise let the stale level through.
+        var isPauseTransientConnecting = isPauseGuardRejected(level)
         if (level !in failureLevelsHandledByService && !isPauseTransientConnecting) {
-            AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-            try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+            synchronized(pauseLock) {
+                if (isPauseGuardRejected(level)) {
+                    isPauseTransientConnecting = true
+                } else {
+                    AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
+                    try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+                }
+            }
+        }
+        val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
+        if (isPauseTransientConnecting && lastAcceptedEngineLevel == normalizedLevel) {
+            lastAcceptedEngineLevel = previousAcceptedLevel
         }
         if (maybeStartStaleStopReconciliation(level, "VPN_STATUS")) return
         maybeClearStaleStopIntentOnIdleLevel(level, "VPN_STATUS")
@@ -1999,17 +2037,30 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level while pause is in flight (VPN_STATUS)")
             return
         }
-        // Recorded here, after the pause guard above, for the same reason as the AIDL path in
-        // syncEngineState(): a callback ignored as stale must not become the "latest observed
-        // engine level" that pause-timeout reconciliation reads via getLatestObservedEngineState().
-        logEngineStateChange("VPN_STATUS", level, state)
+        // Recorded inside the settle critical section below, only once the pause guard has been
+        // re-evaluated there, for the same reason as the AIDL path in syncEngineState(): a callback
+        // ignored as stale must not become the "latest observed engine level" that pause-timeout
+        // reconciliation reads via getLatestObservedEngineState().
+        var rejectedAtApply = false
         // Before the suppression return: a controller recreated around an already-running VPN keeps
         // suppressEngineState set until it handles ACTION_START, and must still settle a pause here.
-        settlePauseOnVpnStatusLevel(level, state) { ConnectionStateManager.updateFromEngine(level, state) }
+        settlePauseOnVpnStatusLevel(level, state) {
+            if (isPauseGuardRejected(level)) {
+                rejectedAtApply = true
+            } else {
+                logEngineStateChange("VPN_STATUS", level, state)
+                ConnectionStateManager.updateFromEngine(level, state)
+            }
+        }
+        if (rejectedAtApply) {
+            if (lastAcceptedEngineLevel == normalizedLevel) lastAcceptedEngineLevel = previousAcceptedLevel
+            AppLog.d(TAG, "Ignoring stale connecting-family level=$level; pause began before it could be applied (VPN_STATUS)")
+            return
+        }
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 
-        if (userInitiatedStart && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
+        if (userInitiatedStart && !userInitiatedStop && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
             val autoSwitchEnabled = try { com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.load(applicationContext).autoSwitchWithinCountry } catch (_: Exception) { true }
             if (!autoSwitchEnabled) {
                 AppLog.d(TAG, "Auto-switch disabled; skipping engine auto-switch path")
@@ -2862,6 +2913,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // before the restore is queued, only for callbacks the guard lets through, and never for the
         // VpnStatus supplement (it is not authoritative while AIDL is fresh). Normalized like the app
         // state: a lagging raw level with detail CONNECTED is a live tunnel.
+        val previousAcceptedLevel = lastAcceptedEngineLevel
         if (!pauseRejected && source != "VPN_STATUS") {
             lastAcceptedEngineLevel = normalizedLevel
         }
@@ -2933,12 +2985,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // timeout/resume-timeout reconciliation -- otherwise a callback this guard deliberately
         // discarded would still resurface and reconcile state to CONNECTING if the real PAUSED
         // confirmation never arrives.
-        // Recorded under the caller's real source: the VpnStatus supplement call must not overwrite the
-        // last genuine AIDL observation the resume/pause timeouts fall back to.
-        logEngineStateChange(source, level, detail)
-        if (allowAutoSwitch) {
-            dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
-        }
         // A terminal/failure level abandons any in-flight pause -- there's no session left to
         // confirm PAUSED, and leaving the watch armed means PAUSE_RETRY_AT_MS would resend
         // PAUSE_VPN 5s later into whatever unrelated session (e.g. a fresh reconnect) has started
@@ -2946,16 +2992,38 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // below, the same lock ACTION_PAUSE's arming holds around its own check-and-set -- so an
         // arm racing this terminal transition is always fully ordered before or after it, never
         // interleaved, and pauseActionInFlight can never be read stale by either side.
-        synchronized(pauseLock) {
-            // PAUSED settles the watch here too: the polled-snapshot path reaches this function without
-            // the AIDL callback's own PAUSED handling, and would otherwise leave the retry and timeout
-            // armed after the pause was already confirmed.
-            if (pauseActionInFlight &&
-                (normalizedLevel in STOP_TERMINAL_LEVELS || normalizedLevel == ConnectionStatus.LEVEL_VPNPAUSED)) {
-                pauseActionInFlight = false
-                statusHandler.post { clearPauseWatchIfIdle() }
+        // The pause guard is decided AGAIN here, under that same lock (which the pause tap's PAUSING
+        // write also takes): the check at the top of this function can be overtaken by a pause that
+        // begins before this critical section, and a stale CONNECTING applied after PAUSING (an allowed
+        // transition) would make the pause button disappear. Everything that records the level as
+        // accepted -- the observation, the auto-switcher dispatch and the state update -- hangs off
+        // this one decision.
+        val applied = synchronized(pauseLock) {
+            if (isPauseGuardRejected(level)) {
+                if (lastAcceptedEngineLevel == normalizedLevel) lastAcceptedEngineLevel = previousAcceptedLevel
+                false
+            } else {
+                // Recorded under the caller's real source: the VpnStatus supplement call must not
+                // overwrite the last genuine AIDL observation the resume/pause timeouts fall back to.
+                logEngineStateChange(source, level, detail)
+                if (allowAutoSwitch) {
+                    dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
+                }
+                // PAUSED settles the watch here too: the polled-snapshot path reaches this function
+                // without the AIDL callback's own PAUSED handling, and would otherwise leave the retry
+                // and timeout armed after the pause was already confirmed.
+                if (pauseActionInFlight &&
+                    (normalizedLevel in STOP_TERMINAL_LEVELS || normalizedLevel == ConnectionStatus.LEVEL_VPNPAUSED)) {
+                    pauseActionInFlight = false
+                    statusHandler.post { clearPauseWatchIfIdle() }
+                }
+                ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
+                true
             }
-            ConnectionStateManager.updateFromEngine(normalizedLevel, detail)
+        }
+        if (!applied) {
+            AppLog.d(TAG, "Ignoring stale connecting-family level=$level; pause began before it could be applied ($source)")
+            return
         }
         handleEngineLevelForStop(level, "AIDL")
     }
