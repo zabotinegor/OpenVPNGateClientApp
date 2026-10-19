@@ -7,6 +7,8 @@ import androidx.core.content.FileProvider
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -55,7 +57,7 @@ class DefaultAppUpdateInstaller(
         }
     }
 
-    private fun installLocked(
+    private suspend fun installLocked(
         asset: AppUpdateAsset,
         onProgress: (AppUpdateInstallProgress) -> Unit
     ): AppUpdateInstallResult {
@@ -85,6 +87,7 @@ class DefaultAppUpdateInstaller(
         val apkFile = cacheFileFor(updatesDir, asset)
         val partialFile = File(updatesDir, apkFile.name + ".part")
         val expectedHash = normalizeExpectedHash(asset.contentHash)
+        val coroutineContext = currentCoroutineContext()
         pruneCache(updatesDir, apkFile)
 
         try {
@@ -101,6 +104,7 @@ class DefaultAppUpdateInstaller(
 
             val request = Request.Builder().url(asset.downloadProxyUrl).get().build()
             val downloadResult = httpClient.newCall(request).execute().use { response ->
+                coroutineContext.ensureActive()
                 if (!response.isSuccessful) {
                     return@use AppUpdateInstallResult.Failure("Download failed: ${response.code}")
                 }
@@ -117,7 +121,9 @@ class DefaultAppUpdateInstaller(
                     partialFile.outputStream().use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
+                            coroutineContext.ensureActive()
                             val read = input.read(buffer)
+                            coroutineContext.ensureActive()
                             if (read <= 0) break
                             downloadedBytes += read
                             if (downloadedBytes > MAX_APK_BYTES) {
