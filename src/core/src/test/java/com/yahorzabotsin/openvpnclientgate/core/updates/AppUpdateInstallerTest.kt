@@ -312,6 +312,27 @@ class AppUpdateInstallerTest {
     }
 
     @Test
+    fun `fresh APKs are capped at three keeping the newest`() = runTest {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        repeat(5) { idx ->
+            File(dir, "fresh-$idx.apk").apply {
+                writeBytes(byteArrayOf(1, 2, 3))
+                setLastModified(now - (idx + 1) * 60_000L)
+            }
+        }
+
+        val payload = "verified-apk".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        installer.start(defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload)))
+
+        val remaining = dir.listFiles().orEmpty().filter { it.extension == "apk" }.map { it.name }
+        assertEquals(3, remaining.size)
+        assertTrue("fresh-0.apk" in remaining && "fresh-1.apk" in remaining)
+        assertTrue("fresh-4.apk" !in remaining)
+    }
+
+    @Test
     fun `concurrent Update actions share one verified download`() = runTest {
         val payload = "signed-apk-binary".toByteArray()
         val requests = AtomicInteger(0)
