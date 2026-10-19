@@ -51,12 +51,16 @@ server keeps control of where assets actually live.
 Downloaded APKs are staged to a `.part` file and made installable only after the
 transfer completes, the declared size matches (when present), and the declared
 SHA-256 matches (when valid). Cancellation and failures discard the incomplete
-`.part` artifact rather than allowing a later Update action to install it.
+`.part` artifact rather than allowing a later Update action to install it. Cancelling the
+Update coroutine also cancels the in-flight OkHttp call, so a blocked connect or body read is
+interrupted instead of running to completion.
 
 On repeated Update, the installer may skip the network transfer **only** for a
 complete asset matching the release identity, declared size, and valid SHA-256;
 it recomputes the cached file hash before each reuse. Missing or malformed hashes
-do not authorize reuse. Install-launch failures do not discard an already
+do not authorize reuse. The cache key covers the release identity and the download URL,
+so an asset whose download URL changes on every request never hits the cache and is
+downloaded again. Install-launch failures do not discard an already
 verified complete APK. Concurrent update actions are serialized inside the
 shared installer singleton.
 
@@ -94,4 +98,4 @@ cache is per-locale, so switching language re-fetches rather than showing stale 
 endpoint, and treating it as a source of installable binaries would be a supply-chain problem. This
 holds regardless of which server source the user has selected.
 
-*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-07-31).*
+*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-10-19).*
