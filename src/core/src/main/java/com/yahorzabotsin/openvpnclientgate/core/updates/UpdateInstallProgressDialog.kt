@@ -1,6 +1,8 @@
 package com.yahorzabotsin.openvpnclientgate.core.updates
 
 import android.app.Activity
+import android.os.Handler
+import android.os.Looper
 import android.text.format.Formatter
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -34,6 +36,17 @@ class UpdateInstallProgressDialog(
         .setCancelable(false)
         .create()
 
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val progressDispatcher = LatestUpdateProgressDispatcher(
+        post = { uiHandler.post(it) },
+        remove = { uiHandler.removeCallbacks(it) },
+        render = { progress ->
+            if (!activity.isDestroyed && !activity.isFinishing) {
+                renderProgress(progress)
+            }
+        }
+    )
+
     fun show() {
         if (!activity.isFinishing && !activity.isDestroyed) {
             dialog.show()
@@ -42,28 +55,33 @@ class UpdateInstallProgressDialog(
     }
 
     fun update(progress: AppUpdateInstallProgress) {
-        activity.runOnUiThread {
-            val total = progress.totalBytes
-            if (progress.percent != null && total != null && total > 0) {
-                progressBar.isIndeterminate = false
-                progressBar.progress = progress.percent
-                progressText.text = activity.getString(
-                    R.string.update_downloading_progress,
-                    progress.percent,
-                    formatBytes(progress.downloadedBytes),
-                    formatBytes(total)
-                )
-            } else {
-                progressBar.isIndeterminate = true
-                progressText.text = activity.getString(
-                    R.string.update_downloading_unknown,
-                    formatBytes(progress.downloadedBytes)
-                )
-            }
+        progressDispatcher.offer(progress)
+    }
+
+    private fun renderProgress(progress: AppUpdateInstallProgress) {
+        val total = progress.totalBytes
+        if (progress.percent != null && total != null && total > 0) {
+            progressBar.isIndeterminate = false
+            progressBar.progress = progress.percent
+            progressText.text = activity.getString(
+                R.string.update_downloading_progress,
+                progress.percent,
+                formatBytes(progress.downloadedBytes),
+                formatBytes(total)
+            )
+        } else {
+            progressBar.isIndeterminate = true
+            progressText.text = activity.getString(
+                R.string.update_downloading_unknown,
+                formatBytes(progress.downloadedBytes)
+            )
         }
     }
 
     fun dismiss() {
+        // Remove the pending callback before dismissing the Activity-backed window.
+        // Subsequent stream callbacks cannot requeue UI work after the screen closes.
+        progressDispatcher.close()
         activity.runOnUiThread {
             if (dialog.isShowing) {
                 dialog.dismiss()
