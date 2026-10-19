@@ -23,6 +23,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import kotlin.coroutines.CoroutineContext
 
 sealed interface AppUpdateInstallResult {
     data object Started : AppUpdateInstallResult
@@ -98,9 +99,11 @@ class DefaultAppUpdateInstaller(
         pruneCache(updatesDir, apkFile)
 
         try {
-            if (expectedHash != null && isVerifiedCachedApk(apkFile, asset, expectedHash)) {
+            if (expectedHash != null && isVerifiedCachedApk(apkFile, asset, expectedHash, coroutineContext)) {
                 apkFile.setLastModified(System.currentTimeMillis())
                 onProgress(AppUpdateInstallProgress(apkFile.length(), apkFile.length(), 100))
+                // The owning screen may have been destroyed while the cached file was hashed.
+                coroutineContext.ensureActive()
                 return launchCachedApk(apkFile, retainOnFailure = true)
             }
 
@@ -183,6 +186,7 @@ class DefaultAppUpdateInstaller(
                 return downloadResult
             }
             pruneCache(updatesDir, apkFile)
+            coroutineContext.ensureActive()
             // Keep verified, complete APKs if Android's package installer could not be launched.
             // Without a trustworthy hash, never retain a failed install for later reuse.
             return launchCachedApk(apkFile, retainOnFailure = expectedHash != null)
@@ -233,7 +237,12 @@ class DefaultAppUpdateInstaller(
         return File(updatesDir, "$key-${sanitizeFileName(asset.name.ifBlank { "app-update.apk" }).take(80)}")
     }
 
-    private fun isVerifiedCachedApk(file: File, asset: AppUpdateAsset, expectedHash: String): Boolean {
+    private fun isVerifiedCachedApk(
+        file: File,
+        asset: AppUpdateAsset,
+        expectedHash: String,
+        coroutineContext: CoroutineContext
+    ): Boolean {
         if (!file.isFile || file.length() == 0L || file.length() > MAX_APK_BYTES) return false
         if (asset.sizeBytes > 0 && file.length() != asset.sizeBytes) return false
         return try {
@@ -241,6 +250,7 @@ class DefaultAppUpdateInstaller(
             file.inputStream().use { input ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
+                    coroutineContext.ensureActive()
                     val read = input.read(buffer)
                     if (read <= 0) break
                     digest.update(buffer, 0, read)
@@ -255,20 +265,26 @@ class DefaultAppUpdateInstaller(
     private fun pruneCache(directory: File, protectedFile: File) {
         val now = System.currentTimeMillis()
         directory.listFiles().orEmpty().forEach { file ->
-            if (file != protectedFile && file.isFile && file.name.endsWith(".part")) {
+            if (!file.isFile) return@forEach
+            if (file != protectedFile && file.name.endsWith(".part")) {
                 file.delete()
-            } else if (file != protectedFile && file.isFile &&
-                file.name.endsWith(".apk") && now - file.lastModified() > MAX_CACHE_AGE_MS
+            } else if (file.isApk() &&
+                ((file != protectedFile && file.length() > MAX_APK_BYTES) ||
+                    now - file.lastModified() > MAX_CACHE_AGE_MS)
             ) {
+                // Age expiry also applies to the requested APK, so reuse cannot keep it alive forever;
+                // an expired one is simply downloaded again.
                 file.delete()
             }
         }
         directory.listFiles().orEmpty()
-            .filter { it.isFile && it.name.endsWith(".apk") && it != protectedFile }
+            .filter { it.isFile && it.isApk() && it != protectedFile }
             .sortedByDescending { it.lastModified() }
             .drop(MAX_CACHED_APKS - 1)
             .forEach { it.delete() }
     }
+
+    private fun File.isApk(): Boolean = name.endsWith(".apk", ignoreCase = true)
 
     private fun sanitizeFileName(name: String): String {
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")

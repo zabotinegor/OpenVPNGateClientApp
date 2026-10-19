@@ -312,6 +312,93 @@ class AppUpdateInstallerTest {
     }
 
     @Test
+    fun `expired APK is not kept alive by being requested again`() = runTest {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload))
+        installer.start(asset)
+        val dir = File(context.cacheDir, "updates")
+        dir.listFiles().orEmpty().filter { it.extension == "apk" }
+            .forEach { it.setLastModified(System.currentTimeMillis() - 10L * 24 * 60 * 60 * 1000) }
+
+        installer.start(asset)
+
+        assertEquals(2, requests.get())
+        val apks = dir.listFiles().orEmpty().filter { it.extension == "apk" }
+        assertEquals(1, apks.size)
+        assertTrue(System.currentTimeMillis() - apks.single().lastModified() < 60_000L)
+    }
+
+    @Test
+    fun `legacy uppercase extension APKs are expired and counted`() = runTest {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        File(dir, "legacy-old.APK").apply {
+            writeBytes(byteArrayOf(1))
+            setLastModified(now - 10L * 24 * 60 * 60 * 1000)
+        }
+        repeat(4) { idx ->
+            File(dir, "legacy-fresh-$idx.APK").apply {
+                writeBytes(byteArrayOf(1))
+                setLastModified(now - (idx + 1) * 60_000L)
+            }
+        }
+
+        val payload = "verified-apk".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        installer.start(defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload)))
+
+        val remaining = dir.listFiles().orEmpty().filter { it.name.endsWith(".apk", ignoreCase = true) }
+        assertEquals(3, remaining.size)
+        assertTrue(remaining.none { it.name == "legacy-old.APK" })
+        assertTrue(remaining.none { it.name == "legacy-fresh-3.APK" })
+    }
+
+    @Test
+    fun `recent oversized non protected APK is evicted`() = runTest {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val oversized = File(dir, "oversized.apk")
+        java.io.RandomAccessFile(oversized, "rw").use { it.setLength(250L * 1024 * 1024 + 1) }
+        val small = File(dir, "small.apk").apply { writeBytes(byteArrayOf(1)) }
+
+        val payload = "verified-apk".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        installer.start(defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload)))
+
+        assertTrue(!oversized.exists())
+        assertTrue(small.exists())
+    }
+
+    @Test
+    fun `cancellation after verifying a cached APK propagates before launching installer`() = runBlocking {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload))
+        installer.start(asset)
+        var cancelled = false
+        var completedNormally = false
+
+        lateinit var job: kotlinx.coroutines.Job
+        job = launch(Dispatchers.Default) {
+            try {
+                // Cache hit: cancel as soon as verification reports success.
+                installer.start(asset) { job.cancel() }
+                completedNormally = true
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            }
+        }
+        job.join()
+
+        assertTrue(cancelled)
+        assertTrue(!completedNormally)
+        assertEquals(1, requests.get())
+    }
+
+    @Test
     fun `fresh APKs are capped at three keeping the newest`() = runTest {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val now = System.currentTimeMillis()
