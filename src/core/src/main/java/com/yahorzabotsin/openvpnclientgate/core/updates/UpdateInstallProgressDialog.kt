@@ -9,6 +9,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.setPadding
+import androidx.lifecycle.LifecycleOwner
 import com.yahorzabotsin.openvpnclientgate.core.R
 import com.yahorzabotsin.openvpnclientgate.core.ui.common.utils.DialogUtils
 
@@ -47,8 +48,19 @@ class UpdateInstallProgressDialog(
         }
     )
 
+    private val destroyObserver = ReleaseOnDestroyObserver {
+        progressDispatcher.close()
+        if (dialog.isShowing) {
+            dialog.dismiss()
+        }
+    }
+    private val lifecycleOwner = activity as? LifecycleOwner
+
     fun show() {
         if (!activity.isFinishing && !activity.isDestroyed) {
+            // Close the window during onDestroy: the install coroutine is cancelled by the same
+            // destruction but resumes only after the window manager has reported a leaked window.
+            lifecycleOwner?.lifecycle?.addObserver(destroyObserver)
             dialog.show()
             DialogUtils.applyThemedTitleColor(dialog)
         }
@@ -83,6 +95,7 @@ class UpdateInstallProgressDialog(
         // Subsequent stream callbacks cannot requeue UI work after the screen closes.
         progressDispatcher.close()
         activity.runOnUiThread {
+            lifecycleOwner?.lifecycle?.removeObserver(destroyObserver)
             if (dialog.isShowing) {
                 dialog.dismiss()
             }

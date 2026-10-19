@@ -872,6 +872,17 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    // The binder proxy keeps a strong reference to its linked DeathRecipient, which captures this
+    // Service. It must be unlinked whenever the status binder is released, otherwise a destroyed
+    // Service stays reachable until the proxy itself is collected.
+    private var statusDeathBinder: IBinder? = null
+
+    private fun unlinkStatusDeath() {
+        val linked = statusDeathBinder ?: return
+        statusDeathBinder = null
+        try { linked.unlinkToDeath(statusDeathRecipient, 0) } catch (_: NoSuchElementException) {}
+    }
+
     private val statusDeathRecipient = IBinder.DeathRecipient {
         AppLog.w(TAG, "Status binder died; scheduling rebind")
         statusBinder = null
@@ -1780,12 +1791,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         trafficHandler.removeCallbacks(trafficPollRunnable)
         lastPolledDatapoint = null
         lastPolledState = null
+        unlinkStatusDeath()
         if (boundToStatus) {
             try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
             try { unbindService(statusConnection) } catch (_: Exception) {}
             boundToStatus = false
             statusBinder = null
         }
+        statusCallbacks.detach()
         if (boundToEngine) { try { unbindService(engineConnection) } catch (e: Exception) { AppLog.w(TAG, "Failed to unbind engine on destroy", e) }; boundToEngine = false }
         serviceScope.cancel()
         ServerAutoSwitcher.v2HydrationCallback = null
@@ -2161,7 +2174,9 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ConnectionStateManager.updateTraffic(inBytes, outBytes)
     }
 
-    private val statusCallbacks = object : IStatusCallbacks.Stub() {
+    private val statusCallbacks = StatusCallbacksForwarder()
+
+    private val statusCallbacksImpl = object : IStatusCallbacks.Stub() {
         override fun newLogItem(item: de.blinkt.openvpn.core.LogItem?) { }
 
         override fun updateStateString(
@@ -2226,6 +2241,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         }
     }
 
+    init { statusCallbacks.attach(statusCallbacksImpl) }
+
     private fun tryRestoreTrafficSnapshot() {
         val binder = statusBinder ?: return
         val history: TrafficHistory = try {
@@ -2269,8 +2286,10 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             statusRebindDelayMs = 500L
             updateStatusSource(StatusSource.AIDL, "status service connected")
             AppLog.i(TAG, "Status service connected")
+            unlinkStatusDeath()
             try {
-                service?.linkToDeath(statusDeathRecipient, 0)
+                service.linkToDeath(statusDeathRecipient, 0)
+                statusDeathBinder = service
             } catch (e: RemoteException) {
                 AppLog.w(TAG, "Failed to link status binder death", e)
             }
@@ -2828,6 +2847,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun forceRebindStatusService(reason: String) {
         AppLog.w(TAG, "Forcing status rebind: $reason")
         statusHandler.removeCallbacks(statusRebindRunnable)
+        unlinkStatusDeath()
         if (boundToStatus) {
             try { statusBinder?.unregisterStatusCallback(statusCallbacks) } catch (_: Exception) {}
             try { unbindService(statusConnection) } catch (_: Exception) {}

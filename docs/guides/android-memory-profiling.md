@@ -99,12 +99,23 @@ Findings:
 - **No leak verified.** No destroyed Activity or View root survived the cycles above, by
   `dumpsys meminfo` object counts after a forced GC. Without heap dumps this shows absence of
   detected retention for those objects, not a proof that none exists.
-- **Suspected, bounded, not verified:** on the TV final QA run, `AppContexts` grew by one per
-  background-to-foreground cycle (10 to 16 over 6 cycles) and a heap dump showed destroyed
-  `OpenVpnService` instances still reachable from a JNI-global binder stub. The count fell after
-  the `:openvpn` process was garbage-collected (16 to 11), so the retention looks bounded by that
-  process's lifetime. `OpenVpnService.kt` is untouched by this branch and no baseline build was
-  compared, so it is not classified as a leak and not attributed to this change.
+- **VERIFIED LEAK, fixed: destroyed `OpenVpnService` instances.** In the final QA runs
+  `AppContexts` grew by one per background-to-foreground cycle (TV 10 to 16, phone 6 to 11 over
+  6 cycles), and a TV heap dump showed destroyed `OpenVpnService` instances reachable from a
+  JNI-global binder stub (the status callback registered with the engine process, which the
+  remote proxy keeps alive after `unregisterStatusCallback`). The registered Binder is now a
+  `StatusCallbacksForwarder` that `onDestroy()` detaches from the Service. Phone, same 6
+  HOME-to-relaunch cycles after a forced GC: `AppContexts` 6 to 11 before, 6 to 6 after.
+  `unlinkToDeath` for the status binder was added as lifecycle hygiene; it alone did not change
+  the count (6 to 11), so the forwarder is the effective fix. Not re-measured: TV, and the engine
+  process's own native memory.
+- **VERIFIED defect, fixed: window leaked by the update dialog.** Recreating the Activity
+  during a download (the phone cannot rotate, so `cmd uimode night yes` was used) logged
+  `WindowLeaked ... UpdateInstallProgressDialog.show`, because the install coroutine cancelled by
+  the same destruction dismisses the dialog only after the window manager has reported it. The
+  dialog now dismisses synchronously in `onDestroy` (`ReleaseOnDestroyObserver`); the same
+  recreation at 23% progress no longer logs a leak. The download itself is still cancelled by the
+  recreation; that behaviour is unchanged and out of scope.
 - **Bounded/expected:** the update download previously posted one UI callback per 8 KiB read
   (about 7,000 for the 57 MB APK) and each one held the Activity-backed dialog until the main
   thread drained it. That is transient, size-bounded retention, not a leak; the dispatcher now
