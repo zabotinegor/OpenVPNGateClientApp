@@ -3,6 +3,7 @@ package com.yahorzabotsin.openvpnclientgate.core.updates
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.async
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -18,6 +19,7 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 
 @RunWith(RobolectricTestRunner::class)
@@ -195,6 +197,137 @@ class AppUpdateInstallerTest {
         assertTrue(result is AppUpdateInstallResult.Failure)
         assertTrue((result as AppUpdateInstallResult.Failure).reason.contains("network down"))
     }
+
+
+    @Test
+    fun `verified APK is reused on repeated Update without another GET`() = runTest {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(
+            sizeBytes = payload.size.toLong(),
+            contentHash = "sha256:${sha256(payload)}"
+        )
+
+        val first = installer.start(asset)
+        val second = installer.start(asset)
+
+        // Robolectric's package installer cannot resolve the test FileProvider.
+        assertTrue(first is AppUpdateInstallResult.Failure)
+        assertTrue(second is AppUpdateInstallResult.Failure)
+        assertEquals(1, requests.get())
+        assertEquals(1, File(context.cacheDir, "updates").listFiles().orEmpty().count { it.extension == "apk" })
+    }
+
+    @Test
+    fun `tampered complete APK is rejected and downloaded again`() = runTest {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(
+            sizeBytes = payload.size.toLong(),
+            contentHash = sha256(payload)
+        )
+        installer.start(asset)
+        val cached = File(context.cacheDir, "updates").listFiles().orEmpty().single { it.extension == "apk" }
+        cached.writeBytes(ByteArray(payload.size) { 0 })
+
+        installer.start(asset)
+
+        assertEquals(2, requests.get())
+        assertTrue(cached.readBytes().contentEquals(payload))
+    }
+
+    @Test
+    fun `different release identities never reuse same-named APK`() = runTest {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(
+            sizeBytes = payload.size.toLong(),
+            contentHash = sha256(payload)
+        )
+        installer.start(asset)
+        installer.start(asset.copy(id = 42, buildNumber = 3))
+
+        assertEquals(2, requests.get())
+    }
+
+    @Test
+    fun `invalid checksum never authorizes cached APK reuse`() = runTest {
+        val requests = AtomicInteger(0)
+        val payload = "unsigned-apk".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = "invalid")
+        installer.start(asset)
+        installer.start(asset)
+
+        assertEquals(2, requests.get())
+    }
+
+    @Test
+    fun `cancellation during stream removes partially written APK`() = runTest {
+        val payload = ByteArray(64 * 1024) { 2 }
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        try {
+            installer.start(
+                defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload))
+            ) { throw CancellationException("Screen closed") }
+            throw AssertionError("Expected cancellation")
+        } catch (_: CancellationException) {
+            // Cancellation must not leave an installable or reusable partial artifact.
+        }
+
+        assertEquals(0, File(context.cacheDir, "updates").listFiles().orEmpty().size)
+    }
+
+    @Test
+    fun `stale APKs and abandoned partial downloads are pruned`() = runTest {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        repeat(5) { idx ->
+            File(dir, "old-$idx.apk").apply {
+                writeBytes(byteArrayOf(1, 2, 3))
+                setLastModified(System.currentTimeMillis() - (10L + idx) * 24 * 60 * 60 * 1000)
+            }
+        }
+        File(dir, "abandoned.apk.part").writeBytes(byteArrayOf(7))
+
+        val payload = "verified-apk".toByteArray()
+        val installer = DefaultAppUpdateInstaller(context, successClient(payload))
+        installer.start(defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload)))
+
+        assertTrue(dir.listFiles().orEmpty().none { it.extension == "part" })
+        assertTrue(dir.listFiles().orEmpty().count { it.extension == "apk" } <= 3)
+    }
+
+    @Test
+    fun `concurrent Update actions share one verified download`() = runTest {
+        val payload = "signed-apk-binary".toByteArray()
+        val requests = AtomicInteger(0)
+        val installer = DefaultAppUpdateInstaller(context, countingClient(payload, requests))
+        val asset = defaultAsset().copy(sizeBytes = payload.size.toLong(), contentHash = sha256(payload))
+
+        val first = async { installer.start(asset) }
+        val second = async { installer.start(asset) }
+        first.await()
+        second.await()
+
+        assertEquals(1, requests.get())
+    }
+
+    private fun countingClient(payload: ByteArray, requests: AtomicInteger): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                requests.incrementAndGet()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(payload.toResponseBody(null))
+                    .build()
+            })
+            .build()
 
     private fun defaultAsset() = AppUpdateAsset(
         id = 1,
