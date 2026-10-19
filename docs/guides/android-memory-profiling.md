@@ -71,3 +71,38 @@ last displayed progress is correct and no dialog survives navigation away.
 
 This guide is a **measurement procedure**, not a record that measurements have
 already occurred.
+
+## Measured audit results (2026-10-19)
+
+Method: debug build of this branch, phone SM-A715F and Android TV MIBOX4. Each checkpoint
+forces a GC (`run-as <pkg> kill -10 <pid>`) and reads `dumpsys meminfo` (Activities, Views,
+ViewRootImpl, Java heap, PSS). The reusable scripts are in
+[memory-profiling-scripts](memory-profiling-scripts/); run them with `OUT=<dir>`.
+Heap dumps (hprof) were **not** captured, so reference paths were not inspected; object
+counts come from `dumpsys meminfo`.
+
+| Scenario | Cycles | Result | Classification |
+| --- | --- | --- | --- |
+| Phone: drawer → Server/DNS/Filter/Settings/About → back | 15 × 5 screens | Activities 1, ViewRootImpl 1, Views 63 at every checkpoint; Java heap 13.2 → 15.0 → 17.4 → 16.4 → 14.9 MB (no trend); PSS 141 → 145 MB at the end | No retention |
+| Phone: update download to the installer | 4 full downloads (cache cleared) | Activities 1, Views 63; Java heap 13.9 → 13.8 MB; PSS 137.0 → 136.5 MB | No retention |
+| Phone: update download with orientation toggled mid-download | 4 | Same counts; heap 14.0 → 13.8 MB. Rotation injected through `user_rotation`; Activity re-creation was not independently confirmed | No retention observed (partial coverage) |
+| Phone: VPN connect attempt → stop | 10 | Main heap 13.8 → 12.8 MB; `:openvpn` PSS 49.8 → 52.8 → 53.2 → 52.6 MB; `OpenVpnService` destroyed 10/10 | Bounded; the engine process PSS rises 3 MB and plateaus (not proven to be a leak) |
+| Phone: HOME → relaunch (SSE) | 10 | SSE starts 10, stops 10; Activities 1; Java heap 10.0 MB | Expected: one foreground connection |
+| TV: drawer navigation | 15 × 5 screens | Activities 1, ViewRootImpl 1, Views 61; Java heap 9.2 → 10.2 → 9.2 MB | No retention |
+| TV: update download | 3 | Activities 1, ViewRootImpl 1; Java heap 9.6 → 10.1 MB | No retention |
+
+Not exercised: a fully **connected** VPN session (the public test server stayed in
+`TCP_CONNECT`), pause/resume and TV VPN cycles.
+
+Findings:
+
+- **Verified leaks: none.** No destroyed Activity, View root or service instance survived the
+  cycles above.
+- **Bounded/expected:** the update download previously posted one UI callback per 8 KiB read
+  (about 7,000 for the 57 MB APK) and each one held the Activity-backed dialog until the main
+  thread drained it. That is transient, size-bounded retention, not a leak; the dispatcher now
+  keeps one pending callback and removes it on dismiss. `LatestUpdateProgressDispatcherTest`
+  covers it. The dialog wiring cannot be unit tested (Robolectric legacy resources cannot
+  inflate the themed dialog), so it was checked on both devices.
+- **Inconclusive:** the 3 MB `:openvpn` PSS growth over the first five VPN cycles. It
+  plateaued, but the engine's native allocations were not profiled.
