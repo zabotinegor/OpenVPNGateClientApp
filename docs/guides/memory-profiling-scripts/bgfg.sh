@@ -1,5 +1,5 @@
 #!/bin/bash
-# Coordinates (drawer, buttons) are for a 1080x2400 phone running the Russian-locale debug build; adjust per device (see ../android-memory-profiling.md).
+# Defaults fit a 1080x2400 phone (Russian-locale debug build); override with env vars, see ../android-memory-profiling.md "Device parameters".
 # usage: bgfg.sh <serial> <label> <cycles>  (HOME -> relaunch; SSE foreground-only connection)
 S=$1; L=$2; N=${3:-10}
 PKG=com.yahorzabotsin.openvpnclientgate
@@ -15,7 +15,7 @@ adb -s $S logcat -c
 snap start
 for i in $(seq 1 $N); do
   adb -s $S shell input keyevent HOME; sleep 3
-  adb -s $S shell am start -n $PKG/.mobile.SplashActivity >/dev/null; sleep 5
+  adb -s $S shell am start -n ${LAUNCH:-$PKG/.mobile.SplashActivity} >/dev/null; sleep 5
 done
 snap end
 adb -s $S logcat -d | grep -i "SseServerEventsClient" > $OUT/$L-sse.log

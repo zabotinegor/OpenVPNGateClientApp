@@ -69,8 +69,8 @@ Rerun representative mobile and TV instrumented/device checks using
 appropriate targets exist. Manual on-device updates must also verify that the
 last displayed progress is correct and no dialog survives navigation away.
 
-This guide is a **measurement procedure**, not a record that measurements have
-already occurred.
+The sections above are a **measurement procedure**. The measurements actually taken
+so far, and their limits, are recorded in "Measured audit results" below.
 
 ## Measured audit results (2026-10-19)
 
@@ -96,13 +96,34 @@ Not exercised: a fully **connected** VPN session (the public test server stayed 
 
 Findings:
 
-- **Verified leaks: none.** No destroyed Activity, View root or service instance survived the
-  cycles above.
+- **No retention detected; no leak verified.** No destroyed Activity, View root or service
+  instance survived the cycles above, by `dumpsys meminfo` object counts after a forced GC.
+  Without heap dumps this shows absence of detected retention, not a proof that none exists.
 - **Bounded/expected:** the update download previously posted one UI callback per 8 KiB read
   (about 7,000 for the 57 MB APK) and each one held the Activity-backed dialog until the main
   thread drained it. That is transient, size-bounded retention, not a leak; the dispatcher now
   keeps one pending callback and removes it on dismiss. `LatestUpdateProgressDispatcherTest`
   covers it. The dialog wiring cannot be unit tested (Robolectric legacy resources cannot
-  inflate the themed dialog), so it was checked on both devices.
+  inflate the themed dialog). The device runs show the update flow completing with object
+  counts back at baseline; they were taken only with the fix and do not isolate the
+  dispatcher's own effect, which only the unit tests assert.
 - **Inconclusive:** the 3 MB `:openvpn` PSS growth over the first five VPN cycles. It
   plateaued, but the engine's native allocations were not profiled.
+
+## Device parameters for the scripts
+
+The scripts default to a 1080x2400 phone running the Russian-locale debug build. Override
+through environment variables (find coordinates with `adb exec-out uiautomator dump /dev/tty`):
+
+| Variable | Meaning | Phone default | Android TV (MIBOX4, 1920x1080) |
+| --- | --- | --- | --- |
+| `HAM` | Drawer button `x y` | `63 206` | `48 88` |
+| `ITEM_X` | Drawer item `x` | `300` | `280` |
+| `ITEM_YS` | Y of Server/DNS/Filter/Settings/About | `175 301 427 553 679` | `64 160 256 352 448` |
+| `UPDATE_ITEM_Y` | Y of the Update item | `805` | `544` |
+| `UPDATE_BTN` | Update dialog button `x y` | `888 1378` | `1360 641` |
+| `RESUMED` | Activity line to grep from `dumpsys` | ` topResumedActivity` | ` ResumedActivity` |
+| `LAUNCH` | Component for `bgfg.sh` | `<pkg>/.mobile.SplashActivity` | launch with `monkey -c android.intent.category.LEANBACK_LAUNCHER` first and use `<pkg>/.tv.MainActivity` |
+
+`update.sh` turns auto-rotate off for the run and back on when it exits. `vpn.sh` taps the
+connection button at `540 2270`; adjust for another screen size.
