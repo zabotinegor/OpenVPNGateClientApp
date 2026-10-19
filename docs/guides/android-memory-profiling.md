@@ -107,8 +107,8 @@ Findings:
   `StatusCallbacksForwarder` that `onDestroy()` detaches from the Service. Phone, same 6
   HOME-to-relaunch cycles after a forced GC: `AppContexts` 6 to 11 before, 6 to 6 after.
   `unlinkToDeath` for the status binder was added as lifecycle hygiene; it alone did not change
-  the count (6 to 11), so the forwarder is the effective fix. Not re-measured: TV, and the engine
-  process's own native memory.
+  the count (6 to 11), so the forwarder is the effective fix. TV, same cycles: `AppContexts`
+  10 to 16 before, 6 to 5 after. Not measured: the engine process's own native memory.
 - **VERIFIED defect, fixed: window leaked by the update dialog.** Recreating the Activity
   during a download (the phone cannot rotate, so `cmd uimode night yes` was used) logged
   `WindowLeaked ... UpdateInstallProgressDialog.show`, because the install coroutine cancelled by
