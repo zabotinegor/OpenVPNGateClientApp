@@ -96,9 +96,15 @@ Not exercised: a fully **connected** VPN session (the public test server stayed 
 
 Findings:
 
-- **No retention detected; no leak verified.** No destroyed Activity, View root or service
-  instance survived the cycles above, by `dumpsys meminfo` object counts after a forced GC.
-  Without heap dumps this shows absence of detected retention, not a proof that none exists.
+- **No leak verified.** No destroyed Activity or View root survived the cycles above, by
+  `dumpsys meminfo` object counts after a forced GC. Without heap dumps this shows absence of
+  detected retention for those objects, not a proof that none exists.
+- **Suspected, bounded, not verified:** on the TV final QA run, `AppContexts` grew by one per
+  background-to-foreground cycle (10 to 16 over 6 cycles) and a heap dump showed destroyed
+  `OpenVpnService` instances still reachable from a JNI-global binder stub. The count fell after
+  the `:openvpn` process was garbage-collected (16 to 11), so the retention looks bounded by that
+  process's lifetime. `OpenVpnService.kt` is untouched by this branch and no baseline build was
+  compared, so it is not classified as a leak and not attributed to this change.
 - **Bounded/expected:** the update download previously posted one UI callback per 8 KiB read
   (about 7,000 for the 57 MB APK) and each one held the Activity-backed dialog until the main
   thread drained it. That is transient, size-bounded retention, not a leak; the dispatcher now
