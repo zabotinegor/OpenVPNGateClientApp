@@ -5,12 +5,15 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 
 sealed interface AppUpdateInstallResult {
@@ -32,133 +35,229 @@ interface AppUpdateInstaller {
     ): AppUpdateInstallResult
 }
 
+/**
+ * Owns only app-private update APKs. The installer is a Koin singleton, so the mutex also
+ * serializes Update actions from the main screen and the About screen in this process.
+ */
 class DefaultAppUpdateInstaller(
     private val appContext: Context,
     private val httpClient: OkHttpClient
 ) : AppUpdateInstaller {
     private val tag = com.yahorzabotsin.openvpnclientgate.core.logging.LogTags.APP + ':' + "AppUpdateInstaller"
+    private val cacheMutex = Mutex()
 
     override suspend fun start(
         asset: AppUpdateAsset,
         onProgress: (AppUpdateInstallProgress) -> Unit
     ): AppUpdateInstallResult = withContext(Dispatchers.IO) {
+        cacheMutex.withLock {
+            installLocked(asset, onProgress)
+        }
+    }
+
+    private fun installLocked(
+        asset: AppUpdateAsset,
+        onProgress: (AppUpdateInstallProgress) -> Unit
+    ): AppUpdateInstallResult {
         if (asset.downloadProxyUrl.isBlank()) {
-            return@withContext AppUpdateInstallResult.Failure("Download URL is empty")
+            return AppUpdateInstallResult.Failure("Download URL is empty")
         }
         val downloadUri = runCatching { Uri.parse(asset.downloadProxyUrl) }.getOrNull()
         if (downloadUri?.scheme?.equals("https", ignoreCase = true) != true) {
-            return@withContext AppUpdateInstallResult.Failure("Download URL must use HTTPS")
+            return AppUpdateInstallResult.Failure("Download URL must use HTTPS")
         }
-
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
             !appContext.packageManager.canRequestPackageInstalls()
         ) {
-            return@withContext AppUpdateInstallResult.MissingInstallPermission
+            return AppUpdateInstallResult.MissingInstallPermission
+        }
+        if (!asset.assetType.startsWith("apk", ignoreCase = true)) {
+            return AppUpdateInstallResult.Failure("Non-APK assets not supported")
+        }
+        if (asset.sizeBytes > MAX_APK_BYTES) {
+            return AppUpdateInstallResult.Failure("APK exceeds allowed cache size")
         }
 
         val updatesDir = File(appContext.cacheDir, "updates")
-        if (!updatesDir.exists()) updatesDir.mkdirs()
-        val fileName = sanitizeFileName(asset.name.ifBlank { "app-update.apk" })
-        val apkFile = File(updatesDir, fileName)
-
-        if (!asset.assetType.startsWith("apk", ignoreCase = true)) {
-            return@withContext AppUpdateInstallResult.Failure("Non-APK assets not supported")
+        if (!updatesDir.isDirectory && !updatesDir.mkdirs()) {
+            return AppUpdateInstallResult.Failure("Unable to create update cache")
         }
+        val apkFile = cacheFileFor(updatesDir, asset)
+        val partialFile = File(updatesDir, apkFile.name + ".part")
+        val expectedHash = normalizeExpectedHash(asset.contentHash)
+        pruneCache(updatesDir, apkFile)
 
-        val request = Request.Builder().url(asset.downloadProxyUrl).get().build()
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
+        try {
+            if (expectedHash != null && isVerifiedCachedApk(apkFile, asset, expectedHash)) {
+                apkFile.setLastModified(System.currentTimeMillis())
+                onProgress(AppUpdateInstallProgress(apkFile.length(), apkFile.length(), 100))
+                return launchCachedApk(apkFile, retainOnFailure = true)
+            }
+
+            // Filename alone never authenticates an APK. Unverified or incomplete files must
+            // not be reused, including old APKs written before this cache policy existed.
+            apkFile.delete()
+            partialFile.delete()
+
+            val request = Request.Builder().url(asset.downloadProxyUrl).get().build()
+            val downloadResult = httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@runCatching AppUpdateInstallResult.Failure("Download failed: ${response.code}")
+                    return@use AppUpdateInstallResult.Failure("Download failed: ${response.code}")
                 }
-                val body = response.body ?: return@runCatching AppUpdateInstallResult.Failure("Empty response body")
+                val body = response.body ?: return@use AppUpdateInstallResult.Failure("Empty response body")
                 val reportedTotal = body.contentLength().takeIf { it > 0 }
-                val totalBytes = when {
-                    asset.sizeBytes > 0 -> asset.sizeBytes
-                    reportedTotal != null -> reportedTotal
-                    else -> 0L
+                val totalBytes = if (asset.sizeBytes > 0) asset.sizeBytes else reportedTotal
+                if (totalBytes != null && totalBytes > MAX_APK_BYTES) {
+                    return@use AppUpdateInstallResult.Failure("APK exceeds allowed cache size")
                 }
-                val expectedHash = normalizeExpectedHash(asset.contentHash)
+
                 val digest = MessageDigest.getInstance("SHA-256")
                 var downloadedBytes = 0L
                 body.byteStream().use { input ->
-                    apkFile.outputStream().use { output ->
+                    partialFile.outputStream().use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
                             val read = input.read(buffer)
                             if (read <= 0) break
+                            downloadedBytes += read
+                            if (downloadedBytes > MAX_APK_BYTES) {
+                                throw IOException("APK exceeds allowed cache size")
+                            }
                             output.write(buffer, 0, read)
                             digest.update(buffer, 0, read)
-                            downloadedBytes += read
                             onProgress(
                                 AppUpdateInstallProgress(
                                     downloadedBytes = downloadedBytes,
-                                    totalBytes = totalBytes.takeIf { it > 0 },
-                                    percent = if (totalBytes > 0) {
-                                        ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
-                                    } else {
-                                        null
+                                    totalBytes = totalBytes,
+                                    percent = totalBytes?.takeIf { it > 0 }?.let {
+                                        ((downloadedBytes * 100) / it).toInt().coerceIn(0, 100)
                                     }
                                 )
                             )
                         }
                     }
                 }
+
                 if (asset.sizeBytes > 0 && downloadedBytes != asset.sizeBytes) {
-                    apkFile.delete()
-                    return@runCatching AppUpdateInstallResult.Failure(
+                    return@use AppUpdateInstallResult.Failure(
                         "Size mismatch: expected ${asset.sizeBytes}, got $downloadedBytes"
                     )
                 }
-
                 val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
                 if (expectedHash != null && !actualHash.equals(expectedHash, ignoreCase = true)) {
-                    apkFile.delete()
-                    return@runCatching AppUpdateInstallResult.Failure("Hash mismatch")
+                    return@use AppUpdateInstallResult.Failure("Hash mismatch")
                 }
-
-                val apkUri = FileProvider.getUriForFile(
-                    appContext,
-                    "${appContext.packageName}.fileprovider",
-                    apkFile
-                )
-                launchInstaller(apkUri)
+                if (downloadedBytes == 0L) {
+                    return@use AppUpdateInstallResult.Failure("Empty APK download")
+                }
+                if (!partialFile.renameTo(apkFile)) {
+                    throw IOException("Unable to finalize APK download")
+                }
                 AppUpdateInstallResult.Started
             }
-        }.getOrElse { error ->
-            if (error is CancellationException) throw error
-            if (apkFile.exists()) {
-                apkFile.delete()
+
+            if (downloadResult != AppUpdateInstallResult.Started) {
+                return downloadResult
             }
+            pruneCache(updatesDir, apkFile)
+            // Keep verified, complete APKs if Android's package installer could not be launched.
+            // Without a trustworthy hash, never retain a failed install for later reuse.
+            return launchCachedApk(apkFile, retainOnFailure = expectedHash != null)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             AppLog.w(tag, "Update install failed", error)
-            AppUpdateInstallResult.Failure(error.message ?: "Unknown error")
+            return AppUpdateInstallResult.Failure(error.message ?: "Unknown error")
+        } finally {
+            // Cancellation can happen mid-stream, including from progress callbacks.
+            partialFile.delete()
         }
     }
 
-    private fun launchInstaller(apkUri: Uri) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    private fun launchCachedApk(apkFile: File, retainOnFailure: Boolean): AppUpdateInstallResult {
+        return try {
+            val apkUri = FileProvider.getUriForFile(
+                appContext,
+                "${appContext.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            appContext.startActivity(intent)
+            AppUpdateInstallResult.Started
+        } catch (error: Exception) {
+            if (!retainOnFailure) apkFile.delete()
+            AppLog.w(tag, "Unable to launch package installer", error)
+            AppUpdateInstallResult.Failure(error.message ?: "Unable to launch package installer")
         }
-        appContext.startActivity(intent)
+    }
+
+    private fun cacheFileFor(updatesDir: File, asset: AppUpdateAsset): File {
+        // Include all release-defining metadata so equally named assets cannot overwrite each other.
+        val identity = listOf(
+            asset.id.toString(), asset.platform.lowercase(), asset.buildNumber.toString(),
+            asset.assetType.lowercase(), asset.sizeBytes.toString(),
+            asset.contentHash.lowercase(), asset.downloadProxyUrl, asset.name
+        ).joinToString("\u0000")
+        val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(24)
+        return File(updatesDir, "$key-${sanitizeFileName(asset.name.ifBlank { "app-update.apk" }).take(80)}")
+    }
+
+    private fun isVerifiedCachedApk(file: File, asset: AppUpdateAsset, expectedHash: String): Boolean {
+        if (!file.isFile || file.length() == 0L || file.length() > MAX_APK_BYTES) return false
+        if (asset.sizeBytes > 0 && file.length() != asset.sizeBytes) return false
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }.equals(expectedHash, ignoreCase = true)
+        } catch (_: IOException) {
+            false
+        }
+    }
+
+    private fun pruneCache(directory: File, protectedFile: File) {
+        val now = System.currentTimeMillis()
+        directory.listFiles().orEmpty().forEach { file ->
+            if (file != protectedFile && file.isFile && file.name.endsWith(".part")) {
+                file.delete()
+            } else if (file != protectedFile && file.isFile &&
+                file.name.endsWith(".apk") && now - file.lastModified() > MAX_CACHE_AGE_MS
+            ) {
+                file.delete()
+            }
+        }
+        directory.listFiles().orEmpty()
+            .filter { it.isFile && it.name.endsWith(".apk") && it != protectedFile }
+            .sortedByDescending { it.lastModified() }
+            .drop(MAX_CACHED_APKS - 1)
+            .forEach { it.delete() }
     }
 
     private fun sanitizeFileName(name: String): String {
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val withExt = if (sanitized.lowercase().endsWith(".apk")) sanitized else "$sanitized.apk"
-        val result = withExt.take(120)
-        if (withExt.length > result.length) {
-            AppLog.w(tag, "Update asset file name was truncated from ${withExt.length} to ${result.length} characters")
-        }
-        return result
+        return withExt.take(80).let { if (it.endsWith(".apk")) it else it.take(76) + ".apk" }
     }
 
     private fun normalizeExpectedHash(raw: String): String? {
-        val value = raw.trim()
-        if (value.isBlank()) return null
-        val withoutPrefix = value.removePrefix("sha256:").removePrefix("SHA256:")
-        val normalized = withoutPrefix.lowercase().replace(Regex("[^0-9a-f]"), "")
-        return normalized.takeIf { it.length == 64 }
+        val value = raw.trim().removePrefix("sha256:").removePrefix("SHA256:")
+        return value.lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+    }
+
+    private companion object {
+        const val MAX_CACHED_APKS = 3
+        const val MAX_CACHE_AGE_MS = 7L * 24 * 60 * 60 * 1000
+        const val MAX_APK_BYTES = 250L * 1024 * 1024
     }
 }
