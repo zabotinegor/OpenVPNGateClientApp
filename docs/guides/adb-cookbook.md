@@ -56,6 +56,24 @@ adb -s <SERIAL> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.i
 
 ---
 
+## Memory Checkpoints
+
+Used by the [memory profiling runbook](android-memory-profiling.md). Debug builds only (`run-as` needs a debuggable package).
+
+```bash
+# Force a GC in the app process before reading counts (method used by the runbook's measurements)
+PID=$(adb -s <SERIAL> shell pidof com.yahorzabotsin.openvpnclientgate | tr -d '\r')
+adb -s <SERIAL> shell "run-as com.yahorzabotsin.openvpnclientgate kill -10 $PID"
+
+# Object counts (Activities, Views, ViewRootImpl) and Java heap at this checkpoint
+adb -s <SERIAL> shell dumpsys meminfo com.yahorzabotsin.openvpnclientgate
+
+# Read the UI tree straight to stdout (no /sdcard path, so Git Bash does not mangle it)
+adb -s <SERIAL> exec-out uiautomator dump /dev/tty
+```
+
+---
+
 ## SharedPreferences Inspection and Modification
 
 All prefs files live under `/data/data/com.yahorzabotsin.openvpnclientgate/shared_prefs/` and require `run-as` to access.
