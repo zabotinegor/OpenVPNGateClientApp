@@ -880,7 +880,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private fun unlinkStatusDeath() {
         val linked = statusDeathBinder ?: return
         statusDeathBinder = null
-        try { linked.unlinkToDeath(statusDeathRecipient, 0) } catch (_: NoSuchElementException) {}
+        try { linked.unlinkToDeath(statusDeathRecipient, 0) } catch (_: Exception) {}
     }
 
     private val statusDeathRecipient = IBinder.DeathRecipient {
