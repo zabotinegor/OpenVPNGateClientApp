@@ -125,6 +125,8 @@ through environment variables (find coordinates with `adb exec-out uiautomator d
 | `RESUMED` | Activity line to grep from `dumpsys` | ` topResumedActivity` | ` ResumedActivity` |
 | `LAUNCH` | Component for `bgfg.sh` | `<pkg>/.mobile.SplashActivity` | `<pkg>/.tv.SplashActivity` (`.tv.MainActivity` is not exported and `am start` is denied) |
 
+The update script's rotation-restoration regression test runs without a device: `bash docs/guides/memory-profiling-scripts/tests/test-update-rotation.sh`.
+
 Keep the leading space in the `RESUMED` values; it keeps ` ResumedActivity` from matching
-`mResumedActivity`. `update.sh` turns auto-rotate off for the run and back on when it exits. `vpn.sh` taps the
+`mResumedActivity`. `update.sh` temporarily disables auto-rotation, then restores both original rotation settings on exit (or aborts without changes if they cannot be read). `vpn.sh` taps the
 connection button at `540 2270`; adjust for another screen size.

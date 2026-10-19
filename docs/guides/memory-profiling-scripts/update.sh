@@ -14,9 +14,20 @@ snap() {
 top() { adb -s $S shell dumpsys activity activities | grep -m1 "${RESUMED:- topResumedActivity}" | grep -o "[A-Za-z]*Activity" | tail -1; }
 gomain() { for k in 1 2 3 4 5; do [ "$(top)" = "MainActivity" ] && return; adb -s $S shell input keyevent BACK; sleep 1.2; done; }
 drawer_open() { adb -s $S exec-out uiautomator dump /dev/tty | grep -q 'design_menu_item_text'; }
-trap 'adb -s $S shell settings put system accelerometer_rotation 1' EXIT
-adb -s $S shell settings put system accelerometer_rotation 0
-adb -s $S shell settings put system user_rotation 0
+# Capture both settings before making any device-wide changes.
+original_auto_rotation=$(adb -s "$S" shell settings get system accelerometer_rotation | tr -d '\r')
+original_user_rotation=$(adb -s "$S" shell settings get system user_rotation | tr -d '\r')
+if [[ ! "$original_auto_rotation" =~ ^[01]$ || ! "$original_user_rotation" =~ ^[0-3]$ ]]; then
+  echo "Unable to read device rotation settings; aborting without changes" >&2
+  exit 1
+fi
+restore_rotation() {
+  adb -s "$S" shell settings put system user_rotation "$original_user_rotation"
+  adb -s "$S" shell settings put system accelerometer_rotation "$original_auto_rotation"
+}
+trap restore_rotation EXIT
+adb -s "$S" shell settings put system accelerometer_rotation 0 || exit 1
+adb -s "$S" shell settings put system user_rotation 0 || exit 1
 gomain
 snap start
 for i in $(seq 1 $N); do
