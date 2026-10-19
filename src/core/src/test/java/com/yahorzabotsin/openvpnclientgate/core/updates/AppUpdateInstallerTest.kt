@@ -3,7 +3,15 @@ package com.yahorzabotsin.openvpnclientgate.core.updates
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import okhttp3.ResponseBody.Companion.asResponseBody
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -19,6 +27,9 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 
@@ -313,6 +324,44 @@ class AppUpdateInstallerTest {
         second.await()
 
         assertEquals(1, requests.get())
+    }
+
+    @Test
+    fun `cancelling the coroutine cancels a blocked OkHttp read`() = runBlocking {
+        val readStarted = CountDownLatch(1)
+        val callCanceled = AtomicBoolean(false)
+        val client = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                val call = chain.call()
+                val source = object : ForwardingSource(Buffer()) {
+                    override fun read(sink: Buffer, byteCount: Long): Long {
+                        readStarted.countDown()
+                        while (!call.isCanceled()) Thread.sleep(10)
+                        callCanceled.set(true)
+                        throw IOException("Canceled")
+                    }
+                }
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(source.buffer().asResponseBody(null, 1024))
+                    .build()
+            })
+            .build()
+        val installer = DefaultAppUpdateInstaller(context, client)
+        val job = launch(Dispatchers.Default) {
+            installer.start(defaultAsset().copy(sizeBytes = 1024, contentHash = ""))
+        }
+        assertTrue(readStarted.await(5, TimeUnit.SECONDS))
+
+        job.cancel()
+        withTimeout(5_000) { job.join() }
+
+        assertTrue(job.isCancelled)
+        assertTrue(callCanceled.get())
+        assertEquals(0, File(context.cacheDir, "updates").listFiles().orEmpty().size)
     }
 
     private fun countingClient(payload: ByteArray, requests: AtomicInteger): OkHttpClient =

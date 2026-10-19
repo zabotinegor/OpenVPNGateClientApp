@@ -6,9 +6,15 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.yahorzabotsin.openvpnclientgate.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -88,6 +94,7 @@ class DefaultAppUpdateInstaller(
         val partialFile = File(updatesDir, apkFile.name + ".part")
         val expectedHash = normalizeExpectedHash(asset.contentHash)
         val coroutineContext = currentCoroutineContext()
+        var cancelWatcher: Job? = null
         pruneCache(updatesDir, apkFile)
 
         try {
@@ -103,7 +110,17 @@ class DefaultAppUpdateInstaller(
             partialFile.delete()
 
             val request = Request.Builder().url(asset.downloadProxyUrl).get().build()
-            val downloadResult = httpClient.newCall(request).execute().use { response ->
+            // Blocking OkHttp I/O does not observe coroutine cancellation by itself; cancelling the
+            // call unblocks execute() and body reads immediately.
+            val call = httpClient.newCall(request)
+            cancelWatcher = CoroutineScope(coroutineContext).launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
+                }
+            }
+            val downloadResult = call.execute().use { response ->
                 coroutineContext.ensureActive()
                 if (!response.isSuccessful) {
                     return@use AppUpdateInstallResult.Failure("Download failed: ${response.code}")
@@ -172,9 +189,12 @@ class DefaultAppUpdateInstaller(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            // A cancelled OkHttp call surfaces as IOException; report it as coroutine cancellation.
+            if (!coroutineContext.isActive) throw CancellationException("Update cancelled").apply { initCause(error) }
             AppLog.w(tag, "Update install failed", error)
             return AppUpdateInstallResult.Failure(error.message ?: "Unknown error")
         } finally {
+            cancelWatcher?.cancel()
             // Cancellation can happen mid-stream, including from progress callbacks.
             partialFile.delete()
         }
@@ -257,8 +277,11 @@ class DefaultAppUpdateInstaller(
     }
 
     private fun normalizeExpectedHash(raw: String): String? {
-        val value = raw.trim().removePrefix("sha256:").removePrefix("SHA256:")
-        return value.lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+        val value = raw.trim()
+        if (value.isBlank()) return null
+        val withoutPrefix = value.removePrefix("sha256:").removePrefix("SHA256:")
+        val normalized = withoutPrefix.lowercase().replace(Regex("[^0-9a-f]"), "")
+        return normalized.takeIf { it.length == 64 }
     }
 
     private companion object {
