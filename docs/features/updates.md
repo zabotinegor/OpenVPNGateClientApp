@@ -64,8 +64,8 @@ downloaded again. Install-launch failures do not discard an already
 verified complete APK. Concurrent update actions are serialized inside the
 shared installer singleton.
 
-The installer removes abandoned partial files, expires APKs older than seven
-days, and keeps at most three APKs, each limited to 250 MiB. Android may also
+The installer removes abandoned partial files, expires APKs not used for seven
+days (a verified reuse refreshes the timestamp), and keeps at most three APKs, each limited to 250 MiB. Android may also
 evict app cache entries independently. This is **disk-cache retention**, not
 evidence of a heap/RAM leak fix. The update download proxy remains restricted
 to the trusted primary backend.
