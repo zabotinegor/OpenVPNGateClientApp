@@ -34,6 +34,12 @@ Models are in `updates/AppUpdateModels.kt`.
 `AppUpdateInstaller` downloads the asset and hands it to the package installer;
 `UpdateInstallProgressDialog` shows progress. `ui/updates/UpdateDialogMessage` builds the prompt text.
 
+The dialog delivers progress through `LatestUpdateProgressDispatcher`: it keeps only the most recent
+snapshot and at most one queued UI callback, so a download does not queue one main-thread callback per
+network read. Intermediate values can be skipped; the last value rendered is the latest one offered.
+`dismiss()` closes the dispatcher and removes any pending callback before the dialog is dismissed, so no
+progress render runs after dismissal.
+
 Two manifest pieces make this work, both in the core manifest:
 
 - `REQUEST_INSTALL_PACKAGES` permission
@@ -44,6 +50,31 @@ See [../reference/permissions.md](../reference/permissions.md).
 
 The download URL is a **proxy URL** served by the backend rather than a direct storage link, so the
 server keeps control of where assets actually live.
+
+### APK cache and download cleanup
+
+`DefaultAppUpdateInstaller` writes only inside the app-private `cacheDir/updates` directory.
+Downloaded APKs are staged to a `.part` file and made installable only after the
+transfer completes, the declared size matches (when present), and the declared
+SHA-256 matches (when valid). Cancellation and failures discard the incomplete
+`.part` artifact rather than allowing a later Update action to install it. Cancelling the
+Update coroutine also cancels the in-flight OkHttp call, so a blocked connect or body read is
+interrupted instead of running to completion.
+
+On repeated Update, the installer may skip the network transfer **only** for a
+complete asset matching the release identity, declared size, and valid SHA-256;
+it recomputes the cached file hash before each reuse. Missing or malformed hashes
+do not authorize reuse. The cache key covers the release identity and the download URL,
+so an asset whose download URL changes on every request never hits the cache and is
+downloaded again. Install-launch failures do not discard an already
+verified complete APK. Concurrent update actions are serialized inside the
+shared installer singleton.
+
+The installer removes abandoned partial files, expires APKs not used for seven
+days (a verified reuse refreshes the timestamp), and keeps at most three APKs, each limited to 250 MiB. Android may also
+evict app cache entries independently. This is **disk-cache retention**, not
+evidence of a heap/RAM leak fix. The update download proxy remains restricted
+to the trusted primary backend.
 
 **Note on `UpdateInstallProgressDialog` theming:** This dialog uses a custom view (`LinearLayout`
 with a `ProgressBar` and a bare programmatic `TextView` for the progress text), not the standard
@@ -73,4 +104,4 @@ cache is per-locale, so switching language re-fetches rather than showing stale 
 endpoint, and treating it as a source of installable binaries would be a supply-chain problem. This
 holds regardless of which server source the user has selected.
 
-*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-07-31).*
+*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `updates/UpdateInstallProgressDialog.kt`, `updates/LatestUpdateProgressDispatcher.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-10-19).*

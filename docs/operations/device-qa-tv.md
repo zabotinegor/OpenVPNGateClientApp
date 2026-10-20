@@ -15,6 +15,9 @@ adb -s <tv> shell monkey -p com.yahorzabotsin.openvpnclientgate -c android.inten
 Splash (`tv.SplashActivity`) transitions to `tv.MainActivity` in ~8 s. Confirm with
 `adb shell "dumpsys window | grep mCurrentFocus"`.
 
+`tv.MainActivity` is not exported: `adb shell am start -n <pkg>/.tv.MainActivity` is denied. Reach it
+through the exported splash, as above.
+
 ## D-pad long-press: `input keyevent --longpress` DOES NOT WORK
 
 > **Canonical answer for TV long-press.** Use `input swipe <x> <y> <x> <y> 800` — a stationary touch
