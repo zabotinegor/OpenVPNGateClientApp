@@ -35,6 +35,10 @@ jobs:
           echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Validate dependency inventory and CI Gate contract tests
+        shell: bash
+        run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py' -v
+
       - name: Install swig
         run: |
           sudo apt-get update
