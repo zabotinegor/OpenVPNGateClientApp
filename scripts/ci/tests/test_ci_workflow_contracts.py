@@ -59,6 +59,29 @@ class AndroidCiGateWorkflowTests(unittest.TestCase):
         self.assertIn("bundleReleaseApp", build)
         self.assertIn("TREE: ${{ needs.integration-build.outputs.tree }}", entry)
 
+    def test_integration_validates_trusted_wrapper_before_engine_checkout(self):
+        entry = read(".github/workflows/ci-integration.yml")
+        build = entry.split("  integration-build:", 1)[1].split("  publish-evidence:", 1)[0]
+        initial_checkout = build.index("- name: Checkout trusted dev without submodules")
+        wrapper_validation = build.index("- name: Set up Gradle without caching PR code")
+        trusted_submodules = build.index("- name: Initialize trusted dev private submodules")
+        merge_preparation = build.index("- name: Validate dispatch and prepare exact merge tree")
+        merged_wrapper_guard = build.index("- name: Check exact merge retains validated application wrapper")
+        submodule_verification = build.index("- name: Verify merged submodule pointers")
+        builds = build.index("- name: Android unit tests, mobile and TV debug/release builds")
+        self.assertTrue(
+            initial_checkout < wrapper_validation < trusted_submodules <
+            merge_preparation < merged_wrapper_guard < submodule_verification < builds
+        )
+        self.assertIn("submodules: false", build[initial_checkout:wrapper_validation])
+        self.assertIn("validate-wrappers: true", build[wrapper_validation:trusted_submodules])
+        self.assertIn("submodules: recursive", build[trusted_submodules:merge_preparation])
+        self.assertEqual(build.count("secrets.GH_PAT"), 1)
+        self.assertEqual(build.count("persist-credentials: false"), 2)
+        self.assertIn('git diff --quiet "$BASE_SHA" -- src/gradle/wrapper/gradle-wrapper.jar',
+                      build[merged_wrapper_guard:submodule_verification])
+        self.assertIn("cache-disabled: true", build[wrapper_validation:trusted_submodules])
+
     def test_verifier_pins_dev_live_base_and_merge_tree(self):
         code = read("scripts/ci/integration_ci.py")
         self.assertIn('TARGET_BASE_BRANCH = "dev"', code)

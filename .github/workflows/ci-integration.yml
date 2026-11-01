@@ -52,37 +52,13 @@ jobs:
       ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
       GRADLE_OPTS: -Xmx5120m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2
     steps:
-      - name: Checkout trusted dev and private submodules
+      - name: Checkout trusted dev without submodules
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
+          submodules: false
           persist-credentials: false
-
-      - name: Validate dispatch and prepare exact merge tree
-        id: prepare
-        shell: bash
-        env:
-          PR: ${{ inputs.pr }}
-          HEAD_SHA: ${{ inputs.head }}
-          BASE_SHA: ${{ inputs.base }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/ci/integration_ci.py prepare
-
-      # After the trusted preparation above, never pass a credential to the
-      # merged pull request code. If an updated submodule needs private access,
-      # the step fails closed rather than exposing the checkout PAT.
-      - name: Verify merged submodule pointers
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule update --init --recursive
-          if git submodule status --recursive | grep -E '^[+-U]'; then
-            echo 'Integration submodules are not at the merged gitlink SHAs' >&2
-            exit 1
-          fi
 
       - name: Install SWIG
         shell: bash
@@ -121,6 +97,56 @@ jobs:
         with:
           gradle-version: wrapper
           cache-disabled: true
+          validate-wrappers: true
+
+      # First validate the executable application wrapper from trusted dev
+      # before the engine's unrecognized (and unused) wrapper JAR is present.
+      # Fetch private media while still on trusted dev; the PAT is not kept.
+      - name: Initialize trusted dev private submodules
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+          persist-credentials: false
+
+      - name: Validate dispatch and prepare exact merge tree
+        id: prepare
+        shell: bash
+        env:
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          BASE_SHA: ${{ inputs.base }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/integration_ci.py prepare
+
+      # The Gradle action validated the trusted dev wrapper before private
+      # submodules were present. Refuse a merge that changes that validated JAR;
+      # otherwise unreviewed merged code could replace it after validation.
+      - name: Check exact merge retains validated application wrapper
+        shell: bash
+        env:
+          BASE_SHA: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet "$BASE_SHA" -- src/gradle/wrapper/gradle-wrapper.jar; then
+            echo 'Merged PR changes the already-validated Gradle wrapper JAR' >&2
+            exit 1
+          fi
+
+      # After the trusted preparation above, never pass a credential to the
+      # merged pull request code. If an updated submodule needs private access,
+      # the step fails closed rather than exposing the checkout PAT.
+      - name: Verify merged submodule pointers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive
+          if git submodule status --recursive | grep -E '^[+-U]'; then
+            echo 'Integration submodules are not at the merged gitlink SHAs' >&2
+            exit 1
+          fi
 
       - name: Android unit tests, mobile and TV debug/release builds
         shell: bash
