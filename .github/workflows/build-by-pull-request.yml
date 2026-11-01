@@ -1,18 +1,14 @@
 name: PR Build Check
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  # Called by ci-pr.yml so the PR gets one build run and one CI Gate status.
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
   pull-requests: write
-
-concurrency:
-  group: pr-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
