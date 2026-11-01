@@ -166,10 +166,13 @@ cannot be diffed here; it is recorded as open for that story. Findings:
 `gradle-wrapper.jar` in the checkout, and the engine submodule ships a wrapper
 jar whose checksum is not on the known list, so the pull request build failed
 before any test ran. v3 does not validate wrappers by default, which matches
-the `dev` branch, so CI currently performs no wrapper validation. Enabling it
-(the v4 default, or `validate-wrappers: true`) needs the engine wrapper jar
-problem solved first, either by deferring the submodule checkout until after
-validation or by an engine wrapper update, and is deferred with AGP 9.
+the `dev` branch, so the PR and release workflows perform no wrapper validation.
+The trusted `ci-integration.yml` is the exception: it uses `setup-gradle@v4` with
+`validate-wrappers: true` before the engine submodule is initialized, so the
+application wrapper is validated while the engine's wrapper JAR is absent.
+Extending validation to the PR build needs the engine wrapper jar problem solved,
+either by the same deferred-checkout ordering or by an engine wrapper update, and
+is deferred with AGP 9.
 
 The release workflows cannot be exercised without publishing, so the missing
 explicit NDK/CMake step is recorded rather than changed here. The inventory
@@ -254,7 +257,9 @@ Android pull requests against `dev` or `main` now run
 `build-by-pull-request.yml` exactly once and publishes the **CI Gate**
 commit status on the actual PR head. A failed, skipped or cancelled build
 is never reported as green. The gate job publishes evidence from the
-same `pull_request` workflow run, not from independent build labels.
+same `pull_request` workflow run, not from independent build labels. The
+reusable build also runs the Python CI contract tests under `scripts/ci/tests`
+as a step of the same job.
 
 `.github/workflows/ci-integration.yml` provides the trusted
 `workflow_dispatch` fallback: validate PR/head/base values, run
