@@ -62,6 +62,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -85,6 +86,7 @@ androidComponents {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":core"))
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
@@ -99,4 +101,4 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.contrib)
 }
 
-apply(from = "../copy_drawables.gradle.kts")
+apply(from = rootProject.file("copy_drawables.gradle.kts"))

@@ -125,20 +125,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
           echo "BLOCKED: recreating refs/heads/dev requires a verified archive of the replaced dev tip for the current main tip; archive dev first (release-flow archive step)." >&2
           exit 1
         fi
-        # Git has no post-push success hook. Atomically consume the proof
-        # before allowing one recreation attempt, preventing stale replay.
-        # Failed pushes require a fresh authorized release cycle.
-        consume_tmp=$(mktemp "${archive_guard_state}.consume.XXXXXX" 2>/dev/null) || {
-          echo "BLOCKED: cannot reserve one-shot dev archive proof." >&2
-          exit 1
-        }
-        if ! mv -f "$archive_guard_state" "$consume_tmp" 2>/dev/null ||
-           [ -f "$archive_guard_state" ]; then
-          rm -f "$consume_tmp"
-          echo "BLOCKED: dev archive proof could not be consumed atomically." >&2
-          exit 1
-        fi
-        rm -f "$consume_tmp"
+        # The pre-push hook runs BEFORE the remote accepts the update; it
+        # cannot observe success. Do not consume the proof here: a rejected or
+        # disconnected push must remain safely retryable while remote dev is
+        # absent. Release Flow verifies dev at the expected remote SHA, then
+        # calls confirm-dev-recreation.sh to retire the proof. This prevents
+        # stale replay without stranding a valid release on transport failure.
       fi
       ;;
   esac
