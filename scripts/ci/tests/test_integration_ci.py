@@ -253,7 +253,7 @@ class FakeApi:
         self.calls: list[tuple[str, str, dict | None]] = []
         self.routes: dict[tuple[str, str], object] = {}
         self.sleeps: list[float] = []
-        self.route("GET", f"repos/{REPO}/git/ref/heads/main", (200, {"object": {"sha": BASE}}))
+        self.route("GET", f"repos/{REPO}/git/ref/heads/dev", (200, {"object": {"sha": BASE}}))
         self.route("GET", f"repos/{REPO}/pulls/5", (200, pull()))
         self.route("GET", f"repos/{REPO}/git/commits/{MERGE}", (200, commit([BASE, HEAD], TREE)))
         self.route("POST", f"repos/{REPO}/statuses/{HEAD}", (201, {"id": 1}))
@@ -409,7 +409,7 @@ class PublishTests(unittest.TestCase):
 
     def test_dev_moved_at_the_first_check_fails(self):
         api = FakeApi()
-        api.route("GET", f"repos/{REPO}/git/ref/heads/main", (200, {"object": {"sha": OLD_BASE}}))
+        api.route("GET", f"repos/{REPO}/git/ref/heads/dev", (200, {"object": {"sha": OLD_BASE}}))
         self.assert_no_post(api, "base-drift")
 
     def test_head_moved_at_the_first_check_fails(self):
@@ -420,7 +420,7 @@ class PublishTests(unittest.TestCase):
     def test_dev_moving_before_the_final_check_fails(self):
         api = FakeApi()
         # First read agrees, the re-check right before the POST sees a newer tip.
-        api.route("GET", f"repos/{REPO}/git/ref/heads/main", [(200, {"object": {"sha": BASE}}), (200, {"object": {"sha": OLD_BASE}})])
+        api.route("GET", f"repos/{REPO}/git/ref/heads/dev", [(200, {"object": {"sha": BASE}}), (200, {"object": {"sha": OLD_BASE}})])
         self.assert_no_post(api, "base-drift")
 
     def test_head_moving_before_the_final_check_fails(self):
@@ -436,7 +436,7 @@ class PublishTests(unittest.TestCase):
                 self.assert_no_post(api, reason)
 
     def test_ambiguous_or_failing_api_responses_fail_closed(self):
-        targets = (f"repos/{REPO}/git/ref/heads/main", f"repos/{REPO}/pulls/5", f"repos/{REPO}/git/commits/{MERGE}")
+        targets = (f"repos/{REPO}/git/ref/heads/dev", f"repos/{REPO}/pulls/5", f"repos/{REPO}/git/commits/{MERGE}")
         for path in targets:
             for response in ((500, {}), (403, {"message": "rate limited"}), (404, None), (200, None), (200, ["list"]), OSError("boom")):
                 with self.subTest(path=path, response=response):
