@@ -23,6 +23,13 @@ CONFIG_VERSION = re.compile(
 GHA_ACTION = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 GRADLE_WRAPPER = re.compile(r"^distributionUrl=(.+)$", re.MULTILINE)
 GRADLE_DIST = re.compile(r"gradle-([0-9][^-]*)-(?:bin|all)\.zip")
+SDK_PACKAGE = re.compile(r"""["'](platform-tools|platforms;android-[0-9.]+|build-tools;[0-9.]+|cmake;[0-9.]+|ndk;[0-9.]+)["']""")
+SWIG_INSTALL = re.compile(r"apt(?:-get)? install[^\n]*\bswig\b")
+CMAKE_VERSION = re.compile(r"\bcmake\b[^{}]*\{[^{}]*\bversion\s*=\s*\"([^\"]+)\"")
+DESUGARING = re.compile(r"\b(isCoreLibraryDesugaringEnabled)\s*=\s*(true|false)")
+CORE_DESUGAR_DEP = re.compile(r"\bcoreLibraryDesugaring\(")
+GRADLE_PROPERTY = re.compile(r"^(android\.[\w.]+|org\.gradle\.[\w.]+|kotlin\.[\w.]+)\s*=\s*(.+)$", re.MULTILINE)
+ENGINE_BUILD_FILE = "src/external/OpenVPNEngine/main/build.gradle.kts"
 TOOLS = re.compile(r"""\b(?:java-version|ndk|cmake|gradle-version|build-tools|distribution):\s*['"]?([^\s'"]+)""")
 
 
@@ -33,6 +40,17 @@ def _item(kind: str, path: str, name: str, version: str, detail: str = "") -> di
 def _files(root: Path, pattern: str) -> list[Path]:
     return sorted(p for p in root.rglob(pattern) if p.is_file()
                   and not SKIP_DIRS.intersection(p.relative_to(root).parts))
+
+
+def _scan_build_settings(entries: list[dict[str, str]], rel: str, contents: str, kind: str) -> None:
+    for match in CONFIG_VERSION.finditer(contents):
+        entries.append(_item(kind, rel, match.group(1), next((g for g in match.groups()[1:] if g), "")))
+    for match in CMAKE_VERSION.finditer(contents):
+        entries.append(_item(kind, rel, "cmakeVersion", match.group(1)))
+    for match in DESUGARING.finditer(contents):
+        entries.append(_item(kind, rel, match.group(1), match.group(2)))
+    if CORE_DESUGAR_DEP.search(contents):
+        entries.append(_item(kind, rel, "coreLibraryDesugaring", "dependency"))
 
 
 def collect(root: Path) -> tuple[list[dict[str, str]], list[str]]:
@@ -71,8 +89,16 @@ def collect(root: Path) -> tuple[list[dict[str, str]], list[str]]:
                 errors.append(f"{rel}: unresolved catalog alias libs.{ 'plugins.' if is_plugin else ''}{accessor}")
         for match in GRADLE_COORDINATE.finditer(contents):
             entries.append(_item("direct-coordinate", rel, match.group(1), match.group(1).split(":")[-1]))
-        for match in CONFIG_VERSION.finditer(contents):
-            entries.append(_item("android-build-setting", rel, match.group(1), next((g for g in match.groups()[1:] if g), "")))
+        _scan_build_settings(entries, rel, contents, "android-build-setting")
+    engine_build = root / ENGINE_BUILD_FILE
+    if engine_build.is_file():
+        _scan_build_settings(entries, engine_build.relative_to(root).as_posix(),
+                             engine_build.read_text(encoding="utf-8"), "engine-build-setting")
+    props = root / "src/gradle.properties"
+    if props.is_file():
+        for match in GRADLE_PROPERTY.finditer(props.read_text(encoding="utf-8")):
+            entries.append(_item("gradle-property", props.relative_to(root).as_posix(),
+                                 match.group(1), match.group(2).strip()))
     wrapper = root / "src/gradle/wrapper/gradle-wrapper.properties"
     if wrapper.is_file():
         text = wrapper.read_text(encoding="utf-8")
@@ -93,6 +119,12 @@ def collect(root: Path) -> tuple[list[dict[str, str]], list[str]]:
                 entries.append(_item("github-action", rel, action.split("@")[0], action.split("@")[-1]))
             for match in TOOLS.finditer(contents):
                 entries.append(_item("ci-toolchain", rel, match.group(0).split(":")[0].strip(), match.group(1)))
+            active = "\n".join(line for line in contents.splitlines() if not line.lstrip().startswith("#"))
+            for package in sorted(set(SDK_PACKAGE.findall(active))):
+                name, _, version = package.partition(";")
+                entries.append(_item("ci-sdk-package", rel, name, version or "(unversioned)"))
+            if SWIG_INSTALL.search(active):
+                entries.append(_item("ci-sdk-package", rel, "swig", "(apt, unpinned)"))
     for filename in (".gitmodules",):
         path = root / filename
         if path.is_file():

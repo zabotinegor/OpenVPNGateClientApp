@@ -81,6 +81,79 @@ missing-ref = { group = "com.example", name = "lib", version.ref = "undefined" }
             _, errors = collect(root)
             self.assertEqual(errors, [])
 
+    def test_toolchain_sdk_ndk_cmake_swig_desugaring_and_engine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write(root, "src/gradle/libs.versions.toml", "[versions]\n")
+            self._write(root, "src/gradle.properties",
+                        "org.gradle.jvmargs=-Xmx2048m\nandroid.useAndroidX=true\nunrelated.key=1\n")
+            self._write(root, "src/core/build.gradle.kts", """
+android {
+    compileOptions { isCoreLibraryDesugaringEnabled = true }
+}
+dependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5") }
+""")
+            self._write(root, "src/external/OpenVPNEngine/main/build.gradle.kts", """
+android {
+    compileSdk = 37
+    ndkVersion = "29.0.14206865"
+    defaultConfig { minSdk = 23 }
+}
+""")
+            self._write(root, ".github/workflows/pr.yml", """
+steps:
+  - run: |
+      # "platforms;android-99" is only mentioned in this comment
+      sudo apt-get install -y swig
+      sdkmanager "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" \\
+        "ndk;29.0.14206865" "platform-tools" "platform-tools"
+""")
+            items, errors = collect(root)
+            self.assertEqual(errors, [])
+            packages = {(e["name"], e["version"]) for e in items if e["kind"] == "ci-sdk-package"}
+            self.assertEqual(packages, {
+                ("platforms", "android-36"), ("build-tools", "36.0.0"), ("cmake", "3.22.1"),
+                ("ndk", "29.0.14206865"), ("platform-tools", "(unversioned)"),
+                ("swig", "(apt, unpinned)"),
+            })
+            engine = {(e["name"], e["version"]) for e in items if e["kind"] == "engine-build-setting"}
+            self.assertEqual(engine, {("compileSdk", "37"), ("ndkVersion", "29.0.14206865"), ("minSdk", "23")})
+            core = {(e["name"], e["version"]) for e in items
+                    if e["kind"] == "android-build-setting" and e["path"] == "src/core/build.gradle.kts"}
+            self.assertEqual(core, {("isCoreLibraryDesugaringEnabled", "true"),
+                                    ("coreLibraryDesugaring", "dependency")})
+            props = {(e["name"], e["version"]) for e in items if e["kind"] == "gradle-property"}
+            self.assertEqual(props, {("org.gradle.jvmargs", "-Xmx2048m"), ("android.useAndroidX", "true")})
+            self.assertEqual((items, errors), collect(root))
+
+    def test_repository_desugaring_guards_java_time_usage(self):
+        # java.time needs API 26; minSdk is 24, so any module using it (or a
+        # module packaging one that does) must keep core library desugaring on.
+        root = Path(__file__).resolve().parents[3]
+        main_sources = [p for module in ("core", "mobile", "tv")
+                        for p in (root / "src" / module / "src" / "main").rglob("*.kt")]
+        if not main_sources:
+            self.skipTest("app sources are not present in this checkout")
+        uses_java_time = any("import java.time." in p.read_text(encoding="utf-8") for p in main_sources)
+        items, errors = collect(root)
+        self.assertEqual(errors, [])
+        enabled = {e["path"] for e in items
+                   if e["name"] == "isCoreLibraryDesugaringEnabled" and e["version"] == "true"}
+        dependency = {e["path"] for e in items if e["name"] == "coreLibraryDesugaring"}
+        if uses_java_time:
+            for module in ("core", "mobile", "tv"):
+                path = f"src/{module}/build.gradle.kts"
+                self.assertIn(path, enabled, f"{module} must enable core library desugaring")
+                self.assertIn(path, dependency, f"{module} must declare desugar_jdk_libs")
+
+    def test_missing_engine_submodule_is_tolerated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write(root, "src/gradle/libs.versions.toml", "[versions]\n")
+            items, errors = collect(root)
+            self.assertEqual(errors, [])
+            self.assertFalse(any(e["kind"] == "engine-build-setting" for e in items))
+
 
 if __name__ == "__main__":
     unittest.main()

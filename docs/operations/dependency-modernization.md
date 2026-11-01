@@ -103,15 +103,67 @@ Evidence on this branch (Windows, JDK 17):
 - `:openVpnEngine:testFullDebugUnitTest`: 2 of 48 fail
   (`TestConfigParser.cleanReImport`, `TestRestrictions.testOpenVPN3Restriction`);
   the same two fail on the pre-upgrade catalog.
-- `lintDebug`: fails on existing findings (`NewApi` on `java.time` with minSdk 24:
-  52 errors in `core`, 1 in `mobile`); the `tv` lint analysis crashes inside lint.
-  There is no lint baseline in the repository.
-- Not run yet: resolved dependency graphs, advisory review, pipeline parity
-  audit, device smoke.
+- `lintDebug`: still fails on historical findings unrelated to this work, with no
+  baseline created. `core`: 2 `NewApi` for `android:defaultFocusHighlightEnabled`
+  (API 26 theme attribute, ignored on older devices) and 6 `UseAppTint`
+  (`android:tint` on `ImageView` in `content_settings.xml`); `mobile`: the same
+  `NewApi`. They need a UI change and verification, so they are left for a
+  separate story. The 46 `java.time` `NewApi` errors were real and are fixed by
+  desugaring. The `tv` lint crash (`findFirCompiledSymbol` in lint's Kotlin script
+  analysis) was caused by `apply(from = "../copy_drawables.gradle.kts")`; lint tried to
+  resolve the literal path as a script. `apply(from = rootProject.file(...))` in
+  `mobile` and `tv` points at the same file and the crash is gone. A machine-local
+  `local.properties` also trips `PropertyEscape`; it is not tracked.
+- Resolved graphs (`:core`, `:mobile`, `:tv`, debug/release runtime
+  classpaths, which include the engine project): 134 external coordinates.
+  Conflicts resolve upward and none is forced: OkHttp 3.14.9 → 4.12.0
+  (transitive), kotlin-stdlib → 2.1.20 (Kotlin BOM alignment from AndroidX),
+  kotlinx-coroutines-core 1.7.3 → 1.9.0, gson 2.8.9 → 2.10.1,
+  viewpager2 1.0.0 → 1.1.0. The catalog's `coroutines` version only feeds
+  test code; runtime resolves 1.9.0 through WorkManager/AndroidX.
+- Advisories: OSV (Maven ecosystem) returned no advisory for any of the 134
+  resolved coordinates. This is a point-in-time lookup, not a licence review.
+  `bcprov-jdk15on` / `bcpkix-jdk15on` (1.70) are declared in the catalog but
+  no module consumes them, so they have no runtime exposure; they are left
+  because the catalog is shared with the engine.
+- Engine tests: the two failures are in engine-owned tests. `cleanReImport`
+  fails with "Bad backslash ('\') usage" while re-parsing the generated
+  config, which points at a Windows path in the generated text; this was not
+  confirmed on Linux. `testOpenVPN3Restriction` fails on its last assertion
+  (user preference not preserved after a bundle without the key). Both fail
+  identically on the pre-upgrade catalog. The engine suite does not fully pass.
+- Core library desugaring: `core`, `mobile` and `tv` use `java.time`
+  (`AppFileLogStore`, `LogExportRetention`) with `minSdk = 24` and no
+  desugaring or API guard, so API 24 and 25 devices would hit
+  `NoClassDefFoundError`. Desugaring (`desugar_jdk_libs` 2.1.5) is now enabled in
+  all three modules, which is what clears the `NewApi` findings.
 
 On Windows, Git checks out the asio submodule symlink `asio/asio/include` as a
 text file, so the native build fails with `asio.hpp` not found. Replace it with
 a junction to `asio/include` locally; do not commit that change.
+
+## Pipeline parity audit
+
+Only GitHub Actions exists in this repository: `build-by-pull-request.yml`,
+`release-by-dev.yml`, `release-by-main.yml`, `release-by-tag.yml`. The Azure
+DevOps fallback (story 12487v2bm64) is not in this repository, so its parity
+cannot be diffed here; it is recorded as open for that story. Findings:
+
+| Aspect | PR build | Release workflows |
+|---|---|---|
+| Recursive submodules | yes | yes |
+| JDK 17 (Temurin) | yes, with Gradle cache | yes |
+| SWIG | `apt-get install swig` (unpinned) | same |
+| SDK, build-tools 36.0.0, CMake 3.22.1, NDK 29.0.14206865 | installed explicitly with `sdkmanager` | **not installed explicitly**; relies on the runner image and AGP auto-download |
+| Gradle setup | `setup-gradle@v4`, read-only cache | `setup-gradle@v4`, cache writes enabled |
+| Signing | none | keystore decoded from secrets, tag builds only |
+| Version metadata | commit SHA | tag/build-number derived |
+| Artifacts | debug APKs, unsigned release sanity build | staged APK and AAB per launcher |
+
+The release workflows cannot be exercised without publishing, so the missing
+explicit NDK/CMake step is recorded rather than changed here. The inventory
+script now reports these package pins per workflow (`ci-sdk-package`) so the
+gap stays visible.
 
 ## Device smoke matrix — execute on builds of the upgraded branch
 

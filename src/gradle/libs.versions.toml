@@ -24,6 +24,7 @@ timber = "5.0.1"
 commonmark = "0.32.0"
 work = "2.12.0"
 androidGifDrawable = "1.2.32"
+desugarJdkLibs = "2.1.5"
 
 # Versions required by OpenVPNEngine module
 androidx-annotation = "1.11.0"
@@ -67,6 +68,7 @@ timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "tim
 commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 android-gif-drawable = { group = "pl.droidsonroids.gif", name = "android-gif-drawable", version.ref = "androidGifDrawable" }
 
 # Libraries required by OpenVPNEngine module
