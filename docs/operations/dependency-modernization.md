@@ -247,6 +247,34 @@ cases are executed; no TV case is claimed beyond its captured evidence.
 
 ## Pipeline, release and rollback gates
 
+### Host-compatible CI evidence
+
+Android pull requests against `dev` or `main` now run
+`.github/workflows/ci-pr.yml`, which invokes the existing
+`build-by-pull-request.yml` exactly once and publishes the **CI Gate**
+commit status on the actual PR head. A failed, skipped or cancelled build
+is never reported as green. The gate job publishes evidence from the
+same `pull_request` workflow run, not from independent build labels.
+
+`.github/workflows/ci-integration.yml` provides the trusted
+`workflow_dispatch` fallback: validate PR/head/base values, run
+against the exact merge of the PR head and the live `dev` tip, then
+verify GitHub's merge commit parents/tree before publishing
+**Integration CI Gate**. The private media submodule is fetched only
+during checkout of the trusted base with non-persisted credentials;
+the merged PR code never receives a PAT or signing key. Both gates
+fail closed if evidence is missing, stale or contradictory.
+
+**Bootstrap limitation:** GitHub only dispatches a `workflow_dispatch`
+workflow when the workflow file also exists on the repository's default
+branch. The trusted `dev` execution ref must additionally contain
+the workflow and verifier script. Adding these files to a PR alone does
+not install them on either protected branch. Until they are installed
+through an authorized release process, integration fallback is
+unavailable and the Host must not treat its missing evidence as CLEAN.
+The normal `CI Gate` can already be exercised by the PR workflow
+after the feature-branch changes trigger a new run.
+
 Audit all workflows under `.github/workflows/` and the active Azure DevOps
 fallback implementation, especially checkout with recursive submodules,
 JDK, Gradle cache, Android SDK 36/37 acquisition, NDK 29, CMake 3.22.1,
