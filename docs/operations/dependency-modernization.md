@@ -165,9 +165,11 @@ cannot be diffed here; it is recorded as open for that story. Findings:
 `setup-gradle@v4` was tried and reverted: v4 validates every
 `gradle-wrapper.jar` in the checkout, and the engine submodule ships a wrapper
 jar whose checksum is not on the known list, so the pull request build failed
-before any test ran. Staying on v3 keeps wrapper validation on. Moving to v4
-needs either deferring the submodule checkout until after validation or an
-engine wrapper update, and is deferred with AGP 9.
+before any test ran. v3 does not validate wrappers by default, which matches
+the `dev` branch, so CI currently performs no wrapper validation. Enabling it
+(the v4 default, or `validate-wrappers: true`) needs the engine wrapper jar
+problem solved first, either by deferring the submodule checkout until after
+validation or by an engine wrapper update, and is deferred with AGP 9.
 
 The release workflows cannot be exercised without publishing, so the missing
 explicit NDK/CMake step is recorded rather than changed here. The inventory
