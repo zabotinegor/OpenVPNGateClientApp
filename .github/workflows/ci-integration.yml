@@ -111,7 +111,10 @@ jobs:
             "build-tools;36.0.0" \
             "cmake;3.22.1" \
             "ndk;29.0.14206865"
-          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses || test "${PIPESTATUS[0]}" -eq 141
+          # Ignore yes(1) SIGPIPE once sdkmanager exits, but retain sdkmanager failures.
+          set +o pipefail
+          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses
+          set -o pipefail
 
       - name: Set up Gradle without caching PR code
         uses: gradle/actions/setup-gradle@v4
