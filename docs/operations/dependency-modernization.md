@@ -71,6 +71,48 @@ Verify GitHub Actions and Azure DevOps fallback pipeline parity without
 activating actual signing or release publishing. Run the local test suite for
 the inventory script; do not count it as Android runtime regression coverage.
 
+## Modernization record
+
+Toolchain stays on AGP 8.13.2, Gradle 8.13, Kotlin 2.0.21 and JDK 17.
+
+| Component | Before | After | Disposition |
+|---|---|---|---|
+| AndroidX appcompat, activity, fragment, lifecycle, annotation, startup, webkit, test-core | 1.7.1 / 1.11.0 / 1.8.9 / 2.9.3 / 1.9.1 / 1.1.1 / 1.14.0 / 1.5.0 | 1.8.0 / 1.13.0 / 1.9.1 / 2.11.0 / 1.11.0 / 1.2.0 / 1.18.0 / 1.7.0 | Updated |
+| core-ktx | 1.17.0 | 1.18.0 | Updated; 1.19 needs AGP 9.1+ and compileSdk 37 |
+| Material, Leanback, WorkManager, gif-drawable | 1.13.0 / 1.0.0 / 2.10.5 / 1.2.29 | 1.14.0 / 1.2.0 / 2.12.0 / 1.2.32 | Updated |
+| OkHttp, Retrofit, Glide | 4.10.0 / 2.9.0 / 4.11.0 | 4.12.0 / 2.11.0 / 4.16.0 | Updated within the current major |
+| Coroutines, CommonMark, BouncyCastle, Mockito | 1.8.1 / 0.22.0 / 1.69 / 4.8.1 | 1.10.2 / 0.32.0 / 1.70 / 5.24.0 | Updated |
+| Robolectric | 4.10.2 | 4.10.2 | Deferred: 4.17 drops `@Config(packageName)`, resolves no `manifest` path, and the controller-notification tests depend on an incidental `NoSuchMethodError` that no longer occurs |
+| Kotlin | 2.0.21 | 2.0.21 | Deferred: the engine build script uses `kotlinOptions`, an error from Kotlin 2.2 |
+| OkHttp 5, Retrofit 3, Glide 5, Koin 4 | — | — | Deferred: major migrations, not required for the toolchain |
+| AGP, Gradle | 8.13.2 / 8.13 | unchanged | Blocked, see below |
+
+**AGP 9 is blocked on the engine.** A trial with AGP 9.5.0, Gradle 9.6.1,
+Kotlin 2.1.21 and `android.builtInKotlin=false` / `android.newDsl=false`
+configured the app modules (`resValues = true` was needed per module for
+`app_name`) but failed in the engine build script: `defaultConfig.targetSdk`
+no longer exists for library modules, and `kotlinOptions` is deprecated. The
+engine is owned by `OpenVPNClientApp-integration`; moving to AGP 9 needs a
+separate engine change through the update-engine workflow. AGP 10 removes the
+`newDsl` opt-out.
+
+Evidence on this branch (Windows, JDK 17):
+
+- `testDebugUnitTestApp`, `assembleDebugApp`, `assembleReleaseApp` and
+  `bundleReleaseApp`: pass.
+- `:openVpnEngine:testFullDebugUnitTest`: 2 of 48 fail
+  (`TestConfigParser.cleanReImport`, `TestRestrictions.testOpenVPN3Restriction`);
+  the same two fail on the pre-upgrade catalog.
+- `lintDebug`: fails on existing findings (`NewApi` on `java.time` with minSdk 24:
+  52 errors in `core`, 1 in `mobile`); the `tv` lint analysis crashes inside lint.
+  There is no lint baseline in the repository.
+- Not run yet: resolved dependency graphs, advisory review, pipeline parity
+  audit, device smoke.
+
+On Windows, Git checks out the asio submodule symlink `asio/asio/include` as a
+text file, so the native build fails with `asio.hpp` not found. Replace it with
+a junction to `asio/include` locally; do not commit that change.
+
 ## Device smoke matrix — execute on builds of the upgraded branch
 
 Record **PASS / FAIL / BLOCKED / NOT RUN** with build SHA, SDK/device type,
