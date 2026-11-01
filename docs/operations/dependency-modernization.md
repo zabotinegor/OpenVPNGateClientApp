@@ -13,6 +13,8 @@ python3 scripts/ci/android_dependency_inventory.py --check --format json > andro
 python3 -m unittest discover -s scripts/ci/tests -p 'test_android_dependency_inventory.py'
 ```
 
+Requires **Python 3.11+** (the script imports `tomllib`). On Windows, use `python` if `python3` is not on `PATH`.
+
 This read-only, sorted inventory captures the root version catalog and
 version references, Gradle build references/settings, Gradle wrapper,
 GitHub Actions pins/JDK/toolchain fields, and submodule configuration.
