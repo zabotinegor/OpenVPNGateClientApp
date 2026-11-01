@@ -34,6 +34,12 @@ Models are in `updates/AppUpdateModels.kt`.
 `AppUpdateInstaller` downloads the asset and hands it to the package installer;
 `UpdateInstallProgressDialog` shows progress. `ui/updates/UpdateDialogMessage` builds the prompt text.
 
+The dialog delivers progress through `LatestUpdateProgressDispatcher`: it keeps only the most recent
+snapshot and at most one queued UI callback, so a download does not queue one main-thread callback per
+network read. Intermediate values can be skipped; the last value rendered is the latest one offered.
+`dismiss()` closes the dispatcher and removes any pending callback before the dialog is dismissed, so no
+progress render runs after dismissal.
+
 Two manifest pieces make this work, both in the core manifest:
 
 - `REQUEST_INSTALL_PACKAGES` permission
@@ -98,4 +104,4 @@ cache is per-locale, so switching language re-fetches rather than showing stale 
 endpoint, and treating it as a source of installable binaries would be a supply-chain problem. This
 holds regardless of which server source the user has selected.
 
-*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-10-19).*
+*Last verified against: `updates/UpdateCheckRepository.kt`, `updates/AppUpdateInstaller.kt`, `updates/UpdateInstallProgressDialog.kt`, `updates/LatestUpdateProgressDispatcher.kt`, `versions/VersionReleaseRepository.kt`, `core/AppConstants.kt`, core `AndroidManifest.xml` (2026-10-19).*
