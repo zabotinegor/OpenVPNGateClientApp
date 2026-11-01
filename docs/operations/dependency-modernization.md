@@ -195,6 +195,45 @@ suitable emulator for each required platform; an ordinary phone emulator
 does not substitute for Leanback TV. Do not infer a PASS from a successful
 Gradle build.
 
+## Smoke run record — upgraded branch
+
+Build under test: debug APKs of commit `211cad4` (version 1.0.0). Evidence
+(logcat, screenshots, UI dumps) is kept outside the repository.
+
+### Mobile — Samsung SM-A715F, Android 13, 2026-11-01
+
+| # | Scenario | Result | Observation |
+| --- | --- | --- | --- |
+| 1 | Fresh install and cold launch | PASS | Clear data, splash then main in about 8 s, no crash or ANR |
+| 2 | Splash to main timing | PASS | Warm relaunch about 7 s, dominated by server preload |
+| 3 | Server list loading | PASS | Countries and servers listed, live pings shown |
+| 4 | Primary API fallback | PARTIAL | Offline cold start was graceful and recovered after reconnect; the primary-to-fallback URL switch itself was not exercised |
+| 5 | Selection and favorites | PASS | Pinned section, persisted across force-stop, removal restored empty state |
+| 6 | VPN permission and connect | PASS | Connected after auto-switching past dead servers |
+| 7 | Traffic and watchdog | PASS | Public IP via tunnel, routes through the tunnel interface, repeated healthy watchdog for about 3 min |
+| 8 | Pause and resume | PASS | Pause blocked traffic, resume re-created the tunnel |
+| 9 | Stop and teardown | PASS | Notification and in-app stop left no tunnel, notification or service |
+| 10 | Reconnect and auto-switch | PASS | Network drop recovered in about 41 s; one engine start per start action |
+| 11 | Background and foreground | PASS | State accurate after relaunch in connected and connecting states |
+| 12 | Notification tap and stop | PASS | One notification, tap opens main, stop tears down |
+| 13 | DNS and per-app filter | PASS | Tunnel DNS and uid rules matched the settings; both restored |
+| 14 | Update and version metadata | PASS | About shows 1.0.0 (63); update dialog and release notes open |
+| 15 | Settings, locale, theme, log export | PASS | Polish locale and dark theme persisted; log export (java.time path) produced an archive |
+| 16 | Full-session stability | PASS | No fatal exception, ANR or foreground-service exception; third-party library warnings only |
+
+Observations, none blocking: `NoClassDefFoundError` warnings from the
+feature-flag loader appear in several processes and were not compared with a
+pre-upgrade baseline; Belarus servers show a 0 ms ping; pause and resume
+restarts the duration counter.
+
+### Android TV — Xiaomi Mi Box 4
+
+Cases 1–3, 5–8 and 11 were executed with captured evidence; case 4 is BLOCKED
+(same fallback limitation as mobile). The TV then became unreachable over
+network ADB (the test method dropped Wi-Fi, which severed the ADB session) and
+cases 9, 10 and 12–16 are NOT RUN. The TV result is not final until those
+cases are executed; no TV case is claimed beyond its captured evidence.
+
 ## Pipeline, release and rollback gates
 
 Audit all workflows under `.github/workflows/` and the active Azure DevOps
