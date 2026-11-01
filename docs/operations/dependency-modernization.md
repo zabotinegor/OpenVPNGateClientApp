@@ -157,10 +157,17 @@ cannot be diffed here; it is recorded as open for that story. Findings:
 | JDK 17 (Temurin) | yes, with Gradle cache | yes |
 | SWIG | `apt-get install swig` (unpinned) | same |
 | SDK, build-tools 36.0.0, CMake 3.22.1, NDK 29.0.14206865 | installed explicitly with `sdkmanager` | **not installed explicitly**; relies on the runner image and AGP auto-download |
-| Gradle setup | `setup-gradle@v4`, read-only cache | `setup-gradle@v4`, cache writes enabled |
+| Gradle setup | `setup-gradle@v3`, read-only cache | `setup-gradle@v3`, cache writes enabled |
 | Signing | none | keystore decoded from secrets, tag builds only |
 | Version metadata | commit SHA | tag/build-number derived |
 | Artifacts | debug APKs, unsigned release sanity build | staged APK and AAB per launcher |
+
+`setup-gradle@v4` was tried and reverted: v4 validates every
+`gradle-wrapper.jar` in the checkout, and the engine submodule ships a wrapper
+jar whose checksum is not on the known list, so the pull request build failed
+before any test ran. Staying on v3 keeps wrapper validation on. Moving to v4
+needs either deferring the submodule checkout until after validation or an
+engine wrapper update, and is deferred with AGP 9.
 
 The release workflows cannot be exercised without publishing, so the missing
 explicit NDK/CMake step is recorded rather than changed here. The inventory

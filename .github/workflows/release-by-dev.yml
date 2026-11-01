@@ -187,7 +187,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: wrapper
           cache-read-only: false

@@ -76,7 +76,7 @@ jobs:
           yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: wrapper
           # PR runs use read-only cache for build cache layer to reduce storage growth (AC-3.1)
