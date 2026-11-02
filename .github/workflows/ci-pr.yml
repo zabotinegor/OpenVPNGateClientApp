@@ -1,8 +1,8 @@
 name: Android PR CI
 
-# This is the sole pull_request entrypoint. The existing APK build is reused in
-# the SAME run so a passing debug build is never mistaken for the required
-# commit status and no second expensive Gradle run is started.
+# Sole pull_request entrypoint. Never use workflow-level paths filters:
+# GitHub would leave a required CI Gate pending on documentation-only PRs.
+# Only the trusted base revision of the classifier may skip Gradle.
 on:
   pull_request:
     branches: [dev, main]
@@ -17,10 +17,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify Android PR changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run_heavy_ci: ${{ steps.classify.outputs.run_heavy_ci || steps.manual.outputs.run_heavy_ci }}
+    steps:
+      - name: Checkout trusted PR base
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+
+      - name: Classify diff with the base revision of the script
+        if: ${{ github.event_name == 'pull_request' }}
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Fetch the exact PR head; a changed/missing ref must never be
+          # classified as documentation-only.
+          if ! git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"; then
+            echo "PR head unavailable: running the full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]]; then
+            echo "PR head changed during classification: running full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          trusted="$RUNNER_TEMP/android_classify_pr_changes.base.py"
+          if git show "${BASE_SHA}:scripts/ci/classify_pr_changes.py" > "$trusted" 2>/dev/null; then
+            python3 "$trusted" --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --output-file "$GITHUB_OUTPUT" --summary-file "$GITHUB_STEP_SUMMARY"
+          else
+            # First PR introducing this classifier must build as normal.
+            echo "Base classifier unavailable: running the full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run full CI for manual dispatches
+        if: ${{ github.event_name != 'pull_request' }}
+        id: manual
+        shell: bash
+        run: echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+
   build:
     name: Android build and unit tests
-    # The reusable job retains existing mobile/TV unit, debug and unsigned
-    # release checks and the short-lived PR APK artifacts.
+    needs: changes
+    # No second build: reuse the existing mobile/TV unit, debug and unsigned
+    # release checks only for executable/CI-relevant changes.
+    if: ${{ needs.changes.outputs.run_heavy_ci == 'true' }}
     uses: ./.github/workflows/build-by-pull-request.yml
     permissions:
       actions: read
@@ -30,30 +88,40 @@ jobs:
 
   gate:
     name: Publish CI Gate status
-    needs: build
+    needs: [changes, build]
     if: ${{ always() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       statuses: write
     steps:
-      - name: Report exact PR head build result
+      - name: Publish exact PR HEAD verdict
         uses: actions/github-script@v7
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN_HEAVY_CI: ${{ needs.changes.outputs.run_heavy_ci }}
           BUILD_RESULT: ${{ needs.build.result }}
         with:
           script: |
-            const result = process.env.BUILD_RESULT;
-            const ok = result === 'success';
-            const sha = context.payload.pull_request.head.sha;
+            const changesOk = process.env.CHANGES_RESULT === 'success';
+            const heavy = process.env.RUN_HEAVY_CI;
+            const build = process.env.BUILD_RESULT;
+            // A missing/invalid classification or unexpected job result
+            // is FAILURE, never a docs-only success.
+            const docsOnly = changesOk && heavy === 'false' && build === 'skipped';
+            const buildPassed = changesOk && heavy === 'true' && build === 'success';
+            const ok = docsOnly || buildPassed;
+            const description = docsOnly
+              ? 'Documentation only: Android build/tests safely skipped'
+              : buildPassed
+                ? 'Android unit tests and mobile/TV debug/release builds passed'
+                : 'Android change classification or build/tests failed';
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha,
+              sha: context.payload.pull_request.head.sha,
               state: ok ? 'success' : 'failure',
               context: 'CI Gate',
-              description: ok
-                ? 'Android unit tests and mobile/TV debug/release builds passed'
-                : `Android PR build did not pass (result: ${result})`,
+              description,
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
