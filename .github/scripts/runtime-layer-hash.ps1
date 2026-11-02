@@ -50,3 +50,33 @@ function Get-RuntimeLayerHash {
 
     return (([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($material.ToString()))) | ForEach-Object { $_.ToString('x2') }) -join ''
 }
+
+# Fingerprint sync-managed ignore sections without including client rules.
+function Get-ManagedAgentGitignoreHash {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $path = Join-Path $Root '.gitignore'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+    $lines = [string[]]@(Get-Content -LiteralPath $path -Encoding UTF8)
+    $pairs = @(
+        [pscustomobject]@{ begin = '# BEGIN synced-agent-assets'; end = '# END synced-agent-assets' },
+        [pscustomobject]@{ begin = '# BEGIN transient-agent-artifacts'; end = '# END transient-agent-artifacts' }
+    )
+    $material = [Text.StringBuilder]::new()
+    foreach ($pair in $pairs) {
+        $begin = [Array]::IndexOf($lines, [string]$pair.begin)
+        $end = [Array]::IndexOf($lines, [string]$pair.end)
+        if ($begin -lt 0 -or $end -le $begin -or
+            $begin -ne [Array]::LastIndexOf($lines, [string]$pair.begin) -or
+            $end -ne [Array]::LastIndexOf($lines, [string]$pair.end)) {
+            return ''
+        }
+        for ($i = $begin; $i -le $end; $i++) {
+            [void]$material.Append($lines[$i])
+            [void]$material.Append("`n")
+        }
+    }
+    return (([Security.Cryptography.SHA256]::Create().ComputeHash(
+        [Text.Encoding]::UTF8.GetBytes($material.ToString())
+    )) | ForEach-Object { $_.ToString('x2') }) -join ''
+}

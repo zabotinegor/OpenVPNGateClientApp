@@ -156,7 +156,14 @@ docs/qa-evidence
 /.github/scripts/assert-clickup-status.ps1
 /.github/scripts/assert-gate-result.ps1
 /.github/scripts/assert-head-review-waiver.ps1
+/.github/scripts/assert-legacy-review.ps1
+/.github/scripts/assert-post-clean-validation.ps1
+/.github/scripts/assert-pr-branch-policy.ps1
+/.github/scripts/assert-pr-review-readiness.ps1
+/.github/scripts/assert-qa-pr-head.ps1
+/.github/scripts/assert-review-certificate.ps1
 /.github/scripts/assert-reviewed-head.ps1
+/.github/scripts/assert-sdlc-flow-exit.ps1
 /.github/scripts/attach-pr-to-clickup.ps1
 /.github/scripts/audit-clickup-qa-artifacts.ps1
 /.github/scripts/bot-signal-lib.ps1
@@ -177,6 +184,7 @@ docs/qa-evidence
 /.github/scripts/clickup-lib.ps1
 /.github/scripts/clickup.ps1
 /.github/scripts/codex-review-evidence-lib.ps1
+/.github/scripts/confirm-dev-recreation.sh
 /.github/scripts/context-packet-lib.ps1
 /.github/scripts/detect-pr-review-bots.ps1
 /.github/scripts/detect-ui-changes.ps1
@@ -194,10 +202,12 @@ docs/qa-evidence
 /.github/scripts/get-flow-state.ps1
 /.github/scripts/get-pr-bot-comments.ps1
 /.github/scripts/get-pr-review-threads.ps1
+/.github/scripts/get-review-wait-mode.ps1
 /.github/scripts/get-session-recovery-diagnostics.ps1
 /.github/scripts/get-specialist-dispatch.ps1
 /.github/scripts/get-user-interaction.ps1
 /.github/scripts/gh-invoke-lib.ps1
+/.github/scripts/github-utf8-api.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-specialist.ps1
@@ -209,6 +219,8 @@ docs/qa-evidence
 /.github/scripts/normalize-repository-identity.ps1
 /.github/scripts/poll-pr-reviews.ps1
 /.github/scripts/post-bot-review-request.ps1
+/.github/scripts/post-clean-business-core.ps1
+/.github/scripts/post-clean-date-core.ps1
 /.github/scripts/post-review-comments-round-summary.ps1
 /.github/scripts/post-round-summary.ps1
 /.github/scripts/publish-resource-telemetry.ps1
@@ -231,6 +243,9 @@ docs/qa-evidence
 /.github/scripts/resource-telemetry-lib.ps1
 /.github/scripts/restart-chrome-with-cdp.ps1
 /.github/scripts/resume-session.ps1
+/.github/scripts/review-wait-settings.ps1
+/.github/scripts/review-watch-core.ps1
+/.github/scripts/review-watch-github-core.ps1
 /.github/scripts/runtime/claude-cli/invoke-specialist.ps1
 /.github/scripts/runtime/claude-cli/invoke-wakeup.ps1
 /.github/scripts/runtime/claude/invoke-specialist.ps1
@@ -268,6 +283,8 @@ docs/qa-evidence
 /.github/scripts/validate-specialist-result.ps1
 /.github/scripts/verify-agent-assets.ps1
 /.github/scripts/verify-runtime-layer.ps1
+/.github/scripts/wait-autonomous-review-github.ps1
+/.github/scripts/wait-autonomous-review.ps1
 /.github/scripts/write-feature-evidence.ps1
 /.github/scripts/write-flow-log.ps1
 /.github/skills/bug-flow/SKILL.md
@@ -284,6 +301,7 @@ docs/qa-evidence
 /.github/skills/developer-flow-orchestrator/references/03-docs-and-pr.md
 /.github/skills/developer-flow-orchestrator/references/04-merge-and-closure.md
 /.github/skills/developer-flow-orchestrator/references/manual-qa-step.md
+/.github/skills/developer-flow-orchestrator/references/specialist-dispatch.md
 /.github/skills/developer-flow-orchestrator/references/workflow-procedure.md
 /.github/skills/developer-flow-orchestrator/SKILL.md
 /.github/skills/docs-maintenance/references/docs-report-template.md
@@ -318,6 +336,7 @@ docs/qa-evidence
 /.github/skills/session-limit-tracking/references/checkpoint-schema.md
 /.github/skills/session-limit-tracking/SKILL.md
 /.github/skills/shared/agents-core-rules.md
+/.github/skills/shared/autonomous-review-wait.md
 /.github/skills/shared/bot-review-loop.md
 /.github/skills/shared/clickup-config.example.json
 /.github/skills/shared/clickup-integration.md
@@ -332,6 +351,7 @@ docs/qa-evidence
 /.github/skills/shared/mcp-preflight-contract.md
 /.github/skills/shared/model-assignments.md
 /.github/skills/shared/operational-rules.md
+/.github/skills/shared/post-clean-validation.md
 /.github/skills/shared/pr-merge-conflict-recovery.md
 /.github/skills/shared/protected-branches.md
 /.github/skills/shared/rate-limit-contract.md

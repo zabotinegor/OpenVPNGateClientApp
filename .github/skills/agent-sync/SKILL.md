@@ -17,6 +17,11 @@ ReviewBot service assets are excluded; generic external PR review tooling
 in distribution scope is not.
 
 This workflow installs the SDLC/session machinery; it must not invoke it.
+It is a **bootstrap-only** agent for a fresh clone, unprovisioned worktree,
+or cleanup that removed operational tooling. Once scripts are available,
+Developer Flow and Release Flow must run `refresh-agent-assets.ps1` directly;
+that invokes `sync-agent-assets.ps1` for stale assets, repairable breakage,
+hooks and managed `.gitignore`, without a sync subagent.
 
 ## Ownership and client Git-tracking policy
 
@@ -53,10 +58,13 @@ Canonical standalone guard regressions can be run from CopilotTools with:
 
 ## When to use
 
-- Bring a target branch/worktree up to a verified source revision.
-- Repair missing/stale synced agents, skills, hooks, scripts or runtime assets.
-- Rebuild the exact managed `.gitignore` entries and transient paths.
-- Bootstrap/verify artifact mode (ClickUp or local) after source sync.
+- First provision a fresh clone/worktree without operational tools.
+- Re-provision after cleanup removed the scripts/helpers needed for normal
+  orchestrator refresh.
+- Verify artifact-mode onboarding during initial provisioning.
+
+For an already provisioned client, Developer Flow and Release Flow perform
+deterministic refresh, repair and managed ignore reconciliation themselves.
 
 ## Expected input
 

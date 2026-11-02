@@ -39,10 +39,14 @@ while read -r old new ref; do
       branch=${ref#refs/heads/}
       ;;
     HEAD)
-      # A checkout may repoint symbolic HEAD without changing a branch.
-      case "$new" in ref:*) continue ;; esac
-      branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
-      case "$branch" in main|dev|master|develop) ;; *) continue ;; esac
+      # HEAD-only transactions (detach/reattach, checkout and bisect)
+      # change the worktree pointer, not a protected branch ref. During a
+      # detach Git can still report the OLD symbolic branch here, so using
+      # symbolic-ref HEAD misclassifies a safe checkout as a branch write.
+      # A real write through symbolic HEAD (e.g. update-ref HEAD <sha>)
+      # also includes refs/heads/<branch> in this transaction and is
+      # checked by the protected-refs case above.
+      continue
       ;;
     *) continue ;;
   esac
