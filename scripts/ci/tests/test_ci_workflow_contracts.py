@@ -28,14 +28,28 @@ class AndroidCiGateWorkflowTests(unittest.TestCase):
 
     def test_gate_is_published_from_same_pr_run_only_on_success(self):
         entry = read(".github/workflows/ci-pr.yml")
-        self.assertIn("needs: build", entry)
+        self.assertIn("needs: [changes, build]", entry)
         self.assertIn("if: ${{ always() && github.event_name == 'pull_request' }}", entry)
         self.assertIn("statuses: write", entry)
         self.assertIn("context: 'CI Gate'", entry)
         self.assertIn("context.payload.pull_request.head.sha", entry)
-        self.assertIn("result === 'success'", entry)
+        self.assertIn("const docsOnly = changesOk && heavy === 'false' && build === 'skipped'", entry)
+        self.assertIn("const buildPassed = changesOk && heavy === 'true' && build === 'success'", entry)
         self.assertIn("state: ok ? 'success' : 'failure'", entry)
         self.assertIn("actions/runs/", entry)
+
+    def test_classifier_only_uses_trusted_base_script_and_fails_closed(self):
+        entry = read(".github/workflows/ci-pr.yml")
+        self.assertIn("name: Classify Android PR changes", entry)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", entry)
+        self.assertIn("submodules: false", entry)
+        self.assertIn("persist-credentials: false", entry)
+        self.assertIn("refs/pull/${PR_NUMBER}/head", entry)
+        self.assertIn("git show \"${BASE_SHA}:scripts/ci/classify_pr_changes.py\"", entry)
+        self.assertIn("echo \"run_heavy_ci=true\"", entry)
+        self.assertIn("needs.changes.outputs.run_heavy_ci == 'true'", entry)
+        self.assertNotIn("paths-ignore:", entry)
+        self.assertNotIn("paths:", entry)
 
     def test_integration_is_dispatch_only_and_separates_trust(self):
         entry = read(".github/workflows/ci-integration.yml")
