@@ -255,11 +255,31 @@ cases are executed; no TV case is claimed beyond its captured evidence.
 Android pull requests against `dev` or `main` now run
 `.github/workflows/ci-pr.yml`, which invokes the existing
 `build-by-pull-request.yml` exactly once and publishes the **CI Gate**
-commit status on the actual PR head. A failed, skipped or cancelled build
-is never reported as green. The gate job publishes evidence from the
-same `pull_request` workflow run, not from independent build labels. The
-reusable build also runs the Python CI contract tests under `scripts/ci/tests`
-as a step of the same job.
+commit status on the actual PR head. The lightweight `changes` job
+classifies the merge-base-to-PR-head diff using **only the version of
+`scripts/ci/classify_pr_changes.py` from the trusted base revision**.
+Only explicit documentation paths (e.g., `docs/**/*.md` and root
+`README.md`) may skip the Gradle job. Source, resources, tests, Gradle
+configuration, workflow code, scripts, assets, deleted or renamed code,
+submodule pointers and all unknown paths require full CI. Unknown or
+missing classification cannot yield green status; when the classifier
+does not yet exist on `dev`, the safe fallback is a full build.
+
+For executable/CI-relevant diffs, `CI Gate` succeeds only when the same
+run's reusable Android build **passes unit tests and mobile/TV debug
+and release builds**. For a validated documentation-only diff it
+succeeds only if the Gradle job was explicitly skipped. Any failure,
+cancelled run, missing output or inconsistent state is not accepted as
+successful. There is no second Gradle run for the status check, and no
+GitHub `paths-ignore` trigger that would leave a required check pending.
+The reusable build also runs the Python CI contract tests under
+`scripts/ci/tests` as a step of that same job.
+
+The `dev` branch ruleset should require **one GitHub Actions status,
+`CI Gate`**, rather than the conditional job name `Build Debug APKs`.
+Do not remove the required-status-check rule itself, bypass protection,
+or retain a duplicate required build context (docs-only PRs would wait
+forever on the intentionally skipped build).
 
 `.github/workflows/ci-integration.yml` provides the trusted
 `workflow_dispatch` fallback: validate PR/head/base values, run
