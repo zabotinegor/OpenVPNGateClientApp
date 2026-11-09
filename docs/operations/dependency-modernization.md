@@ -265,6 +265,19 @@ submodule pointers and all unknown paths require full CI. Unknown or
 missing classification cannot yield green status; when the classifier
 does not yet exist on `dev`, the safe fallback is a full build.
 
+The reusable build receives only the `GH_PAT` secret (not every repository
+secret), the media checkout uses `persist-credentials: false`, and the gate
+job publishes **CI Gate** only while the live PR is open and its head matches
+the run.
+
+Known limitations, to address after the workflow exists on `main`: the PAT
+is still available to the build job for the private media submodule fetch
+(a read-only media token, or a job that fetches media without running PR
+code, would close this), and because `pull_request` workflows come from the
+PR itself, a same-repository author can still alter the gate publisher until
+it runs from a protected-base revision. Fork PRs receive no secrets and a
+read-only token.
+
 For executable/CI-relevant diffs, `CI Gate` succeeds only when the same
 run's reusable Android build **passes unit tests and mobile/TV debug
 and release builds**. For a validated documentation-only diff it
