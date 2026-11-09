@@ -53,8 +53,6 @@ $protectedPattern = '(?:main|dev|master|develop)'
 # 'git -C "C:\a`"b" commit' keeps the whole '"C:\a`"b"' glued to -C and the
 # mutation matchers still reach '\s+commit'. Without it the run closed at the
 # escaped quote and the commit went unjudged.
-$gitValuePattern = '(?>(?:"(?:\\.|`["'']|[^"\\])*"|''[^'']*''|\\.|`["'']|[^\s"''\\]+)+)'
-$gitPrefixPattern = "\bgit(?:\s+-C\s+$gitValuePattern|\s+--git-dir(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--work-tree(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+$gitValuePattern|\s+--exec-path(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--namespace=$gitValuePattern|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*"
 $payloadText = [Console]::In.ReadToEnd()
 if ([string]::IsNullOrWhiteSpace($payloadText)) {
     Write-Output '{}'
@@ -100,6 +98,17 @@ $cwd = if (-not [string]::IsNullOrWhiteSpace([string]$payload.cwd)) { [string]$p
 # evaluate more segments: an unknown shell fails toward more checking, not less.
 $bashSyntax = $Shell -match '(?i)^(?:bash|sh)$'
 if (-not $bashSyntax) { $bashSyntax = ([string]$payload.tool_name) -match '(?i)bash' }
+# These patterns depend on the shell grammar, so they are built after $bashSyntax is known.
+# PowerShell's backtick-escaped space ('`  ') is how an unquoted path with a space is passed
+# ('git -C C:\Copilot` Tools push'); it stays glued to the -C value so the subcommand is
+# still found. Bash has no such escape: there the backtick is command substitution and the
+# space must still end the value, so the extra alternative is PowerShell-only.
+if ($bashSyntax) {
+    $gitValuePattern = '(?>(?:"(?:\\.|`["'']|[^"\\])*"|''[^'']*''|\\.|`["'']|[^\s"''\\]+)+)'
+} else {
+    $gitValuePattern = '(?>(?:"(?:\\.|`.|[^"\\`])*"|''[^'']*''|\\.|`.|[^\s"''\\`]+|`)+)'
+}
+$gitPrefixPattern = "\bgit(?:\s+-C\s+$gitValuePattern|\s+--git-dir(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--work-tree(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--no-pager|\s+--paginate|\s+--bare|\s+-c\s+$gitValuePattern|\s+--exec-path(?:=$gitValuePattern|\s+$gitValuePattern)|\s+--namespace=$gitValuePattern|\s+--no-replace-objects|\s+--no-optional-locks|\s+--literal-pathspecs|\s+--no-literal-pathspecs|\s+--glob-pathspecs|\s+--noglob-pathspecs|\s+--icase-pathspecs)*"
 
 # Whitespace is collapsed so the mutation matchers below can rely on single
 # spaces - but ONLY outside quotes. A blanket '\s+' -> ' ' rewrote the actual

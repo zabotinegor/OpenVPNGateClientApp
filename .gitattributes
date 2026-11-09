@@ -1,0 +1,2 @@
+docs/guides/memory-profiling-scripts/*.sh text eol=lf
+docs/guides/memory-profiling-scripts/tests/*.sh text eol=lf
