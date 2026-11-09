@@ -267,8 +267,9 @@ does not yet exist on `dev`, the safe fallback is a full build.
 
 The reusable build receives only the `GH_PAT` secret (not every repository
 secret), the media checkout uses `persist-credentials: false`, and the gate
-job publishes **CI Gate** only while the live PR is open and its head matches
-the run.
+job publishes **CI Gate** only while the live PR is open and its head and
+target base branch tip still match the run; if the base advanced, the gate
+fails closed and CI must be re-run.
 
 Known limitations, to address after the workflow exists on `main`: the PAT
 is still available to the build job for the private media submodule fetch

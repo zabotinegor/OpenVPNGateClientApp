@@ -95,6 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
       pull-requests: read
       statuses: write
     steps:
@@ -115,6 +116,18 @@ jobs:
             });
             if (livePr.data.state !== 'open' || livePr.data.head.sha !== pr.head.sha) {
               core.setFailed('Stale PR head, no gate published');
+              return;
+            }
+            // The build and classification ran against the event's base. If the
+            // target branch moved since, fail closed so the run is repeated.
+            const liveBase = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: pr.base.ref
+            });
+            if (livePr.data.base.ref !== pr.base.ref ||
+                liveBase.data.commit.sha !== pr.base.sha) {
+              core.setFailed('Target base advanced, no gate published; re-run CI');
               return;
             }
             const changesOk = process.env.CHANGES_RESULT === 'success';

@@ -38,6 +38,15 @@ class AndroidCiGateWorkflowTests(unittest.TestCase):
         self.assertIn("pull-requests: read", entry)
         self.assertIn("github.rest.pulls.get", entry)
         self.assertIn("livePr.data.head.sha !== pr.head.sha", entry)
+        # A moved target branch must fail closed instead of certifying an
+        # obsolete merge context.
+        publisher = entry.split("\n  gate:", 1)[1]
+        self.assertIn("github.rest.repos.getBranch", publisher)
+        self.assertIn("liveBase.data.commit.sha !== pr.base.sha", publisher)
+        self.assertIn("livePr.data.base.ref !== pr.base.ref", publisher)
+        self.assertIn("contents: read", publisher)
+        self.assertLess(publisher.index("liveBase.data.commit.sha !== pr.base.sha"),
+                        publisher.index("createCommitStatus"))
 
     def test_gate_is_published_from_same_pr_run_only_on_success(self):
         entry = read(".github/workflows/ci-pr.yml")
