@@ -38,7 +38,8 @@ The dialog delivers progress through `LatestUpdateProgressDispatcher`: it keeps 
 snapshot and at most one queued UI callback, so a download does not queue one main-thread callback per
 network read. Intermediate values can be skipped; the last value rendered is the latest one offered.
 `dismiss()` closes the dispatcher and removes any pending callback before the dialog is dismissed, so no
-progress render runs after dismissal.
+progress render runs after dismissal. If the hosting Activity is destroyed mid-download,
+`ReleaseOnDestroyObserver` dismisses the dialog synchronously so no window is leaked.
 
 Two manifest pieces make this work, both in the core manifest:
 
