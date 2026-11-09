@@ -3,6 +3,9 @@ name: PR Build Check
 on:
   # Called by ci-pr.yml so the PR gets one build run and one CI Gate status.
   workflow_call:
+    secrets:
+      GH_PAT:
+        required: true
   workflow_dispatch:
 
 permissions:
@@ -26,6 +29,8 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.GH_PAT }}
+          # Do not leave the PAT in the checkout's git config while PR code runs.
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set build metadata

@@ -24,7 +24,20 @@ class AndroidCiGateWorkflowTests(unittest.TestCase):
         self.assertIn("  workflow_call:", build)
         self.assertNotRegex(build.split("permissions:", 1)[0], r"(?m)^  pull_request:")
         self.assertIn("uses: ./.github/workflows/build-by-pull-request.yml", entry)
-        self.assertIn("secrets: inherit", entry)
+        # Only the media checkout token is forwarded; never every secret.
+        self.assertNotIn("secrets: inherit", entry)
+        self.assertIn("GH_PAT: ${{ secrets.GH_PAT }}", entry)
+        self.assertRegex(build, r"(?s)workflow_call:\s+secrets:\s+GH_PAT:\s+required: true")
+        # The PAT must not stay in the checkout's git config while PR code runs.
+        checkout = build.split("- name: Checkout code", 1)[1].split("- name:", 1)[0]
+        self.assertIn("token: ${{ secrets.GH_PAT }}", checkout)
+        self.assertIn("persist-credentials: false", checkout)
+
+    def test_gate_is_published_from_live_current_head_only(self):
+        entry = read(".github/workflows/ci-pr.yml")
+        self.assertIn("pull-requests: read", entry)
+        self.assertIn("github.rest.pulls.get", entry)
+        self.assertIn("livePr.data.head.sha !== pr.head.sha", entry)
 
     def test_gate_is_published_from_same_pr_run_only_on_success(self):
         entry = read(".github/workflows/ci-pr.yml")

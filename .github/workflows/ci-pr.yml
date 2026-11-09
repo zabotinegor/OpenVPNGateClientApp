@@ -84,7 +84,9 @@ jobs:
       actions: read
       contents: read
       pull-requests: write
-    secrets: inherit
+    # Pass only the token the media checkout needs, not every repository secret.
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
 
   gate:
     name: Publish CI Gate status
@@ -93,6 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      pull-requests: read
       statuses: write
     steps:
       - name: Publish exact PR HEAD verdict
@@ -103,6 +106,17 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
         with:
           script: |
+            // Never publish a verdict for a head that is no longer current.
+            const pr = context.payload.pull_request;
+            const livePr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+            if (livePr.data.state !== 'open' || livePr.data.head.sha !== pr.head.sha) {
+              core.setFailed('Stale PR head, no gate published');
+              return;
+            }
             const changesOk = process.env.CHANGES_RESULT === 'success';
             const heavy = process.env.RUN_HEAVY_CI;
             const build = process.env.BUILD_RESULT;
