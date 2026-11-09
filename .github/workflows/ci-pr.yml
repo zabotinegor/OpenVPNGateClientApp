@@ -127,7 +127,7 @@ jobs:
             });
             if (livePr.data.base.ref !== pr.base.ref ||
                 liveBase.data.commit.sha !== pr.base.sha) {
-              core.setFailed('Target base advanced, no gate published; re-run CI');
+              core.setFailed('Target base advanced, no gate published; update the branch or push to re-trigger CI');
               return;
             }
             const changesOk = process.env.CHANGES_RESULT === 'success';

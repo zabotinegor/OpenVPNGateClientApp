@@ -269,14 +269,19 @@ The reusable build receives only the `GH_PAT` secret (not every repository
 secret), the media checkout uses `persist-credentials: false`, and the gate
 job publishes **CI Gate** only while the live PR is open and its head and
 target base branch tip still match the run; if the base advanced, the gate
-fails closed and CI must be re-run.
+fails closed and a new `pull_request` event (push or "Update branch") is
+needed, because a plain re-run reuses the original event payload.
 
 Known limitations, to address after the workflow exists on `main`: the PAT
 is still available to the build job for the private media submodule fetch
 (a read-only media token, or a job that fetches media without running PR
 code, would close this), and because `pull_request` workflows come from the
 PR itself, a same-repository author can still alter the gate publisher until
-it runs from a protected-base revision. Fork PRs receive no secrets and a
+it runs from a protected-base revision. Commit statuses attach to a head SHA,
+not to a base, so a CI Gate success already published stays on that head if
+the target branch later advances; until a push-to-base trigger exists this
+relies on the "Require branches to be up to date before merging" branch
+protection. Fork PRs receive no secrets and a
 read-only token.
 
 For executable/CI-relevant diffs, `CI Gate` succeeds only when the same
