@@ -195,6 +195,7 @@ docs/qa-evidence
 /.github/scripts/fetch-claude-usage.js
 /.github/scripts/fetch-usage-api.ps1
 /.github/scripts/flow-log-lib.ps1
+/.github/scripts/get-active-sdlc-hook-verdict.ps1
 /.github/scripts/get-agent-runtime.ps1
 /.github/scripts/get-clickup-runtime-capability.ps1
 /.github/scripts/get-copilottools-config.ps1
@@ -208,6 +209,9 @@ docs/qa-evidence
 /.github/scripts/get-user-interaction.ps1
 /.github/scripts/gh-invoke-lib.ps1
 /.github/scripts/github-utf8-api.ps1
+/.github/scripts/guard-autonomous-qa-question.ps1
+/.github/scripts/guard-autonomous-qa-stop.ps1
+/.github/scripts/guard-sequential-agent-foreground.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
 /.github/scripts/invoke-specialist.ps1
@@ -221,6 +225,7 @@ docs/qa-evidence
 /.github/scripts/post-bot-review-request.ps1
 /.github/scripts/post-clean-business-core.ps1
 /.github/scripts/post-clean-date-core.ps1
+/.github/scripts/post-clean-owner-gates-lib.ps1
 /.github/scripts/post-review-comments-round-summary.ps1
 /.github/scripts/post-round-summary.ps1
 /.github/scripts/publish-resource-telemetry.ps1
@@ -234,6 +239,7 @@ docs/qa-evidence
 /.github/scripts/reply-to-pr-review-comment.ps1
 /.github/scripts/repo-root-lib.ps1
 /.github/scripts/resolve-account.ps1
+/.github/scripts/resolve-approved-merge-resume.ps1
 /.github/scripts/resolve-feature-evidence.ps1
 /.github/scripts/resolve-merge-qa-evidence.ps1
 /.github/scripts/resolve-pr-threads.ps1
@@ -352,6 +358,7 @@ docs/qa-evidence
 /.github/skills/shared/model-assignments.md
 /.github/skills/shared/operational-rules.md
 /.github/skills/shared/post-clean-validation.md
+/.github/skills/shared/post-merge-evidence-reconciliation.md
 /.github/skills/shared/pr-merge-conflict-recovery.md
 /.github/skills/shared/protected-branches.md
 /.github/skills/shared/rate-limit-contract.md
