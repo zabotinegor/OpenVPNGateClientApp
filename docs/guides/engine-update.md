@@ -49,7 +49,7 @@ under test each time; don't treat any prior run's specific evidence as still val
 
 Engine changes that exist only to serve this app are delivered on the `OpenVPNClientApp-integration`
 branch of the engine repository. No upstream PR is opened for them. The client's engine gitlink must
-point at a commit on that branch (currently `ca9d925b`).
+point at a commit on that branch (the published tip; check it with `git submodule status`).
 
 The force-stop patch is a local, app-scoped change. It must survive every upstream sync. On conflict,
 keep it. Its pieces are:
@@ -65,6 +65,15 @@ keep it. Its pieces are:
 After resolving a sync, confirm these pieces are still present (`git grep forceStopVPN` in the engine
 checkout). Then run the regression checklist above and the orphaned-tunnel repro in
 [troubleshooting.md](troubleshooting.md#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a).
+
+## Current pin and rollback
+
+The client's gitlink is `4e228715b162959209426674815a33c7b22c16f6` (0.7.69 sync on
+`OpenVPNClientApp-integration`); the previous pin was `1c6151961bc161a1cd681e03c496c0bd23fa7db9`.
+The device runs recorded in the dependency review used the previous pin, so the
+checklist above must be run against the current pin before it is trusted. Rollback
+steps and the non-force-stop engine changes to verify are in
+[operations/dependency-modernization.md](../operations/dependency-modernization.md#a-ac2-openvpn-engine-0769-integration).
 
 ## Notes
 
@@ -84,7 +93,7 @@ checkout). Then run the regression checklist above and the orphaned-tunnel repro
 
 ---
 
-*Last verified against: the `US-14` engine bump (`a83da9ff -> 764b6b70`) and its SDK-platform-37 gotcha (2026-07-25); app-scoped force-stop patch section against engine `ca9d925b` (2026-10-16).*
+*Last verified against: the `US-14` engine bump (`a83da9ff -> 764b6b70`) and its SDK-platform-37 gotcha (2026-07-25); app-scoped force-stop patch section against engine `ca9d925b` (2026-10-16); upstream 0.7.69 sync merged into the integration branch at `4e228715` (2026-11-09).*
 
 ## Gotchas from the 18.10.2026 bump (upstream `14445f1c`)
 

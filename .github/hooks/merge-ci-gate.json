@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": "bash|powershell",
+        "bash": "pwsh -NoProfile -NonInteractive -File .github/scripts/guard-pr-merge-ci-gate.ps1",
+        "powershell": "pwsh -NoProfile -NonInteractive -File .github/scripts/guard-pr-merge-ci-gate.ps1",
+        "cwd": ".",
+        "timeoutSec": 60
+      }
+    ]
+  }
+}

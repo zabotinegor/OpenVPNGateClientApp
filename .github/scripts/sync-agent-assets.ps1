@@ -1435,12 +1435,17 @@ try {
     if (-not $DryRun -and $isFullManifestSync -and $mismatches.Count -eq 0) {
         $assetLockPath = Join-Path $targetRootResolved '.copilottools/asset-lock.json'
         New-Item -ItemType Directory -Path (Split-Path -Parent $assetLockPath) -Force | Out-Null
+        $managedIgnoreHash = Get-ManagedAgentGitignoreHash -Root $targetRootResolved
+        if ([string]::IsNullOrWhiteSpace($managedIgnoreHash)) {
+            throw 'Managed .gitignore markers are missing or duplicated; refusing to attest sync.'
+        }
         $assetLock = [ordered]@{
             schemaVersion = 2
             sourceRepo = $SourceRepo
             sourceRef = $SourceRef
             sourceRevision = $sourceCommit
             manifestHash = (Get-RuntimeLayerHash -Root $targetRootResolved)
+            managedGitignoreHash = $managedIgnoreHash
         }
         $assetLock | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $assetLockPath -Encoding UTF8
     }

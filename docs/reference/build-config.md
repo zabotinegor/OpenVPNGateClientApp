@@ -18,7 +18,7 @@ All three app modules are aligned at compileSdk/targetSdk 36 and minSdk 24. Only
 > and retry — it is not a code problem. Any statement that this project needs only "SDK 24+ (target
 > 36)" is describing the app modules and omits the engine.
 
-JVM target 11.
+JVM target 11. Core library desugaring (`desugar_jdk_libs`, `isCoreLibraryDesugaringEnabled = true`) is enabled in `core`, `mobile` and `tv` so `java.time` works on API 24–25; see [operations/dependency-modernization.md](../operations/dependency-modernization.md).
 
 ## Backend URL resolution
 

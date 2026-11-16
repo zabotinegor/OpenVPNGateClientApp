@@ -1,0 +1,154 @@
+name: Android PR CI
+
+# Sole pull_request entrypoint. Never use workflow-level paths filters:
+# GitHub would leave a required CI Gate pending on documentation-only PRs.
+# Only the trusted base revision of the classifier may skip Gradle.
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-pr-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify Android PR changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run_heavy_ci: ${{ steps.classify.outputs.run_heavy_ci || steps.manual.outputs.run_heavy_ci }}
+    steps:
+      - name: Checkout trusted PR base
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+
+      - name: Classify diff with the base revision of the script
+        if: ${{ github.event_name == 'pull_request' }}
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Fetch the exact PR head; a changed/missing ref must never be
+          # classified as documentation-only.
+          if ! git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"; then
+            echo "PR head unavailable: running the full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]]; then
+            echo "PR head changed during classification: running full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          trusted="$RUNNER_TEMP/android_classify_pr_changes.base.py"
+          if git show "${BASE_SHA}:scripts/ci/classify_pr_changes.py" > "$trusted" 2>/dev/null; then
+            python3 "$trusted" --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --output-file "$GITHUB_OUTPUT" --summary-file "$GITHUB_STEP_SUMMARY"
+          else
+            # First PR introducing this classifier must build as normal.
+            echo "Base classifier unavailable: running the full Android CI."
+            echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run full CI for manual dispatches
+        if: ${{ github.event_name != 'pull_request' }}
+        id: manual
+        shell: bash
+        run: echo "run_heavy_ci=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Android build and unit tests
+    needs: changes
+    # No second build: reuse the existing mobile/TV unit, debug and unsigned
+    # release checks only for executable/CI-relevant changes.
+    if: ${{ needs.changes.outputs.run_heavy_ci == 'true' }}
+    uses: ./.github/workflows/build-by-pull-request.yml
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    # Pass only the token the media checkout needs, not every repository secret.
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+
+  gate:
+    name: Publish CI Gate status
+    needs: [changes, build]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Publish exact PR HEAD verdict
+        uses: actions/github-script@v7
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN_HEAVY_CI: ${{ needs.changes.outputs.run_heavy_ci }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        with:
+          script: |
+            // Never publish a verdict for a head that is no longer current.
+            const pr = context.payload.pull_request;
+            const livePr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+            if (livePr.data.state !== 'open' || livePr.data.head.sha !== pr.head.sha) {
+              core.setFailed('Stale PR head, no gate published');
+              return;
+            }
+            // The build and classification ran against the event's base. If the
+            // target branch moved since, fail closed so the run is repeated.
+            const liveBase = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: pr.base.ref
+            });
+            if (livePr.data.base.ref !== pr.base.ref ||
+                liveBase.data.commit.sha !== pr.base.sha) {
+              core.setFailed('Target base advanced, no gate published; update the branch or push to re-trigger CI');
+              return;
+            }
+            const changesOk = process.env.CHANGES_RESULT === 'success';
+            const heavy = process.env.RUN_HEAVY_CI;
+            const build = process.env.BUILD_RESULT;
+            // A missing/invalid classification or unexpected job result
+            // is FAILURE, never a docs-only success.
+            const docsOnly = changesOk && heavy === 'false' && build === 'skipped';
+            const buildPassed = changesOk && heavy === 'true' && build === 'success';
+            const ok = docsOnly || buildPassed;
+            const description = docsOnly
+              ? 'Documentation only: Android build/tests safely skipped'
+              : buildPassed
+                ? 'Android unit tests and mobile/TV debug/release builds passed'
+                : 'Android change classification or build/tests failed';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: ok ? 'success' : 'failure',
+              context: 'CI Gate',
+              description,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

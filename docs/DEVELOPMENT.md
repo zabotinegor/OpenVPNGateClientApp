@@ -50,7 +50,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - Gradle Kotlin DSL
 
 ## Prerequisites
-- JDK 11
+- JDK 17 (minimum required for Android Gradle Plugin 8.13; matches CI)
 - Android SDK/Build Tools for compile SDK 36, **plus SDK Platform 37** for the engine submodule
 - Git submodules initialized
 

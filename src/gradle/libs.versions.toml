@@ -5,42 +5,43 @@
 # Core App versions
 agp = "8.13.2"
 kotlin = "2.0.21"
-coreKtx = "1.17.0"
+coreKtx = "1.18.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-appcompat = "1.7.1"
-material = "1.13.0"
-leanback = "1.0.0"
-glide = "4.11.0"
-activity = "1.11.0"
-constraintlayout = "2.2.1"
-retrofit = "2.9.0"
-fragment = "1.8.9"
+appcompat = "1.8.0"
+material = "1.14.0"
+leanback = "1.2.0"
+glide = "4.16.0"
+activity = "1.13.0"
+constraintlayout = "2.2.2"
+retrofit = "2.11.0"
+fragment = "1.9.1"
 preference = "1.2.1"
 koin = "3.5.6"
-coroutines = "1.8.1"
+coroutines = "1.10.2"
 timber = "5.0.1"
-commonmark = "0.22.0"
-work = "2.10.5"
-androidGifDrawable = "1.2.29"
+commonmark = "0.32.0"
+work = "2.12.0"
+androidGifDrawable = "1.2.32"
+desugarJdkLibs = "2.1.5"
 
 # Versions required by OpenVPNEngine module
-androidx-annotation = "1.9.1"
+androidx-annotation = "1.11.0"
 androidx-cardview = "1.0.0" # Added for cardview dependency
-androidx-webkit = "1.14.0"
-androidx-lifecycle = "2.9.3"
+androidx-webkit = "1.18.0"
+androidx-lifecycle = "2.11.0"
 androidx-security-crypto = "1.1.0"
 androidx-viewpager2 = "1.1.0"
 androidx-recyclerview = "1.4.0"
-bouncycastle = "1.69"
+bouncycastle = "1.70"
 mpandroidchart = "v3.1.0"
-square-okhttp = "4.10.0"
-mockito-core = "4.8.1"
+square-okhttp = "4.12.0"
+mockito-core = "5.24.0"
 robolectric = "4.10.2"
 jsonorg = "20260814"
-androidx-test-core = "1.5.0"
-androidx-startup = "1.1.1"
+androidx-test-core = "1.7.0"
+androidx-startup = "1.2.0"
 
 
 [libraries]
@@ -67,6 +68,7 @@ timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "tim
 commonmark = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 android-gif-drawable = { group = "pl.droidsonroids.gif", name = "android-gif-drawable", version.ref = "androidGifDrawable" }
 
 # Libraries required by OpenVPNEngine module
