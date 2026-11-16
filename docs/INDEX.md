@@ -60,7 +60,7 @@ Current behaviour, not change history.
 
 | Doc | Covers |
 |---|---|
-| [operations/dependency-modernization.md](operations/dependency-modernization.md) | Android dependency inventory, Gradle/AGP/Kotlin/engine compatibility, CI parity, mobile + TV smoke regression and rollback |
+| [operations/dependency-modernization.md](operations/dependency-modernization.md) | Android dependency review table, Gradle/AGP/Kotlin/engine compatibility, engine 0.7.69 gitlink and rollback, GitHub Actions CI, per-area upgrade/rollback, regression checklist, mobile + TV smoke record |
 | [operations/device-qa-phone.md](operations/device-qa-phone.md) | ADB workarounds for a multi-user MIUI phone, launch/resolve, log filters, orientation-lock verification, tablet simulation via density override, drawer-state persistence |
 | [operations/device-qa-miui.md](operations/device-qa-miui.md) | MIUI readiness commands and known device blockers |
 | [operations/device-qa-tv.md](operations/device-qa-tv.md) | MIBOX4 Leanback launch, D-pad injection, focus gotchas, landscape-lock verification, drawer-state persistence |

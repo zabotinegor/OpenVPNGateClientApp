@@ -66,6 +66,15 @@ After resolving a sync, confirm these pieces are still present (`git grep forceS
 checkout). Then run the regression checklist above and the orphaned-tunnel repro in
 [troubleshooting.md](troubleshooting.md#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a).
 
+## Current pin and rollback
+
+The client's gitlink is `4e228715b162959209426674815a33c7b22c16f6` (0.7.69 sync on
+`OpenVPNClientApp-integration`); the previous pin was `1c6151961bc161a1cd681e03c496c0bd23fa7db9`.
+The device runs recorded in the dependency review used the previous pin, so the
+checklist above must be run against the current pin before it is trusted. Rollback
+steps and the non-force-stop engine changes to verify are in
+[operations/dependency-modernization.md](../operations/dependency-modernization.md#a-ac2-openvpn-engine-0769-integration).
+
 ## Notes
 
 - If the engine bump raises the engine module's `compileSdk`/`targetSdk`, the first build on a
