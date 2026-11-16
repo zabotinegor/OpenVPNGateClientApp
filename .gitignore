@@ -211,6 +211,7 @@ docs/qa-evidence
 /.github/scripts/github-utf8-api.ps1
 /.github/scripts/guard-autonomous-qa-question.ps1
 /.github/scripts/guard-autonomous-qa-stop.ps1
+/.github/scripts/guard-pr-merge-ci-gate.ps1
 /.github/scripts/guard-sequential-agent-foreground.ps1
 /.github/scripts/init-session.ps1
 /.github/scripts/invoke-long-operation.ps1
