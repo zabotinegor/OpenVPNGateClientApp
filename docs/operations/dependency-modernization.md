@@ -26,11 +26,12 @@ submodule. An inventory is **not** evidence of a successful upgrade.
 This document records the dependency and toolchain review for the
 `feature/release/09.11.2026` release. It separates three kinds of statement:
 
-- **Verified** — checked against an official source or a repository file in the
-  release diff, with the source named in the table.
+- **Verified** — checked on 2026-11-16 against an official page or metadata URL
+  that is named in the table, or against a repository file in the release diff.
 - **Recorded** — taken from an earlier run on this branch (test output, OSV
   lookup, device session). It was not re-executed for this revision.
-- **Unverified / open** — not established. Do not rely on these until checked.
+- **Not established / open** — no official source could be reached, or the check
+  was not run. Do not rely on these until checked.
 
 Nothing here claims that the catalog is the complete installed dependency graph.
 Device evidence is summarized in the [Smoke run record](#smoke-run-record) and the
@@ -70,20 +71,20 @@ The `okio` insight was run on 2026-11-16 for this revision: Okio resolves to
 
 ## Toolchain compatibility boundary
 
-Verified against the AGP release notes (see A-AC1 sources):
+Verified on 2026-11-16 against the AGP release notes (URLs in the A-AC1 table):
 
 - AGP 8.13 supports a maximum of **API 36.1**, requires **Gradle 8.13** and **JDK 17**.
   This is the currently deployed toolchain (`AGP 8.13.2`, Gradle wrapper 8.13).
+- AGP 9.1 requires **Gradle 9.3.1**, **JDK 17** and Kotlin Gradle plugin **2.2.10**.
 - AGP 9.5 supports a maximum of **API 37**, requires **Gradle 9.6.0** and **JDK 17**.
 - The external engine module targets `compileSdk`/`targetSdk` 37 (engine repository,
   `OpenVPNClientApp-integration`). The app on AGP 8.13 therefore builds an engine
   that targets a newer API than AGP 8.13 documents as supported. The build works in
   the recorded run; this combination should not be extended without re-verification.
 
-Not established in this revision: the exact AGP 9.0 and 9.1.x requirements
-(minimum Kotlin plugin, default built-in Kotlin, R8 behavior). An earlier pass
-recorded AGP 9.1.1 as supporting API 37.0 with Gradle 9.3.1 and KGP 2.2.10; that
-row was not re-fetched here and must be re-checked before any AGP 9 change.
+Not established in this revision: the AGP 9.0 requirements, the maximum API level
+of AGP 9.1 (the 9.1 page was confirmed only for Gradle, JDK and KGP), and default
+built-in Kotlin and R8 behavior. Re-check these before any AGP 9 change.
 
 AGP 9 is a coordinated migration (Gradle, Kotlin plugin defaults, variant DSL,
 R8), not an independent catalog edit. The engine pin belongs to
@@ -102,62 +103,78 @@ Disposition values: **updated** (changed in this release), **deferred** (not
 changed, reason given), **blocked** (cannot change until a named prerequisite),
 **open** (not established).
 
-Verification labels in the Source column:
+Source labels used in the Source column. All URLs below were fetched on
+**2026-11-16** for this revision, and the stated fact was present in the fetched
+content. Dates are the ones printed on the cited page.
 
-- **Opened** — an official page or repository metadata URL was fetched in this
-  review and the fact cited was present in the fetched content.
-- **Earlier-context** — the fact was checked in an earlier pass on this branch and
-  the page is named, but it was not re-fetched in this round.
-- **Unverified** — not established by any fetched source. Do not rely on it.
+- **Verified 2026-11-16** — the exact URL named was fetched and confirmed the fact.
+- **Repository file** — read from this checkout (not an external source).
+- **Recorded** — taken from an earlier run on this branch; not re-executed.
+- **No official source reachable (reason)** — the fetch failed or the page does not
+  carry the fact. The row's claim is reduced to what the other sources show.
 
-Maven metadata used below was fetched from `repo1.maven.org` in this round. Those
-results are listed as "Opened" in the Source column.
+Maven metadata files (`repo1.maven.org`, `dl.google.com`) list published versions
+only; they carry no release dates. Every date below comes from a release page, not
+from Maven metadata. Several GitHub repositories have moved (`square/okhttp` and
+`square/retrofit` redirect to `lysine-dev/…`); the redirected URL is cited.
+
+Source abbreviations: `AX/<name>` is
+`https://developer.android.com/jetpack/androidx/releases/<name>`; `M2/<path>` is
+`https://repo1.maven.org/maven2/<path>/maven-metadata.xml`.
 
 | Component | Class | Before → after | Disposition | Reason / risk | Source (what was verified) |
 |---|---|---|---|---|---|
-| Android Gradle Plugin | direct (build) | 8.13.2 → 8.13.2 | blocked | AGP 9 requires the engine and Gradle migration; the trial failed in the engine build script (see notes below) | [AGP release notes](https://developer.android.com/build/releases/gradle-plugin): Opened. 9.5 entry: API 37, Gradle 9.6.0, JDK 17. 8.13 entry: API 36.1, Gradle 8.13, JDK 17. |
-| Gradle wrapper | build tool | 8.13 → 8.13 | blocked | Follows AGP 8.13; a wrapper bump is coupled to the AGP decision | Repository `src/gradle/wrapper/gradle-wrapper.properties` (repository file). Gradle release listing [gradle.org/releases](https://gradle.org/releases/): Earlier-context. Latest listed 9.9.1 and 8.14.7; 8.13 released 25 Feb 2025. |
-| JDK / CI toolchain | build tool | JDK 17 (Temurin) → JDK 17 | deferred | Matches AGP 8.13 and 9.5 requirements. Engine `jvmTarget` 17; app modules `kotlinOptions { jvmTarget = "11" }` | AGP entries above (Opened); `actions/setup-java` pin in workflows (repository file); [setup-java releases](https://github.com/actions/setup-java/releases): Earlier-context, latest listed v6.3.0 (pinned v4) |
-| Kotlin | direct (build) | 2.0.21 → 2.0.21 | deferred | Engine build script uses `kotlinOptions`, which is deprecated since Kotlin 2.0.0; removal behavior at Kotlin 2.2 is **unverified** here. Latest stable Kotlin listed 2.4.21 | Engine `main/build.gradle.kts` at its HEAD (repository file). Kotlin release listing: Earlier-context. Deprecation text: Unverified in this revision. |
-| AndroidX appcompat | direct | 1.7.1 → 1.8.0 | updated | Within the AndroidX stable line; catalog value 1.8.0 | [appcompat release notes](https://developer.android.com/jetpack/androidx/releases/appcompat): Earlier-context (1.8.0 entry, Aug 12, 2026 update) |
-| AndroidX activity | direct | 1.11.0 → 1.13.0 | updated | Stable 1.13.0 released 2026-03-11; no AGP/Gradle/compileSdk requirement stated on the 1.13.0 section | [activity release notes](https://developer.android.com/jetpack/androidx/releases/activity): Opened (truncated page; release-date and requirement lines used) |
-| AndroidX fragment | direct | 1.8.9 → 1.9.1 | updated | 1.9.1 released 2026-09-23 | [fragment release notes](https://developer.android.com/jetpack/androidx/releases/fragment): Earlier-context (truncated page; summary-table fact used) |
-| AndroidX lifecycle | direct | 2.9.3 → 2.11.0 | updated | No Compose is used by the app, so no Compose-driven requirement applies. 2.11.0 released 2026-06-17; Compose support needs AGP 9.2.0 (not applicable). 2.10.0 lint note: bundled lint checks with AGP 9.5.0-alpha04+ | [lifecycle release notes](https://developer.android.com/jetpack/androidx/releases/lifecycle): Earlier-context (truncated page; summary-table facts used) |
-| AndroidX core-ktx | direct | 1.17.0 → 1.18.0 | updated | 1.18.0 changed compileSdk to API 36.1. The earlier claim "1.19 needs AGP 9.1+ and compileSdk 37" is **removed**: the 1.19.0 section states no AGP, Gradle or compileSdk requirement. Latest stable 1.19.1 (2026-09-23) is not adopted | [core release notes](https://developer.android.com/jetpack/androidx/releases/core): Opened (truncated page; summary-table facts used) |
-| AndroidX annotation | direct | 1.9.1 → 1.11.0 | updated | Version from the catalog | [annotation release notes](https://developer.android.com/jetpack/androidx/releases/annotation): Earlier-context. Release-date line: Unverified. |
-| AndroidX webkit | direct | 1.14.0 → 1.18.0 | updated | 1.18.0 dated 2026-10-21 | [webkit release notes](https://developer.android.com/jetpack/androidx/releases/webkit): Earlier-context (truncated page; summary-table fact used) |
-| AndroidX startup | direct | 1.1.1 → 1.2.0 | updated | 1.2.0 dated 2024-09-18 | [startup release notes](https://developer.android.com/jetpack/androidx/releases/startup): Earlier-context |
-| AndroidX WorkManager | direct | 2.10.5 → 2.12.0 | updated | minSdk raised from API 23 to API 24, equal to the app's minSdk (24) | [WorkManager release notes](https://developer.android.com/jetpack/androidx/releases/work): Opened (truncated page; 2.12.0 date 2026-09-23 and minSdk 24 used) |
-| AndroidX test core / ext junit / espresso | direct (test) | core 1.5.0 → 1.7.0; ext junit → 1.3.0; espresso 3.7.0 | updated | Test-only | [test release notes](https://developer.android.com/jetpack/androidx/releases/test): Earlier-context |
-| AndroidX leanback | direct (tv) | 1.0.0 → 1.2.0 | updated | Leanback is officially deprecated for TV; a Compose-based TV UI is the supported direction. Not a blocker for this release | [leanback release notes](https://developer.android.com/jetpack/androidx/releases/leanback): Earlier-context. Deprecation statement: Earlier-context. |
-| AndroidX security-crypto | direct (engine) | 1.0.0 → 1.1.0 | updated | 1.1.0 dated 2025-07-30; the APIs are deprecated in favour of platform APIs. Not adopted as a change of direction in this release | [security-crypto release notes](https://developer.android.com/jetpack/androidx/releases/security): Earlier-context |
-| AndroidX viewpager2 | direct (engine) | 1.0.0 → 1.1.0 | updated | 1.1.0 dated 2024-05-14 | [viewpager2 release notes](https://developer.android.com/jetpack/androidx/releases/viewpager2): Earlier-context (also confirmed in the resolved graph, see Build section) |
-| AndroidX recyclerview / cardview / preference / constraintlayout | direct / engine | recyclerview → 1.4.0; cardview 1.0.0 (2018); preference 1.2.1 (2023-07-26); constraintlayout 2.2.2 (2026-07-29, maintenance mode) | updated / deferred | Recyclerview and preference: updated or unchanged per catalog. Constraintlayout is in maintenance mode and not replaced here | [recyclerview](https://developer.android.com/jetpack/androidx/releases/recyclerview), [cardview](https://developer.android.com/jetpack/androidx/releases/cardview), [preference](https://developer.android.com/jetpack/androidx/releases/preference), [constraintlayout](https://developer.android.com/jetpack/androidx/releases/constraintlayout): Earlier-context |
-| Material Components | direct | 1.13.0 → 1.14.0 | updated | Catalog 1.14.0 | [material-components-android tags](https://github.com/material-components/material-components-android/tags): Earlier-context (tag page; year not shown). Maven metadata path `com/google/android/material/material/maven-metadata.xml`: **Opened, HTTP 404 in this round**, so the 1.14.0 release date is **unverified**. |
-| Retrofit | direct | 2.9.0 → 2.11.0 | updated within 2.x | Maven metadata (Opened): 2.9.0 and 2.11.0 exist; highest 2.x listed is **2.12.0**, not adopted. 3.0.0 is the Maven latest; major migration not adopted | [repo1 maven-metadata for retrofit](https://repo1.maven.org/maven2/com/squareup/retrofit2/retrofit/maven-metadata.xml): Opened |
-| OkHttp | direct (and transitive) | 4.10.0 → 4.12.0 | updated within 4.x | CVE-2021-0341 / GHSA-3cqm-mf7h-prrj affects versions below 4.9.2; 4.12.0 is above it. Maven metadata (Opened): **4.12.1 is the highest 4.x** and is not adopted. OkHttp 5 (Maven latest 5.5.1) not adopted | [GHSA-3cqm-mf7h-prrj](https://github.com/advisories/GHSA-3cqm-mf7h-prrj): Earlier-context (CVE-2021-0341, fixed in 4.9.2). [repo1 maven-metadata for okhttp](https://repo1.maven.org/maven2/com/squareup/okhttp3/okhttp/maven-metadata.xml): Opened. [OkHttp parent-4.12.0 tag](https://github.com/square/okhttp/releases/tag/parent-4.12.0): Earlier-context (tag exists, date 17 Oct, year not shown). |
-| Okio (transitive via OkHttp) | transitive | not declared → resolved version 3.6.0 | closed for this revision | CVE-2023-3635 / GHSA-w33c-445m-f8w7 affects Okio below 3.4.0 and below 1.17.6. The resolved version 3.6.0 (via OkHttp 4.12.0) is above the fixed 3.4.0 (`dependencyInsight`, 2026-11-16). Maven latest for okio-jvm is 3.18.2 (not the resolved version) | [GHSA-w33c-445m-f8w7](https://github.com/advisories/GHSA-w33c-445m-f8w7): Earlier-context. okio-jvm maven-metadata: Earlier-context. |
-| Glide | direct (tv) | 4.11.0 → 4.16.0 | updated within 4.x | Maven metadata (Opened): 4.11.0 and 4.16.0 exist; 4.16.0 is the highest 4.x. Maven latest is 5.0.9, not adopted. The 4.11.0 release date is **unverified** | [repo1 maven-metadata for glide](https://repo1.maven.org/maven2/com/github/bumptech/glide/glide/maven-metadata.xml): Opened |
-| kotlinx-coroutines | direct (test) | 1.8.1 → 1.10.2 | updated | Maven metadata (Opened): 1.8.1 and 1.10.2 exist; the highest stable is **1.11.0**, not adopted. The catalog value feeds test code; runtime resolves 1.9.0 through AndroidX | [repo1 maven-metadata for kotlinx-coroutines-core](https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/maven-metadata.xml): Opened |
-| CommonMark | direct | 0.22.0 → 0.32.0 | updated | Catalog value; minSdk 24 | Release date and API changes: **Unverified** in this revision |
-| android-gif-drawable | direct | 1.2.29 → 1.2.32 | updated | Native JNI memory-safety fixes per the upstream release notes; no CVE attached | GitHub releases page: Earlier-context (1.2.32 dated 18 Jun, year not shown). JNI-fix claim: **Unverified** in this revision. |
-| Mockito | direct (test) | 4.8.1 → 5.24.0 | updated | Test-only | [Mockito releases](https://github.com/mockito/mockito/releases): Earlier-context (5.24.0 dated 23 Sep 2026). The 4.8.1 date: **Unverified**. |
-| Robolectric | direct (test) | 4.10.2 → 4.10.2 | deferred | Maven metadata lists 4.10.2, 4.16.1 and 4.18 (latest); 4.10.2 release date **unverified**. The engine suite passes `testOpenVPN3Restriction` under upstream's 4.16.1 but not under 4.10.2 (see engine section) | [repo1 maven-metadata for robolectric](https://repo1.maven.org/maven2/org/robolectric/robolectric/maven-metadata.xml): Earlier-context. Engine test results: Recorded. |
-| Koin | direct | 3.5.6 → 3.5.6 | deferred | Koin 4 exists (latest stable 4.2.2 dated 15 Jun; 4.3.0-Beta1 newest); migration not required in this release. 3.5.6 release date **unverified** | [Koin releases](https://github.com/InsertKoinIO/koin/releases): Earlier-context. Maven metadata (3.5.6 present): Earlier-context. |
-| BouncyCastle (`bcprov`/`bcpkix` jdk15on) | direct (declared, unused) | 1.69 → 1.70 | updated | No module consumes these artifacts in the app modules; no runtime exposure. Maven metadata latest for `bcprov-jdk15on` is 1.70 (Earlier-context). **CVE status unverified**: the BouncyCastle release-notes page returned no usable data | [bouncycastle release notes](https://www.bouncycastle.org/releasenotes.html): Earlier-context, truncated, no version data obtained. CVE status: **Unverified**. |
-| desugar_jdk_libs | direct (runtime, new) | new → 2.1.5 | updated (new) | Enables `java.time` on API 24–25 (see Notes below). Latest 2.1.5 per Google Maven metadata; the developer.android.com table lists 2.0.3 and does not show 2.1.5 | [Google Maven metadata for desugar_jdk_libs](https://dl.google.com/dl/android/maven2/com/android/tools/desugar_jdk_libs/maven-metadata.xml): Earlier-context. [desugaring page](https://developer.android.com/studio/write/java8-support): Earlier-context. |
-| JUnit 4 | direct (test) | 4.13.2 → 4.13.2 | deferred | Latest 4.x per JUnit releases | [JUnit releases](https://github.com/junit-team/junit4/releases): Earlier-context |
-| Timber | direct | 5.0.1 → 5.0.1 | deferred | Latest per the Timber repository | [Timber releases](https://github.com/JakeWharton/timber/releases): Earlier-context |
-| MPAndroidChart | direct (engine) | v3.1.0 → v3.1.0 | deferred | Latest listed v4.0.1; v3.1.0 unchanged. Major migration not in scope | [MPAndroidChart releases](https://github.com/PhilJay/MPAndroidChart/releases): Earlier-context |
-| org.json | direct (engine test) | 20260814 → 20260814 | deferred | Unchanged; required by upstream engine tests through `libs.json`. Maven latest 20260814 | [org.json maven-metadata](https://repo1.maven.org/maven2/org/json/json/maven-metadata.xml): Earlier-context |
-| GitHub Action `actions/checkout` | CI | pinned v4 → v4 | deferred | Latest listed v7.0.1 | [checkout releases](https://github.com/actions/checkout/releases): Earlier-context. Pins: `ci-pr.yml`, `build-by-pull-request.yml` (repository files). |
-| GitHub Action `actions/setup-java` | CI | pinned v4 → v4 | deferred | Latest listed v6.3.0. JDK 17 Temurin | [setup-java releases](https://github.com/actions/setup-java/releases): Earlier-context. Pin: `build-by-pull-request.yml` (repository file). |
-| GitHub Action `gradle/actions/setup-gradle` | CI | pinned v3 (PR and release workflows), v4 (`ci-integration.yml`) → same | deferred | Latest listed v6.4.1. v4 was tried in the PR build and reverted (see CI section) | [setup-gradle releases](https://github.com/gradle/actions/releases): Earlier-context. Pins: repository workflow files. |
-| GitHub Action `android-actions/setup-android` | CI | pinned v3 → v3 | deferred | Latest listed v4.0.4 | [setup-android releases](https://github.com/android-actions/setup-android/releases): Earlier-context. Pin: `build-by-pull-request.yml` (repository file). |
-| GitHub Action `actions/github-script` | CI | pinned v7 → v7 | deferred | Latest listed v9.0.0 | [github-script releases](https://github.com/actions/github-script/releases): Earlier-context. Pins: `ci-pr.yml`, `build-by-pull-request.yml`. |
-| GitHub Action `actions/upload-artifact` | CI | pinned v4 → v4 | deferred | Latest listed v7.0.2 | [upload-artifact releases](https://github.com/actions/upload-artifact/releases): Earlier-context. Pin: `build-by-pull-request.yml`. |
-| GitHub Action `ncipollo/release-action` | CI (release) | pinned v1 → v1 | deferred | Latest listed v1.21.0; the floating `v1` tag is frozen per the repository's own pin | [release-action releases](https://github.com/ncipollo/release-action/releases): Earlier-context. Pin: release workflow files (repository files). |
-| OSV (release-wide) | — | — | recorded | Recorded run returned no advisory for the 134 resolved coordinates. Point-in-time lookup for the earlier revision; not a licence review and not re-run for this revision. See [Dependency resolution and vulnerability reports](#dependency-resolution-and-vulnerability-reports) | Recorded |
+| Android Gradle Plugin | direct (build) | 8.13.2 → 8.13.2 | blocked | AGP 9 requires the engine and Gradle migration; the trial failed in the engine build script (see notes below) | Verified 2026-11-16: [AGP 9.5.0 notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes) (titled October 2026; max API 37, Gradle 9.6.0, JDK 17); [AGP 8.13 notes](https://developer.android.com/build/releases/agp-8-13-0-release-notes) (max API 36.1, Gradle 8.13, JDK 17); [AGP 9.1 notes](https://developer.android.com/build/releases/agp-9-1-0-release-notes) (Gradle 9.3.1, KGP 2.2.10, JDK 17). The catalog pin `agp = "8.13.2"` is a repository file. The older `/build/releases/gradle-plugin` URL now redirects to the 9.5 notes |
+| Gradle wrapper | build tool | 8.13 → 8.13 | blocked | Follows AGP 8.13; a wrapper bump is coupled to the AGP decision. AGP 9.5 needs Gradle 9.6.0 | Verified 2026-11-16: [Gradle 8.13 release notes](https://docs.gradle.org/8.13/release-notes.html) (page exists); [Gradle versions service](https://services.gradle.org/versions/all): 8.13 build time 2025-02-25, 8.14.7 (2026-11-11), 9.6.0 (2026-06-18), 9.9.1 (2026-11-10, flagged current); [current release notes](https://docs.gradle.org/current/release-notes.html) titled Gradle 9.9.1. Pin: `src/gradle/wrapper/gradle-wrapper.properties` (`gradle-8.13-bin.zip`, repository file) |
+| JDK / CI toolchain | build tool | JDK 17 (Temurin) → JDK 17 | deferred | Matches AGP 8.13, 9.1 and 9.5 requirements (JDK 17). App modules `kotlinOptions { jvmTarget = "11" }` (`core`, `mobile`, `tv`); engine `jvmTarget = "17"` | Verified 2026-11-16: AGP pages above (JDK 17); [setup-java v6.3.0](https://github.com/actions/setup-java/releases/tag/v6.3.0) (2026-11-14, latest). Repository files: Temurin 17 in the release workflows, `build-by-pull-request.yml` and `ci-integration.yml`; module build files for `jvmTarget` |
+| Kotlin | direct (build) | 2.0.21 → 2.0.21 | deferred | `kotlinOptions {}` is deprecated since Kotlin 2.0.0 and Kotlin 2.2.0 raises its deprecation level to error; the engine and the three app modules still use `kotlinOptions`, so a Kotlin 2.2+ move needs a `compilerOptions {}` migration first. Latest stable listed is 2.4.21 | Verified 2026-11-16: [Kotlin releases](https://kotlinlang.org/docs/releases.html) (2.0.21 released October 10, 2024; 2.4.21 listed); [Kotlin 2.4.21 on GitHub](https://github.com/JetBrains/kotlin/releases/tag/v2.4.21) (2026-10-08); [Gradle compiler options](https://kotlinlang.org/docs/gradle-compiler-options.html) (deprecated from 2.0.0); [What's new in Kotlin 2.2](https://kotlinlang.org/docs/whatsnew22.html) (deprecation level raised to error). [M2/org/jetbrains/kotlin/kotlin-stdlib](https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/maven-metadata.xml) lists 2.5.0-RC as newest (pre-release, not "latest stable") |
+| AndroidX appcompat | direct | 1.7.1 → 1.8.0 | updated | Catalog `appcompat = "1.8.0"`; stable on the release page | Verified 2026-11-16: [AX/appcompat](https://developer.android.com/jetpack/androidx/releases/appcompat): stable 1.8.0, section dated August 12, 2026; 1.7.1 dated June 4, 2025 |
+| AndroidX activity | direct | 1.11.0 → 1.13.0 | updated | 1.13.0 is dated March 11, 2026; its section states no AGP, Gradle or compileSdk requirement. The compileSdk 37.1 note on the page belongs to 1.14.0 alpha Compose libraries (not adopted). Page also notes lifecycle 2.10.0 is needed for bundled lifecycle lint checks with AGP 9.5.0-alpha04 or later (not applicable on AGP 8.13) | Verified 2026-11-16: [AX/activity](https://developer.android.com/jetpack/androidx/releases/activity) |
+| AndroidX fragment | direct | 1.8.9 → 1.9.1 | updated | 1.9.1 dated September 23, 2026; the library is in maintenance mode (critical fixes only) per the page | Verified 2026-11-16: [AX/fragment](https://developer.android.com/jetpack/androidx/releases/fragment) |
+| AndroidX lifecycle | direct | 2.9.3 → 2.11.0 | updated | No Compose is used by the app, so Compose requirements do not apply (the page: Compose compileSdk 37 needs AGP 9.2.0). 2.11.0 dated June 17, 2026. Default minSdk moved from API 21 to 23 in 2.10; app minSdk is 24 | Verified 2026-11-16: [AX/lifecycle](https://developer.android.com/jetpack/androidx/releases/lifecycle) |
+| AndroidX core-ktx | direct | 1.17.0 → 1.18.0 | updated | 1.18.0 (March 11, 2026) changed compileSdk from API 36 to 36.1. The 1.19.0 section (June 3, 2026) states no AGP, Gradle or compileSdk requirement; the earlier claim that "1.19 needs AGP 9.1+ and compileSdk 37" is removed. Latest stable 1.19.1 (September 23, 2026) is not adopted | Verified 2026-11-16: [AX/core](https://developer.android.com/jetpack/androidx/releases/core) |
+| AndroidX annotation | direct | 1.9.1 → 1.11.0 | updated | Catalog `1.11.0`; stable, dated September 23, 2026 | Verified 2026-11-16: [AX/annotation](https://developer.android.com/jetpack/androidx/releases/annotation) |
+| AndroidX webkit | direct | 1.14.0 → 1.18.0 | updated | 1.18.0 dated October 21, 2026; the page records the library minSdk raised to API 24, equal to the app minSdk | Verified 2026-11-16: [AX/webkit](https://developer.android.com/jetpack/androidx/releases/webkit) |
+| AndroidX startup | direct | 1.1.1 → 1.2.0 | updated | 1.2.0 dated September 18, 2024 | Verified 2026-11-16: [AX/startup](https://developer.android.com/jetpack/androidx/releases/startup) |
+| AndroidX WorkManager | direct | 2.10.5 → 2.12.0 | updated | 2.12.0 dated September 23, 2026; minSdk raised from API 23 to API 24, equal to the app minSdk (24) | Verified 2026-11-16: [AX/work](https://developer.android.com/jetpack/androidx/releases/work) |
+| AndroidX test core / ext junit / espresso | direct (test) | core 1.5.0 → 1.7.0; ext junit → 1.3.0; espresso 3.7.0 | updated | Test-only. The release table lists stable core 1.7.0, espresso 3.7.0 and ext.junit 1.3.0 | Verified 2026-11-16: [AX/test](https://developer.android.com/jetpack/androidx/releases/test) |
+| AndroidX leanback | direct (tv) | 1.0.0 → 1.2.0 | updated | The page states the artifact and its classes are deprecated ("Use Compose for TV instead"); 1.2.0 stable (April 23, 2025). Not a blocker for this release | Verified 2026-11-16: [AX/leanback](https://developer.android.com/jetpack/androidx/releases/leanback) |
+| AndroidX security-crypto | direct (engine) | 1.0.0 → 1.1.0 | updated | 1.1.0 dated July 30, 2025; 1.1.0-beta01 notes "Deprecated all APIs in favour of existing platform APIs and direct use of Android Keystore". Not adopted as a change of direction in this release | Verified 2026-11-16: [AX/security](https://developer.android.com/jetpack/androidx/releases/security) |
+| AndroidX viewpager2 | direct (engine) | 1.0.0 → 1.1.0 | updated | 1.1.0 dated May 14, 2024 (also confirmed in the resolved graph, see Build section) | Verified 2026-11-16: [AX/viewpager2](https://developer.android.com/jetpack/androidx/releases/viewpager2) |
+| AndroidX recyclerview | direct | → 1.4.0 | updated | 1.4.0 dated January 15, 2025; page marks the library as maintenance mode | Verified 2026-11-16: [AX/recyclerview](https://developer.android.com/jetpack/androidx/releases/recyclerview) |
+| AndroidX cardview | direct | 1.0.0 → 1.0.0 | deferred | 1.0.0 dated September 21, 2018 (latest stable on the page); maintenance mode | Verified 2026-11-16: [AX/cardview](https://developer.android.com/jetpack/androidx/releases/cardview) |
+| AndroidX preference | direct | 1.2.1 → 1.2.1 | deferred | 1.2.1 dated July 26, 2023; maintenance mode | Verified 2026-11-16: [AX/preference](https://developer.android.com/jetpack/androidx/releases/preference) |
+| AndroidX constraintlayout | direct / engine | 2.2.2 → 2.2.2 | deferred | 2.2.2 dated July 29, 2026; page marks the library as maintenance mode. Not replaced here | Verified 2026-11-16: [AX/constraintlayout](https://developer.android.com/jetpack/androidx/releases/constraintlayout) |
+| Material Components | direct | 1.13.0 → 1.14.0 | updated | 1.14.0 released 2026-05-13 (1.13.0: 2025-09-03). Google Maven lists 1.14.0 as latest and release. Earlier note that the `repo1` path returned 404 is explained: the artifact is published on Google Maven | Verified 2026-11-16: [release 1.14.0](https://github.com/material-components/material-components-android/releases/tag/1.14.0); [Google Maven metadata](https://dl.google.com/dl/android/maven2/com/google/android/material/material/maven-metadata.xml) |
+| Retrofit | direct | 2.9.0 → 2.11.0 | updated within 2.x | 2.11.0 released 2024-03-28. Maven lists 2.9.0, 2.11.0 and 2.12.0 (highest 2.x, not adopted); 3.0.0 (2025-05-15) is the Maven and GitHub latest, a major migration not adopted | Verified 2026-11-16: [Retrofit 2.11.0](https://github.com/lysine-dev/retrofit/releases/tag/2.11.0); [Retrofit 3.0.0](https://github.com/lysine-dev/retrofit/releases/tag/3.0.0); [M2/com/squareup/retrofit2/retrofit](https://repo1.maven.org/maven2/com/squareup/retrofit2/retrofit/maven-metadata.xml) |
+| OkHttp | direct (and transitive) | 4.10.0 → 4.12.0 | updated within 4.x | GHSA-3cqm-mf7h-prrj (CVE-2021-0341, "Square OkHttp can accept the wrong certificate") lists `< 4.9.2` as affected and 4.9.2 as patched; 4.12.0 (2023-10-17) is above it. 4.12.1 (2026-10-22) is the highest 4.x and is not adopted. OkHttp 5 (Maven latest 5.5.1) not adopted | Verified 2026-11-16: [GHSA-3cqm-mf7h-prrj](https://github.com/advisories/GHSA-3cqm-mf7h-prrj); [parent-4.12.0](https://github.com/lysine-dev/okhttp/releases/tag/parent-4.12.0); [parent-4.12.1](https://github.com/lysine-dev/okhttp/releases/tag/parent-4.12.1); [M2/com/squareup/okhttp3/okhttp](https://repo1.maven.org/maven2/com/squareup/okhttp3/okhttp/maven-metadata.xml) |
+| Okio (transitive via OkHttp) | transitive | not declared → resolved version 3.6.0 | closed for this revision | GHSA-w33c-445m-f8w7 (CVE-2023-3635): `okio-jvm` affected `>= 2.0.0-RC1, < 3.4.0`, patched 3.4.0 (`okio` also `< 1.17.6`, patched 1.17.6). The resolved 3.6.0 (via OkHttp 4.12.0, `dependencyInsight`, 2026-11-16) is above 3.4.0. Maven lists 3.6.0; latest okio-jvm is 3.18.2 (not the resolved version) | Verified 2026-11-16: [GHSA-w33c-445m-f8w7](https://github.com/advisories/GHSA-w33c-445m-f8w7); [M2/com/squareup/okio/okio-jvm](https://repo1.maven.org/maven2/com/squareup/okio/okio-jvm/maven-metadata.xml). Resolution: Recorded in this document (run 2026-11-16) |
+| Glide | direct (tv) | 4.11.0 → 4.16.0 | updated within 4.x | 4.11.0 released 2020-01-08, 4.16.0 released 2023-08-21; 4.16.0 is the highest 4.x on Maven. Latest is Glide 5.0.9 (2026-07-11), not adopted | Verified 2026-11-16: [Glide 4.11.0](https://github.com/bumptech/glide/releases/tag/v4.11.0); [Glide 4.16.0](https://github.com/bumptech/glide/releases/tag/v4.16.0); [Glide 5.0.9](https://github.com/bumptech/glide/releases/tag/v5.0.9); [M2/com/github/bumptech/glide/glide](https://repo1.maven.org/maven2/com/github/bumptech/glide/glide/maven-metadata.xml) |
+| kotlinx-coroutines | direct (test) | 1.8.1 → 1.10.2 | updated | 1.10.2 released 2025-04-08; latest 1.11.0 (2026-05-08) is not adopted. The catalog value feeds test code; runtime resolves 1.9.0 through AndroidX (Recorded resolution). Maven lists 1.8.1, 1.9.0, 1.10.2 and 1.11.0 | Verified 2026-11-16: [1.10.2](https://github.com/Kotlin/kotlinx.coroutines/releases/tag/1.10.2); [1.11.0](https://github.com/Kotlin/kotlinx.coroutines/releases/tag/1.11.0); [M2/org/jetbrains/kotlinx/kotlinx-coroutines-core](https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/maven-metadata.xml) |
+| CommonMark | direct | 0.22.0 → 0.32.0 | updated | 0.22.0 released 2024-03-15; 0.32.0 released 2026-11-01 (latest on GitHub and Maven). The 0.32.0 notes say: "Fix Android incompatibility with minSdk < 30: The minSdk required is now 24" (app minSdk is 24). Other API changes between 0.22 and 0.32 were not reviewed here | Verified 2026-11-16: [commonmark-java 0.32.0](https://github.com/commonmark/commonmark-java/releases/tag/commonmark-parent-0.32.0); [0.22.0](https://github.com/commonmark/commonmark-java/releases/tag/commonmark-parent-0.22.0); [M2/org/commonmark/commonmark](https://repo1.maven.org/maven2/org/commonmark/commonmark/maven-metadata.xml) |
+| android-gif-drawable | direct | 1.2.29 → 1.2.32 | updated | 1.2.29 released 2024-07-31; 1.2.32 released 2026-06-18. The 1.2.32 notes list "Fix JNI memory-safety bugs" and a use-after-free fix after `ReleaseStringUTFChars` | Verified 2026-11-16: [v1.2.32](https://github.com/koral--/android-gif-drawable/releases/tag/v1.2.32); [v1.2.29](https://github.com/koral--/android-gif-drawable/releases/tag/v1.2.29); [M2/pl/droidsonroids/gif/android-gif-drawable](https://repo1.maven.org/maven2/pl/droidsonroids/gif/android-gif-drawable/maven-metadata.xml) |
+| Mockito | direct (test) | 4.8.1 → 5.24.0 | updated | Test-only. 4.8.1 released 2022-10-17; 5.24.0 released 2026-09-23 (latest on GitHub and Maven) | Verified 2026-11-16: [v5.24.0](https://github.com/mockito/mockito/releases/tag/v5.24.0); [v4.8.1](https://github.com/mockito/mockito/releases/tag/v4.8.1); [M2/org/mockito/mockito-core](https://repo1.maven.org/maven2/org/mockito/mockito-core/maven-metadata.xml) |
+| Robolectric | direct (test) | 4.10.2 → 4.10.2 | deferred | 4.10.2 released 2023-05-05; 4.16.1 released 2026-01-21; 4.18 (2026-11-13) is the latest. The engine suite passes `testOpenVPN3Restriction` under upstream's 4.16.1 but not under 4.10.2 (Recorded, see engine section) | Verified 2026-11-16: [robolectric-4.10.2](https://github.com/robolectric/robolectric/releases/tag/robolectric-4.10.2); [robolectric-4.16.1](https://github.com/robolectric/robolectric/releases/tag/robolectric-4.16.1); [robolectric-4.18](https://github.com/robolectric/robolectric/releases/tag/robolectric-4.18); [M2/org/robolectric/robolectric](https://repo1.maven.org/maven2/org/robolectric/robolectric/maven-metadata.xml) |
+| Koin | direct | 3.5.6 → 3.5.6 | deferred | 3.5.6 released 2024-04-12. Latest stable release is Koin 4.2.2 (2026-06-15); Maven lists 4.3.0-Beta1 as newest (pre-release). Migration to 4 not required in this release | Verified 2026-11-16: [Koin 3.5.6](https://github.com/InsertKoinIO/koin/releases/tag/3.5.6); [Koin 4.2.2](https://github.com/InsertKoinIO/koin/releases/tag/4.2.2); [M2/io/insert-koin/koin-core](https://repo1.maven.org/maven2/io/insert-koin/koin-core/maven-metadata.xml) |
+| BouncyCastle (`bcprov`/`bcpkix` jdk15on) | direct (declared, unused) | 1.69 → 1.70 | updated | No module consumes these artifacts in the app modules, and the resolved runtime graph does not contain BouncyCastle (see the resolution section). Maven lists 1.69 and 1.70 for both artifacts and 1.70 is the newest `jdk15on` version | Verified 2026-11-16: [M2/org/bouncycastle/bcprov-jdk15on](https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk15on/maven-metadata.xml); [M2/org/bouncycastle/bcpkix-jdk15on](https://repo1.maven.org/maven2/org/bouncycastle/bcpkix-jdk15on/maven-metadata.xml). CVE status: **No official source reachable** (`bouncycastle.org/releasenotes.html` redirects to the download list, which names releases 1.69 and 1.70 but carries no advisory data); not established |
+| desugar_jdk_libs | direct (runtime, new) | new → 2.1.5 | updated (new) | Enables `java.time` on API 24–25 (see Notes below). Google Maven lists 2.1.5 as latest and release; the developer.android.com setup snippet shows 2.0.3 and does not mention 2.1.5. The GitHub releases page does not list 2.1.5 (not used as evidence) | Verified 2026-11-16: [Google Maven metadata](https://dl.google.com/dl/android/maven2/com/android/tools/desugar_jdk_libs/maven-metadata.xml); [desugaring page](https://developer.android.com/studio/write/java8-support) (library-desugaring snippet, `java.time` in the supported subset); [API table](https://developer.android.com/studio/write/java8-support-table) (`java.time` classes). No release date: **No official source reachable** (GitHub releases page has no 2.1.5 entry) |
+| JUnit 4 | direct (test) | 4.13.2 → 4.13.2 | deferred | 4.13.2 released 2021-02-13 and is the latest 4.x on GitHub and Maven | Verified 2026-11-16: [JUnit 4.13.2](https://github.com/junit-team/junit4/releases/tag/r4.13.2); [M2/junit/junit](https://repo1.maven.org/maven2/junit/junit/maven-metadata.xml) |
+| Timber | direct | 5.0.1 → 5.0.1 | deferred | 5.0.1 released 2021-08-13 and is the latest on GitHub and Maven | Verified 2026-11-16: [Timber 5.0.1](https://github.com/JakeWharton/timber/releases/tag/5.0.1); [M2/com/jakewharton/timber/timber](https://repo1.maven.org/maven2/com/jakewharton/timber/timber/maven-metadata.xml) |
+| MPAndroidChart | direct (engine) | v3.1.0 → v3.1.0 | deferred | v3.1.0 released 2019-03-20; v4.0.1 (2026-09-28) is the latest on GitHub. Major migration not in scope. Consumed through JitPack (not covered by the Maven checks) | Verified 2026-11-16: [v3.1.0](https://github.com/PhilJay/MPAndroidChart/releases/tag/v3.1.0); [v4.0.1](https://github.com/PhilJay/MPAndroidChart/releases/tag/v4.0.1) |
+| org.json | direct (engine test) | 20260814 → 20260814 | deferred | Unchanged; required by upstream engine tests through `libs.json`. Maven lists 20260814 as latest | Verified 2026-11-16: [M2/org/json/json](https://repo1.maven.org/maven2/org/json/json/maven-metadata.xml) |
+| GitHub Action `actions/checkout` | CI | pinned v4 → v4 | deferred | Latest release v7.0.1 (2026-07-20); v4.0.0 released 2023-10-17. Pins (repository files): `ci-pr.yml`, `build-by-pull-request.yml`, `ci-integration.yml` and the three release workflows | Verified 2026-11-16: [v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1); [v4.0.0](https://github.com/actions/checkout/releases/tag/v4.0.0); [latest redirect](https://github.com/actions/checkout/releases/latest) |
+| GitHub Action `actions/setup-java` | CI | pinned v4 → v4 | deferred | Latest v6.3.0 (2026-11-14); v4.0.0 released 2023-11-29. JDK 17 Temurin. Pins: `build-by-pull-request.yml`, `ci-integration.yml`, the three release workflows | Verified 2026-11-16: [v6.3.0](https://github.com/actions/setup-java/releases/tag/v6.3.0); [v4.0.0](https://github.com/actions/setup-java/releases/tag/v4.0.0) |
+| GitHub Action `gradle/actions/setup-gradle` | CI | pinned v3 (PR and release workflows), v4 (`ci-integration.yml`) → same | deferred | Latest v6.4.1 (2026-10-28); v3.0.0 released 2024-01-31, v4.0.0 released 2024-08-07. v4 was tried in the PR build and reverted (see CI section) | Verified 2026-11-16: [v6.4.1](https://github.com/gradle/actions/releases/tag/v6.4.1); [v3.0.0](https://github.com/gradle/actions/releases/tag/v3.0.0); [v4.0.0](https://github.com/gradle/actions/releases/tag/v4.0.0) |
+| GitHub Action `android-actions/setup-android` | CI | pinned v3 → v3 | deferred | Latest v4.0.4 (2026-09-17); v3.0.0 released 2023-09-25. Pins: `build-by-pull-request.yml`, `ci-integration.yml` | Verified 2026-11-16: [v4.0.4](https://github.com/android-actions/setup-android/releases/tag/v4.0.4); [v3.0.0](https://github.com/android-actions/setup-android/releases/tag/v3.0.0) |
+| GitHub Action `actions/github-script` | CI | pinned v7 → v7 | deferred | Latest v9.0.0 (2026-04-09); v7.0.0 released 2023-11-13. Pins: `ci-pr.yml`, `build-by-pull-request.yml` and the three release workflows | Verified 2026-11-16: [v9.0.0](https://github.com/actions/github-script/releases/tag/v9.0.0); [v7.0.0](https://github.com/actions/github-script/releases/tag/v7.0.0) |
+| GitHub Action `actions/upload-artifact` | CI | pinned v4 → v4 | deferred | Latest v7.0.2 (2026-10-07); v4.0.0 released 2023-12-14. Pin: `build-by-pull-request.yml` | Verified 2026-11-16: [v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2); [v4.0.0](https://github.com/actions/upload-artifact/releases/tag/v4.0.0) |
+| GitHub Action `ncipollo/release-action` | CI (release) | pinned v1 → v1 | deferred | Latest v1.21.0 (2026-03-14). The workflows pin the floating major tag `v1`; the tag listing was not used to claim the tag is frozen. Pin: the three release workflows | Verified 2026-11-16: [v1.21.0](https://github.com/ncipollo/release-action/releases/tag/v1.21.0) |
+| OSV (release-wide) | — | — | recorded | Recorded run returned no advisory for the resolved coordinates (counts in the resolution section). Point-in-time lookup; not a licence review and not re-run for the dependency catalog edits in this document. See [Dependency resolution and vulnerability reports](#dependency-resolution-and-vulnerability-reports) | Recorded |
+
+Rows without a "No official source reachable" statement are fully **Verified
+2026-11-16** for the claim stated. The only unreachable items are the BouncyCastle
+CVE status and the desugar_jdk_libs release date; both are stated as not
+established. Every other claim in the table was confirmed from a page fetched in this review.
 
 ### Notes on the table
 
@@ -166,7 +183,7 @@ results are listed as "Opened" in the Source column.
   configured after `resValues = true` was set per module (for `app_name`). The
   engine build script failed on `defaultConfig.targetSdk` (not present on library
   modules in that AGP) and on `kotlinOptions`. Note that Kotlin 2.1.21 is below
-  the Kotlin plugin minimum recorded for AGP 9.1.1 (2.2.10); the trial therefore
+  the Kotlin plugin minimum for AGP 9.1 (2.2.10, verified in the table above); the trial therefore
   **needs a re-run** on a supported Kotlin version before any conclusion about AGP 9
   is drawn. AGP 10 removes the `newDsl` opt-out (recorded).
 - **Desugaring:** `core`, `mobile` and `tv` use `java.time` (`AppFileLogStore`,
@@ -320,9 +337,9 @@ CI and release run **only on GitHub Actions** in this repository. The workflows 
 |---|---|---|
 | `ci-pr.yml` | `pull_request` to `dev` and `main` (types `opened`, `synchronize`, `reopened`, `ready_for_review`); `workflow_dispatch` | Classifies the PR diff with the trusted base's `scripts/ci/classify_pr_changes.py`, calls `build-by-pull-request.yml` once when heavy CI is needed, and publishes the **CI Gate** status on the exact PR head. Documentation-only diffs skip the Gradle job |
 | `build-by-pull-request.yml` | `workflow_call` from `ci-pr.yml`; `workflow_dispatch` | Runs Python CI contract tests, installs SWIG, JDK 17, SDK packages (platform 36, build-tools 36.0.0, CMake 3.22.1, NDK 29.0.14206865), unit tests for the app, mobile and TV debug APKs, and an unsigned release sanity build. Uploads debug APKs and comments the links on the PR. Signing: **none** |
-| `release-by-dev.yml` | Repository release workflow for the `dev` branch (see the workflow file for its exact trigger) | Decodes the signing keystore from `SIGNING_KEY_BASE64` and writes `keystore.properties` from the `KEY_ALIAS`, `KEY_PASSWORD` and `STORE_PASSWORD` secrets, then builds and stages signed APK and AAB outputs per launcher |
-| `release-by-main.yml` | Repository release workflow for the `main` branch (see the workflow file for its exact trigger) | Same signing path as `release-by-dev.yml` |
-| `release-by-tag.yml` | Repository release workflow for tags (see the workflow file for its exact trigger) | Same signing path as the other two release workflows |
+| `release-by-dev.yml` ("Beta Release From Dev") | `push` to `dev` limited to paths `src/**`, `media`, `media/**`; `workflow_dispatch` | Beta: signed APK and AAB per launcher, published as a GitHub **prerelease** and to the versions API. See [Release workflows in detail](#release-workflows-in-detail) |
+| `release-by-main.yml` ("Release from Main") | `push` to `main` (no path filter); `workflow_dispatch` | Stable: signed APK and AAB per launcher, published as a normal GitHub release and to the versions API |
+| `release-by-tag.yml` ("Release from Tag") | `push` of tags matching `v*`, skipped when the tag name contains `-auto` | Stable: same build, signing and publication path as `release-by-main.yml`, with the version taken from the tag |
 | `ci-integration.yml` | `workflow_dispatch` only | Trusted fallback; see the Integration fallback section |
 
 Signing is therefore **not** limited to tag builds. All three release workflows decode
@@ -343,10 +360,44 @@ pipeline file in this repository.
 | JDK 17 (Temurin) | yes, with Gradle cache | yes |
 | SWIG | `apt-get install swig` (unpinned) | same |
 | SDK build-tools 36.0.0, CMake 3.22.1, NDK 29.0.14206865 | installed explicitly with `sdkmanager` | **not installed explicitly**; relies on runner image and AGP auto-download |
-| Gradle setup | `setup-gradle@v3` with `cache-read-only: true` | `setup-gradle@v3` (cache-read-only not set in these files) |
-| Signing | **none** (unsigned release sanity build only) | keystore decoded from `SIGNING_KEY_BASE64` in each workflow; `keystore.properties` written from secrets |
-| Version metadata | commit SHA | tag/build-number derived |
-| Artifacts | debug APKs, unsigned release sanity build | staged APK and AAB per launcher |
+| Gradle setup | `setup-gradle@v3` with `gradle-version: wrapper` and `cache-read-only: true`; `setup-java` also uses `cache: 'gradle'` | `setup-gradle@v3` with `gradle-version: wrapper` and `cache-read-only: false` set explicitly in all three files; `setup-java` has no `cache:` input |
+| Checkout credentials | `persist-credentials: false` on the checkout; checkout token is `GH_PAT` | checkout uses the `GH_PAT` token with the default credential persistence (`persist-credentials` is not set in the release workflows) |
+| Signing | **none** (no keystore step; unsigned release sanity build only) | `Decode Keystore` step in each workflow: `SIGNING_KEY_BASE64` is decoded to `src/keystore.jks` and `src/keystore.properties` is written from `KEY_ALIAS`, `KEY_PASSWORD`, `STORE_PASSWORD`; the `release` signing config in `mobile` and `tv` reads that file |
+| Version metadata | no release version is derived; the PR head's short commit SHA names the debug artifacts | derived per workflow (see the next section); `versionName` and `versionCode` are passed to Gradle as `-PappVersionName`, `-PappVersionCodeMobile`, `-PappVersionCodeTv` |
+| Artifacts | debug APKs (`upload-artifact`), unsigned release sanity build | staged APK and AAB per launcher, renamed to `OpenVPNGateClient_<launcher>_<version>_build<N>.{apk,aab}` and attached to a GitHub release |
+
+### Release workflows in detail
+
+Read from `.github/workflows/release-by-dev.yml`, `release-by-main.yml` and
+`release-by-tag.yml`. The three share one `concurrency` group (`release-build-number`,
+no cancel-in-progress), so release builds run one at a time.
+
+| | `release-by-dev.yml` (beta) | `release-by-main.yml` (stable) | `release-by-tag.yml` (stable) |
+|---|---|---|---|
+| Trigger | `push` to `dev` with paths `src/**`, `media`, `media/**`; `workflow_dispatch` | `push` to `main`; `workflow_dispatch` | `push` of tag `v*`; the job is skipped when `github.ref_name` contains `-auto` |
+| Gate job | `detect-changes`: manual run always proceeds; a push proceeds only when the pushed range changed `src/` or the `media` submodule path | same logic | none |
+| `appReleaseType` | `beta` (`ORG_GRADLE_PROJECT_appReleaseType`) | `release` | `release` |
+| `versionName` | Latest non-beta `v1.1.*` tag, patch + 1 (starts at `1.1.0` if none); app version `<version>-beta.<n>` where `n` is the highest existing `v<version>-beta.*` tag + 1 (or 1) | Same base version rule, no beta suffix | The pushed tag with the `-auto(N)` or `(N)` suffix stripped and the leading `v` removed |
+| `versionCode` | `BUILD_NUMBER` = highest existing `*-auto(N)` tag number + 1, used for both mobile and TV | same | same |
+| Git tag created | `v<version>-beta.<n>-auto(<BUILD_NUMBER>)` at the workflow SHA (existing tag tolerated) | `v<version>-auto(<BUILD_NUMBER>)` | build marker `tagbuild-v<version>-auto(<BUILD_NUMBER>)`; the release itself is on the pushed tag |
+| GitHub release | `ncipollo/release-action@v1`, `prerelease: true`, name "Beta Release <tag>" | `prerelease: false`, name "Release <tag>" | `prerelease: false`, name "Release <tag>" |
+| Release assets | `OpenVPNGateClient_{mobile,tv}_<app_version>_build<N>.{apk,aab}` (4 files) | `OpenVPNGateClient_{mobile,tv}_<version>_build<N>.{apk,aab}` (4 files) | same as main |
+| Versions API | `POST {VERSIONS_API_BASE_URL}/api/v1/versions` with `X-API-Key: VERSIONS_API_KEY`; `releaseType` 1; asset URLs point at the GitHub release; size and SHA-256 per asset; HTTP 409 is treated as "already exists" (warning) | same call with `releaseType` 0 | same call with `releaseType` 0 |
+| Release-notes translation | after a newly created version, an `auto-translate` call per language in `RELEASE_NOTES_AUTO_TRANSLATE_LANGUAGES_JSON` (`en`, `ru`, `pl`; source locale `en`) | same | same |
+| Signing | `Decode Keystore` (`SIGNING_KEY_BASE64`, `KEY_ALIAS`, `KEY_PASSWORD`, `STORE_PASSWORD`), then `./gradlew --no-daemon --stacktrace stageReleaseArtifacts` in `src/` | `Decode Keystore`, then `./gradlew stageReleaseArtifacts` in `src/` | same as main |
+| Gradle cache | `setup-gradle@v3`, `cache-read-only: false` | same | same |
+| Secrets and variables used | `GH_PAT`, `SIGNING_KEY_BASE64`, `KEY_ALIAS`, `KEY_PASSWORD`, `STORE_PASSWORD`, `VERSIONS_API_KEY`; vars `PRIMARY_SERVERS_URL`, `FALLBACK_SERVERS_URL`, `VERSIONS_API_BASE_URL` | same | same |
+| Azure | none | none | none |
+
+Contract tests for the signing and cache statements above:
+`python3 -m unittest discover -s scripts/ci/tests -p 'test_release_workflow_contracts.py'`
+(`scripts/ci/tests/test_release_workflow_contracts.py`). They assert that each release
+workflow has a `Decode Keystore` step using `SIGNING_KEY_BASE64` that runs before
+`stageReleaseArtifacts` in `src/`, that `mobile` and `tv` sign `release` from
+`keystore.properties`, that `ci-pr.yml` and `build-by-pull-request.yml` never decode a
+keystore or reference signing secrets, and that `cache-read-only` is set explicitly
+(`false` in the release workflows, `true` in the PR build). The tests read the files
+as text; they do not execute a release.
 
 `ci-integration.yml` uses `setup-gradle@v4` with `validate-wrappers: true` before
 the engine submodule is initialized, so the application wrapper is validated
@@ -393,14 +444,19 @@ Diff-proven status for this release:
 - `abiFilters`, `jniLibs.useLegacyPackaging` (preserved per module).
 - App filter and settings files.
 
-**Changed or unverified (must be exercised on device; see the exact-code record for what was run):**
+**Changed (exercised on device; see the exact-code record and the R8 section for what was run):**
 - VPN service and controller foreground service path (`OpenVpnService.kt` changed).
 - Updates UI and version metadata.
 - OkHttp, Retrofit and Glide runtime behavior (version bumps, transitive OkHttp 3 → 4).
 - Engine `LocaleHelper` removal and `ProfileManager` recovery change.
-- R8 mapping and keep rules: **not re-inspected** for this revision; a release
-  build succeeded in the recorded run, but its mapping output was not compared.
-- Resolved Okio version: 3.6.0 (see A-AC1).
+- R8 and minified release behavior: the minified, resource-shrunk release builds
+  were exercised on device (phone 28 of 30 checks passed, TV 20 passed with 2 blocked,
+  none failed; see [R8 and minified release device validation](#r8-and-minified-release-device-validation)).
+  Not done: `mapping.txt` deobfuscation and a comparison of the mapping output or keep
+  rules against the pre-upgrade build. The ART "Unable to resolve ... CountryV2/ServerV2
+  annotation class" warning on the minified build is informational only.
+- Resolved Okio version: 3.6.0 (see A-AC1); dependency resolution and the OSV lookup
+  are in [Dependency resolution and vulnerability reports](#dependency-resolution-and-vulnerability-reports).
 
 Pass criteria for any upgraded build (from the engine update guide and the
 smoke matrix below): no `FATAL EXCEPTION`, no ANR, `CONNECTED` reached with
@@ -520,11 +576,14 @@ build; only documentation differs):
 - The repository has no Gradle vulnerability plugin.
 - OSV `querybatch` on 136 artifact/version pairs from the release runtime classpaths
   returned 0 vulnerability records. A control query (gson 2.8.8, okio 1.17.5)
-  returned GHSA records, so the query path works.
+  returned GHSA records, so the query path works. The 136 pairs here and the 134
+  coordinates counted in the Build section come from different runs and were not
+  reconciled.
 - Not covered: compile, test and annotation-processor classpaths, build plugins,
   native engine libraries, and the JitPack MPAndroidChart v3.1.0 artifact.
 - BouncyCastle advisories are not applicable to the resolved runtime graph (the
-  library is absent); see A-AC1 for the earlier unverified row.
+  library is absent). The BouncyCastle CVE status itself could not be established from
+  an official page (see the A-AC1 row).
 
 ## R8 and minified release device validation
 
@@ -646,4 +705,4 @@ Validated on a clean checkout of the release code (2026-11-16):
 - Android TV regression (MIBOX4, Android 9): 24 scenarios passed, plus English/Polish localization and a same-signature update over the installed app (data preserved) and rejection of a differently signed package. Tapping INSTALL on a real offered release was not exercised because it would replace the build under test.
 - TV observation: a display configuration change landing about 0.7-1.5 s after the system installer launches can end in "Package parse error" (FileProvider `SecurityException`). It reproduced only in that window and is attributed to the Android 9 system installer losing the URI grant on recreation, not to the app; the cached APK stays intact and a retry works. Hardening via an explicit `grantUriPermission` or the PackageInstaller session API is optional follow-up.
 - Coverage relative to the earlier TV run: the first MIBOX4 run did not execute the notification tap and stop, DNS and auto-switch cases (see [Smoke run record](#android-tv--xiaomi-mi-box-4-run-on-211cad4)). The follow-up on the exact-code build covered DNS (passed), notification pause/stop (intent level) and recorded the notification tap and auto-switch as BLOCKED; see the follow-up paragraph in that section.
-- Dependency reports and R8 device validation for this revision are tracked in [Dependency resolution and vulnerability reports](#dependency-resolution-and-vulnerability-reports) and [R8 and minified release device validation](#r8-and-minified-release-device-validation). Both are open.
+- Dependency reports and R8 device validation for this revision are **completed** and recorded in [Dependency resolution and vulnerability reports](#dependency-resolution-and-vulnerability-reports) and [R8 and minified release device validation](#r8-and-minified-release-device-validation): all runtime classpaths resolved cleanly, OSV returned 0 records for the resolved runtime pairs, the phone R8 run passed 28 of 30 (1 BLOCKED, 1 N/A) and the TV run passed 20 of 22 (2 BLOCKED, 0 failed). Remaining limitations: `mapping.txt` deobfuscation was not done, and the notification tap and auto-switch on TV are BLOCKED.
