@@ -32,6 +32,14 @@ jobs:
           submodules: recursive
           token: ${{ secrets.GH_PAT }}
 
+      - name: Validate production endpoint configuration
+        shell: bash
+        run: bash .github/ci/validate-production-endpoints.sh --mode strict --require-versions-api
+        env:
+          PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+          FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+          VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}
+
       - name: Install swig
         run: |
           sudo apt-get update
@@ -114,6 +122,10 @@ jobs:
             mv "$AAB_TV" "../output/OpenVPNGateClient_tv_${V}_build${BUILD_NUMBER}.aab"
           fi
         working-directory: ./src
+
+      - name: Verify release artifacts embed the canonical API origin
+        shell: bash
+        run: bash .github/ci/verify-artifact-endpoints.sh "${{ vars.PRIMARY_SERVERS_URL }}" output/*.apk output/*.aab
 
       - name: Create Build Marker Tag
         uses: actions/github-script@v7

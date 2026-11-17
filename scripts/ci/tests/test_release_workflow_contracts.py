@@ -80,6 +80,62 @@ class ReleaseSigningContractTests(unittest.TestCase):
         self.assertIn("workflow_call:", read(PULL_REQUEST_WORKFLOWS[1]))
 
 
+class CanonicalEndpointContractTests(unittest.TestCase):
+    def test_release_workflows_validate_endpoints_before_building(self):
+        for path in RELEASE_WORKFLOWS:
+            with self.subTest(workflow=path):
+                text = read(path)
+                self.assertEqual(text.count("- name: Validate production endpoint configuration"), 1)
+                validate = step(text, "Validate production endpoint configuration")
+                self.assertIn("validate-production-endpoints.sh --mode strict --require-versions-api", validate)
+                for name in ("PRIMARY_SERVERS_URL", "FALLBACK_SERVERS_URL", "VERSIONS_API_BASE_URL"):
+                    self.assertIn(f"{name}: ${{{{ vars.{name} }}}}", validate)
+                self.assertNotIn("secrets.", validate)
+                self.assertLess(text.index("- name: Validate production endpoint configuration"),
+                                text.index("- name: Stage Artifacts"))
+
+    def test_release_workflows_verify_artifacts_before_tagging_and_publishing(self):
+        for path in RELEASE_WORKFLOWS:
+            with self.subTest(workflow=path):
+                text = read(path)
+                name = "- name: Verify release artifacts embed the canonical API origin"
+                self.assertEqual(text.count(name), 1)
+                verify = step(text, "Verify release artifacts embed the canonical API origin")
+                self.assertIn("verify-artifact-endpoints.sh", verify)
+                self.assertIn("vars.PRIMARY_SERVERS_URL", verify)
+                self.assertIn("output/*.apk output/*.aab", verify)
+                self.assertGreater(text.index(name), text.index("- name: Stage Artifacts"))
+                for later in ("- name: Push unified version release", "- name: Publish"):
+                    if later in text:
+                        self.assertLess(text.index(name), text.index(later))
+
+    def test_release_workflows_use_the_same_endpoint_variables(self):
+        for path in RELEASE_WORKFLOWS:
+            with self.subTest(workflow=path):
+                text = read(path)
+                self.assertIn("ORG_GRADLE_PROJECT_PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}", text)
+                self.assertIn("ORG_GRADLE_PROJECT_FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}", text)
+                self.assertIn("VERSIONS_API_BASE_URL: ${{ vars.VERSIONS_API_BASE_URL }}", text)
+                self.assertIn("VERSIONS_API_KEY: ${{ secrets.VERSIONS_API_KEY }}", text)
+
+    def test_pull_request_build_only_warns_about_endpoint_configuration(self):
+        build = read(PULL_REQUEST_WORKFLOWS[1])
+        check = step(build, "Check endpoint scripts and configuration")
+        self.assertIn("validate-production-endpoints.sh --mode warn", check)
+        self.assertNotIn("--mode strict", check)
+
+    def test_endpoint_scripts_hardcode_only_the_retired_and_canonical_hosts(self):
+        for path in (".github/ci/validate-production-endpoints.sh",
+                     ".github/ci/verify-artifact-endpoints.sh"):
+            with self.subTest(script=path):
+                self.assertIn("openvpngateclient.azurewebsites.net", read(path))
+
+    def test_gradle_rejects_retired_host_for_release_builds(self):
+        text = read("src/core/build.gradle.kts")
+        self.assertIn("openvpngateclient.azurewebsites.net", text)
+        self.assertIn("isRetiredPublicHost", text)
+
+
 class GradleCacheContractTests(unittest.TestCase):
     def test_release_workflows_set_cache_read_only_false_explicitly(self):
         for path in RELEASE_WORKFLOWS:

@@ -1,2 +1,4 @@
 docs/guides/memory-profiling-scripts/*.sh text eol=lf
 docs/guides/memory-profiling-scripts/tests/*.sh text eol=lf
+.github/ci/*.sh text eol=lf
+.github/ci/tests/*.sh text eol=lf

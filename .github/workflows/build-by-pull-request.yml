@@ -44,6 +44,15 @@ jobs:
         shell: bash
         run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py' -v
 
+      - name: Check endpoint scripts and configuration
+        shell: bash
+        run: |
+          bash .github/ci/tests/ci-endpoint-scripts.test.sh
+          bash .github/ci/validate-production-endpoints.sh --mode warn
+        env:
+          PRIMARY_SERVERS_URL: ${{ vars.PRIMARY_SERVERS_URL }}
+          FALLBACK_SERVERS_URL: ${{ vars.FALLBACK_SERVERS_URL }}
+
       - name: Install swig
         run: |
           sudo apt-get update

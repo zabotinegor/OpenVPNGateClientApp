@@ -43,6 +43,30 @@ version metadata and must also use the canonical production domain. Changes to G
 are operational settings changes, not source-code changes. Keep `FALLBACK_SERVERS_URL` pointing
 to the independent VPN Gate CSV service.
 
+### Canonical-origin safeguards
+
+The backend runs on Azure with a RackNerd standby, and DNS failover happens behind the canonical
+domain, so the client never needs to know which site is active. The retired public hostname
+`openvpngateclient.azurewebsites.net` is rejected where it would reach users:
+
+- **Gradle:** `src/core/build.gradle.kts` fails any build whose requested tasks include a release
+  variant when `PRIMARY_SERVERS_URL` resolves to the retired host. Debug and test builds are not
+  restricted, so local and QA endpoints keep working.
+- **Release workflows** (`release-by-dev`, `release-by-main`, `release-by-tag`): the step
+  `Validate production endpoint configuration` runs `.github/ci/validate-production-endpoints.sh`
+  in strict mode before any build. It requires `PRIMARY_SERVERS_URL` and `VERSIONS_API_BASE_URL` to
+  be HTTPS, credential-free, path-free and on the canonical host, requires both to share one
+  origin, and requires `FALLBACK_SERVERS_URL` to stay off the canonical and retired hosts.
+- **Artifact check:** the step `Verify release artifacts embed the canonical API origin` runs
+  `.github/ci/verify-artifact-endpoints.sh` over the staged APKs and AABs, before tagging or
+  publishing, and fails when the origin is missing or the retired host is present.
+- **Pull request builds** run the same validation in `warn` mode and run the script regression
+  tests (`.github/ci/tests/ci-endpoint-scripts.test.sh`). `scripts/ci/tests/test_release_workflow_contracts.py`
+  keeps the workflow wiring from drifting.
+
+The scripts only read public, non-secret URLs. `VERSIONS_API_KEY` and signing secrets are never
+passed to them.
+
 Both must be **HTTPS**, and a host of `placeholder` is rejected. The resolved values are emitted as
 `BuildConfig` fields; routes are derived from the primary base at runtime by `PrimaryDomainRoutes`,
 not written out individually. See [api-endpoints.md](api-endpoints.md).
