@@ -6,11 +6,11 @@ user-facing introduction to the app itself, see the [root README](../README.md).
 Open-source Android VPN client for connecting to VPN Gate and compatible server lists.
 The app is built on top of the `ics-openvpn` engine (GPLv2) and ships as two launchers (`mobile`, `tv`) over one shared `core` module.
 
-- Homepage: https://openvpngateclient.azurewebsites.net
+- Homepage: https://openvpngateclient.com
 - GitHub (app): https://github.com/zabotinegor/OpenVPNGateClientApp
 - GitHub (engine submodule): https://github.com/zabotinegor/OpenVPNGateClientEngine
-- Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy
-- Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
+- Privacy Policy: https://openvpngateclient.com/privacy-policy
+- Terms of Use: https://openvpngateclient.com/terms-of-use
 - License: [GPL-2.0-only](../LICENSE)
 
 ## Index
@@ -60,7 +60,7 @@ git submodule update --init --recursive
 
 ## Required Build Configuration
 The `core` module requires the following endpoints at build time:
-- `PRIMARY_SERVERS_URL` — primary backend base URL only, for example `https://openvpngateclient.azurewebsites.net`
+- `PRIMARY_SERVERS_URL` — primary backend base URL only, for example `https://openvpngateclient.com`
 - `FALLBACK_SERVERS_URL` — full VPN Gate CSV fallback URL, for example `https://www.vpngate.net/api/iphone/`
 
 Runtime routes are derived in code from `PRIMARY_SERVERS_URL`:
@@ -111,7 +111,7 @@ the root copy is ignored — see [reference/build-config.md](reference/build-con
 
 ```json
 {
-  "PRIMARY_SERVERS_URL": "https://openvpngateclient.azurewebsites.net",
+  "PRIMARY_SERVERS_URL": "https://openvpngateclient.com",
   "FALLBACK_SERVERS_URL": "https://www.vpngate.net/api/iphone/"
 }
 ```
