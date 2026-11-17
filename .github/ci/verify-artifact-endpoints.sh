@@ -5,6 +5,7 @@
 # Each artifact is an APK or AAB. The dex files inside are scanned for the expected origin string
 # and for the retired public hostnames.
 set -uo pipefail
+export LC_ALL=C
 
 if [[ $# -lt 2 ]]; then
   echo "::error::usage: verify-artifact-endpoints.sh <expected-origin> <artifact>..."

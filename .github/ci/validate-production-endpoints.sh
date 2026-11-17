@@ -8,6 +8,7 @@
 #   strict (default): any violation fails the step.
 #   warn:             violations are reported as warnings (pull request builds).
 set -uo pipefail
+export LC_ALL=C
 
 MODE="strict"
 REQUIRE_VERSIONS=0
@@ -54,6 +55,13 @@ https_host() {
   authority="${authority%.}"
   [[ -n "$authority" ]] || return 1
   printf '%s' "$authority" | tr 'A-Z' 'a-z'
+}
+
+# Prints scheme + lowercase host, ignoring one optional trailing slash (inputs already passed the
+# bare-origin check; an invalid value normalizes to itself so it still compares unequal).
+normalize_origin() {
+  local value="${1%/}"
+  printf '%s' "$value" | tr 'A-Z' 'a-z'
 }
 
 is_retired() {
@@ -106,7 +114,7 @@ check_backend_url "PRIMARY_SERVERS_URL" "${PRIMARY_SERVERS_URL:-}"
 if [[ -n "${VERSIONS_API_BASE_URL:-}" || "$REQUIRE_VERSIONS" == "1" ]]; then
   check_backend_url "VERSIONS_API_BASE_URL" "${VERSIONS_API_BASE_URL:-}"
   if [[ -n "${PRIMARY_SERVERS_URL:-}" && -n "${VERSIONS_API_BASE_URL:-}" ]]; then
-    if [[ "${PRIMARY_SERVERS_URL%/}" != "${VERSIONS_API_BASE_URL%/}" ]]; then
+    if [[ "$(normalize_origin "$PRIMARY_SERVERS_URL")" != "$(normalize_origin "$VERSIONS_API_BASE_URL")" ]]; then
       report "PRIMARY_SERVERS_URL and VERSIONS_API_BASE_URL must use the same origin."
     fi
   fi

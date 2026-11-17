@@ -59,7 +59,12 @@ domain, so the client never needs to know which site is active. The retired publ
   origin, and requires `FALLBACK_SERVERS_URL` to stay off the canonical and retired hosts.
 - **Artifact check:** the step `Verify release artifacts embed the canonical API origin` runs
   `.github/ci/verify-artifact-endpoints.sh` over the staged APKs and AABs, before tagging or
-  publishing, and fails when the origin is missing or the retired host is present.
+  publishing, and fails when the origin is missing or the retired host is present. The dex scan
+  alone cannot tell the API field from other occurrences of the same URL (for example
+  `AboutMeta.WEBSITE`), so the same step also runs `.github/ci/inspect-buildconfig-origin.py`, which
+  requires the generated release `core/BuildConfig.java` (under
+  `src/core/build/generated/source/buildConfig/release`) to declare `PRIMARY_SERVERS_URL` exactly
+  once with the expected origin. It fails closed when the file is missing or ambiguous.
 - **Pull request builds** run the same validation in `warn` mode and run the script regression
   tests (`.github/ci/tests/ci-endpoint-scripts.test.sh`). `scripts/ci/tests/test_release_workflow_contracts.py`
   keeps the workflow wiring from drifting.

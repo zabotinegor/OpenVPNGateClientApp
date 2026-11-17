@@ -103,9 +103,12 @@ class CanonicalEndpointContractTests(unittest.TestCase):
                 verify = step(text, "Verify release artifacts embed the canonical API origin")
                 self.assertIn("verify-artifact-endpoints.sh", verify)
                 self.assertIn("EXPECTED_ORIGIN: ${{ vars.PRIMARY_SERVERS_URL }}", verify)
-                run_line = next(l for l in verify.splitlines() if l.strip().startswith("run:"))
-                self.assertIn('verify-artifact-endpoints.sh "$EXPECTED_ORIGIN"', run_line)
-                self.assertNotIn("${{", run_line)
+                run_lines = verify.split("run:", 1)[1]
+                self.assertIn('verify-artifact-endpoints.sh "$EXPECTED_ORIGIN"', run_lines)
+                self.assertIn('inspect-buildconfig-origin.py "$EXPECTED_ORIGIN" '
+                              'src/core/build/generated/source/buildConfig/release', run_lines)
+                self.assertNotIn("${{", run_lines)
+                self.assertNotIn("working-directory", verify)
                 self.assertIn("output/*.apk output/*.aab", verify)
                 self.assertGreater(text.index(name), text.index("- name: Stage Artifacts"))
                 for later in ("- name: Push unified version release", "- name: Publish"):

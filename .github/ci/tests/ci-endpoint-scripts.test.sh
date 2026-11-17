@@ -38,6 +38,11 @@ expect "credentials in primary fail" 1 run_validate PRIMARY_SERVERS_URL=https://
 expect "path in primary fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON/api FALLBACK_SERVERS_URL=$CSV
 expect "uppercase host passes" 0 run_validate PRIMARY_SERVERS_URL=https://OpenVPNGateClient.com FALLBACK_SERVERS_URL=$CSV
 expect "trailing slash passes" 0 run_validate PRIMARY_SERVERS_URL=$CANON/ FALLBACK_SERVERS_URL=$CSV
+VALIDATE_ARGS="--require-versions-api"
+expect "mixed-case equivalent origins pass" 0 run_validate PRIMARY_SERVERS_URL=https://OpenVPNGateClient.com VERSIONS_API_BASE_URL=$CANON FALLBACK_SERVERS_URL=$CSV
+expect "trailing-slash equivalent origins pass" 0 run_validate PRIMARY_SERVERS_URL=$CANON/ VERSIONS_API_BASE_URL=$CANON FALLBACK_SERVERS_URL=$CSV
+expect "different host origins fail" 1 run_validate PRIMARY_SERVERS_URL=$CANON VERSIONS_API_BASE_URL=https://www.openvpngateclient.com FALLBACK_SERVERS_URL=$CSV
+VALIDATE_ARGS=""
 
 expect "empty port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON: FALLBACK_SERVERS_URL=$CSV
 expect "non-numeric port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON:abc FALLBACK_SERVERS_URL=$CSV
@@ -88,6 +93,23 @@ if command -v zip >/dev/null 2>&1 || [[ -n "$PY" ]]; then
   expect "expected origin with substitution is rejected" 2 bash "$VERIFY" "$CANON"':$(id)' "$tmp/good.apk"
 else
   echo "SKIP artifact tests: zip not available"
+fi
+
+# BuildConfig origin helper (full cases live in test_inspect_buildconfig_origin.py).
+if [[ -n "$PY" ]]; then
+  bc="$(mktemp -d)"
+  mkdir -p "$bc/release/a/core"
+  printf 'public final class BuildConfig {
+  public static final String PRIMARY_SERVERS_URL = "%s";
+}
+' "$CANON" > "$bc/release/a/core/BuildConfig.java"
+  expect "buildconfig match passes" 0 "$PY" -I "$DIR/inspect-buildconfig-origin.py" "$CANON" "$bc"
+  expect "buildconfig mismatch fails" 1 "$PY" -I "$DIR/inspect-buildconfig-origin.py" "https://example.com" "$bc"
+  expect "buildconfig missing fails" 1 "$PY" -I "$DIR/inspect-buildconfig-origin.py" "$CANON" "$bc/none"
+  rm -rf "$bc"
+  expect "buildconfig python tests pass" 0 "$PY" -I -m unittest discover -s "$DIR/tests" -p "test_inspect_buildconfig_origin.py"
+else
+  echo "SKIP buildconfig tests: python not available"
 fi
 
 echo "passed=$pass failed=$fail"

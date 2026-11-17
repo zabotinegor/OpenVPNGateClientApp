@@ -127,7 +127,9 @@ jobs:
         shell: bash
         env:
           EXPECTED_ORIGIN: ${{ vars.PRIMARY_SERVERS_URL }}
-        run: bash .github/ci/verify-artifact-endpoints.sh "$EXPECTED_ORIGIN" output/*.apk output/*.aab
+        run: |
+          bash .github/ci/verify-artifact-endpoints.sh "$EXPECTED_ORIGIN" output/*.apk output/*.aab
+          python3 -I .github/ci/inspect-buildconfig-origin.py "$EXPECTED_ORIGIN" src/core/build/generated/source/buildConfig/release
 
       - name: Create Build Marker Tag
         uses: actions/github-script@v7
