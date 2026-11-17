@@ -52,14 +52,14 @@
 
 - [GitHub Releases](https://github.com/zabotinegor/OpenVPNGateClientApp/releases) — скачать
   последний APK напрямую.
-- [Сайт проекта](https://openvpngateclient.azurewebsites.net) — те же релизы, но с дополнительным
+- [Сайт проекта](https://openvpngateclient.com) — те же релизы, но с дополнительным
   контекстом.
 
 ## Ссылки
 
-- Главная страница: https://openvpngateclient.azurewebsites.net
-- Политика конфиденциальности: https://openvpngateclient.azurewebsites.net/privacy-policy
-- Условия использования: https://openvpngateclient.azurewebsites.net/terms-of-use
+- Главная страница: https://openvpngateclient.com
+- Политика конфиденциальности: https://openvpngateclient.com/privacy-policy
+- Условия использования: https://openvpngateclient.com/terms-of-use
 - Лицензия: [GPL-2.0-only](LICENSE)
 - GitHub (это приложение): https://github.com/zabotinegor/OpenVPNGateClientApp
 - GitHub (VPN-движок): https://github.com/zabotinegor/OpenVPNGateClientEngine

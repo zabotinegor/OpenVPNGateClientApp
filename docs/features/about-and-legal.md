@@ -18,11 +18,12 @@ Layout rows are in `res/layout/content_about.xml`.
 
 ## Legal documents
 
-Privacy policy and terms are **two hardcoded website URLs** in `AboutMeta`, opened in a browser:
+The website is defined once as `AboutMeta.WEBSITE`. The Privacy Policy and Terms of Use links
+are derived from that constant and opened in a browser:
 
 ```
-https://openvpngateclient.azurewebsites.net/privacy-policy
-https://openvpngateclient.azurewebsites.net/terms-of-use
+https://openvpngateclient.com/privacy-policy
+https://openvpngateclient.com/terms-of-use
 ```
 
 > **The app does not call `/api/v1/legal/*`.** The backend exposes those endpoints and serves the same
@@ -32,7 +33,7 @@ https://openvpngateclient.azurewebsites.net/terms-of-use
 The repository also carries `PRIVACY_POLICY.md` and `TERMS.md` at its root. Those are the source the
 **backend** fetches from GitHub to serve its own legal endpoints — they are not read by the app.
 
-This is the one place where hardcoded production URLs are intentional. The
+This is the one place where a hardcoded public website origin is intentional. The
 "never hardcode production endpoints" rule in
 [../conventions/kotlin-android-standards.md](../conventions/kotlin-android-standards.md) is about API
 endpoints the client negotiates with; these are user-facing destinations.

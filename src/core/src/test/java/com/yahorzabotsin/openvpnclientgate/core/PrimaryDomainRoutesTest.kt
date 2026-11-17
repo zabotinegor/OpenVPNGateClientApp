@@ -28,6 +28,27 @@ class PrimaryDomainRoutesTest {
     }
 
     @Test
+    fun `canonical production origin derives every route on the canonical host`() {
+        val baseUrl = "https://openvpngateclient.com"
+        val routes = listOf(
+            PrimaryDomainRoutes.legacyServersUrl(baseUrl),
+            PrimaryDomainRoutes.v2CountriesUrl(baseUrl),
+            PrimaryDomainRoutes.v2ServersUrl(baseUrl),
+            PrimaryDomainRoutes.retrofitBaseUrl(baseUrl),
+            PrimaryDomainRoutes.sseServersEventsUrl(baseUrl)
+        )
+
+        routes.forEach { route ->
+            assertEquals("openvpngateclient.com", java.net.URI(route!!).host)
+            assertEquals("https", java.net.URI(route).scheme)
+        }
+        assertEquals(
+            "https://openvpngateclient.com/api/v1/servers/events",
+            PrimaryDomainRoutes.sseServersEventsUrl(baseUrl)
+        )
+    }
+
+    @Test
     fun `sseServersEventsUrl returns correct SSE endpoint for base url`() {
         val baseUrl = "https://api.example.com"
 
