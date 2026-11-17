@@ -35,6 +35,10 @@ class InspectBuildConfigOriginTests(unittest.TestCase):
         r = self.run_helper({PKG + "/BuildConfig.java": java(CANON)}, CANON + "/")
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_compiled_trailing_slash_is_normalized(self):
+        r = self.run_helper({PKG + "/BuildConfig.java": java(CANON + "/")})
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_mismatch_fails_and_prints_found_value(self):
         r = self.run_helper({PKG + "/BuildConfig.java": java("https://example.com")})
         self.assertEqual(r.returncode, 1)

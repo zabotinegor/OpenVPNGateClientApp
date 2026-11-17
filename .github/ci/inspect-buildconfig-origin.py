@@ -45,7 +45,7 @@ def main(argv):
 
     found = values[0]
     print("Compiled BuildConfig.PRIMARY_SERVERS_URL = %s" % found)
-    if found != expected:
+    if found.rstrip("/") != expected:
         print("::error::Compiled PRIMARY_SERVERS_URL '%s' does not equal the expected origin '%s'." % (found, expected))
         return 1
     print("Compiled BuildConfig.PRIMARY_SERVERS_URL matches the expected origin.")
