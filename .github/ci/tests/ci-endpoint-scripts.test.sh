@@ -39,6 +39,25 @@ expect "path in primary fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON/api FAL
 expect "uppercase host passes" 0 run_validate PRIMARY_SERVERS_URL=https://OpenVPNGateClient.com FALLBACK_SERVERS_URL=$CSV
 expect "trailing slash passes" 0 run_validate PRIMARY_SERVERS_URL=$CANON/ FALLBACK_SERVERS_URL=$CSV
 
+expect "empty port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON: FALLBACK_SERVERS_URL=$CSV
+expect "non-numeric port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON:abc FALLBACK_SERVERS_URL=$CSV
+expect "explicit port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON:8443 FALLBACK_SERVERS_URL=$CSV
+expect "default port fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON:443 FALLBACK_SERVERS_URL=$CSV
+expect "command substitution port fails" 1 run_validate 'PRIMARY_SERVERS_URL='$CANON':$(id)' FALLBACK_SERVERS_URL=$CSV
+expect "backtick fails" 1 run_validate 'PRIMARY_SERVERS_URL='$CANON'`id`' FALLBACK_SERVERS_URL=$CSV
+expect "trailing whitespace fails" 1 run_validate "PRIMARY_SERVERS_URL=$CANON " FALLBACK_SERVERS_URL=$CSV
+expect "embedded whitespace fails" 1 run_validate "PRIMARY_SERVERS_URL=$CANON x" FALLBACK_SERVERS_URL=$CSV
+expect "double quote fails" 1 run_validate "PRIMARY_SERVERS_URL=$CANON\"" FALLBACK_SERVERS_URL=$CSV
+expect "single quote fails" 1 run_validate "PRIMARY_SERVERS_URL=$CANON'" FALLBACK_SERVERS_URL=$CSV
+expect "semicolon fails" 1 run_validate "PRIMARY_SERVERS_URL=$CANON;id" FALLBACK_SERVERS_URL=$CSV
+expect "subdomain primary fails" 1 run_validate PRIMARY_SERVERS_URL=https://api.openvpngateclient.com FALLBACK_SERVERS_URL=$CSV
+expect "canonical subdomain fallback fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON FALLBACK_SERVERS_URL=https://api.openvpngateclient.com/x
+expect "canonical trailing-dot fallback fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON FALLBACK_SERVERS_URL=https://openvpngateclient.com./x
+expect "retired trailing-dot fallback fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON FALLBACK_SERVERS_URL=https://openvpngateclient.azurewebsites.net./x
+expect "http fallback fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON FALLBACK_SERVERS_URL=http://www.vpngate.net/api/iphone/
+expect "unsafe fallback fails" 1 run_validate PRIMARY_SERVERS_URL=$CANON 'FALLBACK_SERVERS_URL=https://www.vpngate.net/$(id)'
+expect "mode without value is a usage error" 2 timeout 5 env -i PATH="$PATH" bash "$VALIDATE" --mode
+
 VALIDATE_ARGS="--mode warn"
 expect "warn mode never fails" 0 run_validate PRIMARY_SERVERS_URL=$AZURE FALLBACK_SERVERS_URL=$CSV
 
@@ -65,6 +84,8 @@ if command -v zip >/dev/null 2>&1 || [[ -n "$PY" ]]; then
   expect "artifact with both fails" 1 bash "$VERIFY" "$CANON" "$tmp/both.apk"
   expect "artifact without origin fails" 1 bash "$VERIFY" "$CANON" "$tmp/none.apk"
   expect "missing artifact fails" 1 bash "$VERIFY" "$CANON" "$tmp/absent.apk"
+  expect "expected origin with port is rejected" 2 bash "$VERIFY" "$CANON:8443" "$tmp/good.apk"
+  expect "expected origin with substitution is rejected" 2 bash "$VERIFY" "$CANON"':$(id)' "$tmp/good.apk"
 else
   echo "SKIP artifact tests: zip not available"
 fi

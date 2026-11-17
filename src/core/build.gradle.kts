@@ -47,12 +47,18 @@ fun isPlaceholderServerUrl(value: String?): Boolean {
 val retiredPublicHosts = setOf("openvpngateclient.azurewebsites.net")
 
 fun isRetiredPublicHost(value: String?): Boolean {
-    val host = runCatching { URI(value?.trim().orEmpty()).host?.lowercase() }.getOrNull()
+    val host = runCatching { URI(value?.trim().orEmpty()).host?.lowercase()?.trimEnd('.') }.getOrNull()
     return host != null && host in retiredPublicHosts
 }
 
 fun isReleaseBuildRequested(): Boolean =
-    gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+    gradle.startParameter.taskNames.any { task ->
+        val name = task.substringAfterLast(':')
+        name.contains("release", ignoreCase = true) ||
+            name.equals("assemble", ignoreCase = true) ||
+            name.equals("build", ignoreCase = true) ||
+            name.equals("bundle", ignoreCase = true)
+    }
 
 fun firstUsableServerUrl(vararg candidates: String?): String? {
     return candidates

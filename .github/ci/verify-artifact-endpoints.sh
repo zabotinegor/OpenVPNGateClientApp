@@ -11,6 +11,11 @@ if [[ $# -lt 2 ]]; then
   exit 2
 fi
 
+if [[ ! "$1" =~ ^https://[A-Za-z0-9.-]+/?$ ]]; then
+  printf '::error::expected origin must be a bare https origin (https://host, no port, path or unusual characters), got: %q
+' "$1"
+  exit 2
+fi
 EXPECTED="${1%/}"
 shift
 RETIRED_HOSTS=("openvpngateclient.azurewebsites.net")

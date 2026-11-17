@@ -64,8 +64,12 @@ domain, so the client never needs to know which site is active. The retired publ
   tests (`.github/ci/tests/ci-endpoint-scripts.test.sh`). `scripts/ci/tests/test_release_workflow_contracts.py`
   keeps the workflow wiring from drifting.
 
-The scripts only read public, non-secret URLs. `VERSIONS_API_KEY` and signing secrets are never
-passed to them.
+The scripts only read and print the public URL variables. `VERSIONS_API_KEY` is set at job level in
+the release workflows, so the scripts inherit it in their environment, but they never read or print
+it, and they do not touch signing material. Backend URLs must be a bare `https://` origin (no port,
+credentials, path, query or unusual characters); the fallback must not be on the canonical domain or
+any subdomain of it. Integration builds (`ci-integration`) have no validator step; they are covered
+only by the Gradle guard.
 
 Both must be **HTTPS**, and a host of `placeholder` is rejected. The resolved values are emitted as
 `BuildConfig` fields; routes are derived from the primary base at runtime by `PrimaryDomainRoutes`,

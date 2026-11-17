@@ -248,7 +248,9 @@ jobs:
 
       - name: Verify release artifacts embed the canonical API origin
         shell: bash
-        run: bash .github/ci/verify-artifact-endpoints.sh "${{ vars.PRIMARY_SERVERS_URL }}" output/*.apk output/*.aab
+        env:
+          EXPECTED_ORIGIN: ${{ vars.PRIMARY_SERVERS_URL }}
+        run: bash .github/ci/verify-artifact-endpoints.sh "$EXPECTED_ORIGIN" output/*.apk output/*.aab
 
       - name: Create Git Tag
         uses: actions/github-script@v7
