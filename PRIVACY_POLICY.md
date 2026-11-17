@@ -1,8 +1,8 @@
 # Privacy Policy for Client for OpenVPN Gate
 
 Last updated: 2026-02-19  
-Canonical version: https://openvpngateclient.azurewebsites.net/privacy-policy  
-Related Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
+Canonical version: https://openvpngateclient.com/privacy-policy  
+Related Terms of Use: https://openvpngateclient.com/terms-of-use
 
 This Privacy Policy applies to the Client for OpenVPN Gate app ("Application") for mobile devices, created by Yahor Zabotsin ("Service Provider") as an open-source service. This service is provided "AS IS".
 
@@ -54,7 +54,7 @@ Reasonable physical, electronic, and procedural safeguards are used to protect p
 You can stop using the Application at any time by uninstalling it.
 
 ## 10. Relationship to Terms of Use.
-Your use of the Application is also governed by the Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
+Your use of the Application is also governed by the Terms of Use: https://openvpngateclient.com/terms-of-use
 
 ## 11. Changes.
 This Privacy Policy may be updated from time to time. Continued use after updates means acceptance of the revised policy.
