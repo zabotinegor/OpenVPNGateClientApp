@@ -36,6 +36,13 @@ JVM target 11. Core library desugaring (`desugar_jdk_libs`, `isCoreLibraryDesuga
 > repo-root copy have no effect and the build keeps using the endpoints in `src/`, silently. Delete
 > the `src/` copy rather than trying to override it.
 
+For production builds, use `PRIMARY_SERVERS_URL=https://openvpngateclient.com`.
+The GitHub repository variable `PRIMARY_SERVERS_URL` supplies the app's public API origin;
+`VERSIONS_API_BASE_URL` is a separate repository variable used by release workflows to publish
+version metadata and must also use the canonical production domain. Changes to GitHub variables
+are operational settings changes, not source-code changes. Keep `FALLBACK_SERVERS_URL` pointing
+to the independent VPN Gate CSV service.
+
 Both must be **HTTPS**, and a host of `placeholder` is rejected. The resolved values are emitted as
 `BuildConfig` fields; routes are derived from the primary base at runtime by `PrimaryDomainRoutes`,
 not written out individually. See [api-endpoints.md](api-endpoints.md).
