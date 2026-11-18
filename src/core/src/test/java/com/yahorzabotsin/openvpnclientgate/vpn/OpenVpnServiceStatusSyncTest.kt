@@ -75,6 +75,32 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun vpnStatusFallback_connectedDetailWithRawNoNetworkDoesNotArmSwitchTimer() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        // Force VPN_STATUS authority rather than the fresh-AIDL supplement.
+        ReflectionHelpers.setField(service, "lastLiveStatusMs", 0L)
+        ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", 0L)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ServerAutoSwitcher.resetForTest()
+
+        try {
+            // The engine detail already says CONNECTED even though the raw enum still lags.
+            service.updateState("CONNECTED", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+
+            assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+            assertEquals(ConnectionStatus.LEVEL_CONNECTED, ConnectionStateManager.engineLevel.value)
+            assertNull(
+                "A healthy VPN_STATUS fallback must not leave a NONETWORK switch timer armed",
+                ServerAutoSwitcher.remainingSeconds.value
+            )
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        } finally {
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
     fun supplementsConnectingDetailFromVpnStatusWhenAidlFresh() {
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()

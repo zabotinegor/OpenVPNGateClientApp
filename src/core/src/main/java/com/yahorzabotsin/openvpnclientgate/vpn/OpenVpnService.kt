@@ -2065,17 +2065,19 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // accepted-level marker) stays rejected even if an AIDL PAUSED confirmation clears the guard
         // in between; the re-evaluations below can only add rejections.
         var isPauseTransientConnecting = pauseRejectedAtEntry || isPauseGuardRejected(level)
+        // VpnStatus's raw level can lag behind its CONNECTED detail; give the switcher the
+        // same effective level that ConnectionStateManager will apply below.
+        val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
         if (level !in failureLevelsHandledByService && !isPauseTransientConnecting) {
             synchronized(pauseLock) {
                 if (isPauseGuardRejected(level)) {
                     isPauseTransientConnecting = true
                 } else {
                     AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-                    try { ServerAutoSwitcher.onEngineLevel(applicationContext, level, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+                    try { ServerAutoSwitcher.onEngineLevel(applicationContext, normalizedLevel, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
                 }
             }
         }
-        val normalizedLevel = ConnectionStateManager.normalizeEngineLevel(level, state)
         if (isPauseTransientConnecting && lastAcceptedEngineLevel == normalizedLevel) {
             lastAcceptedEngineLevel = previousAcceptedLevel
         }

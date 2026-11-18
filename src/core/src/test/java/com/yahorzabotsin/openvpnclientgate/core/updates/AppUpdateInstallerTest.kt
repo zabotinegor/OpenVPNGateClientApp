@@ -380,11 +380,12 @@ class AppUpdateInstallerTest {
         var cancelled = false
         var completedNormally = false
 
-        lateinit var job: kotlinx.coroutines.Job
-        job = launch(Dispatchers.Default) {
+        val job = launch(Dispatchers.Default) {
+            // Do not capture the outer launch result: this dispatcher can run before assignment.
+            val runningJob = coroutineContext[kotlinx.coroutines.Job]!!
             try {
                 // Cache hit: cancel as soon as verification reports success.
-                installer.start(asset) { job.cancel() }
+                installer.start(asset) { runningJob.cancel() }
                 completedNormally = true
             } catch (e: CancellationException) {
                 cancelled = true

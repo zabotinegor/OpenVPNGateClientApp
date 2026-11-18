@@ -2089,6 +2089,32 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun networkRestoredCallbackAfterSessionEnded_doesNotStartStaleWaitTimer() {
+        val originalMonitor = FakeNetworkMonitor(usable = false)
+        ServerAutoSwitcher.networkMonitor = originalMonitor
+        connectedSession()
+        deliverNoNetwork()
+        assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+
+        // Controller destroyed and replaced, and its old engine session has ended. Only the
+        // new monitor callback arrives: no further engine NONETWORK status is delivered.
+        ServerAutoSwitcher.networkMonitor = null
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        val replacementMonitor = FakeNetworkMonitor(usable = false)
+        ServerAutoSwitcher.networkMonitor = replacementMonitor
+        replacementMonitor.emit(true)
+        idle(Duration.ofSeconds(10))
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertEquals(0, stopCalls)
+        assertEquals(0, calls.size)
+    }
+
+    @Test
     fun staleWaitLeftByDestroyedController_doesNotResurrectDisconnectedSession() {
         val monitor = FakeNetworkMonitor(usable = false)
         ServerAutoSwitcher.networkMonitor = monitor

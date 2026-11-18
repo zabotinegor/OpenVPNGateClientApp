@@ -419,6 +419,16 @@ object ServerAutoSwitcher {
     private fun onUnderlyingNetworkChanged(usable: Boolean) {
         if (!usable || !noNetworkWaiting) return
         val ctx = noNetworkWaitContext ?: return
+        // A new controller can attach a network monitor after the old session ended. A retained
+        // wait flag/context is not proof that this callback still belongs to a live NONETWORK hold.
+        if (ConnectionStateManager.state.value != ConnectionState.CONNECTING ||
+            ConnectionStateManager.engineLevel.value != ConnectionStatus.LEVEL_NONETWORK ||
+            !ConnectionStateManager.waitingForNetwork.value
+        ) {
+            AppLog.i(TAG, "Discarding stale NONETWORK wait after the session ended")
+            leaveNoNetworkWait()
+            return
+        }
         AppLog.i(TAG, "Underlying network is usable again; waiting status timeout before switching")
         leaveNoNetworkWait()
         if (!timerActive) start(ctx, ConnectionStatus.LEVEL_NONETWORK)
