@@ -97,6 +97,42 @@ class OpenVpnServiceSessionLoggingTest {
     }
 
     @Test
+    fun sessionAttemptLogsLiveCountryPoolSizeAfterServerListGrows() {
+        saveServers(3)
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            startAttempt(service)
+            // A server-list sync grows the selected country's pool mid-session.
+            val grown = (1..5).map { idServer(it, "conf$it", "0.0.0.$it") }
+            SelectedCountryStore.saveSelectionPreservingIndex(appContext, "RU", grown)
+
+            reconnectStart(service, "client\n")
+
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=3") })
+            assertTrue(logs.any { it.contains("Session attempt 2 (serversInCountry=5") })
+        } finally {
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
+    fun sessionAttemptOnRecreatedControllerLogsLiveCountNotUnknown() {
+        saveServers(4)
+        // A recreated controller only ever sees auto-switch (reconnect) starts, never a fresh start.
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        try {
+            reconnectStart(service, "client\n")
+
+            val logs = ShadowLog.getLogs().filter { it.tag == logTag }.map { it.msg }
+            assertTrue(logs.any { it.contains("Session attempt 1 (serversInCountry=4") })
+            assertTrue(logs.none { it.contains("serversInCountry=unknown") })
+        } finally {
+            ConnectionStateManager.setReconnectingHint(false)
+        }
+    }
+
+    @Test
     fun reconnectStartKeepsSecondServerWhenConfigsDifferAndIpIsShared() {
         saveServers(2, sameIp = true)
         SelectedCountryStore.setCurrentIndex(appContext, 1)

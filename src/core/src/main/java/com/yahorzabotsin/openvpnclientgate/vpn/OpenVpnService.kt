@@ -716,9 +716,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         )
     }
 
-    private fun totalServersStr(): String =
-        if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
-    
+    // Reads the live selected-country pool (the same source ServerAutoSwitcher logs), so the count
+    // follows server-list syncs and survives controller recreation. The last successful read is only
+    // a fallback for a failing store read.
+    private fun totalServersStr(): String {
+        val live = runCatching { SelectedCountryStore.getServers(applicationContext).size }.getOrNull()
+        if (live != null) sessionTotalServers = live
+        return if (sessionTotalServers >= 0) sessionTotalServers.toString() else "unknown"
+    }
+
 
     private val engineConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -981,7 +987,6 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 if (isReconnect) {
                     sessionAttempt = if (sessionAttempt <= 0) 1 else sessionAttempt + 1
                 } else {
-                    sessionTotalServers = try { SelectedCountryStore.getServers(applicationContext).size } catch (_: Exception) { -1 }
                     sessionAttempt = 1
                     watchdogRecoveryInFlight = false
                     watchdogState.recoveryAttempts = 0
