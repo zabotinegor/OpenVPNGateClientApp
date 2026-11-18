@@ -34,7 +34,12 @@ class UnderlyingNetworkMonitorTest {
         shadowCm.clearAllNetworks()
     }
 
-    private fun caps(notVpn: Boolean, validated: Boolean, internet: Boolean = true): NetworkCapabilities {
+    private fun caps(
+        notVpn: Boolean,
+        validated: Boolean,
+        internet: Boolean = true,
+        captivePortal: Boolean = false
+    ): NetworkCapabilities {
         val nc = ShadowNetworkCapabilities.newInstance()
         val shadow = Shadows.shadowOf(nc)
         // The framework constructor already sets NOT_VPN by default; make every flag explicit.
@@ -46,6 +51,7 @@ class UnderlyingNetworkMonitorTest {
             shadow.addTransportType(NetworkCapabilities.TRANSPORT_VPN)
         }
         if (validated) shadow.addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        if (captivePortal) shadow.addCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
         return nc
     }
 
@@ -81,8 +87,24 @@ class UnderlyingNetworkMonitorTest {
     }
 
     @Test
-    fun unvalidatedNonVpnNetwork_isNotUsable() {
+    fun unvalidatedNonVpnNetwork_isUsable() {
+        // Connectivity validation is blocked on censored/filtered networks and some OEM builds; a
+        // working but never-validated network must not hold a stale NONETWORK in an endless wait.
         addNetwork(103, caps(notVpn = true, validated = false))
+
+        assertTrue(ConnectivityUnderlyingNetworkMonitor(cm).isUsableNetworkAvailable())
+    }
+
+    @Test
+    fun unvalidatedCaptivePortal_isNotUsable() {
+        addNetwork(106, caps(notVpn = true, validated = false, captivePortal = true))
+
+        assertFalse(ConnectivityUnderlyingNetworkMonitor(cm).isUsableNetworkAvailable())
+    }
+
+    @Test
+    fun nonVpnNetworkWithoutInternet_isNotUsable() {
+        addNetwork(107, caps(notVpn = true, validated = false, internet = false))
 
         assertFalse(ConnectivityUnderlyingNetworkMonitor(cm).isUsableNetworkAvailable())
     }
@@ -128,7 +150,7 @@ class UnderlyingNetworkMonitorTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertEquals("a repeated usable report must not be re-delivered", listOf(true), reported)
 
-        callback.onCapabilitiesChanged(wifi, caps(notVpn = true, validated = false))
+        callback.onCapabilitiesChanged(wifi, caps(notVpn = true, validated = false, captivePortal = true))
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(true, false), reported)
 

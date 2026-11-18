@@ -34,7 +34,8 @@ interface UnderlyingNetworkMonitor {
 /**
  * [UnderlyingNetworkMonitor] backed by [ConnectivityManager].
  *
- * A network is usable when it has INTERNET, NOT_VPN and VALIDATED. NOT_VPN is required because the
+ * A network is usable when it has INTERNET and NOT_VPN and is not an unvalidated captive portal
+ * (see [isUsable]). NOT_VPN is required because the
  * app itself runs under its own VPN: `activeNetwork` would return the tunnel network here.
  */
 class ConnectivityUnderlyingNetworkMonitor(
@@ -144,11 +145,19 @@ class ConnectivityUnderlyingNetworkMonitor(
     companion object {
         private val TAG = LogTags.APP + ':' + "UnderlyingNetwork"
 
+        /**
+         * VALIDATED is not required: where Android's connectivity check is blocked (censored or
+         * filtered networks, some OEM builds) a working network never validates, and a stale engine
+         * NONETWORK would then wait for the network forever. Such a network goes through the bounded
+         * status-timeout switch instead. Only a network that is flagged as a captive portal and has
+         * not validated is treated as unusable.
+         */
         internal fun isUsable(caps: NetworkCapabilities?): Boolean {
             if (caps == null) return false
-            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return false
+            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
         }
     }
 }

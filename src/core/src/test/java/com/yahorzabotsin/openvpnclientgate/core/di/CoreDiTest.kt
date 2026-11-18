@@ -8,11 +8,14 @@ import com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
 import com.yahorzabotsin.openvpnclientgate.core.ui.about.AboutViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.MainViewModel
 import com.yahorzabotsin.openvpnclientgate.core.ui.main.UpdateCheckInteractor
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectivityUnderlyingNetworkMonitor
+import com.yahorzabotsin.openvpnclientgate.vpn.UnderlyingNetworkMonitor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.koin.android.ext.koin.androidContext
@@ -64,6 +67,18 @@ class CoreDiTest {
         assertNotNull(koin.get<SelectedCountryServerSync>())
         assertNotNull(koin.get<AboutViewModel>())
         assertNotNull(koin.get<MainViewModel>())
+    }
+
+    @Test
+    fun `core module resolves one connectivity backed underlying network monitor`() {
+        val koin = koinApplication {
+            androidContext(ApplicationProvider.getApplicationContext())
+            modules(coreModule)
+        }.koin
+
+        val monitor = koin.get<UnderlyingNetworkMonitor>()
+        assertTrue(monitor is ConnectivityUnderlyingNetworkMonitor)
+        assertSame("OpenVpnService and ServerAutoSwitcher must share one monitor", monitor, koin.get<UnderlyingNetworkMonitor>())
     }
 
     private class FakeVpnServersApi : VpnServersApi {
