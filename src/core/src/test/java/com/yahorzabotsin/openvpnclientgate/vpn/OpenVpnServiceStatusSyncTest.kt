@@ -3617,4 +3617,55 @@ class OpenVpnServiceStatusSyncTest {
         }
     }
 
+
+    @Test
+    fun vpnStatusFallback_terminalAfterInterveningUnknown_cancelsIdleTolerance() {
+        val service = connectedServiceForNoNetwork(usable = true)
+        val previousTimeout = com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .load(appContext).statusStallTimeoutSeconds
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        var starts = 0
+        var stops = 0
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> starts += 1; true }
+        ServerAutoSwitcher.stopper = { _ -> stops += 1; true }
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .saveStatusStallTimeoutSeconds(appContext, 2)
+
+        try {
+            // NONETWORK arms its normal timer. UNKNOWN schedules a separate 3s idle-tolerance
+            // callback without canceling that timer; NOTCONNECTED must cancel both.
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            assertTrue("precondition: NONETWORK started the switch timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+
+            service.updateState("UNKNOWN", null, 0, ConnectionStatus.UNKNOWN_LEVEL, null)
+            assertTrue("precondition: UNKNOWN did not cancel the earlier timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+
+            service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+
+            // Without cancelIdleTolerance(), UNKNOWN's deferred callback starts a fresh timer
+            // after the NONETWORK timer was cancelled, and it eventually switches a dead session.
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(15))
+            assertFalse("no idle-tolerance timer may restart after terminal VPN_STATUS",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+            assertEquals("a terminated session must not issue a stale stop", 0, stops)
+            assertEquals("a terminated session must not issue a new server start", 0, starts)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+                .saveStatusStallTimeoutSeconds(appContext, previousTimeout)
+        }
+    }
+
 }

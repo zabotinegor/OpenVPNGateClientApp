@@ -654,6 +654,11 @@ object ServerAutoSwitcher {
      * Main-looper only, after OpenVpnService has accepted the terminal engine state.
      */
     fun clearNoNetworkHoldOnVpnStatusTerminal() {
+        // UNKNOWN_LEVEL may have scheduled a delayed idle-tolerance callback while the earlier
+        // NONETWORK timer was active. Once the terminal VPN_STATUS has been accepted, that
+        // callback must not arm a fresh UNKNOWN switch timer after the session has ended.
+        // Cancel it even when no NONETWORK timer/wait remains; preserve stop/retry ownership.
+        cancelIdleTolerance()
         if (timerLevel != ConnectionStatus.LEVEL_NONETWORK && !noNetworkWaiting) return
         AppLog.i(TAG, "Terminal VPN_STATUS clears obsolete NONETWORK timeout or network wait")
         if (timerLevel == ConnectionStatus.LEVEL_NONETWORK) {
