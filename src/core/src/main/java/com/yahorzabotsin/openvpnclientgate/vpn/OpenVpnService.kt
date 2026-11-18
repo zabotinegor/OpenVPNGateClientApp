@@ -2108,6 +2108,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             AppLog.d(TAG, "Ignoring stale connecting-family level=$level; pause began before it could be applied (VPN_STATUS)")
             return
         }
+        // The service owns terminal VPN_STATUS failure handling (including its own auto-switch
+        // path), so those levels are not forwarded through ServerAutoSwitcher.onEngineLevel().
+        // Still clear an earlier NONETWORK timeout/wait once this terminal state is accepted:
+        // otherwise its timer can fire later and start another server after engine teardown.
+        if (level in failureLevelsHandledByService) {
+            try { ServerAutoSwitcher.clearNoNetworkHoldOnVpnStatusTerminal() }
+            catch (e: Exception) { AppLog.w(TAG, "Failed to cancel NONETWORK hold after terminal VPN_STATUS", e) }
+        }
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 

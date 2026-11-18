@@ -647,6 +647,33 @@ object ServerAutoSwitcher {
     }
 
     /**
+     * VPN_STATUS handles terminal failures through OpenVpnService's own stop/retry path; forwarding
+     * them to onEngineLevel() could also consume a pending stop-before-retry confirmation. However,
+     * a preceding NONETWORK report may have armed this switcher's timer or network wait. Cancel
+     * only that obsolete NONETWORK work, without disturbing other stop/retry dispatches.
+     * Main-looper only, after OpenVpnService has accepted the terminal engine state.
+     */
+    fun clearNoNetworkHoldOnVpnStatusTerminal() {
+        if (timerLevel != ConnectionStatus.LEVEL_NONETWORK && !noNetworkWaiting) return
+        AppLog.i(TAG, "Terminal VPN_STATUS clears obsolete NONETWORK timeout or network wait")
+        if (timerLevel == ConnectionStatus.LEVEL_NONETWORK) {
+            runnable?.let { handler.removeCallbacks(it) }
+            runnable = null
+            timerActive = false
+            timerLevel = null
+            seconds = 0
+            _remainingSeconds.value = null
+        }
+        leaveNoNetworkWait()
+        // Match the regular terminal-level path: a live reconnect cycle retains its visited set,
+        // whereas a genuinely ended session must not poison the next user-started cycle.
+        if (!ConnectionStateManager.reconnectingHint.value &&
+            !waitingStopForRetry && !retryCommitInFlight) {
+            cycleVisited = null
+        }
+    }
+
+    /**
      * Runs [cancel] while leaving an armed stop-retry-timeout re-dispatch scheduled exactly as it
      * was.
      *

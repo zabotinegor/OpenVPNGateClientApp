@@ -3556,4 +3556,65 @@ class OpenVpnServiceStatusSyncTest {
             ServerAutoSwitcher.resetForTest()
         }
     }
+    @Test
+    fun vpnStatusFallback_terminalNotConnectedAfterNoNetwork_cancelsPendingTimer() {
+        val service = connectedServiceForNoNetwork(usable = true)
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        var starts = 0
+        var stops = 0
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> starts += 1; true }
+        ServerAutoSwitcher.stopper = { _ -> stops += 1; true }
+
+        try {
+            // No fresh AIDL push: VPN_STATUS is authoritative. A usable underlying network
+            // starts the NONETWORK timeout, but the engine then ends the session on its own.
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            assertTrue("precondition: NONETWORK armed a switch timeout", ServerAutoSwitcher.isTimerActiveForTest())
+            assertNotNull(ServerAutoSwitcher.remainingSeconds.value)
+
+            service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertEquals(ConnectionStatus.LEVEL_NOTCONNECTED, ConnectionStateManager.engineLevel.value)
+            assertFalse(ConnectionStateManager.reconnectingHint.value)
+            assertFalse("a terminal VPN_STATUS must cancel the earlier NONETWORK timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(15))
+            assertEquals("the ended session must not auto-stop from a stale timer", 0, stops)
+            assertEquals("the ended session must not auto-start a different server", 0, starts)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun vpnStatusFallback_terminalNotConnectedAfterNetworkWait_clearsWait() {
+        val service = connectedServiceForNoNetwork(usable = false)
+        try {
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            assertTrue("precondition: unavailable network started a wait",
+                ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertTrue(ConnectionStateManager.waitingForNetwork.value)
+
+            service.updateState("NOPROCESS", null, 0, ConnectionStatus.LEVEL_NOTCONNECTED, null)
+
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ConnectionStateManager.waitingForNetwork.value)
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
 }
