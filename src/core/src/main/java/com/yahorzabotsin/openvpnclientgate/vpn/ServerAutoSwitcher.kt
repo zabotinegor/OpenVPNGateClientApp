@@ -350,9 +350,16 @@ object ServerAutoSwitcher {
      */
     private fun onNoNetworkLevel(appContext: Context, wasConnectingAtDispatch: Boolean?) {
         val state = try { ConnectionStateManager.state.value } catch (_: Exception) { null }
-        val live = timerActive || noNetworkWaiting || wasConnectingAtDispatch == true ||
+        // The wait flag itself is not liveness evidence: this object outlives the controller service,
+        // so a wait left behind by a destroyed controller must not pull a DISCONNECTED app back into
+        // CONNECTING on the next (possibly stale) NONETWORK. While a session really waits, the app
+        // state is CONNECTING anyway.
+        val live = timerActive || wasConnectingAtDispatch == true ||
             state == ConnectionState.CONNECTING || state == ConnectionState.CONNECTED
-        if (!live) return
+        if (!live) {
+            leaveNoNetworkWait()
+            return
+        }
         if (!isUnderlyingNetworkUsable()) {
             enterNoNetworkWait(appContext)
             return

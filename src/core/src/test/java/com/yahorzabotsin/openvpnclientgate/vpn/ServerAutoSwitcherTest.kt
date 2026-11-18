@@ -2089,6 +2089,31 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun staleWaitLeftByDestroyedController_doesNotResurrectDisconnectedSession() {
+        val monitor = FakeNetworkMonitor(usable = false)
+        ServerAutoSwitcher.networkMonitor = monitor
+        connectedSession()
+        deliverNoNetwork()
+        assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+
+        // The controller goes away without a user stop (onDestroy does not cancel the switcher);
+        // a recreated controller starts from DISCONNECTED and sees a usable network.
+        ServerAutoSwitcher.networkMonitor = null
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+
+        deliverNoNetwork()
+        idle(Duration.ofSeconds(5))
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertEquals(0, calls.size)
+        assertEquals(0, stopCalls)
+    }
+
+    @Test
     fun userStopWhileWaitingForNetwork_clearsWait() {
         val monitor = FakeNetworkMonitor(usable = false)
         ServerAutoSwitcher.networkMonitor = monitor
