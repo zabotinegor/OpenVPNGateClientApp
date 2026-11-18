@@ -167,6 +167,7 @@ docs/qa-evidence
 /.github/scripts/attach-pr-to-clickup.ps1
 /.github/scripts/audit-clickup-qa-artifacts.ps1
 /.github/scripts/bot-signal-lib.ps1
+/.github/scripts/bounded-process-lib.ps1
 /.github/scripts/build-context.ps1
 /.github/scripts/build-merge-approval-summary.ps1
 /.github/scripts/build-release-validation-plan.ps1
@@ -211,6 +212,7 @@ docs/qa-evidence
 /.github/scripts/github-utf8-api.ps1
 /.github/scripts/guard-autonomous-qa-question.ps1
 /.github/scripts/guard-autonomous-qa-stop.ps1
+/.github/scripts/guard-detached-operation.ps1
 /.github/scripts/guard-pr-merge-ci-gate.ps1
 /.github/scripts/guard-sequential-agent-foreground.ps1
 /.github/scripts/init-session.ps1
