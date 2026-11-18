@@ -84,7 +84,10 @@ Implemented in `OpenVpnService.kt`:
   `syncEngineState`). The guard tests the raw engine level, not the normalized one.
 - **Rejected levels are not recorded.** A level dropped by the guard is never written as the
   latest-observed engine state, so timeout reconciliation cannot resurrect it.
-- **Terminal levels abandon the pause.** `NOTCONNECTED`, `NONETWORK`, `AUTH_FAILED`, and
+- **Terminal levels abandon the pause.** (For pause purposes only: on a live session NONETWORK is a
+  held, non-terminal state in the app model, see
+  [connection-recovery.md](connection-recovery.md#engine-nonetwork-on-a-live-session).)
+  `NOTCONNECTED`, `NONETWORK`, `AUTH_FAILED`, and
   `UNKNOWN` (`STOP_TERMINAL_LEVELS`) clear `pauseActionInFlight` and the watch, since no session is
   left to confirm `PAUSED` and the retry must not fire into a later session. `PAUSED` clears them
   as a completed pause.
