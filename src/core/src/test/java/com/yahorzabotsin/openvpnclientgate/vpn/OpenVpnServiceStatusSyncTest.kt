@@ -455,12 +455,13 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
-    fun applyStatusSnapshot_freshNoNetworkSnapshotStillTriggersImmediateSwitch() {
+    fun applyStatusSnapshot_freshNoNetworkSnapshotStillReachesAutoSwitcher() {
         // Companion to the stale-rejection test above: a GENUINELY FRESH LEVEL_NONETWORK
-        // snapshot (recent timestamp, real current network loss) must still correctly drive an
-        // immediate switch through the stale-push poll path -- the staleSnapshotTimeoutLevels
-        // age-check added above must only reject OLD stale data, not legitimate current
-        // NONETWORK readings.
+        // snapshot (recent timestamp) must still reach ServerAutoSwitcher through the stale-push
+        // poll path -- the staleSnapshotTimeoutLevels age-check added above must only reject OLD
+        // stale data, not legitimate current NONETWORK readings. NONETWORK no longer switches at
+        // once: with a usable (here: unknown) underlying network it takes over the running
+        // status-timeout timer without extending it.
         val controller = Robolectric.buildService(OpenVpnService::class.java).create()
         val service = controller.get()
         val now = 1_700_000_000_000L
@@ -503,11 +504,17 @@ class OpenVpnServiceStatusSyncTest {
                 ClassParameter.from(StatusSnapshot::class.java, freshNoNetworkSnapshot)
             )
 
-            assertNull(
-                "A genuinely FRESH LEVEL_NONETWORK snapshot must still trigger " +
-                    "ServerAutoSwitcher's immediate switch, canceling the active timeout timer",
-                ServerAutoSwitcher.remainingSeconds.value
+            assertEquals(ConnectionStatus.LEVEL_NONETWORK, ConnectionStateManager.engineLevel.value)
+            assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+            assertTrue(
+                "A genuinely FRESH LEVEL_NONETWORK snapshot must reach ServerAutoSwitcher and " +
+                    "take over the active timeout timer",
+                ShadowLog.getLogs().any {
+                    it.tag == LogTags.APP + ":ServerAutoSwitcher" &&
+                        it.msg.contains("-> LEVEL_NONETWORK (elapsed kept)")
+                }
             )
+            assertNotNull(ServerAutoSwitcher.remainingSeconds.value)
         } finally {
             ServerAutoSwitcher.resetForTest()
         }
@@ -3330,5 +3337,143 @@ class OpenVpnServiceStatusSyncTest {
             // Drain service queue so assertions inspect only action under test.
         }
     }
-}
 
+    // ---- LEVEL_NONETWORK on a live session (underlying-network discriminator) ----
+
+    private class FixedNetworkMonitor(private val usable: Boolean) : UnderlyingNetworkMonitor {
+        override fun isUsableNetworkAvailable(): Boolean = usable
+        override fun setListener(listener: ((Boolean) -> Unit)?) = Unit
+        override fun start() = Unit
+        override fun stop() = Unit
+    }
+
+    private fun connectedServiceForNoNetwork(usable: Boolean): OpenVpnService {
+        val service = Robolectric.buildService(OpenVpnService::class.java).create().get()
+        ServerAutoSwitcher.resetForTest()
+        ServerAutoSwitcher.networkMonitor = FixedNetworkMonitor(usable)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTED)
+        ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+        ShadowLog.clear()
+        return service
+    }
+
+    @Test
+    fun nonetworkWaiting_doesNotExitControllerForeground() {
+        val service = connectedServiceForNoNetwork(usable = false)
+        try {
+            ReflectionHelpers.setField(service, "boundToStatus", true)
+            val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+            callbacks.updateStateString("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+            assertTrue(ConnectionStateManager.waitingForNetwork.value)
+            assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertTrue(
+                "the controller must keep its notification while the live session waits for a network",
+                ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive")
+            )
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun stopIfIdle_ignoredWhileWaitingForNetwork() {
+        val service = connectedServiceForNoNetwork(usable = false)
+        try {
+            ReflectionHelpers.setField(service, "boundToStatus", true)
+            val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+            callbacks.updateStateString("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            ShadowLooper.idleMainLooper()
+
+            val intent = Intent(appContext, OpenVpnService::class.java).apply {
+                putExtra(VpnManager.actionKey(appContext), VpnManager.ACTION_STOP_IF_IDLE)
+            }
+            service.onStartCommand(intent, 0, 1)
+
+            assertTrue(
+                ShadowLog.getLogs().any { it.tag == logTag && it.msg.contains("Ignoring stop-if-idle while VPN is active") }
+            )
+            assertFalse(Shadows.shadowOf(service).isStoppedBySelf)
+            assertTrue(ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive"))
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun staleNonetworkAfterUserStop_staysDisconnected_andReleasesForeground() {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ServerAutoSwitcher.networkMonitor = FixedNetworkMonitor(usable = false)
+        try {
+            // A finished user stop: DISCONNECTED, no hint, no start in flight.
+            ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+            ReflectionHelpers.setField(service, "controllerForegroundActive", true)
+            ReflectionHelpers.setField(service, "boundToStatus", true)
+            val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+            callbacks.updateStateString("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ConnectionStateManager.reconnectingHint.value)
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertFalse(ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive"))
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun vpnStatusFallbackNonetwork_noUsableNetwork_waitsWithoutChainedSwitch() {
+        val service = connectedServiceForNoNetwork(usable = false)
+        try {
+            // VPN_STATUS authoritative (no AIDL push channel), user-started session.
+            ReflectionHelpers.setField(service, "userInitiatedStart", true)
+
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+            assertTrue(ConnectionStateManager.waitingForNetwork.value)
+            assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertFalse(
+                "VPN_STATUS NONETWORK must not chain-switch while no network is usable",
+                ShadowLog.getLogs().any { it.tag == logTag && it.msg.contains("Auto-switching to next server") }
+            )
+            assertTrue(ReflectionHelpers.getField<Boolean>(service, "controllerForegroundActive"))
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun vpnStatusFallbackNonetwork_usableNetwork_armsTimerInsteadOfImmediateSwitch() {
+        val service = connectedServiceForNoNetwork(usable = true)
+        try {
+            ReflectionHelpers.setField(service, "userInitiatedStart", true)
+
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            ShadowLooper.idleMainLooper()
+
+            assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+            assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertFalse(
+                ShadowLog.getLogs().any { it.tag == logTag && it.msg.contains("Auto-switching to next server") }
+            )
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+}

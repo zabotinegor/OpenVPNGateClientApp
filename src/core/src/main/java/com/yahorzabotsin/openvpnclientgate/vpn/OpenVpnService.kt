@@ -307,6 +307,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     private var watchdogProbeJob: Job? = null
     
     @Volatile private var probeQueue: ProbeRequestQueue? = null
+    private var underlyingNetworkMonitor: UnderlyingNetworkMonitor? = null
 
     // Guards the compound "is a pause still legitimately in flight" invariant (pauseActionInFlight
     // together with whatever ConnectionState/updateFromEngine transition a terminal AIDL callback is
@@ -778,6 +779,15 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
             ServerAutoSwitcher.probeRequestQueue = queue
         }.onFailure { e ->
             AppLog.w(TAG, "Failed to wire ProbeRequestQueue", e)
+        }
+
+        runCatching {
+            val monitor = GlobalContext.get().get<UnderlyingNetworkMonitor>()
+            monitor.start()
+            underlyingNetworkMonitor = monitor
+            ServerAutoSwitcher.networkMonitor = monitor
+        }.onFailure { e ->
+            AppLog.w(TAG, "Failed to wire UnderlyingNetworkMonitor", e)
         }
     }
 
@@ -1804,6 +1814,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         ServerAutoSwitcher.v2HydrationCallback = null
         ServerAutoSwitcher.probeRequestQueue = null
         probeQueue = null
+        underlyingNetworkMonitor?.let { monitor ->
+            if (ServerAutoSwitcher.networkMonitor === monitor) ServerAutoSwitcher.networkMonitor = null
+            runCatching { monitor.stop() }.onFailure { AppLog.w(TAG, "Failed to stop UnderlyingNetworkMonitor", it) }
+        }
+        underlyingNetworkMonitor = null
         AppLog.d(TAG, "Service destroyed and listener removed")
     }
 
@@ -2034,9 +2049,11 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         previousAcceptedLevel: ConnectionStatus?,
         pauseRejectedAtEntry: Boolean
     ) {
+        // LEVEL_NONETWORK is not in this set: it goes to ServerAutoSwitcher like the connecting
+        // levels, which applies the underlying-network check (wait for the network, or the regular
+        // status-timeout switch) instead of the immediate chained switch below.
         val failureLevelsHandledByService = setOf(
             ConnectionStatus.LEVEL_AUTH_FAILED,
-            ConnectionStatus.LEVEL_NONETWORK,
             ConnectionStatus.LEVEL_NOTCONNECTED
         )
         // Pause race guard: while a pause request is in flight, a stale transient connecting-family
@@ -2092,7 +2109,8 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         handleEngineLevelForStop(level, "VPN_STATUS")
         if (suppressEngineState) return
 
-        if (userInitiatedStart && !userInitiatedStop && level in AUTO_SWITCH_LEVELS && !ConnectionStateManager.reconnectingHint.value) {
+        if (userInitiatedStart && !userInitiatedStop && level in AUTO_SWITCH_LEVELS &&
+            level != ConnectionStatus.LEVEL_NONETWORK && !ConnectionStateManager.reconnectingHint.value) {
             val autoSwitchEnabled = try { com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore.load(applicationContext).autoSwitchWithinCountry } catch (_: Exception) { true }
             if (!autoSwitchEnabled) {
                 AppLog.d(TAG, "Auto-switch disabled; skipping engine auto-switch path")
@@ -2960,7 +2978,13 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
         // After controller recreation, the engine process can report CONNECTED without having
         // an active notification; likewise a stop may fail after its notification vanished.
         val idleLevel = level == ConnectionStatus.LEVEL_NOTCONNECTED || level == ConnectionStatus.LEVEL_NONETWORK
-        val reconnectPending = idleLevel && (ConnectionStateManager.reconnectingHint.value || userInitiatedStart)
+        // NONETWORK on a live session is a hold, not an end: ConnectionStateManager keeps it in
+        // CONNECTING and the switcher waits or times it out, so the controller must not let go of
+        // its notification here (which would also let ACTION_STOP_IF_IDLE reap it).
+        val noNetworkHold = level == ConnectionStatus.LEVEL_NONETWORK && !userInitiatedStop &&
+            ConnectionStateManager.isSessionLiveForNoNetwork()
+        val reconnectPending = idleLevel &&
+            (ConnectionStateManager.reconnectingHint.value || userInitiatedStart || noNetworkHold)
         val engineNotificationActive = hasEngineOngoingNotification()
         // Normalized, like the app state it must agree with (raw NONETWORK + detail CONNECTED is live).
         val engineTunnelLive = normalizedLevel == ConnectionStatus.LEVEL_CONNECTED ||
