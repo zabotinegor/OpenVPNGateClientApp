@@ -2452,6 +2452,60 @@ class OpenVpnServiceStatusSyncTest {
         }
     }
 
+    // An AIDL callback updates the accepted engine state on its binder thread, but queues
+    // ServerAutoSwitcher work onto the main looper. If CONNECTED follows NONETWORK before
+    // that queue drains, the older NONETWORK must not re-enter a wait or re-arm a timer.
+    private fun assertSupersededNoNetworkIsIgnored(networkUsable: Boolean) {
+        val controller = Robolectric.buildService(OpenVpnService::class.java).create()
+        val service = controller.get()
+        ServerAutoSwitcher.resetForTest()
+        ServerAutoSwitcher.networkMonitor = FixedNetworkMonitor(networkUsable)
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, "CONNECTED")
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+
+        try {
+            val binder = Thread {
+                callbacks.updateStateString("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+                callbacks.updateStateString("CONNECTED", null, 0, ConnectionStatus.LEVEL_CONNECTED, null)
+            }.apply { isDaemon = true }
+            binder.start()
+            binder.join(5_000)
+            if (binder.isAlive) binder.interrupt()
+            assertFalse("AIDL callback thread did not finish within timeout", binder.isAlive)
+
+            assertEquals(ConnectionStatus.LEVEL_CONNECTED, ConnectionStateManager.engineLevel.value)
+            assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ConnectionStateManager.reconnectingHint.value)
+            assertNull("switcher has not processed either queued callback", ServerAutoSwitcher.remainingSeconds.value)
+
+            ShadowLooper.idleMainLooper()
+
+            assertEquals("superseded NONETWORK must not roll back a connected session",
+                ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+            assertEquals(ConnectionStatus.LEVEL_CONNECTED, ConnectionStateManager.engineLevel.value)
+            assertFalse("superseded NONETWORK must not restore the reconnecting hint",
+                ConnectionStateManager.reconnectingHint.value)
+            assertFalse(ConnectionStateManager.waitingForNetwork.value)
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertFalse("superseded NONETWORK must not arm a switch timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+        } finally {
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+        }
+    }
+
+    @Test
+    fun queuedNoNetworkSupersededByConnected_offline_doesNotRestoreNetworkWait() {
+        assertSupersededNoNetworkIsIgnored(networkUsable = false)
+    }
+
+    @Test
+    fun queuedNoNetworkSupersededByConnected_online_doesNotArmSwitchTimer() {
+        assertSupersededNoNetworkIsIgnored(networkUsable = true)
+    }
+
     @Test
     fun updateStateString_authFailedOnFreshConnectionFromBinderThreadStillSwitchesImmediately() {
         // Regression for round-3 bot review (Codex, P1): round 2 fixed a cross-thread

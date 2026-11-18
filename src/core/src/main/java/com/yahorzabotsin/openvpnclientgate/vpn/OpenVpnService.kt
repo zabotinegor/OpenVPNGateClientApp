@@ -3170,6 +3170,14 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine)")
                 return@Runnable
             }
+            // A newer AIDL level may have been accepted on the binder thread before this
+            // main-looper dispatch runs. A superseded NONETWORK must not restore CONNECTING,
+            // reconnectingHint or a network wait/timer after the session reached CONNECTED.
+            // Reject it before either onNoNetworkLevel() branch can mutate app state.
+            if (level == ConnectionStatus.LEVEL_NONETWORK && lastAcceptedEngineLevel != level) {
+                AppLog.d(TAG, "Ignoring superseded NONETWORK auto-switch dispatch; latest accepted=$lastAcceptedEngineLevel")
+                return@Runnable
+            }
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
             } catch (e: Exception) {
