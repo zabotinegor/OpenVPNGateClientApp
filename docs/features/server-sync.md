@@ -226,13 +226,18 @@ in `onCreate()`.
 - The engine level is `LEVEL_START` — connection is being established; foreground must stay active.
 - The engine level is `UNKNOWN_LEVEL` — engine not yet initialized; foreground must stay active.
 - The engine level is an idle level (`LEVEL_NOTCONNECTED` or `LEVEL_NONETWORK`) **and**
-  `ConnectionStateManager.reconnectingHint.value` is `true` (a chained auto-switch is pending).
+  `ConnectionStateManager.reconnectingHint.value` is `true` (a chained auto-switch is pending), or
+  a user-started session is live when `LEVEL_NONETWORK` arrives (a hold, see
+  [connection-recovery.md](connection-recovery.md#engine-nonetwork-on-a-live-session)).
 
 In code this is expressed as:
 
 ```kotlin
 val idleLevel = level == LEVEL_NOTCONNECTED || level == LEVEL_NONETWORK
-val reconnectPending = idleLevel && ConnectionStateManager.reconnectingHint.value
+val noNetworkHold = level == LEVEL_NONETWORK && !userInitiatedStop &&
+    ConnectionStateManager.isSessionLiveForNoNetwork()
+val reconnectPending = idleLevel &&
+    (ConnectionStateManager.reconnectingHint.value || userInitiatedStart || noNetworkHold)
 if (controllerForegroundActive
     && level != LEVEL_START
     && level != UNKNOWN_LEVEL

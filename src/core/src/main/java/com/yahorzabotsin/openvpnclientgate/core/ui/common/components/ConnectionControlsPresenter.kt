@@ -63,10 +63,14 @@ class ConnectionControlsPresenter(
     fun buildStatusText(
         state: ConnectionState,
         engineLevel: ConnectionStatus?,
-        remainingSeconds: Int?
+        remainingSeconds: Int?,
+        waitingForNetwork: Boolean = false
     ): String {
         if (state == ConnectionState.DISCONNECTING && ConnectionStateManager.error.value == VpnError.STOP_FAILED) {
             return context.getString(R.string.main_status_stop_failed)
+        }
+        if (state == ConnectionState.CONNECTING && waitingForNetwork) {
+            return context.getString(R.string.main_status_waiting_for_network)
         }
         val statusRes = when (state) {
             ConnectionState.DISCONNECTED -> R.string.main_status_disconnected
@@ -91,7 +95,8 @@ class ConnectionControlsPresenter(
         state: ConnectionState,
         detail: String?,
         level: ConnectionStatus?,
-        reconnectingHint: Boolean
+        reconnectingHint: Boolean,
+        waitingForNetwork: Boolean = false
     ): ConnectionButtonModel {
         return when (state) {
             ConnectionState.CONNECTED,
@@ -105,7 +110,13 @@ class ConnectionControlsPresenter(
             ConnectionState.CONNECTING -> {
                 val isTeardown = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&
                     isTeardownDetail(detail))
-                val text = if (reconnectingHint && isTeardown) {
+                val text = if (waitingForNetwork) {
+                    context.getString(R.string.main_status_waiting_for_network)
+                } else if (level == ConnectionStatus.LEVEL_NONETWORK) {
+                    // A usable network is present, so this is a recoverable hold, not a missing
+                    // network: the switcher times it out like any reconnect.
+                    engineDetailToText("RECONNECTING")
+                } else if (reconnectingHint && isTeardown) {
                     engineDetailToText("RECONNECTING")
                 } else {
                     val showGenericConnecting = (level == ConnectionStatus.LEVEL_NOTCONNECTED &&

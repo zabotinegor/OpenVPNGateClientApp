@@ -43,6 +43,7 @@ Read this list first and jump to the one relevant heading — do not read the wh
 - [`SseServerEventsClientTest` "stable connection triggers quick reconnect" — remaining known flake (transient `reconnectAttempt`, not a clock problem)](#sseservereventsclienttest-stable-connection-triggers-quick-reconnect--remaining-known-flake-transient-reconnectattempt-not-a-clock-problem)
 - [Orphaned VPN tunnel: notification vanished and Stop does nothing while the VPN icon remains — bug 12487v2bg8a](#orphaned-vpn-tunnel-notification-vanished-and-stop-does-nothing-while-the-vpn-icon-remains--bug-12487v2bg8a)
 - [Server counter rolls back to an earlier entry after an auto-switch or a background refresh (shared-IP entries) — bug 12487v2bg7u](#server-counter-rolls-back-to-an-earlier-entry-after-an-auto-switch-or-a-background-refresh-shared-ip-entries--bug-12487v2bg7u)
+- [Engine LEVEL_NONETWORK stalls auto-switch and shows Start Connection — bug 12487v2nhfb](#engine-level_nonetwork-stalls-auto-switch-and-shows-start-connection--bug-12487v2nhfb)
 
 ---
 
@@ -1983,3 +1984,51 @@ A `matched by ip index=1/N` line after the user picked server N/N points at the 
 ### Known limitation (follow-up)
 
 Re-picking a same-IP server while connected can save a wrong last-success key. Not fixed in this branch.
+
+---
+
+## Engine LEVEL_NONETWORK stalls auto-switch and shows Start Connection — bug 12487v2nhfb
+
+**Status: fixed on branch `fix/autoswitch-nonetwork-stall`** (app hold plus the engine `DeviceStateReceiver` fix; only the startup hold path and the terminal STOP remain open, see Follow-ups). ClickUp: https://app.clickup.com/t/12487v2nhfb.
+
+### Symptoms
+
+- After an auto-switch (CONNECTING, timed switch, then CONNECTED), about 20 s later the UI drops to "Start Connection" while the engine's own notification says "Waiting for usable network".
+- No further auto-switch happens, no `ServerAutoSwitcher` line at all, and the controller is reaped by `ACTION_STOP_IF_IDLE` once the app leaves the foreground. A manual start recovers.
+- On real network loss (QA), the old code switched through every server within seconds, then stopped for good with no reconnect after the network returned.
+
+### Root cause
+
+Two layers, both verified from logs and code reading:
+
+1. **App.** `ConnectionStateManager.updateFromEngine` mapped `LEVEL_NONETWORK` to `DISCONNECTED`. `ServerAutoSwitcher` acted on an AIDL NONETWORK only while a timer was active or the state was connecting. After `LEVEL_CONNECTED` had cancelled the timer neither held, so the report was ignored, and every re-delivery (the cached state repeats about every 6 s) saw `DISCONNECTED` and was ignored too. `syncEngineState` then exited the controller foreground and stop-if-idle reaped it.
+2. **Engine (probable, fixed in this PR).** `DeviceStateReceiver` posts a delayed 20 s "pause with no network" task when the active network is briefly null. `OpenVPNService.unregisterDeviceStateReceiver` and `endVpnService` unregister the receiver but never cancel that pending task. When the app's timed switch stops the session within 5 s, the stale task fires 20 s after the blip against the old management thread and emits a global `LEVEL_NONETWORK` while the new session's tunnel keeps running. This matches the exact 20 s spacing in all four recorded episodes, no `RECONNECTING` before the NONETWORK, and no further engine state change afterwards. The device network was up (the new session had connected seconds earlier). A second engine path, a hold before the receiver sees a connected network during VPN handover, causes short startup NONETWORKs that are transient.
+
+### Fix (app)
+
+- `LEVEL_NONETWORK` on a live session is a hold, not a stop: the app keeps `CONNECTING` with `reconnectingHint`, never switches immediately and never queues a hardprobe. A NONETWORK after a user stop stays `DISCONNECTED`.
+- `vpn/UnderlyingNetworkMonitor.kt` classifies the device network (`INTERNET` + `NOT_VPN`, not an unvalidated captive portal; `VALIDATED` is not required). No usable network: "Waiting for network…" label, no switch until a network returns, then the regular status timeout. Usable network: the regular status-timeout timer is armed, so a transient NONETWORK followed by a connecting level cancels it and a persistent phantom ends in a switch that clears it.
+- `syncEngineState` keeps the controller foreground notification for the hold, so stop-if-idle cannot reap it.
+- Behaviour details: [connection-recovery.md](../features/connection-recovery.md#engine-nonetwork-on-a-live-session) and [vpn-connection.md](../features/vpn-connection.md#engine-level-to-app-state).
+
+### Fix (engine)
+
+Engine branch `OpenVPNClientApp-integration`: `DeviceStateReceiver.release()` removes the pending 20 s network-loss pause task and sets a volatile `released` flag so a late callback is a no-op; the `network` field is volatile. `OpenVPNService.unregisterDeviceStateReceiver` calls `release()`, and `stopOldOpenVPNProcess` releases the old receiver synchronously before stopping the old process, so a stale pause can no longer hit the new session. Delivered through the update-engine flow ([conventions/engine-submodule.md](../conventions/engine-submodule.md)); the app-side hold stays as a defence. The startup hold-before-network NONETWORK path is unchanged (temporary, no minimal safe fix).
+
+### Diagnose
+
+```
+adb -s <your-device-serial> logcat -d 2>&1 | grep "OpenVPNGateApp" | grep -E "(NONETWORK|UnderlyingNetwork|waiting for network|Waiting for network|status-timeout|Auto-switch timer level change|NONETWORK hold|Timed switch)"
+```
+
+- Old behaviour: `LEVEL_NONETWORK` followed immediately by a `CONNECTED->DISCONNECTED` transition and no switcher line, repeated about every 6 s.
+- New behaviour: `Engine NONETWORK on a live session; holding CONNECTING`, then either `NONETWORK with no usable underlying network; waiting for network` or `arming status-timeout switch timer`, and `Underlying network usable=...` from the monitor.
+- Engine fix evidence: the engine log line `DeviceStateReceiver released: cancelled pending network-loss pause` means a pending pause was cancelled on release (the phantom NONETWORK would have fired 20 s later). It is an engine `VpnStatus` line, not in the app-tag-only export.
+- Telling phantom from real loss: a `Skipping stale snapshot ... level=LEVEL_NONETWORK age=<ms>` with a large age, and tunnel traffic succeeding during the supposed outage, mean the engine status is stale, not the network. Engine-side lines need the engine's `VpnStatus` log, which the app-tag-only export does not contain.
+
+### Follow-ups
+
+- **Engine startup hold.** The hold-before-network NONETWORK during VPN handover at startup is still engine behaviour; it is transient, the app hold covers it, and no minimal safe engine fix was found.
+- **Terminal STOP behaviour.** After a full cycle the switcher still ends in `DISCONNECTED` plus `ACTION_STOP` (see [connection-recovery.md](../features/connection-recovery.md#auto-switch-within-country)); this fix only stops NONETWORK from burning the cycle (`ServerAutoSwitcher` no-alternative path: `DISCONNECTED` plus an explicit controller stop). Whether a real loss should instead keep waiting past the cycle is undecided.
+- **`sessionTotalServers` log staleness (fixed).** `OpenVpnService.totalServersStr()` now reads the live country server count (same source as `ServerAutoSwitcher`), so `serversInCountry=` in `Session attempt` lines follows syncs and survives controller recreation; it falls back to the last successful read only if the store read fails.
+- **Re-delivery logging.** The cached engine state is re-logged about every 6 s; de-duplicating that log is optional.

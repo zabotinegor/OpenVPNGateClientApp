@@ -15,6 +15,8 @@ interface ConnectionControlsRuntime {
     val engineLevel: StateFlow<ConnectionStatus?>
     val engineDetail: StateFlow<String?>
     val reconnectingHint: StateFlow<Boolean>
+    // Default getter keeps existing implementations (test fakes) source-compatible.
+    val waitingForNetwork: StateFlow<Boolean> get() = ConnectionStateManager.waitingForNetwork
     val remainingSeconds: StateFlow<Int?>
     val connectionStartTimeMs: StateFlow<Long?>
     val downloadedBytes: StateFlow<Long>
@@ -26,6 +28,7 @@ class DefaultConnectionControlsRuntime : ConnectionControlsRuntime {
     override val engineLevel: StateFlow<ConnectionStatus?> = ConnectionStateManager.engineLevel
     override val engineDetail: StateFlow<String?> = ConnectionStateManager.engineDetail
     override val reconnectingHint: StateFlow<Boolean> = ConnectionStateManager.reconnectingHint
+    override val waitingForNetwork: StateFlow<Boolean> = ConnectionStateManager.waitingForNetwork
     override val remainingSeconds: StateFlow<Int?> = ServerAutoSwitcher.remainingSeconds
     override val connectionStartTimeMs: StateFlow<Long?> = ConnectionStateManager.connectionStartTimeMs
     override val downloadedBytes: StateFlow<Long> = ConnectionStateManager.downloadedBytes
