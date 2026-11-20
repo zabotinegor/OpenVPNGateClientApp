@@ -3646,6 +3646,107 @@ class OpenVpnServiceStatusSyncTest {
     }
 
     @Test
+    fun vpnStatusFallback_unknownNoprocessWithUsableNetwork_cancelsNonetworkTimer() {
+        val service = connectedServiceForNoNetwork(usable = true)
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val previousTimeout = com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .load(appContext).statusStallTimeoutSeconds
+        var starts = 0
+        var stops = 0
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> starts += 1; true }
+        ServerAutoSwitcher.stopper = { _ -> stops += 1; true }
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .saveStatusStallTimeoutSeconds(appContext, 2)
+        try {
+            ReflectionHelpers.setField(service, "lastLiveStatusMs", 0L)
+            ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", 0L)
+            service.updateState("NONETWORK", null, 0, ConnectionStatus.LEVEL_NONETWORK, null)
+            assertTrue("usable-network NONETWORK arms a timeout",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+
+            service.updateState("NOPROCESS", null, 0, ConnectionStatus.UNKNOWN_LEVEL, null)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+            Shadows.shadowOf(android.os.Looper.getMainLooper())
+                .idleFor(java.time.Duration.ofSeconds(15))
+            assertEquals("terminal UNKNOWN must not restart a dead VPN", 0, starts)
+            assertEquals("terminal UNKNOWN must not stop a dead VPN again", 0, stops)
+            assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+                .saveStatusStallTimeoutSeconds(appContext, previousTimeout)
+        }
+    }
+
+    @Test
+    fun aidlQueuedNonetworkThenConnectingWhileOffline_preservesNetworkWait() {
+        val service = connectedServiceForNoNetwork(usable = false)
+        ReflectionHelpers.setField(service, "boundToStatus", true)
+        val callbacks = ReflectionHelpers.getField<IStatusCallbacks>(service, "statusCallbacks")
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        val previousTimeout = com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .load(appContext).statusStallTimeoutSeconds
+        var starts = 0
+        var stops = 0
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> starts += 1; true }
+        ServerAutoSwitcher.stopper = { _ -> stops += 1; true }
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .saveStatusStallTimeoutSeconds(appContext, 2)
+        try {
+            val callbackError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+            val binder = Thread {
+                try {
+                    callbacks.updateStateString("NONETWORK", null, 0,
+                        ConnectionStatus.LEVEL_NONETWORK, null)
+                    callbacks.updateStateString("TCP_CONNECT", null, 0,
+                        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, null)
+                } catch (error: Throwable) {
+                    callbackError.set(error)
+                }
+            }
+            binder.isDaemon = true
+            binder.start()
+            binder.join(5_000)
+            if (binder.isAlive) binder.interrupt()
+            assertFalse("AIDL callback thread did not finish", binder.isAlive)
+            callbackError.get()?.let { throw AssertionError("AIDL callback failed", it) }
+            assertEquals(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                ReflectionHelpers.getField<ConnectionStatus>(service, "lastAcceptedEngineLevel"))
+
+            // The binder has accepted both levels, but the main-looper reactions have not run.
+            // A transient CONNECTING must not suppress the queued NONETWORK network check.
+            ShadowLooper.idleMainLooper()
+            assertTrue("transient CONNECTING must preserve the queued NONETWORK offline hold",
+                ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertTrue(ConnectionStateManager.waitingForNetwork.value)
+            assertFalse("no offline connecting switch timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            Shadows.shadowOf(android.os.Looper.getMainLooper())
+                .idleFor(java.time.Duration.ofSeconds(15))
+            assertEquals("offline AIDL callbacks must not start another server", 0, starts)
+            assertEquals("offline AIDL callbacks must not stop the active server", 0, stops)
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+                .saveStatusStallTimeoutSeconds(appContext, previousTimeout)
+        }
+    }
+
+    @Test
     fun vpnStatusFallback_terminalNotConnectedAfterNoNetwork_cancelsPendingTimer() {
         val service = connectedServiceForNoNetwork(usable = true)
         val originalStarter = ServerAutoSwitcher.starter

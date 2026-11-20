@@ -267,6 +267,15 @@ object ServerAutoSwitcher {
             return
         }
 
+        // Terminal UNKNOWN must clear an existing NONETWORK timeout whether the device was
+        // previously offline or the underlying network was already usable. This event's
+        // detail has not yet been persisted by ConnectionStateManager.
+        if (level == ConnectionStatus.UNKNOWN_LEVEL &&
+            detail in ConnectionStateManager.engineTeardownDetails) {
+            clearNoNetworkHoldOnVpnStatusTerminal()
+            return
+        }
+
         // A transient engine level is not proof that the underlying network has returned.
         // VPN_STATUS and synchronous AIDL snapshots reach the switcher before the state manager
         // records this event. Classify UNKNOWN using its own accepted detail, never a stale one.
@@ -280,11 +289,6 @@ object ServerAutoSwitcher {
             else -> false
         }
         if (noNetworkRecoveryPending) {
-            if (level == ConnectionStatus.UNKNOWN_LEVEL && !transientRecoveryLevel) {
-                // An explicit teardown detail is terminal, not a recoverable UNKNOWN.
-                clearNoNetworkHoldOnVpnStatusTerminal()
-                return
-            }
             if (transientRecoveryLevel && !ConnectionStateManager.isSessionLiveForNoNetwork()) {
                 cancelIdleTolerance()
                 leaveNoNetworkWait()

@@ -3183,13 +3183,23 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 AppLog.i(TAG, "Ignoring AIDL level=$level at dispatch time; reconnect engine-dispatch buffer armed for the current generation after capture (stray from just-stopped engine)")
                 return@Runnable
             }
-            // A newer AIDL level may have been accepted on the binder thread before this
-            // main-looper dispatch runs. A superseded NONETWORK must not restore CONNECTING,
-            // reconnectingHint or a network wait/timer after the session reached CONNECTED.
-            // Reject it before either onNoNetworkLevel() branch can mutate app state.
+            // A transient CONNECTING/START/UNKNOWN may belong to the same offline session.
+            // Only a settled newer level can safely suppress a queued NONETWORK: dropping it
+            // for transient levels loses the fresh-network gate before the connecting timer.
             if (level == ConnectionStatus.LEVEL_NONETWORK && lastAcceptedEngineLevel != level) {
-                AppLog.d(TAG, "Ignoring superseded NONETWORK auto-switch dispatch; latest accepted=$lastAcceptedEngineLevel")
-                return@Runnable
+                val newerIsTransient = when (lastAcceptedEngineLevel) {
+                    ConnectionStatus.LEVEL_START,
+                    ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+                    ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+                    ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> true
+                    ConnectionStatus.UNKNOWN_LEVEL ->
+                        ConnectionStateManager.engineDetail.value !in ConnectionStateManager.engineTeardownDetails
+                    else -> false
+                }
+                if (!newerIsTransient) {
+                    AppLog.d(TAG, "Ignoring superseded NONETWORK auto-switch dispatch; latest accepted=$lastAcceptedEngineLevel")
+                    return@Runnable
+                }
             }
             try {
                 ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch, detail)
