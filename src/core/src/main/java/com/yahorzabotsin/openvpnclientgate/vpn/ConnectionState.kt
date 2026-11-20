@@ -249,7 +249,19 @@ object ConnectionStateManager {
             _error.value = VpnError.NONE
         }
 
-        if (normalizedLevel != ConnectionStatus.LEVEL_NONETWORK) _waitingForNetwork.value = false
+        // Preserve an offline NONETWORK hold through ambiguous UNKNOWN/CONNECTING reports.
+        // The switcher clears the waiting flag after fresh underlying-network recovery.
+        val transientNonTerminalLevel = when (normalizedLevel) {
+            ConnectionStatus.UNKNOWN_LEVEL -> detail !in engineTeardownDetails
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> true
+            else -> false
+        }
+        if (normalizedLevel != ConnectionStatus.LEVEL_NONETWORK && !transientNonTerminalLevel) {
+            _waitingForNetwork.value = false
+        }
 
         if (mapped == ConnectionState.CONNECTED) {
             noNetworkHintOwned = false
@@ -281,10 +293,11 @@ object ConnectionStateManager {
             AppLog.i(TAG, "Engine NONETWORK on a live session; holding CONNECTING instead of DISCONNECTED")
         } else if (mapped == ConnectionState.DISCONNECTED &&
             normalizedLevel != ConnectionStatus.LEVEL_NONETWORK &&
+            !transientNonTerminalLevel &&
             noNetworkHintOwned
         ) {
             // The hint was only holding the session through NONETWORK, and the engine has now
-            // stopped by itself (no switch or reconnect start owns the hint): report the real state.
+            // confirmed a terminal state (not transient UNKNOWN): report the real state.
             noNetworkHintOwned = false
             _reconnectingHint.value = false
             AppLog.i(TAG, "Engine level=$normalizedLevel ended the NONETWORK hold; releasing reconnecting hint")

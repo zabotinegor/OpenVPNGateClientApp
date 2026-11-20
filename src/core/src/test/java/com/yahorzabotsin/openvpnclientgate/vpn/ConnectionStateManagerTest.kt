@@ -393,15 +393,36 @@ class ConnectionStateManagerTest {
     }
 
     @Test
-    fun waitingForNetwork_survivesNonetworkRedelivery_andClearsOnOtherLevel() {
+    fun waitingForNetwork_survivesTransientUnknownAndConnecting_untilRecovery() {
         connected()
         ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
 
         ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
         assertTrue(ConnectionStateManager.waitingForNetwork.value)
 
-        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "RECONNECTING")
-        assertFalse(ConnectionStateManager.waitingForNetwork.value)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "UNKNOWN")
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
         assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertTrue(ConnectionStateManager.reconnectingHint.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "RECONNECTING")
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, "CONNECTED")
+        assertFalse(ConnectionStateManager.waitingForNetwork.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun nonetworkHold_unknownWithExplicitTeardown_isTerminal() {
+        connected()
+        ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertFalse(ConnectionStateManager.waitingForNetwork.value)
     }
 }
