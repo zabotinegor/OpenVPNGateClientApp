@@ -365,6 +365,7 @@ docs/qa-evidence
 /.github/skills/shared/pr-merge-conflict-recovery.md
 /.github/skills/shared/protected-branches.md
 /.github/skills/shared/rate-limit-contract.md
+/.github/skills/shared/resolver-decision-safety.md
 /.github/skills/shared/runtime-contract.md
 /.github/skills/shared/sdlc-report-contract.md
 /.github/skills/shared/sdlc-shared-flow-patterns.md
