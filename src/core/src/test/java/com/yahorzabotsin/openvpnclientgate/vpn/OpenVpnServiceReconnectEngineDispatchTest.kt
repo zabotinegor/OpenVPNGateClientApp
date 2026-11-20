@@ -849,7 +849,7 @@ class OpenVpnServiceReconnectEngineDispatchTest {
         // want to depend on -- the target under test is dispatchAutoSwitcherOnEngineLevel()'s own
         // capture-time/execution-time predicate pair, nothing upstream of it.
         val dispatchMethod = OpenVpnService::class.java.getDeclaredMethod(
-            "dispatchAutoSwitcherOnEngineLevel", ConnectionStatus::class.java
+            "dispatchAutoSwitcherOnEngineLevel", ConnectionStatus::class.java, String::class.java
         )
         dispatchMethod.isAccessible = true
 
@@ -868,7 +868,7 @@ class OpenVpnServiceReconnectEngineDispatchTest {
             // deferred via postAtTime(), not run synchronously in-line the way every other test in
             // this file (calling from the test's own main-looper thread) does.
             val thread = Thread {
-                dispatchMethod.invoke(service, ConnectionStatus.LEVEL_AUTH_FAILED)
+                dispatchMethod.invoke(service, ConnectionStatus.LEVEL_AUTH_FAILED, null)
             }
             thread.isDaemon = true
             thread.start()
