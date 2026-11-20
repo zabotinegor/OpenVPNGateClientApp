@@ -2079,7 +2079,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                     isPauseTransientConnecting = true
                 } else {
                     AppLog.d(TAG, "Auto-switch source=VPN_STATUS (updateState)")
-                    try { ServerAutoSwitcher.onEngineLevel(applicationContext, normalizedLevel, "VPN_STATUS") } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
+                    try { ServerAutoSwitcher.onEngineLevel(applicationContext, normalizedLevel, "VPN_STATUS", detail = state) } catch (e: Exception) { AppLog.w(TAG, "Failed to notify auto-switcher from updateState", e) }
                 }
             }
         }
@@ -3085,7 +3085,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 // overwrite the last genuine AIDL observation the resume/pause timeouts fall back to.
                 logEngineStateChange(source, level, detail)
                 if (allowAutoSwitch) {
-                    dispatchAutoSwitcherOnEngineLevel(normalizedLevel)
+                    dispatchAutoSwitcherOnEngineLevel(normalizedLevel, detail)
                 }
                 // PAUSED settles the watch here too: the polled-snapshot path reaches this function
                 // without the AIDL callback's own PAUSED handling, and would otherwise leave the retry
@@ -3127,7 +3127,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
     // every invocation is routed through the main-looper statusHandler when not already on the
     // main thread, serializing binder-thread and main-thread callers onto the same queue. The fast
     // path preserves synchronous behavior for the applyStatusSnapshot main-thread caller.
-    private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus) {
+    private fun dispatchAutoSwitcherOnEngineLevel(level: ConnectionStatus, detail: String?) {
         // Checked at the enqueue point rather than relying solely on onDestroy()'s
         // removeCallbacksAndMessages(autoSwitchDispatchToken) sweep, which only clears dispatches
         // queued BEFORE the sweep runs: an in-flight binder callback that had already started
@@ -3192,7 +3192,7 @@ class OpenVpnService : Service(), VpnStatus.StateListener, VpnStatus.LogListener
                 return@Runnable
             }
             try {
-                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch)
+                ServerAutoSwitcher.onEngineLevel(applicationContext, level, "AIDL", wasConnectingAtDispatch, detail)
             } catch (e: Exception) {
                 AppLog.w(TAG, "Failed to notify auto-switcher from AIDL", e)
             }

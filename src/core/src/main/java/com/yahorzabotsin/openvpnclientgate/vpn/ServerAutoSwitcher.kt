@@ -168,7 +168,8 @@ object ServerAutoSwitcher {
         appContext: Context,
         level: ConnectionStatus,
         source: String,
-        wasConnectingAtDispatch: Boolean? = null
+        wasConnectingAtDispatch: Boolean? = null,
+        detail: String? = null
     ) {
         logEngineLevel(level, source)
 
@@ -267,9 +268,11 @@ object ServerAutoSwitcher {
         }
 
         // A transient engine level is not proof that the underlying network has returned.
+        // VPN_STATUS and synchronous AIDL snapshots reach the switcher before the state manager
+        // records this event. Classify UNKNOWN using its own accepted detail, never a stale one.
         val transientRecoveryLevel = when (level) {
             ConnectionStatus.UNKNOWN_LEVEL ->
-                ConnectionStateManager.engineDetail.value !in ConnectionStateManager.engineTeardownDetails
+                detail !in ConnectionStateManager.engineTeardownDetails
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,

@@ -2230,7 +2230,7 @@ class ServerAutoSwitcherTest {
         connectedSession()
         deliverNoNetwork()
         ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
         monitor.emit(true)
         idle(Duration.ofSeconds(10))
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
@@ -2254,11 +2254,39 @@ class ServerAutoSwitcherTest {
         assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
 
         ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
-        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
         idle(Duration.ofSeconds(10))
         assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
         assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
         assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertEquals(0, calls.size)
+        assertEquals(0, stopCalls)
+    }
+
+    @Test
+    fun offlineRecovery_unknownTeardownDetailBeforeStateManagerUpdate_cancelsTimeout() {
+        val monitor = FakeNetworkMonitor(usable = false)
+        ServerAutoSwitcher.networkMonitor = monitor
+        connectedSession()
+        deliverNoNetwork()
+        assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+
+        monitor.emit(true)
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+        assertEquals("NONETWORK", ConnectionStateManager.engineDetail.value)
+
+        // VPN_STATUS and a synchronous snapshot dispatch to the switcher BEFORE updating
+        // ConnectionStateManager, so its last stored detail is deliberately still NONETWORK.
+        ServerAutoSwitcher.onEngineLevel(
+            appContext, ConnectionStatus.UNKNOWN_LEVEL, "VPN_STATUS", detail = "NOPROCESS"
+        )
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        idle(Duration.ofSeconds(15))
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
         assertEquals(0, calls.size)
         assertEquals(0, stopCalls)
     }

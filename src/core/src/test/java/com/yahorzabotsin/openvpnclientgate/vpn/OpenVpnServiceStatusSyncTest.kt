@@ -3420,11 +3420,16 @@ class OpenVpnServiceStatusSyncTest {
 
     // ---- LEVEL_NONETWORK on a live session (underlying-network discriminator) ----
 
-    private class FixedNetworkMonitor(private val usable: Boolean) : UnderlyingNetworkMonitor {
+    private class FixedNetworkMonitor(private var usable: Boolean) : UnderlyingNetworkMonitor {
+        private var onChanged: ((Boolean) -> Unit)? = null
         override fun isUsableNetworkAvailable(): Boolean = usable
-        override fun setListener(listener: ((Boolean) -> Unit)?) = Unit
+        override fun setListener(listener: ((Boolean) -> Unit)?) { onChanged = listener }
         override fun start() = Unit
         override fun stop() = Unit
+        fun emit(value: Boolean) {
+            usable = value
+            onChanged?.invoke(value)
+        }
     }
 
     private fun connectedServiceForNoNetwork(usable: Boolean): OpenVpnService {
@@ -3556,6 +3561,90 @@ class OpenVpnServiceStatusSyncTest {
             ServerAutoSwitcher.resetForTest()
         }
     }
+    private fun assertUnknownTeardownAfterOfflineRecovery(viaSnapshot: Boolean) {
+        val service = connectedServiceForNoNetwork(usable = false)
+        val monitor = ServerAutoSwitcher.networkMonitor as FixedNetworkMonitor
+        val previousTimeout = com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .load(appContext).statusStallTimeoutSeconds
+        val originalStarter = ServerAutoSwitcher.starter
+        val originalStopper = ServerAutoSwitcher.stopper
+        var starts = 0
+        var stops = 0
+        ServerAutoSwitcher.starter = { _, _, _, _, _ -> starts += 1; true }
+        ServerAutoSwitcher.stopper = { _ -> stops += 1; true }
+        com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+            .saveStatusStallTimeoutSeconds(appContext, 2)
+
+        fun deliver(level: ConnectionStatus, detail: String) {
+            if (viaSnapshot) {
+                val snapshot = StatusSnapshot(
+                    detail, null, 0, level, System.currentTimeMillis(), 0L
+                )
+                ReflectionHelpers.callInstanceMethod<Any>(
+                    service, "applyStatusSnapshot",
+                    ClassParameter.from(StatusSnapshot::class.java, snapshot)
+                )
+            } else {
+                service.updateState(detail, null, 0, level, null)
+            }
+        }
+
+        try {
+            // Force stale AIDL push for the snapshot path; otherwise VPN_STATUS is authoritative.
+            ReflectionHelpers.setField(service, "lastLiveStatusMs", 0L)
+            ReflectionHelpers.setField(service, "lastLiveStatusElapsedRealtimeMs", 0L)
+            deliver(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+            assertTrue("offline NONETWORK must enter the network wait",
+                ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertTrue(ConnectionStateManager.waitingForNetwork.value)
+
+            monitor.emit(true)
+            assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+            assertTrue("network restoration must arm the recovery timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertEquals("NONETWORK", ConnectionStateManager.engineDetail.value)
+
+            // Both production flows call the switcher with UNKNOWN before storing NOPROCESS
+            // in ConnectionStateManager; a previous NONETWORK detail must not hide teardown.
+            deliver(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+
+            assertEquals(ConnectionStatus.UNKNOWN_LEVEL, ConnectionStateManager.engineLevel.value)
+            assertEquals("NOPROCESS", ConnectionStateManager.engineDetail.value)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+            assertFalse(ConnectionStateManager.reconnectingHint.value)
+            assertFalse(ConnectionStateManager.waitingForNetwork.value)
+            assertFalse("terminal UNKNOWN must cancel the recovery switch timer",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertNull(ServerAutoSwitcher.remainingSeconds.value)
+
+            Shadows.shadowOf(android.os.Looper.getMainLooper())
+                .idleFor(java.time.Duration.ofSeconds(15))
+            assertFalse("UNKNOWN idle tolerance must not restart a dead session",
+                ServerAutoSwitcher.isTimerActiveForTest())
+            assertEquals("engine teardown must not auto-start another VPN server", 0, starts)
+            assertEquals("engine teardown must not issue a stale stop", 0, stops)
+            assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        } finally {
+            ServerAutoSwitcher.starter = originalStarter
+            ServerAutoSwitcher.stopper = originalStopper
+            ServerAutoSwitcher.networkMonitor = null
+            ServerAutoSwitcher.resetForTest()
+            ServerAutoSwitcher.resetNoReplyThreshold()
+            com.yahorzabotsin.openvpnclientgate.core.settings.UserSettingsStore
+                .saveStatusStallTimeoutSeconds(appContext, previousTimeout)
+        }
+    }
+
+    @Test
+    fun vpnStatusFallback_unknownNoprocessAfterOfflineRecovery_cancelsTimers() {
+        assertUnknownTeardownAfterOfflineRecovery(viaSnapshot = false)
+    }
+
+    @Test
+    fun applyStatusSnapshot_unknownNoprocessAfterOfflineRecovery_cancelsTimers() {
+        assertUnknownTeardownAfterOfflineRecovery(viaSnapshot = true)
+    }
+
     @Test
     fun vpnStatusFallback_terminalNotConnectedAfterNoNetwork_cancelsPendingTimer() {
         val service = connectedServiceForNoNetwork(usable = true)
