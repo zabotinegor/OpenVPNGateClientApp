@@ -2049,6 +2049,26 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun queuedConnectingTimerSurvivesBinderSideSettle_terminalUnknownCancelsIt() {
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        // The queued CONNECTING event reaches the main looper and arms a timer ...
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+        // ... but the binder side already settled the session before it was dispatched.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+
+        assertFalse("the obsolete CONNECTING timer must be cancelled", ServerAutoSwitcher.isTimerActiveForTest())
+        idle(Duration.ofSeconds(30))
+        assertEquals(0, calls.size)
+        assertEquals(0, stopCalls)
+        assertFalse(switcherLogs().any { it.contains("Timed switch") })
+    }
+
+    @Test
     fun terminalUnknownAfterUserDisconnect_neverArmsRecovery() {
         ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
         ShadowLog.clear()

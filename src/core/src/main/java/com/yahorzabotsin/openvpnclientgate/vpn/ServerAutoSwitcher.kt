@@ -294,7 +294,15 @@ object ServerAutoSwitcher {
             val hintHeldByReconnect = try {
                 ConnectionStateManager.reconnectingHint.value && !ConnectionStateManager.isNoNetworkHintOwned()
             } catch (_: Exception) { false }
-            if (!(stillConnecting && (!hold || hintHeldByReconnect))) return
+            if (!(stillConnecting && (!hold || hintHeldByReconnect))) {
+                // Queued AIDL callbacks (NONETWORK -> CONNECTING -> UNKNOWN) can arm a CONNECTING timer
+                // after the binder side already settled the session: drop the obsolete timer.
+                if (!stillConnecting && timerActive) {
+                    AppLog.i(TAG, "Terminal UNKNOWN for an already-ended session; cancelling obsolete switch timer")
+                    cancelPreservingPendingStopDispatch(resetCycle = false)
+                }
+                return
+            }
         }
 
         // A transient engine level is not proof that the underlying network has returned.
