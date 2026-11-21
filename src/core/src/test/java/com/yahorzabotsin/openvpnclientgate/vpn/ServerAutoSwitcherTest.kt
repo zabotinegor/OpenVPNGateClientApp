@@ -2049,6 +2049,31 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun failedStartOffline_unknownTimeoutWait_resumesRecoveryWhenNetworkReturns() {
+        val monitor = FakeNetworkMonitor(usable = false)
+        ServerAutoSwitcher.networkMonitor = monitor
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        // Failed start, offline, with no preceding NONETWORK hold.
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+        idle(Duration.ofSeconds(60))
+        assertTrue("the UNKNOWN timeout waits for the network instead of switching", ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertEquals(0, calls.size)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        val before = switcherLogs().count { it.contains("Idle tolerance started for level=UNKNOWN_LEVEL") }
+
+        monitor.emit(true)
+
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertTrue(
+            "bounded recovery must resume when connectivity returns",
+            switcherLogs().count { it.contains("Idle tolerance started for level=UNKNOWN_LEVEL") } > before
+        )
+    }
+
+    @Test
     fun queuedConnectingTimerSurvivesBinderSideSettle_terminalUnknownCancelsIt() {
         ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
         ShadowLog.clear()

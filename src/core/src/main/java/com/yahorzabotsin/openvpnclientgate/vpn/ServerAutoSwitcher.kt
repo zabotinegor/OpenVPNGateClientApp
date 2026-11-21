@@ -516,8 +516,11 @@ object ServerAutoSwitcher {
         val currentLevel = ConnectionStateManager.engineLevel.value
         // The accepted engine level can be UNKNOWN/CONNECTING while the same live session waits.
         val transientLevel = when (currentLevel) {
-            ConnectionStatus.UNKNOWN_LEVEL ->
-                ConnectionStateManager.engineDetail.value !in ConnectionStateManager.engineTeardownDetails
+            // Terminal UNKNOWN too: a failed start that went offline via the UNKNOWN switch timeout
+            // owns this wait and must resume bounded recovery when the network returns. Liveness is
+            // established by the CONNECTING + reconnecting-hint + waiting-for-network guards below;
+            // an ended session or a cancelled hold no longer satisfies them.
+            ConnectionStatus.UNKNOWN_LEVEL,
             ConnectionStatus.LEVEL_START,
             ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
             ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
