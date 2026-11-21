@@ -112,6 +112,9 @@ object ConnectionStateManager {
         _waitingForNetwork.value = waitingForNetwork && _state.value == ConnectionState.CONNECTING
     }
 
+    /** True while the reconnecting hint exists only to hold a live session through NONETWORK. */
+    internal fun isNoNetworkHintOwned(): Boolean = noNetworkHintOwned
+
     internal fun setWaitingForNetwork(value: Boolean) {
         _waitingForNetwork.value = value && _state.value == ConnectionState.CONNECTING
     }

@@ -279,10 +279,22 @@ object ServerAutoSwitcher {
         // Only when an actual NONETWORK hold exists: an unrelated terminal UNKNOWN (no hold) keeps the
         // regular idle-tolerance recovery below, so a failed start is not left CONNECTING with no timer.
         if (level == ConnectionStatus.UNKNOWN_LEVEL &&
-            detail in ConnectionStateManager.engineTeardownDetails &&
-            hasNoNetworkHold()) {
-            clearNoNetworkHoldOnVpnStatusTerminal()
-            return
+            detail in ConnectionStateManager.engineTeardownDetails) {
+            val hold = hasNoNetworkHold()
+            if (hold) clearNoNetworkHoldOnVpnStatusTerminal()
+            // Recover (idle tolerance below) only a live attempt that nothing else will settle:
+            //  - state must still be CONNECTING: after a user Disconnect it is DISCONNECTING, and a
+            //    stale terminal UNKNOWN must never re-arm a switch after an explicit stop;
+            //  - with a NONETWORK hold, the manager releases the hint itself only when the hint is
+            //    NONETWORK-owned; a hint raised by an explicit reconnect is not released, so that
+            //    attempt would stay CONNECTING with no timer unless recovery is kept.
+            val stillConnecting = try {
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            } catch (_: Exception) { false }
+            val hintHeldByReconnect = try {
+                ConnectionStateManager.reconnectingHint.value && !ConnectionStateManager.isNoNetworkHintOwned()
+            } catch (_: Exception) { false }
+            if (!(stillConnecting && (!hold || hintHeldByReconnect))) return
         }
 
         // A transient engine level is not proof that the underlying network has returned.

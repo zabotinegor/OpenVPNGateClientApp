@@ -2049,6 +2049,51 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun terminalUnknownAfterUserDisconnect_neverArmsRecovery() {
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "WAIT")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+
+        // User Disconnect: switcher cancelled, state DISCONNECTING, hint cleared.
+        ServerAutoSwitcher.cancelForUserStop()
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+
+        // VPN_STATUS forwards the terminal UNKNOWN before the stop is confirmed.
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "VPN_STATUS", detail = "NOPROCESS")
+        idle(Duration.ofSeconds(30))
+
+        assertEquals("no auto-switch after an explicit Disconnect", 0, calls.size)
+        assertEquals(0, stopCalls)
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertFalse(switcherLogs().any { it.contains("Idle tolerance started") || it.contains("Timed switch") })
+    }
+
+    @Test
+    fun nonetworkHoldOnExplicitReconnect_thenTerminalUnknown_keepsBoundedRecovery() {
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+        ShadowLog.clear()
+        // An auto-switch reconnect raised the hint itself (not NONETWORK-owned).
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.setReconnectingHint(true)
+        deliverNoNetwork()
+        assertFalse(
+            "the hint belongs to the reconnect, not to NONETWORK",
+            ConnectionStateManager.isNoNetworkHintOwned()
+        )
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+
+        assertTrue(
+            "the explicit reconnect must not be left CONNECTING with no recovery timer",
+            switcherLogs().any { it.contains("Idle tolerance started for level=UNKNOWN_LEVEL") }
+        )
+    }
+
+    @Test
     fun usableNonetwork_thenConnecting_thenTerminalUnknown_cancelsReplacementTimer() {
         val monitor = FakeNetworkMonitor(usable = true)
         ServerAutoSwitcher.networkMonitor = monitor
