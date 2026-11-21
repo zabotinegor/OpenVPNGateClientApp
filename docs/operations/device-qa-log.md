@@ -122,7 +122,7 @@ See `docs/guides/troubleshooting.md` for full details.
 
 **Story:** the ClickUp story
 **Device tested:** Samsung Galaxy A71 SM-A715F, Android 13, ADB serial <your-device-serial>
-**Backend endpoint:** `https://openvpngateclient.azurewebsites.net/api/v1/servers/events`
+**Backend endpoint for rerunning this historical test:** `https://openvpngateclient.com/api/v1/servers/events`
 
 ### Verification commands and log signals
 

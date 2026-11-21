@@ -178,8 +178,9 @@ class ConnectionControlsView @JvmOverloads constructor(
                     runtime.engineLevel,
                     runtime.engineDetail,
                     runtime.reconnectingHint,
-                    runtime.remainingSeconds
-                ) { _, _, _, _ -> }
+                    runtime.remainingSeconds,
+                    runtime.waitingForNetwork
+                ) { _, _, _, _, _ -> }
                     .collect {
                         val current = runtime.state.value
                         updateStatusLabel(current)
@@ -262,7 +263,8 @@ class ConnectionControlsView @JvmOverloads constructor(
         val statusText = presenter.buildStatusText(
             state = state,
             engineLevel = runtime.engineLevel.value,
-            remainingSeconds = runtime.remainingSeconds.value
+            remainingSeconds = runtime.remainingSeconds.value,
+            waitingForNetwork = runtime.waitingForNetwork.value
         )
         connectionDetailsListener?.updateStatus(statusText)
     }
@@ -272,7 +274,8 @@ class ConnectionControlsView @JvmOverloads constructor(
             state = state,
             detail = runtime.engineDetail.value,
             level = runtime.engineLevel.value,
-            reconnectingHint = runtime.reconnectingHint.value
+            reconnectingHint = runtime.reconnectingHint.value,
+            waitingForNetwork = runtime.waitingForNetwork.value
         )
         val connectButton = binding.startConnectionButton
         val pauseButton = binding.pauseConnectionButton

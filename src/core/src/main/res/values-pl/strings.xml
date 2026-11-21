@@ -139,6 +139,7 @@
     <string name="main_status_pausing">Wstrzymywanie…</string>
     <string name="main_status_paused">Wstrzymano</string>
     <string name="main_status_disconnecting">Rozłączanie…</string>
+    <string name="main_status_waiting_for_network">Oczekiwanie na sieć…</string>
     <string name="main_status_stop_failed">Zatrzymanie nie powiodło się. Dotknij Stop ponownie, aby spróbować jeszcze raz.</string>
 
     <!-- Section: Connection details (landscape) -->

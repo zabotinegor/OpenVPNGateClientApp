@@ -1,8 +1,8 @@
 # Terms of Use - Client for OpenVPN Gate
 
 Last updated: 2026-02-19  
-Canonical version: https://openvpngateclient.azurewebsites.net/terms-of-use  
-Related Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy
+Canonical version: https://openvpngateclient.com/terms-of-use  
+Related Privacy Policy: https://openvpngateclient.com/privacy-policy
 
 These Terms govern your use of the **Client for OpenVPN Gate** ("Application"). By installing or using the Application, you agree to these Terms. If you do not agree, do not use the Application.
 
@@ -34,7 +34,7 @@ These Terms govern your use of the **Client for OpenVPN Gate** ("Application"). 
 - You agree to indemnify and hold harmless the developer (Yahor Zabotsin) from claims arising out of your use of the Application or violation of these Terms.
 
 ## 7. Relationship to Privacy Policy
-- Your use of the Application is also governed by the Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy
+- Your use of the Application is also governed by the Privacy Policy: https://openvpngateclient.com/privacy-policy
 
 ## 8. Changes
 - These Terms may be updated periodically.
@@ -43,5 +43,5 @@ These Terms govern your use of the **Client for OpenVPN Gate** ("Application"). 
 
 ## 9. Contact
 - Email: openvpngateclient@gmail.com  
-- Homepage: https://openvpngateclient.azurewebsites.net  
+- Homepage: https://openvpngateclient.com  
 - Repository: https://github.com/zabotinegor/OpenVPNGateClientApp
