@@ -32,6 +32,11 @@ Nothing is hardcoded. `PRIMARY_SERVERS_URL` and `FALLBACK_SERVERS_URL` are build
 `PrimaryDomainRoutes` strips any `/api/vN` marker from the configured base and rebuilds each path at
 runtime. See [build-config.md](build-config.md).
 
+Production builds set `PRIMARY_SERVERS_URL` to the canonical origin `https://openvpngateclient.com`,
+which serves the same contract whether the Azure site or the RackNerd standby is active. Release
+builds reject the retired `openvpngateclient.azurewebsites.net` host; see
+[build-config.md](build-config.md#canonical-origin-safeguards).
+
 ## Retrofit clients
 
 Two, wired in `core/di/CoreDi.kt`:

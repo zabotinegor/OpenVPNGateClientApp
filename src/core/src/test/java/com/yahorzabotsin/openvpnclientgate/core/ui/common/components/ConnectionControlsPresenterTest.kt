@@ -443,4 +443,81 @@ class ConnectionControlsPresenterTest {
         override fun getCurrentPosition(context: Context): Pair<Int, Int>? = position
     }
 
+    // Resources are not packaged for these manifest-less tests, so strings resolve to their ids.
+    private fun idStringPresenter(): ConnectionControlsPresenter {
+        val base = context
+        val resources = object : android.content.res.Resources(
+            base.assets,
+            base.resources.displayMetrics,
+            base.resources.configuration
+        ) {
+            override fun getString(id: Int): String = "res:$id"
+            override fun getString(id: Int, vararg formatArgs: Any?): String = "res:$id"
+            override fun getText(id: Int): CharSequence = "res:$id"
+        }
+        val ctx = object : android.content.ContextWrapper(base) {
+            override fun getResources(): android.content.res.Resources = resources
+        }
+        return ConnectionControlsPresenter(ctx, ConnectionControlsUseCase())
+    }
+
+    private fun res(id: Int) = "res:$id"
+
+    @Test
+    fun `waiting for network shows dedicated label on status and button`() {
+        val presenter = idStringPresenter()
+        val waiting = res(R.string.main_status_waiting_for_network)
+
+        val status = presenter.buildStatusText(
+            state = ConnectionState.CONNECTING,
+            engineLevel = de.blinkt.openvpn.core.ConnectionStatus.LEVEL_NONETWORK,
+            remainingSeconds = null,
+            waitingForNetwork = true
+        )
+        val button = presenter.buildButtonModel(
+            state = ConnectionState.CONNECTING,
+            detail = "NONETWORK",
+            level = de.blinkt.openvpn.core.ConnectionStatus.LEVEL_NONETWORK,
+            reconnectingHint = true,
+            waitingForNetwork = true
+        )
+
+        assertEquals(waiting, status)
+        assertEquals(waiting, button.text.toString())
+        assertEquals(ConnectionButtonStyle.CONNECTING, button.style)
+    }
+
+    @Test
+    fun `nonetwork with a usable network shows reconnecting, not start connection`() {
+        val presenter = idStringPresenter()
+        val button = presenter.buildButtonModel(
+            state = ConnectionState.CONNECTING,
+            detail = "NONETWORK",
+            level = de.blinkt.openvpn.core.ConnectionStatus.LEVEL_NONETWORK,
+            reconnectingHint = true,
+            waitingForNetwork = false
+        )
+        val status = presenter.buildStatusText(
+            state = ConnectionState.CONNECTING,
+            engineLevel = de.blinkt.openvpn.core.ConnectionStatus.LEVEL_NONETWORK,
+            remainingSeconds = 3,
+            waitingForNetwork = false
+        )
+
+        assertEquals(res(R.string.state_reconnecting), button.text.toString())
+        assertEquals(res(R.string.main_status_connecting), status)
+    }
+
+    @Test
+    fun `waiting flag is ignored outside connecting`() {
+        val presenter = idStringPresenter()
+        val status = presenter.buildStatusText(
+            state = ConnectionState.DISCONNECTED,
+            engineLevel = de.blinkt.openvpn.core.ConnectionStatus.LEVEL_NONETWORK,
+            remainingSeconds = null,
+            waitingForNetwork = true
+        )
+
+        assertEquals(res(R.string.main_status_disconnected), status)
+    }
 }

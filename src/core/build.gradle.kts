@@ -42,6 +42,24 @@ fun isPlaceholderServerUrl(value: String?): Boolean {
     return host == "placeholder"
 }
 
+// Public hostnames that were retired in favour of the canonical production domain. A release
+// build must never embed one of them; debug and test builds may still point anywhere over HTTPS.
+val retiredPublicHosts = setOf("openvpngateclient.azurewebsites.net")
+
+fun isRetiredPublicHost(value: String?): Boolean {
+    val host = runCatching { URI(value?.trim().orEmpty()).host?.lowercase()?.trimEnd('.') }.getOrNull()
+    return host != null && host in retiredPublicHosts
+}
+
+fun isReleaseBuildRequested(): Boolean =
+    gradle.startParameter.taskNames.any { task ->
+        val name = task.substringAfterLast(':')
+        name.contains("release", ignoreCase = true) ||
+            name.equals("assemble", ignoreCase = true) ||
+            name.equals("build", ignoreCase = true) ||
+            name.equals("bundle", ignoreCase = true)
+    }
+
 fun firstUsableServerUrl(vararg candidates: String?): String? {
     return candidates
         .mapNotNull { it?.trim() }
@@ -97,6 +115,9 @@ android {
         }
         require(!fallbackServersUrl.isNullOrBlank()) {
             "FALLBACK_SERVERS_URL is not set (or is placeholder). Provide it via Gradle property FALLBACK_SERVERS_URL, env var FALLBACK_SERVERS_URL, or servers.local.json."
+        }
+        require(!(isReleaseBuildRequested() && isRetiredPublicHost(primaryServersUrl))) {
+            "PRIMARY_SERVERS_URL points to a retired public host. Release builds must use the canonical production origin."
         }
         require(appReleaseType == "release" || appReleaseType == "beta") {
             "APP_RELEASE_TYPE/appReleaseType must be either 'release' or 'beta'."

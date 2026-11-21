@@ -282,6 +282,11 @@ class VpnInactivityHardprobeTriggerTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
 
         assertTrue("No probe should be enqueued for LEVEL_NONETWORK (device network loss)", fakeQueue.enqueuedIds.isEmpty())
+
+        // NONETWORK re-tags the running timer instead of switching at once; when that timer then
+        // fires the switch is still a NONETWORK switch, which must not probe the server either.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertTrue("No probe should be enqueued when the NONETWORK switch timer fires", fakeQueue.enqueuedIds.isEmpty())
     }
 
     // Helper: build a connected OpenVpnService with watchdog past warm-up period

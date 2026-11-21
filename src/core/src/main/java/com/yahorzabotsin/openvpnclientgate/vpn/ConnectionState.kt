@@ -64,6 +64,16 @@ object ConnectionStateManager {
     val engineDetail = _engineDetail.asStateFlow()
     private val _reconnectingHint = MutableStateFlow(false)
     val reconnectingHint = _reconnectingHint.asStateFlow()
+    // True while a live session holds CONNECTING because the engine reported LEVEL_NONETWORK and
+    // the device has no usable underlying network. Drives the "Waiting for network" label.
+    private val _waitingForNetwork = MutableStateFlow(false)
+    val waitingForNetwork = _waitingForNetwork.asStateFlow()
+    // True when the current reconnectingHint was raised only to hold a live session through
+    // LEVEL_NONETWORK (not by an auto-switch or reconnect start). Any explicit setReconnectingHint()
+    // takes the hint over. Lets an engine that then stops on its own fall back to DISCONNECTED
+    // instead of staying latched in CONNECTING.
+    @Volatile
+    private var noNetworkHintOwned = false
 
     private val _connectionStartTimeMs = MutableStateFlow<Long?>(null)
     val connectionStartTimeMs = _connectionStartTimeMs.asStateFlow()
@@ -76,7 +86,37 @@ object ConnectionStateManager {
     val uploadedBytes = _uploadedBytes.asStateFlow()
 
     fun setReconnectingHint(value: Boolean) {
+        noNetworkHintOwned = false
         _reconnectingHint.value = value
+    }
+
+    /**
+     * Whether an engine LEVEL_NONETWORK report belongs to a live, user-started session: the app is
+     * connecting or connected, or a reconnect is already in progress. A user stop moves the state to
+     * DISCONNECTING and clears the hint first, so a NONETWORK after it is not live.
+     */
+    internal fun isSessionLiveForNoNetwork(): Boolean {
+        val current = _state.value
+        return _reconnectingHint.value ||
+            current == ConnectionState.CONNECTING ||
+            current == ConnectionState.CONNECTED
+    }
+
+    /** Holds a live session in CONNECTING (reconnecting) for LEVEL_NONETWORK. */
+    internal fun markNoNetworkReconnecting(waitingForNetwork: Boolean) {
+        if (!_reconnectingHint.value) {
+            _reconnectingHint.value = true
+            noNetworkHintOwned = true
+        }
+        updateState(ConnectionState.CONNECTING)
+        _waitingForNetwork.value = waitingForNetwork && _state.value == ConnectionState.CONNECTING
+    }
+
+    /** True while the reconnecting hint exists only to hold a live session through NONETWORK. */
+    internal fun isNoNetworkHintOwned(): Boolean = noNetworkHintOwned
+
+    internal fun setWaitingForNetwork(value: Boolean) {
+        _waitingForNetwork.value = value && _state.value == ConnectionState.CONNECTING
     }
 
     @MainThread
@@ -135,8 +175,13 @@ object ConnectionStateManager {
         if (newState in allowed) {
             _state.value = newState
             AppLog.i(TAG, "App state: ${current} -> ${newState}")
+            if (newState != ConnectionState.CONNECTING) _waitingForNetwork.value = false
             when (newState) {
                 ConnectionState.DISCONNECTED -> {
+                    if (noNetworkHintOwned) {
+                        noNetworkHintOwned = false
+                        _reconnectingHint.value = false
+                    }
                     resumeTransitionInFlight = false
                     _speedMbps.value = 0.0
                     _downloadedBytes.value = 0L
@@ -207,7 +252,24 @@ object ConnectionStateManager {
             _error.value = VpnError.NONE
         }
 
-        if (mapped == ConnectionState.CONNECTED) _reconnectingHint.value = false
+        // Preserve an offline NONETWORK hold through ambiguous UNKNOWN/CONNECTING reports.
+        // The switcher clears the waiting flag after fresh underlying-network recovery.
+        val transientNonTerminalLevel = when (normalizedLevel) {
+            ConnectionStatus.UNKNOWN_LEVEL -> detail !in engineTeardownDetails
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> true
+            else -> false
+        }
+        if (normalizedLevel != ConnectionStatus.LEVEL_NONETWORK && !transientNonTerminalLevel) {
+            _waitingForNetwork.value = false
+        }
+
+        if (mapped == ConnectionState.CONNECTED) {
+            noNetworkHintOwned = false
+            _reconnectingHint.value = false
+        }
 
         if (mapped == ConnectionState.PAUSED) {
             if (resumeTransitionInFlight) {
@@ -221,6 +283,35 @@ object ConnectionStateManager {
         val current = _state.value
         val d = detail ?: ""
         var effective = mapped
+
+        if (mapped == ConnectionState.DISCONNECTED &&
+            normalizedLevel == ConnectionStatus.LEVEL_NONETWORK &&
+            !_reconnectingHint.value &&
+            (current == ConnectionState.CONNECTING || current == ConnectionState.CONNECTED)
+        ) {
+            // NONETWORK is a hold of a live engine session (the engine resumes by itself once a
+            // network is back), not a terminal state: keep the session visibly reconnecting.
+            _reconnectingHint.value = true
+            noNetworkHintOwned = true
+            AppLog.i(TAG, "Engine NONETWORK on a live session; holding CONNECTING instead of DISCONNECTED")
+        } else if (mapped == ConnectionState.DISCONNECTED &&
+            normalizedLevel != ConnectionStatus.LEVEL_NONETWORK &&
+            !transientNonTerminalLevel &&
+            noNetworkHintOwned
+        ) {
+            // The hint was only holding the session through NONETWORK, and the engine has now
+            // confirmed a terminal state (not transient UNKNOWN): report the real state.
+            noNetworkHintOwned = false
+            _reconnectingHint.value = false
+            AppLog.i(TAG, "Engine level=$normalizedLevel ended the NONETWORK hold; releasing reconnecting hint")
+            val released = if (current == ConnectionState.DISCONNECTING && d in engineTeardownDetails) {
+                ConnectionState.DISCONNECTING
+            } else {
+                ConnectionState.DISCONNECTED
+            }
+            updateState(released)
+            return
+        }
 
         if (mapped == ConnectionState.DISCONNECTED) {
             effective = when {

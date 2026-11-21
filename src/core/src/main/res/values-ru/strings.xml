@@ -135,6 +135,7 @@
     <string name="main_status_pausing">Пауза…</string>
     <string name="main_status_paused">Пауза</string>
     <string name="main_status_disconnecting">Отключение…</string>
+    <string name="main_status_waiting_for_network">Ожидание сети…</string>
     <string name="main_status_stop_failed">Остановить не удалось. Нажмите «Стоп» снова, чтобы повторить.</string>
 
     <!-- Section: Connection details -->

@@ -2,6 +2,8 @@ package com.yahorzabotsin.openvpnclientgate.vpn
 
 import de.blinkt.openvpn.core.ConnectionStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,6 +21,7 @@ class ConnectionStateManagerTest {
         ConnectionStateManager.setReconnectingHint(false)
         // Force baseline state
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.setWaitingForNetwork(false)
     }
 
     @Test
@@ -303,5 +306,123 @@ class ConnectionStateManagerTest {
         // Timer must not be reset during resume
         assertEquals(base, ConnectionStateManager.connectionStartTimeMs.value)
     }
-}
 
+    private fun connected() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, "CONNECTED")
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun nonetworkWithLiveSession_mapsToConnectingWithHint_notDisconnected() {
+        connected()
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertTrue(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkWhileConnecting_staysConnectingWithHint() {
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertTrue(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkAfterUserStop_staysDisconnected() {
+        // After a user stop the app is DISCONNECTED and the hint is cleared.
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkDuringUserStopTeardown_resolvesToDisconnected() {
+        connected()
+        ConnectionStateManager.setReconnectingHint(false)
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTING)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkHold_engineStopsOnItsOwn_releasesToDisconnected() {
+        connected()
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+
+        // No switch took the hint over: a NOTCONNECTED now is the engine really ending.
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, "NOPROCESS")
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkHold_switchTakesHintOver_staysConnectingThroughTeardown() {
+        connected()
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+        // ServerAutoSwitcher begins a switch.
+        ConnectionStateManager.setReconnectingHint(true)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NOTCONNECTED, "NOPROCESS")
+
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertTrue(ConnectionStateManager.reconnectingHint.value)
+    }
+
+    @Test
+    fun nonetworkHold_thenConnected_clearsHintAndWaitingFlag() {
+        connected()
+        ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, "CONNECTED")
+
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertFalse(ConnectionStateManager.waitingForNetwork.value)
+    }
+
+    @Test
+    fun waitingForNetwork_survivesTransientUnknownAndConnecting_untilRecovery() {
+        connected()
+        ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_NONETWORK, "NONETWORK")
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "UNKNOWN")
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+        assertTrue(ConnectionStateManager.reconnectingHint.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "RECONNECTING")
+        assertTrue(ConnectionStateManager.waitingForNetwork.value)
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTED, "CONNECTED")
+        assertFalse(ConnectionStateManager.waitingForNetwork.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertEquals(ConnectionState.CONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun nonetworkHold_unknownWithExplicitTeardown_isTerminal() {
+        connected()
+        ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ConnectionStateManager.reconnectingHint.value)
+        assertFalse(ConnectionStateManager.waitingForNetwork.value)
+    }
+}

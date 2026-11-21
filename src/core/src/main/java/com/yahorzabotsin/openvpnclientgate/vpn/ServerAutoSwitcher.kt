@@ -88,6 +88,29 @@ object ServerAutoSwitcher {
     // invoke the provided completion action on the main thread.
     @Volatile internal var v2HydrationCallback: ((Context, () -> Unit) -> Unit)? = null
     @Volatile internal var probeRequestQueue: ProbeRequestQueue? = null
+    // Classifies LEVEL_NONETWORK (see onNoNetworkLevel). Null means unknown and is treated as a
+    // usable network, which keeps the bounded status-timeout switch as the fallback behaviour.
+    // Set and cleared on the main thread by OpenVpnService (onCreate/onDestroy).
+    internal var networkMonitor: UnderlyingNetworkMonitor? = null
+        set(value) {
+            if (field === value) return
+            field?.setListener(null)
+            field = value
+            value?.setListener { usable -> onUnderlyingNetworkChanged(usable) }
+        }
+    // True while a live session waits for a usable underlying network after LEVEL_NONETWORK: no
+    // switch timer runs, no server is switched and no hardprobe is queued until the network is back.
+    private var noNetworkWaiting: Boolean = false
+    private var noNetworkWaitContext: Context? = null
+    // Context of the running switch timer; lets a network-loss event enter the network wait.
+    private var timerContext: Context? = null
+    // True while a usable-network NONETWORK hold owns the running switch timer. Survives the timer being
+    // re-created at a CONNECTING level, so a terminal teardown can still cancel it (see
+    // clearNoNetworkHoldOnVpnStatusTerminal).
+    private var usableNetworkHoldOwner = false
+    // Keep fresh-network gating after an offline NONETWORK until CONNECTED, terminal, or user stop.
+    // Transient UNKNOWN/CONNECTING may follow NONETWORK without an underlying network returning.
+    private var noNetworkRecoveryPending: Boolean = false
     @Volatile private var v2HydrationPending: Boolean = false
     @Volatile private var waitingStopForRetry: Boolean = false
     @Volatile private var pendingConfig: String? = null
@@ -151,7 +174,8 @@ object ServerAutoSwitcher {
         appContext: Context,
         level: ConnectionStatus,
         source: String,
-        wasConnectingAtDispatch: Boolean? = null
+        wasConnectingAtDispatch: Boolean? = null,
+        detail: String? = null
     ) {
         logEngineLevel(level, source)
 
@@ -249,6 +273,74 @@ object ServerAutoSwitcher {
             return
         }
 
+        // Terminal UNKNOWN must clear an existing NONETWORK timeout whether the device was
+        // previously offline or the underlying network was already usable. This event's
+        // detail has not yet been persisted by ConnectionStateManager.
+        // Only when an actual NONETWORK hold exists: an unrelated terminal UNKNOWN (no hold) keeps the
+        // regular idle-tolerance recovery below, so a failed start is not left CONNECTING with no timer.
+        if (level == ConnectionStatus.UNKNOWN_LEVEL &&
+            detail in ConnectionStateManager.engineTeardownDetails) {
+            val hold = hasNoNetworkHold()
+            if (hold) clearNoNetworkHoldOnVpnStatusTerminal()
+            // Recover (idle tolerance below) only a live attempt that nothing else will settle:
+            //  - state must still be CONNECTING: after a user Disconnect it is DISCONNECTING, and a
+            //    stale terminal UNKNOWN must never re-arm a switch after an explicit stop;
+            //  - with a NONETWORK hold, the manager releases the hint itself only when the hint is
+            //    NONETWORK-owned; a hint raised by an explicit reconnect is not released, so that
+            //    attempt would stay CONNECTING with no timer unless recovery is kept.
+            val stillConnecting = try {
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            } catch (_: Exception) { false }
+            val hintHeldByReconnect = try {
+                ConnectionStateManager.reconnectingHint.value && !ConnectionStateManager.isNoNetworkHintOwned()
+            } catch (_: Exception) { false }
+            if (!(stillConnecting && (!hold || hintHeldByReconnect))) {
+                // Queued AIDL callbacks (NONETWORK -> CONNECTING -> UNKNOWN) can arm a CONNECTING timer
+                // after the binder side already settled the session: drop the obsolete timer.
+                if (!stillConnecting) {
+                    // A queued transient UNKNOWN may likewise have scheduled idle tolerance.
+                    cancelIdleTolerance()
+                    if (timerActive) {
+                        AppLog.i(TAG, "Terminal UNKNOWN for an already-ended session; cancelling obsolete switch timer")
+                        cancelPreservingPendingStopDispatch(resetCycle = false)
+                    }
+                }
+                return
+            }
+        }
+
+        // A transient engine level is not proof that the underlying network has returned.
+        // VPN_STATUS and synchronous AIDL snapshots reach the switcher before the state manager
+        // records this event. Classify UNKNOWN using its own accepted detail, never a stale one.
+        val transientRecoveryLevel = when (level) {
+            ConnectionStatus.UNKNOWN_LEVEL ->
+                detail !in ConnectionStateManager.engineTeardownDetails
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> true
+            else -> false
+        }
+        if (noNetworkRecoveryPending) {
+            if (transientRecoveryLevel && !ConnectionStateManager.isSessionLiveForNoNetwork()) {
+                cancelIdleTolerance()
+                leaveNoNetworkWait()
+                noNetworkRecoveryPending = false
+                return
+            }
+            if (transientRecoveryLevel && !isUnderlyingNetworkUsable()) {
+                enterNoNetworkWait(appContext)
+                cancelIdleTolerance()
+                return
+            }
+            if (level != ConnectionStatus.LEVEL_NONETWORK) {
+                leaveNoNetworkWait()
+                if (!transientRecoveryLevel) noNetworkRecoveryPending = false
+            }
+        } else if (level != ConnectionStatus.LEVEL_NONETWORK) {
+            leaveNoNetworkWait()
+        }
+
         if (level == ConnectionStatus.UNKNOWN_LEVEL) {
             scheduleIdleTolerance(appContext, level)
             return
@@ -256,9 +348,12 @@ object ServerAutoSwitcher {
             cancelIdleTolerance()
         }
 
-        val shouldSwitchImmediately =
-            level == ConnectionStatus.LEVEL_AUTH_FAILED ||
-                (source == "AIDL" && level == ConnectionStatus.LEVEL_NONETWORK)
+        if (level == ConnectionStatus.LEVEL_NONETWORK) {
+            onNoNetworkLevel(appContext, wasConnectingAtDispatch)
+            return
+        }
+
+        val shouldSwitchImmediately = level == ConnectionStatus.LEVEL_AUTH_FAILED
         if (shouldSwitchImmediately) {
             val isConnecting = wasConnectingAtDispatch ?: try {
                 ConnectionStateManager.state.value == ConnectionState.CONNECTING
@@ -286,7 +381,9 @@ object ServerAutoSwitcher {
                 // AUTH_FAILED level, i.e. an engine that demonstrably has NOT stopped, so a pending
                 // stop-retry-timeout re-dispatch is still owed to the prior tunnel. See
                 // cancelPreservingPendingStopDispatch().
+                val holdOwner = usableNetworkHoldOwner
                 cancelPreservingPendingStopDispatch(resetCycle = false)
+                usableNetworkHoldOwner = holdOwner
                 start(appContext, level)
             }
         } else {
@@ -311,6 +408,150 @@ object ServerAutoSwitcher {
             } else {
                 cancelPreservingPendingStopDispatch(resetCycle = resetCycle)
             }
+        }
+    }
+
+    /**
+     * LEVEL_NONETWORK handling. NONETWORK is a hold of a live engine session, not a server failure,
+     * so it never switches immediately and never queues a hardprobe:
+     *
+     * - No usable underlying network: wait. The switch timer is stopped (the cycle is kept), the app
+     *   shows CONNECTING / "Waiting for network", and nothing is switched until the network returns.
+     *   Then the regular status timeout runs, and the switch happens only if the engine is still in
+     *   NONETWORK when it ends.
+     * - Usable underlying network: the report is recoverable (or stale), so the regular
+     *   status-timeout timer is armed. A connecting or connected level before it ends cancels or
+     *   replaces it; a re-delivered NONETWORK neither re-arms nor extends it.
+     *
+     * Only a live session is handled. A NONETWORK after a user stop (state DISCONNECTING or
+     * DISCONNECTED) is ignored, as before.
+     */
+    private fun onNoNetworkLevel(appContext: Context, wasConnectingAtDispatch: Boolean?) {
+        val state = try { ConnectionStateManager.state.value } catch (_: Exception) { null }
+        // The wait flag itself is not liveness evidence: this object outlives the controller service,
+        // so a wait left behind by a destroyed controller must not pull a DISCONNECTED app back into
+        // CONNECTING on the next (possibly stale) NONETWORK. While a session really waits, the app
+        // state is CONNECTING anyway.
+        val live = timerActive || wasConnectingAtDispatch == true ||
+            state == ConnectionState.CONNECTING || state == ConnectionState.CONNECTED
+        if (!live) {
+            leaveNoNetworkWait()
+            noNetworkRecoveryPending = false
+            return
+        }
+        if (!isUnderlyingNetworkUsable()) {
+            enterNoNetworkWait(appContext)
+            return
+        }
+        if (noNetworkWaiting) {
+            AppLog.i(TAG, "Usable underlying network found at NONETWORK re-delivery; starting status timeout")
+            leaveNoNetworkWait()
+        }
+        try {
+            ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = false)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to hold reconnecting state for NONETWORK", e)
+        }
+        usableNetworkHoldOwner = true
+        if (!timerActive) {
+            AppLog.i(TAG, "NONETWORK with a usable underlying network; arming status-timeout switch timer")
+            start(appContext, ConnectionStatus.LEVEL_NONETWORK)
+        } else if (timerLevel != ConnectionStatus.LEVEL_NONETWORK) {
+            // Re-tag the running timer without resetting its elapsed time, so NONETWORK can never
+            // extend a switch that is already due. Its threshold is never above the connecting ones.
+            AppLog.d(TAG, "Auto-switch timer level change: ${timerLevel} -> ${ConnectionStatus.LEVEL_NONETWORK} (elapsed kept)")
+            timerLevel = ConnectionStatus.LEVEL_NONETWORK
+        }
+    }
+
+    /** True while any NONETWORK-owned timer, wait or recovery exists. */
+    private fun hasNoNetworkHold(): Boolean =
+        noNetworkWaiting || noNetworkRecoveryPending || usableNetworkHoldOwner ||
+            timerLevel == ConnectionStatus.LEVEL_NONETWORK
+
+    private fun isUnderlyingNetworkUsable(): Boolean {
+        val monitor = networkMonitor ?: return true
+        return try {
+            monitor.isUsableNetworkAvailable()
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Underlying network check failed; treating network as usable", e)
+            true
+        }
+    }
+
+    private fun enterNoNetworkWait(appContext: Context) {
+        if (noNetworkWaiting) return
+        AppLog.i(TAG, "NONETWORK with no usable underlying network; waiting for network (no switch, no hardprobe)")
+        // Keeps the cycle and any owed stop re-dispatch; only the switch timer stops.
+        cancelPreservingPendingStopDispatch(resetCycle = false)
+        noNetworkWaiting = true
+        noNetworkRecoveryPending = true
+        noNetworkWaitContext = appContext.applicationContext ?: appContext
+        try {
+            ConnectionStateManager.markNoNetworkReconnecting(waitingForNetwork = true)
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Failed to hold reconnecting state while waiting for network", e)
+        }
+    }
+
+    private fun leaveNoNetworkWait() {
+        if (!noNetworkWaiting) return
+        noNetworkWaiting = false
+        noNetworkWaitContext = null
+        try { ConnectionStateManager.setWaitingForNetwork(false) } catch (_: Exception) { }
+    }
+
+    /** Main thread (see [UnderlyingNetworkMonitor.setListener]). */
+    private fun onUnderlyingNetworkChanged(usable: Boolean) {
+        if (!usable) {
+            // Network lost while a status-timeout switch timer is already running (e.g. armed at a
+            // CONNECTING level just before the loss, before the engine reports NONETWORK): hold the
+            // session instead of letting the timer stop/start the engine mid-outage.
+            val ctx = timerContext
+            if (timerActive && !noNetworkWaiting && ctx != null &&
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            ) {
+                enterNoNetworkWait(ctx)
+            }
+            return
+        }
+        if (!noNetworkWaiting) return
+        val ctx = noNetworkWaitContext ?: return
+        val currentLevel = ConnectionStateManager.engineLevel.value
+        // The accepted engine level can be UNKNOWN/CONNECTING while the same live session waits.
+        val transientLevel = when (currentLevel) {
+            // Terminal UNKNOWN too: a failed start that went offline via the UNKNOWN switch timeout
+            // owns this wait and must resume bounded recovery when the network returns. Liveness is
+            // established by the CONNECTING + reconnecting-hint + waiting-for-network guards below;
+            // an ended session or a cancelled hold no longer satisfies them.
+            ConnectionStatus.UNKNOWN_LEVEL,
+            ConnectionStatus.LEVEL_START,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
+            ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> true
+            else -> false
+        }
+        if (ConnectionStateManager.state.value != ConnectionState.CONNECTING ||
+            !ConnectionStateManager.reconnectingHint.value ||
+            !ConnectionStateManager.waitingForNetwork.value ||
+            (currentLevel != ConnectionStatus.LEVEL_NONETWORK && !transientLevel)
+        ) {
+            AppLog.i(TAG, "Discarding stale NONETWORK wait after the session ended")
+            leaveNoNetworkWait()
+            noNetworkRecoveryPending = false
+            return
+        }
+        // Do not trust the callback alone: a newer capabilities change may already be queued.
+        if (!isUnderlyingNetworkUsable()) return
+        AppLog.i(TAG, "Underlying network is usable again; waiting status timeout before switching")
+        leaveNoNetworkWait()
+        when (currentLevel) {
+            ConnectionStatus.LEVEL_NONETWORK,
+            ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
+            ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED ->
+                if (!timerActive) start(ctx, currentLevel)
+            ConnectionStatus.UNKNOWN_LEVEL -> scheduleIdleTolerance(ctx, currentLevel)
+            else -> Unit // START / WAITING_FOR_USER_INPUT wait for the next engine level.
         }
     }
 
@@ -397,6 +638,7 @@ object ServerAutoSwitcher {
         seconds = 0
         timerActive = true
         timerLevel = level
+        timerContext = appContext.applicationContext ?: appContext
         val th = thresholdFor(level)
         _remainingSeconds.value = th
         AppLog.d(TAG, "Timeout timer started for level=${level}")
@@ -420,6 +662,23 @@ object ServerAutoSwitcher {
                     )
                 }
                 if (seconds >= threshold) {
+                    if (!isUnderlyingNetworkUsable()) {
+                        // The network is down at expiry (the loss callback may have run before this
+                        // timer was armed, or be queued behind it): wait for it instead of switching,
+                        // but only for a live session -- never revive a DISCONNECTED/ended one.
+                        val live = try {
+                            ConnectionStateManager.state.value == ConnectionState.CONNECTING
+                        } catch (_: Exception) { false }
+                        if (live) {
+                            enterNoNetworkWait(appContext)
+                        } else {
+                            // The session ended while the timer ran: drop the obsolete timer; no stop,
+                            // start, server rotation or probe for a session that no longer exists.
+                            AppLog.i(TAG, "Offline timeout for an ended session; cancelling obsolete switch timer")
+                            cancelPreservingPendingStopDispatch(resetCycle = false)
+                        }
+                        return
+                    }
                     requestSwitchNow(appContext, timerLevel ?: level, fromTimer = true, waitedSeconds = threshold)
                     return
                 }
@@ -438,6 +697,8 @@ object ServerAutoSwitcher {
         }
         timerActive = false
         timerLevel = null
+        timerContext = null
+        usableNetworkHoldOwner = false
         seconds = 0
         waitingStopForRetry = false
         pendingConfig = null
@@ -451,6 +712,8 @@ object ServerAutoSwitcher {
         retryStartRunnable = null
         retryCommitInFlight = false
         cancelIdleTolerance()
+        leaveNoNetworkWait()
+        noNetworkRecoveryPending = false
         _remainingSeconds.value = null
         v2HydrationPending = false
         if (resetCycle) {
@@ -521,6 +784,43 @@ object ServerAutoSwitcher {
     }
 
     /**
+     * VPN_STATUS handles terminal failures through OpenVpnService's own stop/retry path; forwarding
+     * them to onEngineLevel() could also consume a pending stop-before-retry confirmation. However,
+     * a preceding NONETWORK report may have armed this switcher's timer or network wait. Cancel
+     * only that obsolete NONETWORK work, without disturbing other stop/retry dispatches.
+     * Main-looper only, after OpenVpnService has accepted the terminal engine state.
+     */
+    fun clearNoNetworkHoldOnVpnStatusTerminal() {
+        // UNKNOWN_LEVEL may have scheduled a delayed idle-tolerance callback while the earlier
+        // NONETWORK timer was active. Once the terminal VPN_STATUS has been accepted, that
+        // callback must not arm a fresh UNKNOWN switch timer after the session has ended.
+        // Cancel it even when no NONETWORK timer/wait remains; preserve stop/retry ownership.
+        cancelIdleTolerance()
+        val hadOfflineRecovery = noNetworkRecoveryPending || usableNetworkHoldOwner
+        noNetworkRecoveryPending = false
+        usableNetworkHoldOwner = false
+        if (timerLevel != ConnectionStatus.LEVEL_NONETWORK && !noNetworkWaiting && !hadOfflineRecovery) return
+        AppLog.i(TAG, "Terminal VPN_STATUS clears obsolete NONETWORK recovery timer or wait")
+        // After network restoration a timer may carry UNKNOWN/CONNECTING rather than NONETWORK.
+        // It still belongs to the ended offline-recovery session and must never switch later.
+        if (timerLevel == ConnectionStatus.LEVEL_NONETWORK || (hadOfflineRecovery && timerActive)) {
+            runnable?.let { handler.removeCallbacks(it) }
+            runnable = null
+            timerActive = false
+            timerLevel = null
+            seconds = 0
+            _remainingSeconds.value = null
+        }
+        leaveNoNetworkWait()
+        // Match the regular terminal-level path: a live reconnect cycle retains its visited set,
+        // whereas a genuinely ended session must not poison the next user-started cycle.
+        if (!ConnectionStateManager.reconnectingHint.value &&
+            !waitingStopForRetry && !retryCommitInFlight) {
+            cycleVisited = null
+        }
+    }
+
+    /**
      * Runs [cancel] while leaving an armed stop-retry-timeout re-dispatch scheduled exactly as it
      * was.
      *
@@ -541,10 +841,14 @@ object ServerAutoSwitcher {
      */
     private fun cancelPreservingPendingStopDispatch(resetCycle: Boolean) {
         val pending = timeoutStopDispatchRunnable
+        // This is only a timer transition, not a confirmed network recovery. Preserve its
+        // fresh-network gate when re-tagging NONETWORK as a CONNECTING timeout.
+        val offlineRecovery = noNetworkRecoveryPending
         // Null while cancel() runs, so its unconditional removeCallbacks() is a no-op for this one
         // Runnable and the already-posted callback keeps its original due time.
         timeoutStopDispatchRunnable = null
         cancel(resetCycle = resetCycle)
+        noNetworkRecoveryPending = offlineRecovery
         if (pending != null) {
             timeoutStopDispatchRunnable = pending
             AppLog.d(
@@ -1076,6 +1380,12 @@ object ServerAutoSwitcher {
     // "cancelled" from "not yet due".
     @JvmStatic
     fun hasPendingStopDispatchForTest(): Boolean = timeoutStopDispatchRunnable != null
+
+    @JvmStatic
+    fun isWaitingForNetworkForTest(): Boolean = noNetworkWaiting
+
+    @JvmStatic
+    fun isTimerActiveForTest(): Boolean = timerActive
 }
 
 

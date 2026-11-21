@@ -37,6 +37,9 @@ class OpenVpnServiceNotificationTest {
 
     @Before
     fun resetState() {
+        // A real monitor wired by an earlier test's service would report "offline" under Robolectric and
+        // make the switch timers in these tests wait for the network instead of switching.
+        ServerAutoSwitcher.networkMonitor = null
         ConnectionStateManager.setReconnectingHint(false)
         ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
         VpnManager.resetActionStartDispatchTrackingForTest()

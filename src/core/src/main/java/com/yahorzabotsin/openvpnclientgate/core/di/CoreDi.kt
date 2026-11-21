@@ -88,6 +88,8 @@ import com.yahorzabotsin.openvpnclientgate.core.versions.DefaultVersionReleaseRe
 import com.yahorzabotsin.openvpnclientgate.core.versions.VersionReleaseRepository
 import com.yahorzabotsin.openvpnclientgate.core.versions.VersionsApi
 import com.yahorzabotsin.openvpnclientgate.vpn.DefaultVpnConnectionStateProvider
+import com.yahorzabotsin.openvpnclientgate.vpn.ConnectivityUnderlyingNetworkMonitor
+import com.yahorzabotsin.openvpnclientgate.vpn.UnderlyingNetworkMonitor
 import com.yahorzabotsin.openvpnclientgate.vpn.VpnConnectionStateProvider
 import okhttp3.OkHttpClient
 import androidx.work.WorkManager
@@ -137,6 +139,10 @@ val coreModule = module {
     }
 
     single<ProbeRequestQueue> { WorkManagerProbeRequestQueue(get<WorkManager>()) }
+    // Classifies engine LEVEL_NONETWORK for ServerAutoSwitcher; started/stopped by OpenVpnService.
+    single<UnderlyingNetworkMonitor> {
+        ConnectivityUnderlyingNetworkMonitor(androidContext())
+    }
     // HardProbeApiClient is available for injection by future callers that need direct probe results
     // (e.g. immediate one-shot probes without WorkManager durability). Not used at runtime today.
     single { HardProbeApiClient(get()) }

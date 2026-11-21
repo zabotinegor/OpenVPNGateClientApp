@@ -48,14 +48,14 @@ The app isn't on an official app store yet. For now, the current ways to get it 
 
 - [GitHub Releases](https://github.com/zabotinegor/OpenVPNGateClientApp/releases) — download the
   latest APK directly.
-- The [project website](https://openvpngateclient.azurewebsites.net) — same releases, with more
+- The [project website](https://openvpngateclient.com) — same releases, with more
   context.
 
 ## Links
 
-- Homepage: https://openvpngateclient.azurewebsites.net
-- Privacy Policy: https://openvpngateclient.azurewebsites.net/privacy-policy
-- Terms of Use: https://openvpngateclient.azurewebsites.net/terms-of-use
+- Homepage: https://openvpngateclient.com
+- Privacy Policy: https://openvpngateclient.com/privacy-policy
+- Terms of Use: https://openvpngateclient.com/terms-of-use
 - License: [GPL-2.0-only](LICENSE)
 - GitHub (this app): https://github.com/zabotinegor/OpenVPNGateClientApp
 - GitHub (VPN engine): https://github.com/zabotinegor/OpenVPNGateClientEngine

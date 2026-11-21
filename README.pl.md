@@ -50,14 +50,14 @@ Aplikacji nie ma jeszcze w oficjalnym sklepie z aplikacjami. Obecnie dostępne s
 
 - [GitHub Releases](https://github.com/zabotinegor/OpenVPNGateClientApp/releases) — pobierz
   najnowszy plik APK bezpośrednio.
-- [Strona projektu](https://openvpngateclient.azurewebsites.net) — te same wydania, z dodatkowym
+- [Strona projektu](https://openvpngateclient.com) — te same wydania, z dodatkowym
   kontekstem.
 
 ## Linki
 
-- Strona główna: https://openvpngateclient.azurewebsites.net
-- Polityka prywatności: https://openvpngateclient.azurewebsites.net/privacy-policy
-- Warunki korzystania: https://openvpngateclient.azurewebsites.net/terms-of-use
+- Strona główna: https://openvpngateclient.com
+- Polityka prywatności: https://openvpngateclient.com/privacy-policy
+- Warunki korzystania: https://openvpngateclient.com/terms-of-use
 - Licencja: [GPL-2.0-only](LICENSE)
 - GitHub (ta aplikacja): https://github.com/zabotinegor/OpenVPNGateClientApp
 - GitHub (silnik VPN): https://github.com/zabotinegor/OpenVPNGateClientEngine

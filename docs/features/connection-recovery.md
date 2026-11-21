@@ -7,6 +7,7 @@ and all three are bounded — none retries forever.
 
 - [Connected-state watchdog](#connected-state-watchdog)
 - [Auto-switch within country](#auto-switch-within-country)
+  - [Engine NONETWORK on a live session](#engine-nonetwork-on-a-live-session)
 - [Stop and teardown](#stop-and-teardown)
 - [How the three interact](#how-the-three-interact)
 
@@ -166,6 +167,33 @@ watchdog's attempt cap is a separate bound on a different path.
 One exception: for `DEFAULT_V2` with an empty store, a `null` next server first triggers on-demand
 hydration and re-evaluates, rather than concluding there is no alternative.
 
+### Engine NONETWORK on a live session
+
+`LEVEL_NONETWORK` is a hold of a live engine session (the engine resumes by itself when a network
+returns), not a server failure. It never triggers the immediate switch and never queues a hardprobe.
+`ServerAutoSwitcher.onNoNetworkLevel` handles it for the AIDL push and the `VPN_STATUS` fallback alike.
+"Live" means the app state is `CONNECTING` or `CONNECTED`, the switch timer is running, or the dispatch
+snapshot was connecting. A NONETWORK after a user stop is not live: the app stays `DISCONNECTED`, and
+any leftover wait flag is cleared (the switcher outlives the controller service, so the flag itself is
+never liveness evidence).
+
+Discriminator: `vpn/UnderlyingNetworkMonitor.kt` (Koin singleton, started and stopped by
+`OpenVpnService`, assigned to `ServerAutoSwitcher.networkMonitor`). A network is usable when it has
+`INTERNET` and `NOT_VPN` and is not an unvalidated captive portal. `VALIDATED` is deliberately not
+required: where the connectivity check is blocked a working network never validates. `NOT_VPN` is
+required because `activeNetwork` returns the app's own tunnel under the VPN. The decision-time check
+reads `allNetworks` fresh and does not rely on the callback alone; an unknown monitor counts as usable.
+
+| Underlying network | Behaviour |
+|---|---|
+| None usable | App state `CONNECTING` + `reconnectingHint`, status label "Waiting for network…" (`waitingForNetwork`). Switch timer stopped (cycle kept), no switch, no hardprobe, controller foreground notification kept, so `ACTION_STOP_IF_IDLE` cannot reap it. When the monitor reports a usable network, the regular status timeout starts; the switch happens only if the engine is still in NONETWORK when it ends. |
+| Usable | Hold in `CONNECTING` and arm the regular status-timeout timer (any connecting or connected level before it ends cancels or replaces it). A re-delivered NONETWORK neither re-arms nor extends it: the engine re-delivers its cached last state about every 6 s. If the network disappears while the timer runs, it moves to the wait instead of switching. |
+
+Outcome of a persistent phantom NONETWORK: the timer fires, the switch restarts the session, which
+clears the stale status. If the engine stops on its own while only held for NONETWORK, the app reports
+`DISCONNECTED`. See the postmortem in
+[../guides/troubleshooting.md](../guides/troubleshooting.md#engine-level_nonetwork-stalls-auto-switch-and-shows-start-connection--bug-12487v2nhfb).
+
 ## Stop and teardown
 
 Stopping is not a single call. The engine lives in another process and can fail to acknowledge, so
@@ -224,4 +252,4 @@ See [vpn-connection.md](vpn-connection.md).
   reconnects, then a fail-safe disconnect. The watchdog's is the bound that covers servers which
   connect cleanly and carry nothing — the case the other two miss.
 
-*Last verified against: `vpn/OpenVpnService.kt`, `vpn/ServerAutoSwitcher.kt`, `core/servers/SelectedCountryStore.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt`, `vpn/ServerAutoSwitcherCycleIdentityTest.kt` (2026-10-14); stop escalation and `forceStopVPN` against engine `ca9d925b` (2026-10-16).*
+*Last verified against: `vpn/OpenVpnService.kt`, `vpn/ServerAutoSwitcher.kt`, `core/servers/SelectedCountryStore.kt`, `vpn/ConnectionState.kt`, `vpn/OpenVpnServiceWatchdogTest.kt`, `vpn/ServerAutoSwitcherCycleIdentityTest.kt` (2026-10-14); stop escalation and `forceStopVPN` against engine `ca9d925b` (2026-10-16); NONETWORK handling against `vpn/ServerAutoSwitcher.kt`, `vpn/UnderlyingNetworkMonitor.kt`, `vpn/ConnectionState.kt` (2026-11-18).*

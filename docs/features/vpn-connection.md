@@ -108,7 +108,15 @@ DISCONNECTED · CONNECTING · CONNECTED · PAUSING · PAUSED · DISCONNECTING
 | `LEVEL_START`, `LEVEL_CONNECTING_NO_SERVER_REPLY_YET`, `LEVEL_CONNECTING_SERVER_REPLIED`, `LEVEL_WAITING_FOR_USER_INPUT` | `CONNECTING` |
 | `LEVEL_CONNECTED` | `CONNECTED` |
 | `LEVEL_VPNPAUSED` | `PAUSED` |
-| `LEVEL_NONETWORK`, `LEVEL_NOTCONNECTED`, `LEVEL_AUTH_FAILED`, `UNKNOWN_LEVEL` | `DISCONNECTED` |
+| `LEVEL_NOTCONNECTED`, `LEVEL_AUTH_FAILED`, `UNKNOWN_LEVEL` | `DISCONNECTED` |
+| `LEVEL_NONETWORK` on a live session (connecting, connected, or reconnecting hint set) | `CONNECTING` with `reconnectingHint=true` (a hold, not a stop) |
+| `LEVEL_NONETWORK` otherwise (for example after a user stop) | `DISCONNECTED` |
+
+The NONETWORK hold, the "Waiting for network" label and the switch rules are in
+[connection-recovery.md](connection-recovery.md#engine-nonetwork-on-a-live-session). If the engine
+then stops on its own (a non-NONETWORK level that maps to `DISCONNECTED`) while the hint was raised
+only for the hold, the hint is released and the app reports `DISCONNECTED` instead of staying latched
+in `CONNECTING`.
 
 ## Auxiliary state
 
@@ -116,6 +124,9 @@ DISCONNECTED · CONNECTING · CONNECTED · PAUSING · PAUSED · DISCONNECTING
 
 - `VpnError { NONE, AUTH, STOP_FAILED }`
 - `engineLevel`, `engineDetail`, `reconnectingHint`
+- `waitingForNetwork` — true while a live session is held in `CONNECTING` for `LEVEL_NONETWORK` with no
+  usable underlying network; drives the "Waiting for network" status label and clears on any other state
+  or engine level
 - `connectionStartTimeMs`, `speedMbps`, `downloadedBytes`, `uploadedBytes`
 - `resumeTransitionInFlight` — suppresses a stale `PAUSED` arriving mid-resume
 - `engineTeardownDetails = {"NOPROCESS", "EXITING", "DISCONNECTED"}` — keeps `CONNECTING`/`DISCONNECTING`
@@ -138,4 +149,4 @@ Both are applied at connect time only; changing either while connected requires 
 Pause/resume behaviour is in [pause-resume.md](pause-resume.md); watchdog, auto-switch and the stop
 retry path are in [connection-recovery.md](connection-recovery.md).
 
-*Last verified against: `vpn/ConnectionState.kt`, `vpn/OpenVpnService.kt`, `vpn/VpnManager.kt`, `core/CoreApp.kt`, engine `AndroidManifest.xml` (2026-07-31); AIDL `forceStopVPN` at engine `ca9d925b` (2026-10-16).*
+*Last verified against: `vpn/ConnectionState.kt`, `vpn/OpenVpnService.kt`, `vpn/VpnManager.kt`, `core/CoreApp.kt`, engine `AndroidManifest.xml` (2026-07-31); AIDL `forceStopVPN` at engine `ca9d925b` (2026-10-16); NONETWORK mapping against `vpn/ConnectionState.kt` (2026-11-18).*
