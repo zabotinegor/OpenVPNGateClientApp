@@ -102,6 +102,8 @@ object ServerAutoSwitcher {
     // switch timer runs, no server is switched and no hardprobe is queued until the network is back.
     private var noNetworkWaiting: Boolean = false
     private var noNetworkWaitContext: Context? = null
+    // Context of the running switch timer; lets a network-loss event enter the network wait.
+    private var timerContext: Context? = null
     // Keep fresh-network gating after an offline NONETWORK until CONNECTED, terminal, or user stop.
     // Transient UNKNOWN/CONNECTING may follow NONETWORK without an underlying network returning.
     private var noNetworkRecoveryPending: Boolean = false
@@ -462,7 +464,19 @@ object ServerAutoSwitcher {
 
     /** Main thread (see [UnderlyingNetworkMonitor.setListener]). */
     private fun onUnderlyingNetworkChanged(usable: Boolean) {
-        if (!usable || !noNetworkWaiting) return
+        if (!usable) {
+            // Network lost while a status-timeout switch timer is already running (e.g. armed at a
+            // CONNECTING level just before the loss, before the engine reports NONETWORK): hold the
+            // session instead of letting the timer stop/start the engine mid-outage.
+            val ctx = timerContext
+            if (timerActive && !noNetworkWaiting && ctx != null &&
+                ConnectionStateManager.state.value == ConnectionState.CONNECTING
+            ) {
+                enterNoNetworkWait(ctx)
+            }
+            return
+        }
+        if (!noNetworkWaiting) return
         val ctx = noNetworkWaitContext ?: return
         val currentLevel = ConnectionStateManager.engineLevel.value
         // The accepted engine level can be UNKNOWN/CONNECTING while the same live session waits.
@@ -582,6 +596,7 @@ object ServerAutoSwitcher {
         seconds = 0
         timerActive = true
         timerLevel = level
+        timerContext = appContext.applicationContext ?: appContext
         val th = thresholdFor(level)
         _remainingSeconds.value = th
         AppLog.d(TAG, "Timeout timer started for level=${level}")
@@ -605,10 +620,9 @@ object ServerAutoSwitcher {
                     )
                 }
                 if (seconds >= threshold) {
-                    if (!isUnderlyingNetworkUsable()) {
-                        // The network went away while the timer ran (at any level: a CONNECTING timer
-                        // armed just before the loss would otherwise stop/start the engine mid-outage,
-                        // before NONETWORK is even reported): wait for it instead of switching.
+                    if ((timerLevel == ConnectionStatus.LEVEL_NONETWORK || noNetworkRecoveryPending) &&
+                        !isUnderlyingNetworkUsable()) {
+                        // The network went away while the timer ran: wait for it instead of switching.
                         enterNoNetworkWait(appContext)
                         return
                     }
@@ -630,6 +644,7 @@ object ServerAutoSwitcher {
         }
         timerActive = false
         timerLevel = null
+        timerContext = null
         seconds = 0
         waitingStopForRetry = false
         pendingConfig = null
