@@ -2074,6 +2074,26 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun queuedTransientUnknownIdleTolerance_terminalUnknownAfterSettle_cancelsIt() {
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        // The queued transient UNKNOWN reaches the main looper first and schedules idle tolerance ...
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "RECONNECTING")
+        assertTrue(switcherLogs().any { it.contains("Idle tolerance started for level=UNKNOWN_LEVEL") })
+        // ... while the binder side already settled the session.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+        idle(Duration.ofSeconds(60))
+
+        assertFalse(switcherLogs().any { it.contains("Idle tolerance elapsed") })
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertEquals(0, calls.size)
+        assertEquals(0, stopCalls)
+    }
+
+    @Test
     fun queuedConnectingTimerSurvivesBinderSideSettle_terminalUnknownCancelsIt() {
         ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
         ShadowLog.clear()

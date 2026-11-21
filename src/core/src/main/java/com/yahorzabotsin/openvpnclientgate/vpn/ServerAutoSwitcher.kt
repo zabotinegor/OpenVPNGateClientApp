@@ -297,9 +297,13 @@ object ServerAutoSwitcher {
             if (!(stillConnecting && (!hold || hintHeldByReconnect))) {
                 // Queued AIDL callbacks (NONETWORK -> CONNECTING -> UNKNOWN) can arm a CONNECTING timer
                 // after the binder side already settled the session: drop the obsolete timer.
-                if (!stillConnecting && timerActive) {
-                    AppLog.i(TAG, "Terminal UNKNOWN for an already-ended session; cancelling obsolete switch timer")
-                    cancelPreservingPendingStopDispatch(resetCycle = false)
+                if (!stillConnecting) {
+                    // A queued transient UNKNOWN may likewise have scheduled idle tolerance.
+                    cancelIdleTolerance()
+                    if (timerActive) {
+                        AppLog.i(TAG, "Terminal UNKNOWN for an already-ended session; cancelling obsolete switch timer")
+                        cancelPreservingPendingStopDispatch(resetCycle = false)
+                    }
                 }
                 return
             }
