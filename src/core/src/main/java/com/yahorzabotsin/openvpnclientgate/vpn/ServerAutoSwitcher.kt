@@ -605,9 +605,10 @@ object ServerAutoSwitcher {
                     )
                 }
                 if (seconds >= threshold) {
-                    if ((timerLevel == ConnectionStatus.LEVEL_NONETWORK || noNetworkRecoveryPending) &&
-                        !isUnderlyingNetworkUsable()) {
-                        // The network went away while the timer ran: wait for it instead of switching.
+                    if (!isUnderlyingNetworkUsable()) {
+                        // The network went away while the timer ran (at any level: a CONNECTING timer
+                        // armed just before the loss would otherwise stop/start the engine mid-outage,
+                        // before NONETWORK is even reported): wait for it instead of switching.
                         enterNoNetworkWait(appContext)
                         return
                     }

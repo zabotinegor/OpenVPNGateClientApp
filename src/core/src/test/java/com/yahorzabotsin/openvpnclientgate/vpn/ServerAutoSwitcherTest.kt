@@ -1952,6 +1952,35 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun connectingTimerArmedBeforeNetworkLoss_doesNotSwitchDuringOutage_resumesAfterRestore() {
+        val monitor = FakeNetworkMonitor(usable = true)
+        ServerAutoSwitcher.networkMonitor = monitor
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "WAIT")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertTrue("a CONNECTING timer is armed while the network is usable", ServerAutoSwitcher.isTimerActiveForTest())
+
+        // The network drops after the timer was armed, before the engine reports NONETWORK.
+        monitor.emit(false)
+        idle(Duration.ofSeconds(30))
+
+        assertEquals("no stop/start while the device is offline", 0, calls.size)
+        assertEquals(0, stopCalls)
+        assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertFalse(switcherLogs().any { it.contains("Timed switch") || it.contains("Immediate switch") })
+
+        // The engine's own NONETWORK report then keeps waiting without a switch.
+        deliverNoNetwork()
+        assertEquals(0, calls.size)
+
+        monitor.emit(true)
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
     fun networkRestored_engineStillNonetwork_afterGrace_switches() {
         val monitor = FakeNetworkMonitor(usable = false)
         ServerAutoSwitcher.networkMonitor = monitor
