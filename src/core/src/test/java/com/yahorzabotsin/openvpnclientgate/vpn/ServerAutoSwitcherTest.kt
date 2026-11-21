@@ -2006,6 +2006,49 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun connectingTimerExpiresOfflineAfterSessionEnded_cancelsInsteadOfSwitching() {
+        val monitor = FakeNetworkMonitor(usable = true)
+        ServerAutoSwitcher.networkMonitor = monitor
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "WAIT")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+
+        // The session ends (state DISCONNECTED) while the timer keeps running, then the network drops.
+        ConnectionStateManager.updateState(ConnectionState.DISCONNECTED)
+        monitor.usable = false
+        idle(Duration.ofSeconds(30))
+
+        assertEquals("no server rotation for an ended session", 0, calls.size)
+        assertEquals(0, stopCalls)
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(switcherLogs().any { it.contains("Timed switch") })
+
+        monitor.emit(true)
+        idle(Duration.ofSeconds(10))
+        assertEquals(0, calls.size)
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun terminalUnknownWithoutNoNetworkHold_keepsIdleToleranceRecovery() {
+        ServerAutoSwitcher.networkMonitor = FakeNetworkMonitor(usable = true)
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+
+        assertTrue(
+            "a terminal UNKNOWN with no NONETWORK hold must still schedule the regular idle-tolerance recovery",
+            switcherLogs().any { it.contains("Idle tolerance started for level=UNKNOWN_LEVEL") }
+        )
+    }
+
+    @Test
     fun usableNonetwork_thenConnecting_thenTerminalUnknown_cancelsReplacementTimer() {
         val monitor = FakeNetworkMonitor(usable = true)
         ServerAutoSwitcher.networkMonitor = monitor

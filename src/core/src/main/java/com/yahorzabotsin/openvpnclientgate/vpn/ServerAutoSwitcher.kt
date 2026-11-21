@@ -276,8 +276,11 @@ object ServerAutoSwitcher {
         // Terminal UNKNOWN must clear an existing NONETWORK timeout whether the device was
         // previously offline or the underlying network was already usable. This event's
         // detail has not yet been persisted by ConnectionStateManager.
+        // Only when an actual NONETWORK hold exists: an unrelated terminal UNKNOWN (no hold) keeps the
+        // regular idle-tolerance recovery below, so a failed start is not left CONNECTING with no timer.
         if (level == ConnectionStatus.UNKNOWN_LEVEL &&
-            detail in ConnectionStateManager.engineTeardownDetails) {
+            detail in ConnectionStateManager.engineTeardownDetails &&
+            hasNoNetworkHold()) {
             clearNoNetworkHoldOnVpnStatusTerminal()
             return
         }
@@ -436,6 +439,11 @@ object ServerAutoSwitcher {
             timerLevel = ConnectionStatus.LEVEL_NONETWORK
         }
     }
+
+    /** True while any NONETWORK-owned timer, wait or recovery exists. */
+    private fun hasNoNetworkHold(): Boolean =
+        noNetworkWaiting || noNetworkRecoveryPending || usableNetworkHoldOwner ||
+            timerLevel == ConnectionStatus.LEVEL_NONETWORK
 
     private fun isUnderlyingNetworkUsable(): Boolean {
         val monitor = networkMonitor ?: return true
@@ -631,13 +639,18 @@ object ServerAutoSwitcher {
                         // The network is down at expiry (the loss callback may have run before this
                         // timer was armed, or be queued behind it): wait for it instead of switching,
                         // but only for a live session -- never revive a DISCONNECTED/ended one.
-                        val live = timerLevel == ConnectionStatus.LEVEL_NONETWORK ||
-                            noNetworkRecoveryPending ||
-                            (try { ConnectionStateManager.state.value == ConnectionState.CONNECTING } catch (_: Exception) { false })
+                        val live = try {
+                            ConnectionStateManager.state.value == ConnectionState.CONNECTING
+                        } catch (_: Exception) { false }
                         if (live) {
                             enterNoNetworkWait(appContext)
-                            return
+                        } else {
+                            // The session ended while the timer ran: drop the obsolete timer; no stop,
+                            // start, server rotation or probe for a session that no longer exists.
+                            AppLog.i(TAG, "Offline timeout for an ended session; cancelling obsolete switch timer")
+                            cancelPreservingPendingStopDispatch(resetCycle = false)
                         }
+                        return
                     }
                     requestSwitchNow(appContext, timerLevel ?: level, fromTimer = true, waitedSeconds = threshold)
                     return
