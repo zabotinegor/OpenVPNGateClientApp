@@ -1981,6 +1981,54 @@ class ServerAutoSwitcherTest {
     }
 
     @Test
+    fun connectingTimerArmedWhileAlreadyOffline_doesNotSwitch_resumesAfterRestore() {
+        // The loss callback ran BEFORE any timer existed (so it was ignored); the expiry check must
+        // still see the offline network.
+        val monitor = FakeNetworkMonitor(usable = true)
+        ServerAutoSwitcher.networkMonitor = monitor
+        ShadowLog.clear()
+        ConnectionStateManager.updateState(ConnectionState.CONNECTING)
+        monitor.emit(false)
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "WAIT")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+
+        idle(Duration.ofSeconds(30))
+
+        assertEquals(0, calls.size)
+        assertEquals(0, stopCalls)
+        assertTrue(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertFalse(switcherLogs().any { it.contains("Timed switch") || it.contains("Immediate switch") })
+
+        monitor.emit(true)
+        assertFalse(ServerAutoSwitcher.isWaitingForNetworkForTest())
+        assertEquals(ConnectionState.CONNECTING, ConnectionStateManager.state.value)
+    }
+
+    @Test
+    fun usableNonetwork_thenConnecting_thenTerminalUnknown_cancelsReplacementTimer() {
+        val monitor = FakeNetworkMonitor(usable = true)
+        ServerAutoSwitcher.networkMonitor = monitor
+        connectedSession()
+        deliverNoNetwork()
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+
+        // The NONETWORK timer is replaced by a CONNECTING one; it must stay owned by the hold.
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "RECONNECTING")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET, "AIDL")
+        assertTrue(ServerAutoSwitcher.isTimerActiveForTest())
+
+        ConnectionStateManager.updateFromEngine(ConnectionStatus.UNKNOWN_LEVEL, "NOPROCESS")
+        ServerAutoSwitcher.onEngineLevel(appContext, ConnectionStatus.UNKNOWN_LEVEL, "AIDL", detail = "NOPROCESS")
+        idle(Duration.ofSeconds(30))
+
+        assertEquals(ConnectionState.DISCONNECTED, ConnectionStateManager.state.value)
+        assertFalse(ServerAutoSwitcher.isTimerActiveForTest())
+        assertEquals("no server may start after the session ended", 0, calls.size)
+        assertEquals(0, stopCalls)
+    }
+
+    @Test
     fun networkRestored_engineStillNonetwork_afterGrace_switches() {
         val monitor = FakeNetworkMonitor(usable = false)
         ServerAutoSwitcher.networkMonitor = monitor

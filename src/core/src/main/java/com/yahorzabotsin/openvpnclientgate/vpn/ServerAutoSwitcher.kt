@@ -104,6 +104,10 @@ object ServerAutoSwitcher {
     private var noNetworkWaitContext: Context? = null
     // Context of the running switch timer; lets a network-loss event enter the network wait.
     private var timerContext: Context? = null
+    // True while a usable-network NONETWORK hold owns the running switch timer. Survives the timer being
+    // re-created at a CONNECTING level, so a terminal teardown can still cancel it (see
+    // clearNoNetworkHoldOnVpnStatusTerminal).
+    private var usableNetworkHoldOwner = false
     // Keep fresh-network gating after an offline NONETWORK until CONNECTED, terminal, or user stop.
     // Transient UNKNOWN/CONNECTING may follow NONETWORK without an underlying network returning.
     private var noNetworkRecoveryPending: Boolean = false
@@ -350,7 +354,9 @@ object ServerAutoSwitcher {
                 // AUTH_FAILED level, i.e. an engine that demonstrably has NOT stopped, so a pending
                 // stop-retry-timeout re-dispatch is still owed to the prior tunnel. See
                 // cancelPreservingPendingStopDispatch().
+                val holdOwner = usableNetworkHoldOwner
                 cancelPreservingPendingStopDispatch(resetCycle = false)
+                usableNetworkHoldOwner = holdOwner
                 start(appContext, level)
             }
         } else {
@@ -419,6 +425,7 @@ object ServerAutoSwitcher {
         } catch (e: Exception) {
             AppLog.w(TAG, "Failed to hold reconnecting state for NONETWORK", e)
         }
+        usableNetworkHoldOwner = true
         if (!timerActive) {
             AppLog.i(TAG, "NONETWORK with a usable underlying network; arming status-timeout switch timer")
             start(appContext, ConnectionStatus.LEVEL_NONETWORK)
@@ -620,11 +627,17 @@ object ServerAutoSwitcher {
                     )
                 }
                 if (seconds >= threshold) {
-                    if ((timerLevel == ConnectionStatus.LEVEL_NONETWORK || noNetworkRecoveryPending) &&
-                        !isUnderlyingNetworkUsable()) {
-                        // The network went away while the timer ran: wait for it instead of switching.
-                        enterNoNetworkWait(appContext)
-                        return
+                    if (!isUnderlyingNetworkUsable()) {
+                        // The network is down at expiry (the loss callback may have run before this
+                        // timer was armed, or be queued behind it): wait for it instead of switching,
+                        // but only for a live session -- never revive a DISCONNECTED/ended one.
+                        val live = timerLevel == ConnectionStatus.LEVEL_NONETWORK ||
+                            noNetworkRecoveryPending ||
+                            (try { ConnectionStateManager.state.value == ConnectionState.CONNECTING } catch (_: Exception) { false })
+                        if (live) {
+                            enterNoNetworkWait(appContext)
+                            return
+                        }
                     }
                     requestSwitchNow(appContext, timerLevel ?: level, fromTimer = true, waitedSeconds = threshold)
                     return
@@ -645,6 +658,7 @@ object ServerAutoSwitcher {
         timerActive = false
         timerLevel = null
         timerContext = null
+        usableNetworkHoldOwner = false
         seconds = 0
         waitingStopForRetry = false
         pendingConfig = null
@@ -742,8 +756,9 @@ object ServerAutoSwitcher {
         // callback must not arm a fresh UNKNOWN switch timer after the session has ended.
         // Cancel it even when no NONETWORK timer/wait remains; preserve stop/retry ownership.
         cancelIdleTolerance()
-        val hadOfflineRecovery = noNetworkRecoveryPending
+        val hadOfflineRecovery = noNetworkRecoveryPending || usableNetworkHoldOwner
         noNetworkRecoveryPending = false
+        usableNetworkHoldOwner = false
         if (timerLevel != ConnectionStatus.LEVEL_NONETWORK && !noNetworkWaiting && !hadOfflineRecovery) return
         AppLog.i(TAG, "Terminal VPN_STATUS clears obsolete NONETWORK recovery timer or wait")
         // After network restoration a timer may carry UNKNOWN/CONNECTING rather than NONETWORK.
